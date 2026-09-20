@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
+import kotlinx.coroutines.flow.update
 
 /**
  * Google Cast v2 wire protocol — framing and namespaces.

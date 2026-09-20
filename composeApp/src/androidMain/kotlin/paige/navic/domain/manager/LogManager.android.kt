@@ -37,6 +37,9 @@ actual class LogManager {
 	@Volatile
 	private var process: Process? = null
 
+	// upstream's LogLine carries an id; logcat gives us none, so mint a monotonic one.
+	private var nextLineId = 0
+
 	private val _logs = mutableStateListOf<LogLine>()
 	actual val logs: List<LogLine> = _logs
 
@@ -56,7 +59,7 @@ actual class LogManager {
 				InputStreamReader(proc.inputStream).buffered().use { reader ->
 					while (isActive) {
 						val nextLine = reader.readLine() ?: break
-						incoming.trySend(LogLineParser.parseString(nextLine))
+						incoming.trySend(LogLineParser.parseString(nextLine, nextLineId++))
 					}
 				}
 			} finally {

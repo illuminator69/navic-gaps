@@ -12,17 +12,20 @@ import paige.navic.data.database.MIGRATION_CACHE_16_17
 import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
+import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.cast.CastBridgeManager
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
-import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
+	single { PlatformType.Android }
 	single<CacheDatabase> {
 		val dbPath = androidApplication()
 			.getDatabasePath("cache.db")
@@ -58,18 +61,11 @@ actual val platformModule = module {
 			.build()
 	}
 
-	single<PlayerStateRepository> {
-		val context = androidApplication()
-		val producePath = {
-			context.filesDir.resolve(PlayerStateRepository.DATASTORE_FILE_NAME).absolutePath
-		}
-		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
-	}
-
 	single<MediaPlayerViewModel> {
 		AndroidMediaPlayerViewModel(
 			application = androidApplication(),
 			stateRepository = get(),
+			songRepository = get(),
 			albumDao = get(),
 			downloadManager = get(),
 			connectivityManager = get(),

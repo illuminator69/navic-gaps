@@ -7,6 +7,7 @@ import androidx.room3.Query
 import androidx.room3.RawQuery
 import androidx.room3.RoomRawQuery
 import androidx.room3.Transaction
+import androidx.room3.Upsert
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.util.Logger
 
@@ -15,10 +16,10 @@ interface SongDao {
 	@Query("SELECT * FROM SongEntity WHERE songId = :songId LIMIT 1")
 	suspend fun getSongById(songId: String): SongEntity?
 
-	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	@Upsert
 	suspend fun insertSong(song: SongEntity)
 
-	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	@Upsert
 	suspend fun insertSongs(songs: List<SongEntity>)
 
 	@Insert(onConflict = OnConflictStrategy.IGNORE)

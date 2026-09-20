@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFillEvent
+import paige.navic.androidApp.R
 
 /**
  * Tells the user when an lb-bot fill lands, while they are somewhere else.

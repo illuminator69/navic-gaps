@@ -22,6 +22,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -134,7 +136,8 @@ fun CoverArt(
 							minFontSize = 1.sp,
 							maxFontSize = 14.sp
 						),
-						fontFamily = defaultFont(grade = 10, round = 100f)
+						fontFamily = defaultFont(grade = 10, round = 100f),
+						modifier = Modifier.semantics { hideFromAccessibility() }
 					)
 				}
 			}

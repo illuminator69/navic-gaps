@@ -21,6 +21,8 @@ import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.RemoteTrack
 import paige.navic.domain.manager.SessionManager
 import kotlin.time.Clock
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.firstOrNull
 
 /**
  * A media3 [Player] facade over the navi-connect REMOTE session.

@@ -9,6 +9,7 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.LbTracklist
+import kotlinx.coroutines.flow.firstOrNull
 
 data class ExternalAlbumUi(
 	val loading: Boolean = true,

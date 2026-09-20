@@ -32,6 +32,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.X509TrustManager
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.flow.firstOrNull
 
 private const val TAG = "CastChannel"
 

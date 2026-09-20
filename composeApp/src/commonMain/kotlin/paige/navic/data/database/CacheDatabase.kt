@@ -26,6 +26,8 @@ import paige.navic.data.database.entities.RadioEntity
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.entities.SyncActionEntity
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 @Database(
 	// NOTE: [DownloadEntity] is an entity of BOTH databases, so changing it changes THIS schema

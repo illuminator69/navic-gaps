@@ -2,6 +2,8 @@ package paige.navic.domain.manager.cast
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * JSON payloads carried inside [CastMessage.payloadUtf8], per namespace.

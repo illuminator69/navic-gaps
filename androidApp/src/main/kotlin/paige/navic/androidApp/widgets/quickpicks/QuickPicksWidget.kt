@@ -48,12 +48,13 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import paige.navic.androidApp.MainActivity
-import paige.navic.androidApp.R
 import paige.navic.androidApp.utils.appWidgetInnerCornerRadius
 import paige.navic.androidApp.widgets.nowplaying.CoverArtCache
 import paige.navic.androidApp.widgets.nowplaying.NowPlayingKeys
 import paige.navic.androidApp.widgets.nowplaying.NowPlayingWidget
 import paige.navic.androidApp.widgets.nowplaying.WidgetControlReceiver
+import kotlinx.coroutines.flow.update
+import paige.navic.androidApp.R
 
 /**
  * 4×2 widget: a transport row over five album shortcuts, on a wash of the now-playing cover.

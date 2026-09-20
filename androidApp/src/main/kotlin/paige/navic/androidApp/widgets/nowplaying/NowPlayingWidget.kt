@@ -21,6 +21,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
 import paige.navic.androidApp.MainActivity
+import kotlinx.coroutines.flow.update
 
 /**
  * Base widgets class which widgets will inherit from. Used with `NowPlayingReceiver`

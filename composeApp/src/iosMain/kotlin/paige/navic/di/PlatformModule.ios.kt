@@ -14,20 +14,24 @@ import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
 import paige.navic.domain.manager.CastBridgeStatus
+import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.NoopCastBridgeStatus
+import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
-import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.shared.IOSMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.di.PlatformType
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
 import coil3.PlatformContext as CoilPlatformContext
 
 actual val platformModule = module {
+	single { PlatformType.IOS }
 	single<CacheDatabase> {
 		val dbPath = documentDirectory() + "/cache.db"
 		Room
@@ -56,24 +60,10 @@ actual val platformModule = module {
 			.build()
 	}
 
-	single<PlayerStateRepository> {
-		val producePath = {
-			@OptIn(ExperimentalForeignApi::class)
-			val directory = NSFileManager.defaultManager.URLForDirectory(
-				directory = NSDocumentDirectory,
-				inDomain = NSUserDomainMask,
-				appropriateForURL = null,
-				create = true,
-				error = null
-			)
-			directory?.path + "/${PlayerStateRepository.DATASTORE_FILE_NAME}"
-		}
-		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
-	}
-
 	viewModel<MediaPlayerViewModel> {
 		IOSMediaPlayerViewModel(
 			stateRepository = get(),
+			songRepository = get(),
 			downloadManager = get(),
 			connectivityManager = get(),
 			syncManager = get(),
@@ -90,6 +80,9 @@ actual val platformModule = module {
 	singleOf(::ConnectivityManager)
 	singleOf(::LogManager)
 	single<CastBridgeStatus> { NoopCastBridgeStatus() }
+	singleOf(::AppIconManager)
+	singleOf(::PermissionManager)
+	singleOf(::LinkManager)
 }
 
 @OptIn(ExperimentalForeignApi::class)

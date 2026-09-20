@@ -24,6 +24,10 @@
    inside CastChannel. That factory must never be handed to a general HTTP client.
 -->
 <network-security-config xmlns:tools="http://schemas.android.com/tools">
+	<!--
+		cleartextTrafficPermitted is needed for people who are
+		using Navidrome instances that are on LAN/use http
+	-->
 	<base-config
 		cleartextTrafficPermitted="true"
 		tools:ignore="InsecureBaseConfiguration">

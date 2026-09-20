@@ -14,7 +14,6 @@ import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
 import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
-import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
@@ -70,23 +69,13 @@ val viewModelModule = module {
 	}
 
 	viewModelOf(::AlbumListViewModel)
-	viewModel { params ->
-		SongListViewModel(
-			initialListType = get(),
-			artistId = params.getOrNull(),
-			repository = get(),
-			downloadManager = get(),
-			connectivityManager = get(),
-			sessionManager = get()
-		)
-	}
+	viewModelOf(::SongListViewModel)
 	viewModelOf(::ArtistListViewModel)
 	viewModelOf(::SearchViewModel)
 	viewModelOf(::GenreListViewModel)
 	viewModelOf(::RadioListViewModel)
 	viewModelOf(::RadioCreateDialogViewModel)
 	viewModelOf(::PlaylistListViewModel)
-	viewModelOf(::LoginViewModel)
 	viewModelOf(::QueueViewModel)
 	viewModelOf(::RelatedSongsViewModel)
 	viewModelOf(::SavedQueuesViewModel)

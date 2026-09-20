@@ -37,8 +37,6 @@ import navic.composeapp.generated.resources.info_shared_by
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
-import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.models.DomainShare
@@ -51,6 +49,7 @@ import paige.navic.ui.components.common.DropdownItem
 import paige.navic.util.toHoursMinutesSeconds
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
+import paige.navic.LocalSnackBarState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -59,9 +58,8 @@ fun ShareListScreenItem(
 	share: DomainShare,
 	onSetDeletionId: (newDeletionId: String) -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	val shareManager = koinInject<ShareManager>()
-	val snackbarState = LocalSnackbarState.current
+	val snackBarState = LocalSnackBarState.current
 	var expanded by remember { mutableStateOf(false) }
 	var currentTime by remember { mutableStateOf(Clock.System.now()) }
 	val scope = rememberCoroutineScope()
@@ -135,7 +133,6 @@ fun ShareListScreenItem(
 						}
 					},
 					onClick = {
-						platformContext.clickSound()
 						expanded = true
 					},
 					onLongClick = {
@@ -153,7 +150,7 @@ fun ShareListScreenItem(
 								try {
 									shareManager.shareString(share.url)
 								} catch (e: Exception) {
-									snackbarState.showSnackbar(
+									snackBarState.showSnackbar(
 										e.message ?: getString(Res.string.info_error)
 									)
 								}

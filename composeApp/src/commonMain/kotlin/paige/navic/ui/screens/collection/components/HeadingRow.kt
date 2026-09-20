@@ -28,7 +28,6 @@ import navic.composeapp.generated.resources.info_unknown_genre
 import navic.composeapp.generated.resources.info_unknown_year
 import navic.composeapp.generated.resources.subtitle_playlist
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.LocalSharedTransitionScope
 import paige.navic.ui.navigation.Screen
@@ -38,6 +37,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.EmphasizedDecelerateEasing
+import paige.navic.LocalPlatformContext
 
 @Composable
 fun CollectionDetailScreenHeadingRow(

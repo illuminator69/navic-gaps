@@ -30,6 +30,10 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingArtwork
 import kotlin.time.Duration.Companion.milliseconds
+import paige.navic.domain.models.settings.CoverArtTapAction
+import paige.navic.ui.navigation.Screen
+import androidx.lifecycle.compose.dropUnlessResumed
+import paige.navic.LocalNavStack
 
 @Composable
 fun NowPlayingArtworkPager(
@@ -37,6 +41,7 @@ fun NowPlayingArtworkPager(
 	isLandscape: Boolean
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val hubManager = koinInject<HubManager>()
 	val isRemoteActive by hubManager.isRemoteActive.collectAsState()
@@ -128,9 +133,20 @@ fun NowPlayingArtworkPager(
 			modifier = Modifier.fillMaxSize(),
 			contentAlignment = Alignment.Center
 		) {
+			// upstream's cover-art tap action; the fork keeps its own snapshot-based
+			// page/song resolution above, so only the onClick is adopted here.
+			val tapAction = preferenceManager.nowPlayingCoverArtAction
+			val tapEnabled = pagerState.settledPage == page
+				&& tapAction != CoverArtTapAction.Disabled
 			NowPlayingArtwork(
 				song = song,
-				isLandscape = isLandscape
+				isLandscape = isLandscape,
+				onClick = if (tapEnabled) dropUnlessResumed {
+					when (tapAction) {
+						CoverArtTapAction.ShowLyrics -> backStack.add(Screen.Lyrics)
+						CoverArtTapAction.Disabled -> {}
+					}
+				} else null
 			)
 		}
 	}

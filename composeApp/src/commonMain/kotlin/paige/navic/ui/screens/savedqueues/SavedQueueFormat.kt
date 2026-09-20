@@ -18,6 +18,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.SavedQueueSource
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.isActive
 
 /**
  * Display rules for saved queues, shared by the Saved Queues screen, the home "Continue listening"

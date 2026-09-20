@@ -29,7 +29,6 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
-import paige.navic.LocalPlatformContext
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalNavStack
 import paige.navic.ui.components.common.CoverArt
@@ -42,7 +41,6 @@ fun <T> ArtCarousel(
 	destination: NavKey? = null,
 	content: @Composable CarouselItemScope.(item: T) -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 
 	if (items.isNotEmpty()) {
@@ -69,7 +67,6 @@ fun <T> ArtCarousel(
 						modifier = Modifier
 							.heightIn(min = 32.dp).padding(top = 8.dp)
 							.clickable(onClick = dropUnlessResumed {
-								platformContext.clickSound()
 								backStack.add(destination)
 							})
 					)
@@ -111,7 +108,6 @@ fun CarouselItemScope.ArtCarouselItem(
 	onSelect: () -> Unit = {},
 	onClick: () -> Unit = {}
 ) {
-	val platformContext = LocalPlatformContext.current
 	val focusManager = LocalFocusManager.current
 
 	Column(
@@ -126,7 +122,6 @@ fun CarouselItemScope.ArtCarouselItem(
 				.maskClip(MaterialTheme.shapes.large),
 			shape = RectangleShape,
 			onClick = {
-				platformContext.clickSound()
 				focusManager.clearFocus(true)
 				onClick()
 			},

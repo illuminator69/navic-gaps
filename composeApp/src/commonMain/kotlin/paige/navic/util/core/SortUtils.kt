@@ -59,6 +59,19 @@ fun DomainSongListType.toSongSqlQuery(
 			orderBy = "COALESCE(SongEntity.userRating, 0) DESC, LOWER(SongEntity.title) ASC"
 		DomainSongListType.Year ->
 			orderBy = "SongEntity.year DESC, LOWER(SongEntity.title) ASC"
+		// Upstream models "all songs by this artist/genre" as list types rather than the
+		// separate artistId argument this fork already had; both paths end in a WHERE.
+		is DomainSongListType.ByArtist -> {
+			conditions.add("SongEntity.artistId = ?")
+			args.add(this.artistId)
+			orderBy = "SongEntity.playCount DESC, LOWER(SongEntity.title) ASC"
+		}
+		is DomainSongListType.ByGenre -> {
+			conditions.add("(SongEntity.genre = ? OR SongEntity.genres LIKE ?)")
+			args.add(this.genre)
+			args.add("%\"" + this.genre + "\"%")
+			orderBy = "SongEntity.playCount DESC, LOWER(SongEntity.title) ASC"
+		}
 	}
 
 	// Appended after the branch above so the bind order keeps matching the order the "?" appear in.
@@ -88,6 +101,7 @@ fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery {
 		DomainAlbumListType.Highest -> orderBy = "userRating DESC"
 		DomainAlbumListType.Newest -> orderBy = "createdAt DESC"
 		DomainAlbumListType.Random -> orderBy = "RANDOM()"
+		DomainAlbumListType.Year -> orderBy = "year DESC, LOWER(name) ASC"
 		DomainAlbumListType.Downloaded,
 		DomainAlbumListType.Recent -> orderBy = "lastPlayedAt DESC"
 		DomainAlbumListType.Starred -> {
@@ -100,14 +114,10 @@ fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery {
 			args.add(genre)
 		}
 		is DomainAlbumListType.ByYear -> {
-			if (fromYear != null && toYear != null) {
-				where = "COALESCE(year, 0) BETWEEN ? AND ?"
-				orderBy = "LOWER(name) ASC"
-				args.add(fromYear)
-				args.add(toYear)
-			} else {
-				orderBy = "year DESC"
-			}
+			where = "COALESCE(year, 0) BETWEEN ? AND ?"
+			orderBy = "LOWER(name) ASC"
+			args.add(fromYear)
+			args.add(toYear)
 		}
 	}
 

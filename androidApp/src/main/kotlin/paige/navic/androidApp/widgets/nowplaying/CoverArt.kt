@@ -3,6 +3,7 @@ package paige.navic.androidApp.widgets.nowplaying
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.LruCache
+import kotlinx.coroutines.flow.update
 
 /**
  * The now-playing cover and the ambient wash derived from it, produced together.

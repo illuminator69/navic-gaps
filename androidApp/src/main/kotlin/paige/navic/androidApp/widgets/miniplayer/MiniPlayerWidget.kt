@@ -32,10 +32,10 @@ import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import paige.navic.androidApp.R
 import paige.navic.androidApp.utils.appWidgetInnerCornerRadius
 import paige.navic.androidApp.widgets.nowplaying.NowPlayingWidget
 import paige.navic.androidApp.widgets.nowplaying.WidgetControlReceiver
+import paige.navic.androidApp.R
 
 class MiniPlayerWidget : NowPlayingWidget() {
 

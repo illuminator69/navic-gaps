@@ -23,12 +23,17 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -68,6 +73,10 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.kyant.capsule.ContinuousRoundedRectangle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_next_song
+import navic.composeapp.generated.resources.action_pause
+import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_previous_song
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -102,6 +111,7 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 @Composable
 fun MiniPlayer(
 	modifier: Modifier = Modifier,
+	windowInsets: WindowInsets = NavigationBarDefaults.windowInsets.only(WindowInsetsSides.Horizontal),
 	enabled: Boolean = true
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -191,7 +201,11 @@ fun MiniPlayer(
 				if (isRemoteActive) hubManager.actPrevious() else player.previous()
 			}
 		},
-		modifier = modifier,
+		swipeLeftAccessibilityLabel = stringResource(Res.string.action_previous_song),
+		swipeRightAccessibilityLabel = stringResource(Res.string.action_next_song),
+		modifier = modifier.then(if (detached) {
+			Modifier.windowInsetsPadding(windowInsets)
+		} else Modifier),
 		enabled = isInteractive
 	) {
 		Box(
@@ -248,7 +262,9 @@ fun MiniPlayer(
 					end = if (detached) 10.dp else 16.dp,
 					top = if (detached) 10.dp else 16.dp,
 					bottom = (if (detached) 10.dp else 12.dp) + if (detached) 0.dp else navBarPadding
-				),
+				) + if (!detached)
+					windowInsets.asPaddingValues()
+				else PaddingValues(),
 				verticalAlignment = Alignment.CenterVertically,
 				colors = ListItemDefaults.colors(
 					containerColor = if (expressiveBlur.enabled)
@@ -264,7 +280,6 @@ fun MiniPlayer(
 					draggedShape = shape
 				),
 				onClick = {
-					platformContext.clickSound()
 					onClick()
 				},
 				onLongClick = {
@@ -329,10 +344,15 @@ fun MiniPlayer(
 							colors = colors
 						) {
 							val painter = playPauseIconPainter(playerState.isPaused)
+							val description = stringResource(
+								if (playerState.isPaused)
+									Res.string.action_play
+								else Res.string.action_pause
+							)
 							if (painter != null) {
 								Icon(
 									painter = painter,
-									contentDescription = null,
+									contentDescription = description,
 									modifier = Modifier.size(iconSize)
 								)
 							} else {
@@ -340,7 +360,7 @@ fun MiniPlayer(
 									imageVector = if (playerState.isPaused)
 										Icons.Filled.Play
 									else Icons.Filled.Pause,
-									contentDescription = null,
+									contentDescription = description,
 									modifier = Modifier.size(iconSize)
 								)
 							}
@@ -355,7 +375,7 @@ fun MiniPlayer(
 						) {
 							Icon(
 								imageVector = Icons.Filled.SkipNext,
-								contentDescription = null,
+								contentDescription = stringResource(Res.string.action_next_song),
 								modifier = Modifier.size(iconSize)
 							)
 						}

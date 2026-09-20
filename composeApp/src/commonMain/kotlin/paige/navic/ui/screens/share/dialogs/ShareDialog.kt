@@ -30,7 +30,6 @@ import navic.composeapp.generated.resources.title_create_share
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalSnackbarState
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Share
 import paige.navic.ui.components.common.DurationPicker
@@ -43,6 +42,7 @@ import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
+import paige.navic.LocalSnackBarState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -55,11 +55,11 @@ fun ShareDialog(
 
 	val viewModel = koinViewModel<ShareDialogViewModel>()
 
-	// There is not an elegant cross platform way of making a ClipEntry yet this is deprecated lmao
+	// There is not an elegant cross-platform way of making a ClipEntry yet this is deprecated lmao
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
 
-	val snackbarState = LocalSnackbarState.current
+	val snackBarState = LocalSnackBarState.current
 	val state by viewModel.state.collectAsState()
 
 	LaunchedEffect(state) {
@@ -69,7 +69,7 @@ fun ShareDialog(
 					?: return@launch
 				onIdClear()
 				clipboard.setText(AnnotatedString(link))
-				snackbarState.showSnackbar(
+				snackBarState.showSnackbar(
 					message = buildString {
 						append(getString(Res.string.notice_copied))
 						expiry?.let {

@@ -99,7 +99,7 @@ fun NowPlayingMoreButton(
 				},
 				onTrackInfo = dropUnlessResumed {
 					backStack.remove(Screen.NowPlaying)
-					backStack.add(Screen.SongDetail(song.id))
+					backStack.add(Screen.SongDetailSheet(song.id))
 				},
 				rating = songRating,
 				onSetRating = onSetSongRating,

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -34,11 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
@@ -84,7 +86,9 @@ fun <Item> SelectionDropdown(
 				shadowElevation = 3.dp
 			) {
 				Column(
-					modifier = Modifier.verticalScroll(rememberScrollState())
+					modifier = Modifier
+						.verticalScroll(rememberScrollState())
+						.selectableGroup()
 				) {
 					items.forEach { item ->
 						SelectionDropdownItem(
@@ -117,7 +121,6 @@ fun SelectionDropdownItem(
 	onClick: () -> Unit
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val platformContext = LocalPlatformContext.current
 	val color by animateColorAsState(
 		if (selected && preferenceManager.theme.isMaterialLike())
 			MaterialTheme.colorScheme.primary
@@ -148,12 +151,14 @@ fun SelectionDropdownItem(
 	Surface(
 		modifier = Modifier
 			.fillMaxWidth()
-			.padding(if (preferenceManager.theme.isMaterialLike()) 6.dp else 0.dp),
+			.padding(if (preferenceManager.theme.isMaterialLike()) 6.dp else 0.dp)
+			.semantics {
+				this.selected = selected
+			},
 		color = color,
 		shape = if (preferenceManager.theme.isMaterialLike()) MaterialTheme.shapes.medium else RectangleShape,
 		shadowElevation = elevation,
 		onClick = {
-			platformContext.clickSound()
 			onClick()
 		}
 	) {

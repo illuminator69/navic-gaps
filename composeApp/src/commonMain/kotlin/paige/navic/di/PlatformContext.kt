@@ -2,7 +2,9 @@ package paige.navic.di
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 
 interface PlatformContext {
 	val name: String
@@ -10,8 +12,17 @@ interface PlatformContext {
 	val colorScheme: ColorScheme?
 	val sizeClass: WindowSizeClass
 	val platformType: PlatformType
+
+	// Upstream dropped both from this interface after alpha41 with no replacement. Kept:
+	// clickSound() backs every tap sound in the app, and checkLocalNetworkPermission() is
+	// the Android 17 ACCESS_LOCAL_NETWORK prompt the hub and cast discovery need.
 	fun checkLocalNetworkPermission()
 	fun clickSound()
+}
+
+@Composable
+fun PlatformContext.isLandscape() = remember(sizeClass) {
+	sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 }
 
 enum class PlatformType {

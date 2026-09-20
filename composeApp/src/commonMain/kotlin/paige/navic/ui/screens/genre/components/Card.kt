@@ -26,9 +26,7 @@ import navic.composeapp.generated.resources.count_albums
 import org.jetbrains.compose.resources.pluralStringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainGenre
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.ui.components.common.CoverArt
@@ -41,7 +39,6 @@ fun GenreListScreenCard(
 	modifier: Modifier = Modifier,
 	genre: DomainGenre
 ) {
-	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val inDarkTheme = isSystemInDarkTheme()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -72,13 +69,7 @@ fun GenreListScreenCard(
 		shape = MaterialTheme.shapes.medium,
 		shadowElevation = 2.dp,
 		onClick = dropUnlessResumed {
-			platformContext.clickSound()
-			backStack.add(
-				Screen.AlbumList(
-					nested = true,
-					listType = DomainAlbumListType.ByGenre(genre.name)
-				)
-			)
+			backStack.add(Screen.GenreDetail(genreName = genre.name))
 		}
 	) {
 		Box {

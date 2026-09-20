@@ -18,16 +18,19 @@ import org.koin.android.ext.android.inject
 import paige.navic.App
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.navigation.AppDeepLink
+import paige.navic.domain.manager.PermissionManager
 
 class MainActivity : ComponentActivity() {
 
 	private val lbBot: LbBotManager by inject()
+	private val permissionManager: PermissionManager by inject()
 
 	private val requestNotifications =
 		registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
+		permissionManager.registerLauncher(this)
 		enableEdgeToEdge()
 		handleDeepLink(intent)
 		observeFills()

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying
 
+import paige.navic.di.isLandscape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -82,6 +83,7 @@ fun NowPlayingScreen() {
 	val isPlayerCurrent = currentScreen is Screen.NowPlaying
 		|| currentScreen is Screen.Queue
 		|| currentScreen is Screen.PlaybackSpeed
+		|| currentScreen is Screen.SongDetailSheet
 
 	var showDevicePicker by remember { mutableStateOf(false) }
 

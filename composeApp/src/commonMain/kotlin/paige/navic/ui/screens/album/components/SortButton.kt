@@ -8,13 +8,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.collections.immutable.persistentListOf
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Sort
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.SortSheet
-import paige.navic.ui.screens.library.components.label
+import paige.navic.util.core.label
 
 @Composable
 fun AlbumListScreenSortButton(
@@ -22,9 +22,10 @@ fun AlbumListScreenSortButton(
 	selectedSorting: DomainAlbumListType,
 	onSetSorting: (DomainAlbumListType) -> Unit,
 	selectedReversed: Boolean,
-	onSetReversed: (Boolean) -> Unit
+	onSetReversed: (Boolean) -> Unit,
+	selectedViewMode: ListViewMode,
+	onSetViewMode: (ListViewMode) -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	val entries = remember {
 		persistentListOf(
 			DomainAlbumListType.AlphabeticalByArtist,
@@ -34,14 +35,13 @@ fun AlbumListScreenSortButton(
 			DomainAlbumListType.Highest,
 			DomainAlbumListType.Starred,
 			DomainAlbumListType.Random,
-			DomainAlbumListType.ByYear(),
+			DomainAlbumListType.Year,
 			DomainAlbumListType.Downloaded
 		)
 	}
 	var expanded by remember { mutableStateOf(false) }
 	if (!nested) {
 		IconButton(onClick = {
-			platformContext.clickSound()
 			expanded = true
 		}) {
 			Icon(
@@ -65,7 +65,9 @@ fun AlbumListScreenSortButton(
 			label = { it.label() },
 			onSetSorting = onSetSorting,
 			onSetReversed = onSetReversed,
-			onDismissRequest = { expanded = false }
+			onDismissRequest = { expanded = false },
+			selectedViewMode = selectedViewMode,
+			onSetViewMode = onSetViewMode
 		)
 	}
 }

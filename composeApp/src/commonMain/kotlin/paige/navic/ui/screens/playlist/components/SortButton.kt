@@ -10,8 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.models.DomainPlaylistListType
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Sort
 import paige.navic.ui.components.layouts.TopBarButton
@@ -24,14 +24,14 @@ fun PlaylistListScreenSortButton(
 	selectedSorting: DomainPlaylistListType,
 	onSetSorting: (DomainPlaylistListType) -> Unit,
 	selectedReversed: Boolean,
-	onSetReversed: (Boolean) -> Unit
+	onSetReversed: (Boolean) -> Unit,
+	selectedViewMode: ListViewMode,
+	onSetViewMode: (ListViewMode) -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	val entries = remember { DomainPlaylistListType.entries.toImmutableList() }
 	var expanded by remember { mutableStateOf(false) }
 	if (!nested) {
 		IconButton(onClick = {
-			platformContext.clickSound()
 			expanded = true
 		}) {
 			Icon(
@@ -55,7 +55,9 @@ fun PlaylistListScreenSortButton(
 			label = { stringResource(it.displayName) },
 			onSetSorting = onSetSorting,
 			onSetReversed = onSetReversed,
-			onDismissRequest = { expanded = false }
+			onDismissRequest = { expanded = false },
+			selectedViewMode = selectedViewMode,
+			onSetViewMode = onSetViewMode
 		)
 	}
 }

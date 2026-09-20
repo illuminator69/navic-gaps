@@ -7,12 +7,9 @@ import androidx.compose.animation.core.PathEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
@@ -96,28 +93,4 @@ object Material3Transitions {
 				with(density) { 30.dp.roundToPx() }
 			}
 	}
-
-	val SharedZAxisEnterTransition =
-		fadeIn(animationSpec = tween(durationMillis = DurationLong1, easing = EmphasizedEasing)) +
-			scaleIn(
-				initialScale = 0.8f,
-				transformOrigin = TransformOrigin(0.5f, 1f),
-				animationSpec = tween(durationMillis = DurationLong2, easing = EmphasizedEasing)
-			)
-
-	val SharedZAxisExitTransition =
-		fadeOut(
-			animationSpec = tween(
-				durationMillis = DurationMedium1,
-				easing = EmphasizedAccelerateEasing
-			)
-		) +
-			scaleOut(
-				targetScale = 0.8f,
-				transformOrigin = TransformOrigin(0.5f, 1f),
-				animationSpec = tween(
-					durationMillis = DurationMedium2,
-					easing = EmphasizedAccelerateEasing
-				)
-			)
 }

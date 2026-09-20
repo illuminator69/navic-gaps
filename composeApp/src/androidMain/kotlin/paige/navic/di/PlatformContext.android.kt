@@ -26,6 +26,8 @@ import androidx.core.view.WindowCompat
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ThemeMode
+import kotlinx.coroutines.launch
+
 
 @OptIn(
 	ExperimentalMaterial3WindowSizeClassApi::class,
@@ -47,7 +49,7 @@ actual fun rememberPlatformContext(): PlatformContext {
 	val activity = LocalActivity.current!!
 	val sizeClass = calculateWindowSizeClass(activity)
 	SideEffect {
-		(view.context as? Activity)?.window?.let { window ->
+		activity.window?.let { window ->
 			WindowCompat.getInsetsController(window, view)
 				.isAppearanceLightStatusBars = !isDark
 		}

@@ -34,6 +34,7 @@ import paige.navic.ui.components.common.DropdownItem
 import paige.navic.ui.screens.savedqueues.savedQueueCoverArtId
 import paige.navic.ui.screens.savedqueues.savedQueueSubtitle
 import paige.navic.ui.screens.savedqueues.savedQueueTitle
+import kotlinx.coroutines.isActive
 
 /**
  * A "Continue listening" card: the queue's cover (frozen at its first track, so it doesn't change as

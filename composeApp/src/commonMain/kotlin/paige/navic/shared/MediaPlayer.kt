@@ -10,8 +10,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.random.Random
+import kotlin.time.Clock
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.sample
@@ -20,18 +25,20 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.settings.ExplicitContentPlayback
 import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SavedQueueRepository
-import paige.navic.domain.manager.ConnectivityManager
-import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
-import kotlin.random.Random
-import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
 
@@ -132,9 +139,11 @@ data class LoadOutcome(val ok: Boolean, val error: String? = null)
 
 abstract class MediaPlayerViewModel(
 	private val stateRepository: PlayerStateRepository,
+	protected val songRepository: SongRepository,
 	protected val connectivityManager: ConnectivityManager,
 	protected val downloadManager: DownloadManager,
-	private val savedQueueRepository: SavedQueueRepository
+	private val savedQueueRepository: SavedQueueRepository,
+	protected val preferenceManager: PreferenceManager
 ) : ViewModel() {
 
 	@Suppress("PropertyName")
@@ -272,10 +281,9 @@ abstract class MediaPlayerViewModel(
 			.flowOn(Dispatchers.Default)
 			.stateIn(viewModelScope, SharingStarted.Eagerly, PlayerUiState())
 
-	protected fun isAvailable(songId: String): Boolean {
-		val isOnline = connectivityManager.isOnline.value
-		val isDownloaded = downloadManager.downloadedSongs.value.containsKey(songId)
-		return isOnline || isDownloaded
+	protected fun isExplicit(song: DomainSong): Boolean {
+		return song.explicitStatus == DomainExplicitStatus.Explicit
+			&& preferenceManager.explicitContentPlayback != ExplicitContentPlayback.Allowed
 	}
 
 	init {
@@ -392,6 +400,7 @@ abstract class MediaPlayerViewModel(
 			clearQueue()
 			addToQueueSingleLocal(song)
 			playAt(0)
+			checkAndAutoFillQueue()
 		}
 	}
 
@@ -406,6 +415,7 @@ abstract class MediaPlayerViewModel(
 		clearQueue()
 		addToQueueLocal(collection)
 		playAt(startIndex)
+		checkAndAutoFillQueue()
 	}
 
 	fun playNow(songs: List<DomainSong>, startIndex: Int = 0) {
@@ -417,6 +427,7 @@ abstract class MediaPlayerViewModel(
 			clearQueue()
 			songs.forEach { addToQueueSingleLocal(it) }
 			playAt(startIndex)
+			checkAndAutoFillQueue()
 		}
 	}
 
@@ -490,23 +501,38 @@ abstract class MediaPlayerViewModel(
 	 */
 	open fun appendToQueue(songs: List<DomainSong>) {}
 
-	private suspend fun restoreState() {
-		val savedJson = stateRepository.loadState()
-		if (!savedJson.isNullOrBlank()) {
-			try {
-				val restoredState = Json.decodeFromJsonElement<PlayerUiState>(
-					Json.parseToJsonElement(savedJson)
-				)
-				val stateToApply = restoredState.copy(isPaused = true, isLoading = false)
+	/** Playable right now: either the server is reachable or the song is downloaded. */
+	protected fun isAvailable(songId: String): Boolean {
+		val isOnline = connectivityManager.isOnline.value
+		val isDownloaded = downloadManager.downloadedSongs.value.containsKey(songId)
+		return isOnline || isDownloaded
+	}
 
-				_uiState.value = stateToApply
+	protected fun checkAndAutoFillQueue() {
+		if (!preferenceManager.autoFillQueue) return
 
-				syncPlayerWithState(stateToApply)
+		val state = uiState.value
+		if (state.queue.isEmpty()) return
 
-			} catch (e: Exception) {
-				Logger.e("MediaPlayerViewModel", "Failed to restore state!", e)
-				_uiState.value = PlayerUiState()
+		val remainingCount = state.queue.size - state.currentIndex
+
+		if (remainingCount <= 1) {
+			viewModelScope.launch {
+				val randomSongs = songRepository.getRandomSongs(1)
+				appendToQueue(randomSongs)
 			}
+		}
+	}
+
+	private suspend fun restoreState() {
+		val savedState = stateRepository.state
+			.filterNotNull()
+			.firstOrNull()
+			?.copy(isPaused = true, isLoading = false)
+		if (savedState != null) {
+			_uiState.value = savedState
+			syncPlayerWithState(savedState)
+			checkAndAutoFillQueue()
 		}
 	}
 
@@ -526,8 +552,9 @@ abstract class MediaPlayerViewModel(
 				.sample(1.seconds)
 				.collect { state ->
 					try {
-						val jsonString = Json.encodeToString(state)
-						stateRepository.saveState(jsonString)
+						// upstream's PlayerStateRepository now takes the state object and
+						// serialises it itself; saveState(json)/loadState() are gone.
+						stateRepository.setState(state)
 					} catch (e: Exception) {
 						Logger.e("MediaPlayerViewModel", "Failed to save state!", e)
 					}

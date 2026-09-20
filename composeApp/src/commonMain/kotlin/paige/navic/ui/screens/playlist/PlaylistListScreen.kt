@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.playlist
 
+import paige.navic.di.isLandscape
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.scaleIn
@@ -38,6 +39,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import kotlinx.collections.immutable.persistentListOf
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_create_playlist
@@ -53,6 +55,7 @@ import paige.navic.domain.models.DomainPlaylistListType
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
@@ -66,8 +69,9 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.components.layouts.RootTopBar
-import paige.navic.ui.components.snackbars.ErrorSnackbar
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenSortButton
 import paige.navic.ui.screens.playlist.components.playlistListScreenContent
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
@@ -81,16 +85,23 @@ import kotlin.time.Duration
 fun PlaylistListScreen(
 	nested: Boolean = false
 ) {
+	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.playlistListViewMode
 
-	val viewModel = koinViewModel<PlaylistListViewModel>()
+	val viewModel = koinViewModel<PlaylistListViewModel>(
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
+	)
 	val player = koinInject<MediaPlayerViewModel>()
 	val playlistsState by viewModel.playlistsState.collectAsState()
 	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
 
-	val platformContext = LocalPlatformContext.current
 	val scrollManager = LocalBottomBarScrollManager.current
 
 	var shareId by remember { mutableStateOf<String?>(null) }
@@ -112,7 +123,9 @@ fun PlaylistListScreen(
 			selectedSorting = selectedSorting,
 			onSetSorting = { viewModel.setSorting(it) },
 			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) }
+			onSetReversed = { viewModel.setReversed(it) },
+			selectedViewMode = selectedViewMode,
+			onSetViewMode = { preferenceManager.playlistListViewMode = it }
 		)
 	}
 
@@ -151,7 +164,6 @@ fun PlaylistListScreen(
 						shape = MaterialTheme.shapes.large,
 						containerColor = MaterialTheme.colorScheme.primary,
 						onClick = {
-							platformContext.clickSound()
 							createDialogShown = true
 						}
 					) {
@@ -165,7 +177,9 @@ fun PlaylistListScreen(
 			}
 		},
 		bottomBar = {
-			if (!nested || preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
+			val scrollManager = LocalBottomBarScrollManager.current
+			val preferVisible = preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -184,13 +198,19 @@ fun PlaylistListScreen(
 				else Modifier,
 				state = gridState,
 				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((playlistsState as? UiState.Success)?.data?.isEmpty() == true)
+				verticalArrangement = if (playlistsState.data?.isEmpty() == true) {
 					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
+				} else if (selectedViewMode == ListViewMode.List) {
+					Arrangement.spacedBy(0.dp)
+				} else {
+					Arrangement.spacedBy(12.dp)
+				},
+				selectedViewMode = selectedViewMode
 			) {
 				playlistListScreenContent(
 					state = playlistsState,
 					selectedPlaylist = selectedPlaylist,
+					selectedViewMode = selectedViewMode,
 					onUpdateSelection = { viewModel.selectPlaylist(it) },
 					onClearSelection = { viewModel.clearSelection() },
 					onSetShareId = { newShareId ->
@@ -226,7 +246,7 @@ fun PlaylistListScreen(
 		}
 	}
 
-	ErrorSnackbar(
+	ErrorSnackBar(
 		error = (playlistsState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)

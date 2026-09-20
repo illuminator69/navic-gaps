@@ -10,6 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import paige.navic.ui.theme.defaultFont
@@ -31,7 +33,8 @@ fun Monogram(
 			Text(
 				text = text.take(2).uppercase(),
 				fontFamily = defaultFont(grade = 100, round = 100f),
-				fontSize = 18.sp
+				fontSize = 18.sp,
+				modifier = Modifier.semantics { hideFromAccessibility() }
 			)
 		}
 	}

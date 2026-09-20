@@ -93,6 +93,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueueMessage
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
+import kotlinx.coroutines.isActive
 
 /**
  * The Symfonium-style "select media queue" list: every queue Navic has auto-captured (rolling cache

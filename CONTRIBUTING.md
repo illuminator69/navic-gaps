@@ -13,7 +13,6 @@
 * Include a screenshot for UI changes
 * Keep PRs focused, create separate PRs for unrelated changes
 * Use [conventional commits](https://conventionalcommits.org/)
-* Use [conventional branch names](https://conventional-branch.github.io/)
 
 ## Contributing
 
@@ -68,5 +67,4 @@ On macOS, you will also need:
 
 ### Questions or assistance
 
-Ask in the [Discord](https://discord.gg/TBcnNX66PH)
-or [Matrix](https://matrix.to/#/#navic:maize.moe) server.
+Ask in the [Discord](https://discord.gg/TBcnNX66PH) server

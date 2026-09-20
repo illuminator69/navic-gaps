@@ -37,6 +37,7 @@ import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButto
 import paige.navic.util.core.CreditedArtist
 import paige.navic.util.core.InlineExplicitIconLarge
 import paige.navic.util.core.PlainArtistLinkStyles
+import paige.navic.util.core.appendArtists
 import paige.navic.util.core.artistCreditsText
 import paige.navic.util.core.creditedArtists
 

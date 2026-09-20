@@ -13,6 +13,8 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.util.Logger
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.drop
 
 private const val LOG_TAG = "QuickPicksWidget"
 

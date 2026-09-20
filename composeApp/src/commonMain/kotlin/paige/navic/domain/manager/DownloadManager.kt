@@ -582,9 +582,9 @@ class DownloadManager(
 			if (lyricsResult != null && lyricsResult.rawContent != null) {
 				lyricDao.insertLyrics(
 					LyricEntity(
-						song.id,
-						lyricsResult.rawContent,
-						lyricsResult.provider
+						songId = song.id,
+						rawContent = lyricsResult.rawContent,
+						providerName = lyricsResult.providerName
 					)
 				)
 				Logger.i("DownloadManager", "cached lyrics for ${song.id}")

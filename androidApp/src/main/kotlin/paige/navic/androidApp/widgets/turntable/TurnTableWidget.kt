@@ -25,8 +25,8 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.state.PreferencesGlanceStateDefinition
-import paige.navic.androidApp.R
 import paige.navic.androidApp.widgets.nowplaying.NowPlayingWidget
+import paige.navic.androidApp.R
 
 class TurnTableWidget : NowPlayingWidget() {
 

@@ -38,6 +38,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.shared.MediaPlayerViewModel
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 
 /**
  * One client for ALL cover-art palette extraction. Built OUTSIDE composition on

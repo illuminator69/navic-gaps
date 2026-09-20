@@ -13,7 +13,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,8 +33,6 @@ import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_downloaded
-import navic.composeapp.generated.resources.info_unknown_album
-import navic.composeapp.generated.resources.info_unknown_year
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.RadioManager
@@ -57,6 +54,7 @@ import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.util.core.InlineExplicitIcon
+import paige.navic.util.core.buildSongInfoString
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -145,15 +143,11 @@ fun SongListScreenItem(
 					)
 				},
 				supportingContent = {
-					Text(
-						buildString {
-							append(song.albumTitle ?: stringResource(Res.string.info_unknown_album))
-							append(" • ")
-							append(song.artistName)
-							append(" • ")
-							append(song.year ?: stringResource(Res.string.info_unknown_year))
-						},
-						maxLines = 1
+					MarqueeText(
+						buildSongInfoString(
+							song = song,
+							onClickArtist = { backStack.add(Screen.ArtistDetail(it)) }
+						)
 					)
 				},
 				leadingContent = {
@@ -219,7 +213,7 @@ fun SongListScreenItem(
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,
 					onTrackInfo = dropUnlessResumed {
-						backStack.add(Screen.SongDetail(song.id))
+						backStack.add(Screen.SongDetailScreen(song.id, song.coverArtId))
 					},
 					onViewAlbum = song.albumId?.let { albumId ->
 						dropUnlessResumed {
@@ -238,7 +232,7 @@ fun SongListScreenItem(
 					downloadStatus = download?.status ?: DownloadStatus.NOT_DOWNLOADED,
 					onDownload = onDownload,
 					onCancelDownload = onCancelDownload,
-					onDeleteDownload = onDeleteDownload,
+					onDeleteDownload = onDeleteDownload
 				)
 			}
 		}

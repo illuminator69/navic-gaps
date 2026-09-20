@@ -1,11 +1,20 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+@file:Suppress("UNCHECKED_CAST")
+
 package paige.navic.ui.navigation
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -22,6 +31,7 @@ import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
 import com.kyant.capsule.ContinuousCapsule
+import paige.navic.LocalNavStack
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.BottomSheetSceneStrategy.Companion.bottomSheet
 import paige.navic.util.ui.rememberNowPlayingCoverAmbient

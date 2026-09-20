@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.artist
 
+import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -16,8 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.compose.dropUnlessResumed
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import navic.composeapp.generated.resources.Res
@@ -38,7 +39,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.snackbars.ErrorSnackbar
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -46,11 +47,13 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.ArtistListScreenContent
 import paige.navic.ui.screens.artist.components.ArtistListScreenSortButton
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
+import androidx.compose.ui.platform.LocalUriHandler
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -58,11 +61,18 @@ fun ArtistListScreen(
 	nested: Boolean = false,
 	listType: DomainArtistListType
 ) {
+	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.artistListViewMode
 
 	val viewModel = koinViewModel<ArtistListViewModel>(
 		key = listType.toString(),
-		parameters = { parametersOf(listType) }
+		parameters = { parametersOf(listType) },
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
 	)
 	val artistsState by viewModel.artistsState.collectAsState()
 	val selectedArtist by viewModel.selectedArtist.collectAsState()
@@ -94,7 +104,8 @@ fun ArtistListScreen(
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested || preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
+			val preferVisible = preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -111,6 +122,7 @@ fun ArtistListScreen(
 				starred = starred,
 				selectedArtist = selectedArtist,
 				selectedArtistAlbums = selectedArtistAlbums,
+				selectedViewMode = selectedViewMode,
 				gridState = viewModel.gridState,
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
@@ -124,14 +136,14 @@ fun ArtistListScreen(
 		}
 	}
 
-	ErrorSnackbar(
+	ErrorSnackBar(
 		error = (artistsState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
 }
 
 @Composable
-fun ArtistsScreenItem(
+fun ArtistListScreenGridItem(
 	modifier: Modifier = Modifier,
 	tab: String,
 	artist: DomainArtist,
@@ -144,7 +156,6 @@ fun ArtistsScreenItem(
 	onAddToQueue: () -> Unit,
 	onSetStarred: (starred: Boolean) -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
 	val radioManager = koinInject<RadioManager>()
@@ -154,7 +165,6 @@ fun ArtistsScreenItem(
 	Box(modifier) {
 		ArtGridItem(
 			onClick = dropUnlessResumed {
-				platformContext.clickSound()
 				backStack.add(Screen.ArtistDetail(artist.id))
 			},
 			onLongClick = onSelect,
@@ -176,20 +186,6 @@ fun ArtistsScreenItem(
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
 				onAddAllToPlaylist = { playlistDialogShown = true },
-				onViewOnLastFm = {
-					onDeselect()
-					artist.lastFmUrl?.let { url ->
-						uriHandler.openUri(url)
-					}
-				},
-				onViewOnMusicBrainz = {
-					onDeselect()
-					artist.musicBrainzId?.let { id ->
-						uriHandler.openUri(
-							"https://musicbrainz.org/artist/$id"
-						)
-					}
-				},
 				starred = starred,
 				onSetStarred = { onSetStarred(!starred) }
 			)

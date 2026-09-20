@@ -10,14 +10,17 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.contentColorFor
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import paige.navic.ui.theme.NavicTheme
@@ -30,7 +33,7 @@ import paige.navic.util.ui.CoverAmbient
 fun ModalBottomSheet(
 	onDismissRequest: () -> Unit,
 	modifier: Modifier = Modifier,
-	sheetState: SheetState = rememberModalBottomSheetState(),
+	sheetState: SheetState = rememberBottomSheetState(SheetValue.Hidden),
 	sheetMaxWidth: Dp = BottomSheetDefaults.SheetMaxWidth,
 	sheetGesturesEnabled: Boolean = true,
 	shape: Shape = BottomSheetDefaults.ExpandedShape,
@@ -48,11 +51,16 @@ fun ModalBottomSheet(
 	// that same top colour (seamless), and the content is themed with the cover
 	// scheme so its text/cards adapt. The Material surface still clips it to [shape].
 	ambient: CoverAmbient? = null,
+	sheetTitle: String? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	androidx.compose.material3.ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
-		modifier = modifier,
+		modifier = modifier.semantics {
+			sheetTitle?.let { sheetTitle ->
+				paneTitle = sheetTitle
+			}
+		},
 		sheetState = sheetState,
 		sheetMaxWidth = sheetMaxWidth,
 		sheetGesturesEnabled = sheetGesturesEnabled,

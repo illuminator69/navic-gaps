@@ -21,6 +21,7 @@ import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.Logger
 import kotlin.random.Random
+import kotlinx.coroutines.flow.firstOrNull
 
 private const val TAG = "CastBridgeManager"
 

@@ -5,12 +5,16 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AnimationStyle
 import paige.navic.domain.models.settings.AutoplayMode
+import paige.navic.domain.models.settings.AppIconVariant
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.CoverArtShape
+import paige.navic.domain.models.settings.CoverArtTapAction
+import paige.navic.domain.models.settings.ExplicitContentPlayback
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.domain.models.settings.MarqueeSpeed
 import paige.navic.domain.models.settings.MoodCharacter
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
@@ -30,6 +34,7 @@ import com.russhwolf.settings.Settings as KmpSettings
 class PreferenceManager(
 	settings: KmpSettings
 ) : BasePreferenceManager(settings) {
+	var appIconVariant by preference(AppIconVariant.Default)
 	var font by preference(FontOption.GoogleSans)
 	var fontPath by preference("")
 	var animationStyle by preference(AnimationStyle.Expressive)
@@ -56,6 +61,8 @@ class PreferenceManager(
 	var replayGainMode by preference(ReplayGainMode.Off)
 	var gaplessPlayback by preference(true)
 	var audioOffload by preference(false)
+
+	// TODO: better names and strings for these transcoding settings
 	var streamingQualityWifi by preference(StreamingQuality.Lossless)
 	var streamingQualityCellular by preference(StreamingQuality.Lossless)
 	var isAdvancedTranscodingActive by preference(false)
@@ -106,15 +113,35 @@ class PreferenceManager(
 	var downloadWifiOnly by preference(false)
 	var downloadChargingOnly by preference(false)
 	var downloadMaxConcurrency by preference(4)
+	var customFormatWifi by preference("")
+	var customFormatCellular by preference("")
+
+	var downloadQualityWifi by preference(StreamingQuality.Lossless)
+	var downloadQualityCellular by preference(StreamingQuality.Lossless)
+	var isAdvancedDownloadTranscodingActive by preference(false)
+	var customDownloadMaxBitrateWifi by preference(0)
+	var customDownloadMaxBitrateCellular by preference(0)
+	var customDownloadFormatWifi by preference("")
+	var customDownloadFormatCellular by preference("")
+
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var nowPlayingSongInfo by preference(true)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
+	var nowPlayingCoverArtAction by preference(CoverArtTapAction.ShowLyrics)
 	var customHeaders by preference("")
 	var checkForUpdates by preference(true)
+	var explicitContentPlayback by preference(ExplicitContentPlayback.Allowed)
+	var autoFillQueue by preference(false)
 
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)
 	var bottomBarVisibilityMode by preference(BottomBarVisibilityMode.AllScreens)
+	// upstream list/grid view mode, per library tab
+	var albumListViewMode by preference(ListViewMode.Grid)
+	var artistListViewMode by preference(ListViewMode.Grid)
+	var playlistListViewMode by preference(ListViewMode.Grid)
+	var songListViewMode by preference(ListViewMode.List)
+
 	var navigationBarStyle by preference(NavigationBarStyle.Floating)
 	var navigationBarLabelVisibility by preference(
         NavigationBarLabelVisibility.Always
@@ -131,6 +158,7 @@ class PreferenceManager(
 	// theme related settings
 	var theme by preference(Theme.Dynamic)
 	var themeMode by preference(ThemeMode.System)
+	var dynamicTheming by preference(false)
 	var paletteStyle by preference(PaletteStyle.TonalSpot)
 	var paletteSpec by preference(ColorSpec.SpecVersion.SPEC_2025)
 	var paletteAccentH by preference(0f)

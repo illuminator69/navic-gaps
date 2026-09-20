@@ -50,6 +50,7 @@ import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.flow.firstOrNull
 
 data class HubDevice(
 	val id: String,
@@ -1321,7 +1322,12 @@ class HubManager(
 			// Navidrome serves the cover by song id, so this lets art load.
 			coverArtId = id,
 			musicBrainzId = null,
-			explicitStatus = DomainExplicitStatus.Unknown
+			explicitStatus = DomainExplicitStatus.Unknown,
+			// Hub placeholders carry no per-artist breakdown: the wire format sends one
+			// credit string, and resolveQueue swaps these for the library's own rows.
+			artists = emptyList(),
+			albumArtists = emptyList(),
+			isExternal = false
 		)
 	}
 
@@ -1370,7 +1376,10 @@ class HubManager(
 		// Navidrome serves the cover by song id, so this lets art load.
 		coverArtId = track.id,
 		musicBrainzId = null,
-		explicitStatus = DomainExplicitStatus.Unknown
+		explicitStatus = DomainExplicitStatus.Unknown,
+		artists = emptyList(),
+		albumArtists = emptyList(),
+		isExternal = false
 	)
 
 	// ------------------------------------------------------------------ //

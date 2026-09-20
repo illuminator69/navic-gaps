@@ -19,6 +19,7 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.ui.core.UiState
 import kotlin.time.Clock
 import paige.navic.util.core.CoverPlaceholder
+import kotlinx.coroutines.flow.firstOrNull
 
 class ArtistRepository(
 	private val artistDao: ArtistDao,

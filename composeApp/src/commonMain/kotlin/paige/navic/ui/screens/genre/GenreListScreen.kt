@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.genre
 
+import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
@@ -14,18 +15,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_genres
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
-import paige.navic.ui.components.snackbars.ErrorSnackbar
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.genre.components.genreListScreenContent
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.util.withoutTop
@@ -35,7 +42,15 @@ import paige.navic.ui.util.withoutTop
 fun GenreListScreen(
 	nested: Boolean
 ) {
-	val viewModel = koinViewModel<GenreListViewModel>()
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val viewModel = koinViewModel<GenreListViewModel>(
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
+	)
 	val genresState by viewModel.genresState.collectAsState()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -52,7 +67,8 @@ fun GenreListScreen(
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested) {
+			val preferVisible = preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -79,7 +95,7 @@ fun GenreListScreen(
 		}
 	}
 
-	ErrorSnackbar(
+	ErrorSnackBar(
 		error = (genresState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)

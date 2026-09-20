@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import paige.navic.di.isLandscape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -88,13 +89,15 @@ fun BottomBarScreen() {
 						title = { Text(stringResource(Res.string.option_bottom_bar_collapse_mode)) },
 					)
 
-					SettingSelectionRow(
-						items = BottomBarVisibilityMode.entries.toImmutableList(),
-						label = { stringResource(it.displayName) },
-						selection = preferenceManager.bottomBarVisibilityMode,
-						onSelect = { preferenceManager.bottomBarVisibilityMode = it },
-						title = { Text(stringResource(Res.string.option_bottom_bar_visibility_mode)) },
-					)
+					if (!platformContext.isLandscape()) {
+						SettingSelectionRow(
+							items = BottomBarVisibilityMode.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							selection = preferenceManager.bottomBarVisibilityMode,
+							onSelect = { preferenceManager.bottomBarVisibilityMode = it },
+							title = { Text(stringResource(Res.string.option_bottom_bar_visibility_mode)) },
+						)
+					}
 				}
 
 				FormTitle(stringResource(Res.string.title_navigation_bar))

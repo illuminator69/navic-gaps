@@ -2,14 +2,23 @@ package paige.navic.ui.screens.queue
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,6 +112,7 @@ private data class QueueEntry(val uid: Long, val song: DomainSong)
 fun QueueScreen() {
 	val viewModel = koinViewModel<QueueViewModel>()
 	val platformContext = LocalPlatformContext.current
+	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val hubManager = koinInject<HubManager>()
 	val isRemoteActive by hubManager.isRemoteActive.collectAsState()
@@ -112,7 +122,6 @@ fun QueueScreen() {
 	val queue = playerState.queue
 
 	// Per-row sheet state (see the SongSheet at the end of this composable).
-	val backStack = LocalNavStack.current
 	val radioManager = koinInject<RadioManager>()
 	val selectedQueueSong by viewModel.selectedSong.collectAsStateWithLifecycle()
 	val selectedStarred by viewModel.starred.collectAsStateWithLifecycle()
@@ -409,6 +418,9 @@ fun QueueScreen() {
 				.fillMaxWidth()
 				.weight(1f),
 			state = draggableState.listState,
+			contentPadding = WindowInsets.systemBars
+				.only(WindowInsetsSides.Bottom)
+				.asPaddingValues(),
 			verticalArrangement = if (queue.isNotEmpty())
 				Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
 			else Arrangement.Center
@@ -492,7 +504,7 @@ fun QueueScreen() {
 			onStartJourney = playerState.currentSong?.takeIf {
 				radioManager.sonicSimilarityAvailable.value && it.id != selected.id
 			}?.let { now -> { radioManager.startJourney(now.id, selected.id) } },
-			onTrackInfo = dropUnlessResumed { leaveQueueFor(Screen.SongDetail(selected.id)) },
+			onTrackInfo = dropUnlessResumed { leaveQueueFor(Screen.SongDetailSheet(selected.id)) },
 			onViewAlbum = selected.albumId?.let { albumId ->
 				dropUnlessResumed { leaveQueueFor(Screen.CollectionDetail(albumId, "library")) }
 			},

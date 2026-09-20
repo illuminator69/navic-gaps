@@ -34,6 +34,7 @@ import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.UiState
 import paige.navic.util.Logger
+import kotlinx.coroutines.Dispatchers
 
 class CollectionDetailViewModel(
 	private val collectionId: String,

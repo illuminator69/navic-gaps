@@ -29,14 +29,15 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Artist
 import paige.navic.ui.components.common.AlphabeticalScroller
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.util.withoutTop
+import paige.navic.ui.screens.artist.ArtistListScreenGridItem
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,6 +50,7 @@ fun ArtistListScreenContent(
 	nested: Boolean,
 	selectedArtist: DomainArtist?,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
+	selectedViewMode: ListViewMode,
 	onUpdateSelection: (DomainArtist) -> Unit,
 	onClearSelection: () -> Unit,
 	onSetStarred: (Boolean) -> Unit,
@@ -79,6 +81,11 @@ fun ArtistListScreenContent(
 		}.toImmutableList()
 	}
 
+	val textPadding = PaddingValues(
+		horizontal = if (selectedViewMode == ListViewMode.List) 16.dp else 0.dp,
+		vertical = 8.dp
+	)
+
 	Box {
 		ArtGrid(
 			modifier = if (!nested)
@@ -87,9 +94,14 @@ fun ArtistListScreenContent(
 			else Modifier.fillMaxSize(),
 			state = gridState,
 			contentPadding = innerPadding.withoutTop(),
-			verticalArrangement = if (grouped.isEmpty())
+			verticalArrangement = if (grouped.isEmpty()) {
 				Arrangement.Center
-			else Arrangement.spacedBy(12.dp)
+			} else if (selectedViewMode == ListViewMode.List) {
+				Arrangement.spacedBy(0.dp)
+			} else {
+				Arrangement.spacedBy(12.dp)
+			},
+			selectedViewMode = selectedViewMode
 		) {
 			item(span = { GridItemSpan(maxLineSpan) }) {
 				Row(
@@ -110,7 +122,7 @@ fun ArtistListScreenContent(
 				}
 			}
 			grouped.forEach { (letter, artists) ->
-				item(span = { GridItemSpan(maxLineSpan) }) {
+				stickyHeader {
 					Row(
 						// Transparent, as above: the alphabet header sits in the wash.
 						Modifier.padding(bottom = 8.dp),
@@ -123,19 +135,34 @@ fun ArtistListScreenContent(
 					}
 				}
 				items(artists, { it.id }) { artist ->
-					ArtistsScreenItem(
-						modifier = Modifier.animateItem(),
-						tab = "artists",
-						artist = artist,
-						selected = artist == selectedArtist,
-						selectedArtistAlbums = selectedArtistAlbums,
-						starred = starred,
-						onSelect = { onUpdateSelection(artist) },
-						onDeselect = { onClearSelection() },
-						onSetStarred = { onSetStarred(it) },
-						onPlayNext = onPlayNext,
-						onAddToQueue = onAddToQueue
-					)
+					if (selectedViewMode == ListViewMode.Grid) {
+						ArtistListScreenGridItem(
+							modifier = Modifier.animateItem(),
+							tab = "artists",
+							artist = artist,
+							selected = artist == selectedArtist,
+							selectedArtistAlbums = selectedArtistAlbums,
+							starred = starred,
+							onSelect = { onUpdateSelection(artist) },
+							onDeselect = { onClearSelection() },
+							onSetStarred = { onSetStarred(it) },
+							onPlayNext = onPlayNext,
+							onAddToQueue = onAddToQueue
+						)
+					} else {
+						ArtistListScreenListItem(
+							modifier = Modifier.animateItem(),
+							artist = artist,
+							selected = artist == selectedArtist,
+							selectedArtistAlbums = selectedArtistAlbums,
+							starred = starred,
+							onSelect = { onUpdateSelection(artist) },
+							onDeselect = { onClearSelection() },
+							onSetStarred = { onSetStarred(it) },
+							onPlayNext = onPlayNext,
+							onAddToQueue = onAddToQueue
+						)
+					}
 				}
 			}
 

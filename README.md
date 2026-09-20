@@ -64,7 +64,7 @@ A modern Navidrome client for Android and iOS.
 ## Features
 
 * Customisable: large selection of settings and tweaks
-* Secure & private: zero permissions, telemetry, or analytics
+* Secure & private: minimal permissions, zero telemetry, and zero analytics
 * Integrated: shows up on the lock screen + quick settings
 * Lightweight & fast: zero bloat
 * Feature rich: covers almost the entirety of the Subsonic API
@@ -80,15 +80,15 @@ A modern Navidrome client for Android and iOS.
 
 You can help translate Navic by contributing on [Weblate](https://hosted.weblate.org/engage/navic/).
 
-[![Translation status](https://hosted.weblate.org/widget/navic/navic/svg-badge.svg?threshold=0)](https://hosted.weblate.org/engage/navic/)
+![Weblate translation status](https://hosted.weblate.org/widget/navic/navic/horizontal-auto.svg)
 
 ## Star History
 
-<a href="https://star-history.com/#ssalggnikool/Navic&Date">
+<a href="https://www.star-history.com/?repos=ssalggnikool%2FNavic&type=date&logscale=&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ssalggnikool/Navic&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ssalggnikool/Navic&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ssalggnikool/Navic&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ssalggnikool/Navic&type=date&theme=dark&logscale&legend=top-left&sealed_token=ZCgrX-tWFZmKqKBz7-Bu3ecoSJOb7t6nOWZwleHQnQTaHwTdITEQqvyjFPUlFNkLE5DtG2VxUuqATupENGa9i4Grc7G29knvuSBObj1PlH9sJTyw6b2iaRFS0dcIRJi1YLIjjLi4CEgMzC2C6dqVplJcCRNcXPmUbxSaJsv3Xr_Seia6GVMzT_kV0WYq" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ssalggnikool/Navic&type=date&logscale&legend=top-left&sealed_token=ZCgrX-tWFZmKqKBz7-Bu3ecoSJOb7t6nOWZwleHQnQTaHwTdITEQqvyjFPUlFNkLE5DtG2VxUuqATupENGa9i4Grc7G29knvuSBObj1PlH9sJTyw6b2iaRFS0dcIRJi1YLIjjLi4CEgMzC2C6dqVplJcCRNcXPmUbxSaJsv3Xr_Seia6GVMzT_kV0WYq" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ssalggnikool/Navic&type=date&logscale&legend=top-left&sealed_token=ZCgrX-tWFZmKqKBz7-Bu3ecoSJOb7t6nOWZwleHQnQTaHwTdITEQqvyjFPUlFNkLE5DtG2VxUuqATupENGa9i4Grc7G29knvuSBObj1PlH9sJTyw6b2iaRFS0dcIRJi1YLIjjLi4CEgMzC2C6dqVplJcCRNcXPmUbxSaJsv3Xr_Seia6GVMzT_kV0WYq" />
  </picture>
 </a>
 

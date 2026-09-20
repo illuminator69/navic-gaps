@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

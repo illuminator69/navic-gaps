@@ -17,6 +17,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import paige.navic.util.Logger
 import java.net.Inet4Address
+import kotlinx.coroutines.flow.update
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.firstOrNull
 
 private const val TAG = "CastDiscovery"
 

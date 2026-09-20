@@ -19,7 +19,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateSetOf
@@ -34,7 +33,6 @@ import navic.composeapp.generated.resources.action_new
 import navic.composeapp.generated.resources.option_custom_headers
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
@@ -55,7 +53,6 @@ private data class Header(
 
 @Composable
 fun SettingsCustomHeadersScreen() {
-	val platformContext = LocalPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 
@@ -79,12 +76,7 @@ fun SettingsCustomHeadersScreen() {
 	}
 
 	Scaffold(
-		topBar = {
-			NestedTopBar(
-				{ Text(stringResource(Res.string.option_custom_headers)) },
-				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
-			)
-		}
+		topBar = { NestedTopBar({ Text(stringResource(Res.string.option_custom_headers)) }) }
 	) { innerPadding ->
 		CompositionLocalProvider(
 			LocalMinimumInteractiveComponentSize provides 0.dp
@@ -126,7 +118,6 @@ fun SettingsCustomHeadersScreen() {
 				}
 				FilledTonalButton(
 					onClick = {
-						platformContext.clickSound()
 						headers.add(Header(key = "", value = ""))
 						updateSettings()
 					},

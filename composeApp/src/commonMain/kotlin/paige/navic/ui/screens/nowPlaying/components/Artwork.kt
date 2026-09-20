@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.components
 
+import paige.navic.di.isLandscape
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -26,6 +27,7 @@ import paige.navic.ui.components.common.CoverArt
 @Composable
 fun NowPlayingArtwork(
 	modifier: Modifier = Modifier,
+	onClick: (() -> Unit)?,
 	isLandscape: Boolean,
 	song: DomainSong
 ) {
@@ -49,7 +51,8 @@ fun NowPlayingArtwork(
 				.aspectRatio(1f)
 				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
 				.padding(padding),
-			shadowElevation = 8.dp
+			shadowElevation = 8.dp,
+			onClick = onClick
 		)
 		if (song.coverArtId.isNullOrEmpty()) {
 			Icon(

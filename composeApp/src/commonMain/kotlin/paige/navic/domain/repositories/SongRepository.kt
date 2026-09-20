@@ -99,6 +99,10 @@ class SongRepository(
 		}
 	}.flowOn(Dispatchers.IO)
 
+	/** Backs upstream's auto-fill-queue setting: a few local songs to top the queue up with. */
+	suspend fun getRandomSongs(limit: Int): List<DomainSong> =
+		songDao.getRandomSongs(limit).map { it.toDomainModel() }
+
 	suspend fun isSongStarred(song: DomainSong) = songDao.isSongStarred(song.id)
 	suspend fun getSongRating(song: DomainSong) = songDao.getSongRating(song.id) ?: 0
 	suspend fun starSong(song: DomainSong) {

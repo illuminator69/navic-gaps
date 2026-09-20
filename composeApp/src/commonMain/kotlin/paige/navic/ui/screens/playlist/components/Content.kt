@@ -8,15 +8,18 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_playlists_short
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
 
 fun LazyGridScope.playlistListScreenContent(
 	state: UiState<List<DomainPlaylist>>,
 	selectedPlaylist: DomainPlaylist?,
+	selectedViewMode: ListViewMode,
 	onUpdateSelection: (DomainPlaylist) -> Unit,
 	onClearSelection: () -> Unit,
 	onSetShareId: (String) -> Unit,
@@ -27,23 +30,37 @@ fun LazyGridScope.playlistListScreenContent(
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
 		items(data, { it.id }) { playlist ->
-			PlaylistListScreenItem(
-				modifier = Modifier.animateItem(),
-				tab = "playlists",
-				playlist = playlist,
-				selected = playlist == selectedPlaylist,
-				onSelect = { onUpdateSelection(playlist) },
-				onDeselect = { onClearSelection() },
-				onSetShareId = onSetShareId,
-				onSetDeletionId = onSetDeletionId,
-				onPlayNext = onPlayNext,
-				onAddToQueue = onAddToQueue,
-			)
+			if (selectedViewMode == ListViewMode.Grid) {
+				PlaylistListScreenGridItem(
+					modifier = Modifier.animateItem(),
+					tab = "playlists",
+					playlist = playlist,
+					selected = playlist == selectedPlaylist,
+					onSelect = { onUpdateSelection(playlist) },
+					onDeselect = { onClearSelection() },
+					onSetShareId = onSetShareId,
+					onSetDeletionId = onSetDeletionId,
+					onPlayNext = onPlayNext,
+					onAddToQueue = onAddToQueue,
+				)
+			} else {
+				PlaylistListScreenListItem(
+					modifier = Modifier.animateItem(),
+					playlist = playlist,
+					selected = playlist == selectedPlaylist,
+					onSelect = { onUpdateSelection(playlist) },
+					onDeselect = { onClearSelection() },
+					onSetShareId = onSetShareId,
+					onSetDeletionId = onSetDeletionId,
+					onPlayNext = onPlayNext,
+					onAddToQueue = onAddToQueue,
+				)
+			}
 		}
 	} else {
 		when (state) {
 			is UiState.Loading -> {
-				artGridPlaceholder()
+				artGridPlaceholder(viewMode = selectedViewMode)
 			}
 
 			else -> {

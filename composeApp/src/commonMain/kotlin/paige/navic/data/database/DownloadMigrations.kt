@@ -3,6 +3,8 @@ package paige.navic.data.database
 import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * Add a column only if the table does not already have it.

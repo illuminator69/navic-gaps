@@ -1,5 +1,6 @@
 package paige.navic.ui.components.toolbars
 
+import paige.navic.di.isLandscape
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState

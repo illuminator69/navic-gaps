@@ -58,7 +58,6 @@ import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
-import paige.navic.ui.components.snackbars.ErrorSnackbar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenFooterRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRow
@@ -77,6 +76,7 @@ import paige.navic.util.ui.onAmbientColor
 import paige.navic.util.ui.rememberCoverColorScheme
 import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -451,7 +451,7 @@ fun CollectionDetailScreen(
 
 	}
 
-	ErrorSnackbar(
+	ErrorSnackBar(
 		error = (collectionState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)

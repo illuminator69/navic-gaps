@@ -90,6 +90,7 @@ import paige.navic.util.calculateWordProgress
 import paige.navic.util.ui.LocalSheetState
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.foundation.lazy.rememberLazyListState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -138,7 +139,7 @@ fun LyricsScreen(
 	val currentDuration = duration * progressState.toDouble()
 
 	val density = LocalDensity.current
-	val listState = viewModel.listState
+	val listState = rememberLazyListState()
 
 	val lyricsAutoscroll = preferenceManager.lyricsAutoscroll && !isSelectionMode
 
@@ -268,7 +269,7 @@ fun LyricsScreen(
 					val data = uiState.data
 					val lyrics = data?.lines
 					val isSynced = data?.isSynced == true
-					val provider = data?.provider
+					val provider = data?.providerName
 					val maxSelectionChars = 150
 					fun totalSelectedChars(): Int =
 						selectedIndices.sumOf { lyrics?.getOrNull(it)?.text?.length ?: 0 }
@@ -466,7 +467,7 @@ fun LyricsScreen(
 									Text(
 										stringResource(
 											Res.string.info_lyrics_provider,
-											provider.displayName
+											provider
 										),
 										textAlign = TextAlign.Center,
 										modifier = Modifier.fillMaxWidth()

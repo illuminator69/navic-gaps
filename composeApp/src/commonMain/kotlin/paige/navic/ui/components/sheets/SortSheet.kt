@@ -15,9 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_list_view_mode
 import navic.composeapp.generated.resources.option_sort_ascending
 import navic.composeapp.generated.resources.option_sort_descending
 import navic.composeapp.generated.resources.title_direction
@@ -32,19 +34,22 @@ import navic.composeapp.generated.resources.title_sort_by
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
 import paige.navic.util.ui.rememberNowPlayingCoverAmbient
+import paige.navic.domain.models.settings.ListViewMode
+import androidx.compose.material3.rememberModalBottomSheetState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> SortSheet(
 	entries: ImmutableList<T>,
-	selectedSorting: T,
-	selectedReversed: Boolean,
 	label: @Composable (T) -> String,
+	selectedSorting: T,
 	onSetSorting: (T) -> Unit,
+	selectedReversed: Boolean,
 	onSetReversed: (Boolean) -> Unit,
+	selectedViewMode: ListViewMode? = null,
+	onSetViewMode: ((ListViewMode) -> Unit)? = null,
 	onDismissRequest: () -> Unit
 ) {
-	val platformContext = LocalPlatformContext.current
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
 		sheetState = rememberModalBottomSheetState(true),
@@ -70,7 +75,6 @@ fun <T> SortSheet(
 							.selectable(
 								selected = (sorting == selectedSorting),
 								onClick = {
-									platformContext.clickSound()
 									onSetSorting(sorting)
 								},
 								role = Role.RadioButton
@@ -85,6 +89,32 @@ fun <T> SortSheet(
 							text = label(sorting),
 							style = MaterialTheme.typography.bodyLarge,
 							modifier = Modifier.padding(start = 16.dp)
+						)
+					}
+				}
+			}
+
+			if (selectedViewMode != null && onSetViewMode != null) {
+				Text(
+					text = stringResource(Res.string.option_list_view_mode),
+					style = MaterialTheme.typography.titleMedium,
+					modifier = Modifier.padding(horizontal = 16.dp)
+				)
+
+				SingleChoiceSegmentedButtonRow(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(horizontal = 16.dp)
+				) {
+					ListViewMode.entries.forEachIndexed { index, viewMode ->
+						SegmentedButton(
+							shape = SegmentedButtonDefaults.itemShape(
+								index = index,
+								count = ListViewMode.entries.count()
+							),
+							onClick = { onSetViewMode(viewMode) },
+							selected = selectedViewMode == viewMode,
+							label = { Text(stringResource(viewMode.displayName)) }
 						)
 					}
 				}
@@ -107,7 +137,6 @@ fun <T> SortSheet(
 						count = 2
 					),
 					onClick = {
-						platformContext.clickSound()
 						onSetReversed(false)
 					},
 					selected = !selectedReversed,
@@ -119,7 +148,6 @@ fun <T> SortSheet(
 						count = 2
 					),
 					onClick = {
-						platformContext.clickSound()
 						onSetReversed(true)
 					},
 					selected = selectedReversed,

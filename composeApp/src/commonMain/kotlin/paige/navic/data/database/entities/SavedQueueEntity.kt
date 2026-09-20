@@ -3,6 +3,7 @@ package paige.navic.data.database.entities
 import androidx.room3.Entity
 import androidx.room3.PrimaryKey
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.flow.update
 
 /**
  * One automatically-captured play-queue snapshot — the backing store for the Symfonium-style

@@ -54,11 +54,11 @@ import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.album.components.AlbumListScreenItem
-import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
-import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
 import paige.navic.ui.util.withoutTop
+import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
+import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
+import paige.navic.ui.screens.artist.ArtistListScreenGridItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -213,7 +213,7 @@ fun LibraryScreenContent(
 			key = { it.id },
 			seeAll = true
 		) { album ->
-			AlbumListScreenItem(
+			AlbumListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library-recent",
 				album = album,
@@ -237,7 +237,7 @@ fun LibraryScreenContent(
 			key = { it.id },
 			seeAll = true
 		) { album ->
-			AlbumListScreenItem(
+			AlbumListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library-frequent",
 				album = album,
@@ -261,7 +261,7 @@ fun LibraryScreenContent(
 			key = { it.id },
 			seeAll = true
 		) { album ->
-			AlbumListScreenItem(
+			AlbumListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library-newest",
 				album = album,
@@ -285,7 +285,7 @@ fun LibraryScreenContent(
 			key = { it.id },
 			seeAll = true
 		) { playlist ->
-			PlaylistListScreenItem(
+			PlaylistListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library-playlists",
 				playlist = playlist,
@@ -306,7 +306,7 @@ fun LibraryScreenContent(
 			key = { it.id },
 			seeAll = true
 		) { artist ->
-			ArtistsScreenItem(
+			ArtistListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library-artists",
 				artist = artist,

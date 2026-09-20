@@ -8,17 +8,20 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_albums
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
 
 fun LazyGridScope.albumListScreenContent(
 	state: UiState<List<DomainAlbum>>,
 	starred: Boolean,
 	selectedAlbum: DomainAlbum?,
 	selectedAlbumRating: Int,
+	selectedViewMode: ListViewMode,
 	onUpdateSelection: (DomainAlbum) -> Unit,
 	onClearSelection: () -> Unit,
 	onSetShareId: (String) -> Unit,
@@ -30,26 +33,43 @@ fun LazyGridScope.albumListScreenContent(
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
 		items(data, { it.id }) { album ->
-			AlbumListScreenItem(
-				modifier = Modifier.animateItem(),
-				tab = "albums",
-				album = album,
-				selected = album == selectedAlbum,
-				starred = starred,
-				onSelect = { onUpdateSelection(album) },
-				onDeselect = { onClearSelection() },
-				onSetStarred = { onSetStarred(it) },
-				onSetShareId = onSetShareId,
-				onPlayNext = onPlayNext,
-				onAddToQueue = onAddToQueue,
-				rating = selectedAlbumRating,
-				onSetRating = onRateSelectedAlbum
-			)
+			if (selectedViewMode == ListViewMode.Grid) {
+				AlbumListScreenGridItem(
+					modifier = Modifier.animateItem(),
+					tab = "albums",
+					album = album,
+					selected = album == selectedAlbum,
+					starred = starred,
+					onSelect = { onUpdateSelection(album) },
+					onDeselect = { onClearSelection() },
+					onSetStarred = { onSetStarred(it) },
+					onSetShareId = onSetShareId,
+					onPlayNext = onPlayNext,
+					onAddToQueue = onAddToQueue,
+					rating = selectedAlbumRating,
+					onSetRating = onRateSelectedAlbum
+				)
+			} else {
+				AlbumListScreenListItem(
+					modifier = Modifier.animateItem(),
+					album = album,
+					selected = album == selectedAlbum,
+					starred = starred,
+					onSelect = { onUpdateSelection(album) },
+					onDeselect = { onClearSelection() },
+					onSetStarred = { onSetStarred(it) },
+					onSetShareId = onSetShareId,
+					onPlayNext = onPlayNext,
+					onAddToQueue = onAddToQueue,
+					rating = selectedAlbumRating,
+					onSetRating = onRateSelectedAlbum
+				)
+			}
 		}
 	} else {
 		when (state) {
 			is UiState.Loading -> {
-				artGridPlaceholder()
+				artGridPlaceholder(viewMode = selectedViewMode)
 			}
 
 			else -> {

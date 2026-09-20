@@ -48,6 +48,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.firstOrNull
 
 private const val TAG = "CastBridge"
 

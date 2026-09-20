@@ -5,8 +5,10 @@ import org.koin.dsl.module
 import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.CastScrobbler
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.EqualiserManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.manager.PlaylistDownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -47,4 +49,6 @@ val managerModule = module {
 	singleOf(::NativeApiManager)
 	single(createdAtStart = true) { PlaylistDownloadManager(get(), get(), get(), get()) }
 	singleOf(::SnackBarManager)
+	singleOf(::LoginManager)
+	singleOf(::EqualiserManager)
 }

@@ -40,14 +40,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import coil3.SingletonImageLoader
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_clear_downloads
@@ -55,6 +54,9 @@ import navic.composeapp.generated.resources.action_clear_image_cache
 import navic.composeapp.generated.resources.action_clear_pending_actions
 import navic.composeapp.generated.resources.action_rebuild_database
 import navic.composeapp.generated.resources.action_trigger_sync
+import navic.composeapp.generated.resources.count_days_ago
+import navic.composeapp.generated.resources.count_hours_ago
+import navic.composeapp.generated.resources.count_minutes_ago
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.info_library_download
 import navic.composeapp.generated.resources.info_library_download_warning
@@ -62,10 +64,7 @@ import navic.composeapp.generated.resources.info_not_available_offline
 import navic.composeapp.generated.resources.info_progress
 import navic.composeapp.generated.resources.info_status_calculating
 import navic.composeapp.generated.resources.info_status_downloading
-import navic.composeapp.generated.resources.info_sync_date_format
-import navic.composeapp.generated.resources.info_sync_hours_ago
 import navic.composeapp.generated.resources.info_sync_just_now
-import navic.composeapp.generated.resources.info_sync_mins_ago
 import navic.composeapp.generated.resources.info_sync_never
 import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_downloaded_songs
@@ -74,6 +73,7 @@ import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pending_actions
+import navic.composeapp.generated.resources.subtitle_download_quality
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_download_center
 import navic.composeapp.generated.resources.subtitle_pending_actions
@@ -83,6 +83,7 @@ import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
 import navic.composeapp.generated.resources.title_danger_zone
 import navic.composeapp.generated.resources.title_data_storage
+import navic.composeapp.generated.resources.title_download_quality
 import navic.composeapp.generated.resources.title_library_download
 import navic.composeapp.generated.resources.title_network
 import navic.composeapp.generated.resources.title_sync_control
@@ -90,16 +91,17 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.icons.Icons
+import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
-import paige.navic.LocalNavStack
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
@@ -168,6 +170,25 @@ fun SettingsDataStorageScreen() {
 		}
 	}
 
+	@Composable
+	fun timeSinceLastSync(): String {
+		val time = preferenceManager.lastFullSyncTime
+
+		if (time == 0L) return stringResource(Res.string.info_sync_never)
+
+		val duration = Clock.System.now() - Instant.fromEpochMilliseconds(time)
+		val minutes = duration.inWholeMinutes.toInt()
+		val hours = duration.inWholeHours.toInt()
+		val days = duration.inWholeDays.toInt()
+
+		return when {
+			minutes < 1 -> stringResource(Res.string.info_sync_just_now)
+			hours < 1 -> pluralStringResource(Res.plurals.count_minutes_ago, minutes, minutes)
+			days < 1 -> pluralStringResource(Res.plurals.count_hours_ago, hours, hours)
+			else -> pluralStringResource(Res.plurals.count_days_ago, days, days)
+		}
+	}
+
 	LaunchedEffect(Unit) {
 		withContext(Dispatchers.IO) {
 			val sizeBytes = imageLoader.diskCache?.size ?: 0L
@@ -200,10 +221,24 @@ fun SettingsDataStorageScreen() {
 				Modifier
 					.padding(innerPadding)
 					.verticalScroll(rememberScrollState())
-					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
+					.padding(top = 16.dp, end = 16.dp, start = 16.dp)
 			) {
 				FormTitle(stringResource(Res.string.title_network))
 				Form {
+					FormRow(
+						onClick = dropUnlessResumed { backStack.add(Screen.Settings.DownloadQuality) },
+						horizontalArrangement = Arrangement.Start
+					) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.title_download_quality))
+							Text(
+								text = stringResource(Res.string.subtitle_download_quality),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Icon(Icons.Outlined.ChevronForward, null)
+					}
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_offline_mode)) },
 						items = OfflineMode.entries.toImmutableList(),
@@ -278,18 +313,7 @@ fun SettingsDataStorageScreen() {
 						Column(Modifier.weight(1f)) {
 							Text(stringResource(Res.string.option_last_sync))
 							Text(
-								text = if (preferenceManager.lastFullSyncTime == 0L) {
-									stringResource(Res.string.info_sync_never)
-								} else {
-									Instant.fromEpochMilliseconds(
-										preferenceManager.lastFullSyncTime
-									).toRelativeString(
-										justNow = stringResource(Res.string.info_sync_just_now),
-										minsAgo = stringResource(Res.string.info_sync_mins_ago),
-										hoursAgo = stringResource(Res.string.info_sync_hours_ago),
-										dateFormat = stringResource(Res.string.info_sync_date_format)
-									)
-								},
+								text = timeSinceLastSync(),
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
@@ -385,7 +409,6 @@ fun SettingsDataStorageScreen() {
 										Row(verticalAlignment = Alignment.CenterVertically) {
 											TextButton(
 												onClick = {
-													platformContext.clickSound()
 													viewModel.cancelLibraryDownload()
 												},
 												contentPadding = PaddingValues(
@@ -473,30 +496,6 @@ fun SettingsDataStorageScreen() {
 					}
 				}
 			}
-		}
-	}
-}
-
-private fun Instant.toRelativeString(
-	justNow: String,
-	minsAgo: String,
-	hoursAgo: String,
-	dateFormat: String
-): String {
-	val now = Clock.System.now()
-	val diff = now - this
-	val seconds = diff.inWholeSeconds
-
-	return when {
-		seconds < 60 -> justNow
-		seconds < 3600 -> minsAgo.replace($$"%1$d", (seconds / 60).toString())
-		seconds < 86400 -> hoursAgo.replace($$"%1$d", (seconds / 3600).toString())
-		else -> {
-			val date = this.toLocalDateTime(TimeZone.currentSystemDefault())
-			val monthName = date.month.name.lowercase().take(3)
-			dateFormat
-				.replace($$"%1$d", date.day.toString())
-				.replace($$"%1$s", monthName)
 		}
 	}
 }

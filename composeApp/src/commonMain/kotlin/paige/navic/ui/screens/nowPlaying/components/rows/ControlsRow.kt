@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.components.rows
 
+import paige.navic.di.isLandscape
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement

@@ -74,7 +74,6 @@ import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.dialogs.SideloadingDialog
 import paige.navic.ui.components.sheets.ChangelogSheet
-import paige.navic.ui.components.snackbars.NavicSnackbar
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
@@ -125,6 +124,8 @@ import paige.navic.di.rememberPlatformContext
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.util.ui.rememberLibraryTabBackground
 import paige.navic.util.ui.rememberLibraryWashedScheme
+import paige.navic.ui.screens.song.SongDetailSheet
+import paige.navic.ui.components.snackbars.NavicSnackBar
 
 @OptIn(ExperimentalSerializationApi::class)
 private val config = SavedStateConfiguration {
@@ -138,7 +139,7 @@ private val config = SavedStateConfiguration {
 val LocalPlatformContext =
 	staticCompositionLocalOf<PlatformContext> { error("no platform context") }
 val LocalNavStack = staticCompositionLocalOf<NavBackStack<NavKey>> { error("no backstack") }
-val LocalSnackbarState = staticCompositionLocalOf<SnackbarHostState> { error("no snackbar state") }
+val LocalSnackBarState = staticCompositionLocalOf<SnackbarHostState> { error("no snackbar state") }
 val LocalSharedTransitionScope =
 	staticCompositionLocalOf<SharedTransitionScope> { error("no shared transition scope") }
 
@@ -181,12 +182,12 @@ fun App() {
 			Screen.Login
 		}
 	)
-	val snackbarState = remember { SnackbarHostState() }
+	val snackBarState = remember { SnackbarHostState() }
 	val snackBarManager = koinInject<SnackBarManager>()
 
 	LaunchedEffect(Unit) {
 		snackBarManager.events.collectLatest { event ->
-			snackbarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
+			snackBarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
 		}
 	}
 
@@ -251,7 +252,7 @@ fun App() {
 				LbBotManager.OUTCOME_FAILED -> fillLost.replace("%1\$s", name)
 				else -> return@collect
 			}
-			snackbarState.showSnackbar(message)
+			snackBarState.showSnackbar(message)
 		}
 	}
 
@@ -270,7 +271,7 @@ fun App() {
 		CompositionLocalProvider(
 			LocalPlatformContext provides platformContext,
 			LocalNavStack provides backStack,
-			LocalSnackbarState provides snackbarState,
+			LocalSnackBarState provides snackBarState,
 			LocalSharedTransitionScope provides this@SharedTransitionLayout,
 			LocalBottomBarScrollManager provides scrollManager,
 			LocalExpressiveBlur provides expressiveBlur
@@ -279,8 +280,8 @@ fun App() {
 				Scaffold(
 					modifier = Modifier.nestedScroll(scrollManager.connection),
 					snackbarHost = {
-						SnackbarHost(hostState = snackbarState) { snackbarData ->
-							NavicSnackbar(snackbarData = snackbarData)
+						SnackbarHost(hostState = snackBarState) { snackBarData ->
+							NavicSnackBar(snackBarData = snackBarData)
 						}
 					}
 				) { contentPadding ->
@@ -411,8 +412,13 @@ private fun entryProvider(
 		entry<Screen.CollectionDetail>(metadata = detailPane("root")) { key ->
 			CollectionDetailScreen(key.collectionId, key.tab)
 		}
-		entry<Screen.SongDetail>(metadata = detailPane("root")) { key ->
-			SongDetailScreen(key.songId)
+		entry<Screen.SongDetailScreen>(metadata = detailPane("root")) { key ->
+			SongDetailScreen(key.songId, key.coverArtId)
+		}
+		entry<Screen.SongDetailSheet>(
+			metadata = { key -> BottomSheetSceneStrategy.bottomSheet() }
+		) { key ->
+			SongDetailSheet(key.songId, key.coverArtId)
 		}
 		entry<Screen.Search>(metadata = navtabMetadata) { key ->
 			Washed { SearchScreen(key.nested) }

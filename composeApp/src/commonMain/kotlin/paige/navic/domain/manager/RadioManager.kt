@@ -21,6 +21,8 @@ import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.first
 
 /**
  * Similarity radio ("instant mix") via OpenSubsonic `getSimilarSongs2`. Works

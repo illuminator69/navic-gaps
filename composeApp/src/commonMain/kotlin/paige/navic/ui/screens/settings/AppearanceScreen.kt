@@ -39,10 +39,13 @@ import navic.composeapp.generated.resources.option_alphabetical_scroll
 import navic.composeapp.generated.resources.option_animation_style
 import navic.composeapp.generated.resources.option_artist_image_shape
 import navic.composeapp.generated.resources.option_artwork_shape
+import navic.composeapp.generated.resources.option_choose_app_icon
 import navic.composeapp.generated.resources.option_choose_theme
 import navic.composeapp.generated.resources.option_cover_art_size
+import navic.composeapp.generated.resources.option_dynamic_theming
 import navic.composeapp.generated.resources.option_grid_items_per_row
 import navic.composeapp.generated.resources.option_use_marquee_text
+import navic.composeapp.generated.resources.subtitle_dynamic_theming
 import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_choose_font
 import navic.composeapp.generated.resources.title_layout
@@ -66,6 +69,7 @@ import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.ArtworkShapeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizePreview
+import paige.navic.di.PlatformType
 
 @Composable
 fun SettingsAppearanceScreen() {
@@ -121,6 +125,22 @@ fun SettingsAppearanceScreen() {
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
+						}
+					}
+					if (platformContext.platformType == PlatformType.Android) {
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.add(Screen.Settings.AppIcon)
+							}
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.option_choose_app_icon))
+								Text(
+									preferenceManager.appIconVariant.name,
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
 						}
 					}
 				}
@@ -229,18 +249,25 @@ fun SettingsAppearanceScreen() {
 
 				FormTitle(stringResource(Res.string.title_miscellaneous))
 				Form {
-					SettingSelectionRow(
-						title = { Text(stringResource(Res.string.option_use_marquee_text)) },
-						items = MarqueeSpeed.entries.toImmutableList(),
-						label = { it.name },
-						selection = preferenceManager.marqueeSpeed,
-						onSelect = { preferenceManager.marqueeSpeed = it }
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_dynamic_theming)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_dynamic_theming)) },
+						value = preferenceManager.dynamicTheming,
+						onSetValue = { preferenceManager.dynamicTheming = it }
 					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_alphabetical_scroll)) },
 						value = preferenceManager.alphabeticalScroll,
 						onSetValue = { preferenceManager.alphabeticalScroll = it }
+					)
+
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_use_marquee_text)) },
+						items = MarqueeSpeed.entries.toImmutableList(),
+						label = { it.name },
+						selection = preferenceManager.marqueeSpeed,
+						onSelect = { preferenceManager.marqueeSpeed = it }
 					)
 
 					SettingSelectionRow(

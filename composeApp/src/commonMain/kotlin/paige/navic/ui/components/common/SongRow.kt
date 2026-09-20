@@ -169,7 +169,7 @@ fun SongRow(
 				}
 			},
 			onTrackInfo = dropUnlessResumed {
-				backStack.add(Screen.SongDetail(song.id))
+				backStack.add(Screen.SongDetailSheet(song.id))
 			},
 			onViewAlbum = song.albumId?.let { albumId ->
 				dropUnlessResumed {

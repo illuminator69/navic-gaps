@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.album
 
+import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.persistentListOf
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_albums
 import org.jetbrains.compose.resources.stringResource
@@ -28,13 +30,15 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AlphabeticalScroller
-import paige.navic.ui.components.snackbars.ErrorSnackbar
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.components.common.alphabeticalHeaders
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -42,6 +46,7 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.album.components.AlbumListScreenSortButton
 import paige.navic.ui.screens.album.components.albumListScreenContent
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
@@ -55,11 +60,18 @@ fun AlbumListScreen(
 	nested: Boolean = false,
 	listType: DomainAlbumListType
 ) {
+	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.albumListViewMode
 
 	val viewModel = koinViewModel<AlbumListViewModel>(
 		key = listType.toString(),
-		parameters = { parametersOf(listType) }
+		parameters = { parametersOf(listType) },
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
 	)
 	val player = koinInject<MediaPlayerViewModel>()
 	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
@@ -78,7 +90,9 @@ fun AlbumListScreen(
 			selectedSorting = selectedSorting,
 			onSetSorting = { viewModel.setListType(it) },
 			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) }
+			onSetReversed = { viewModel.setReversed(it) },
+			selectedViewMode = selectedViewMode,
+			onSetViewMode = { preferenceManager.albumListViewMode = it }
 		)
 	}
 
@@ -96,7 +110,8 @@ fun AlbumListScreen(
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested || preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
+			val preferVisible = preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -117,13 +132,15 @@ fun AlbumListScreen(
 					contentPadding = innerPadding.withoutTop(),
 					verticalArrangement = if ((albumsState as? UiState.Success)?.data?.isEmpty() == true)
 						Arrangement.Center
-					else Arrangement.spacedBy(12.dp)
+					else Arrangement.spacedBy(12.dp),
+					selectedViewMode = selectedViewMode
 				) {
 					albumListScreenContent(
 						state = albumsState,
 						starred = starred,
 						selectedAlbum = selectedAlbum,
 						selectedAlbumRating = rating,
+						selectedViewMode = selectedViewMode,
 						onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
 						onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
 						onUpdateSelection = { viewModel.selectAlbum(it) },
@@ -160,7 +177,7 @@ fun AlbumListScreen(
 		}
 	}
 
-	ErrorSnackbar(
+	ErrorSnackBar(
 		error = (albumsState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)

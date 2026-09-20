@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -29,7 +32,7 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -42,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -61,7 +65,6 @@ import navic.composeapp.generated.resources.title_palette
 import navic.composeapp.generated.resources.title_theme_mode
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
@@ -71,22 +74,18 @@ import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.ui.components.common.TooltipBox
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
+import paige.navic.util.core.label
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsThemesScreen() {
-	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	Scaffold(
-		topBar = {
-			NestedTopBar(
-				{ Text(stringResource(Res.string.option_choose_theme)) },
-				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
-			)
-		},
+		topBar = { NestedTopBar({ Text(stringResource(Res.string.option_choose_theme)) }) },
 		contentWindowInsets = WindowInsets.statusBars
 	) { innerPadding ->
 		CompositionLocalProvider(
@@ -112,7 +111,9 @@ fun SettingsThemesScreen() {
 				Form {
 					FormRow {
 						LazyRow(
-							modifier = Modifier.fillMaxWidth(),
+							modifier = Modifier
+								.fillMaxWidth()
+								.selectableGroup(),
 							horizontalArrangement = Arrangement.SpaceBetween
 						) {
 							items(Theme.entries) { theme ->
@@ -125,19 +126,34 @@ fun SettingsThemesScreen() {
 						}
 					}
 
-					if (preferenceManager.theme == Theme.Seeded) {
+					AnimatedVisibility(
+						modifier = Modifier.fillMaxWidth(),
+						visible = preferenceManager.theme == Theme.Seeded
+					) {
 						ThemeAccentPicker()
+					}
+
+					AnimatedVisibility(
+						modifier = Modifier.fillMaxWidth(),
+						visible = preferenceManager.theme == Theme.Seeded
+					) {
 						SettingSelectionRow(
 							title = { Text(stringResource(Res.string.option_palette_style)) },
 							items = PaletteStyle.entries.toImmutableList(),
-							label = { it.name },
+							label = { it.label() },
 							selection = preferenceManager.paletteStyle,
 							onSelect = { preferenceManager.paletteStyle = it }
 						)
+					}
+
+					AnimatedVisibility(
+						modifier = Modifier.fillMaxWidth(),
+						visible = preferenceManager.theme == Theme.Seeded
+					) {
 						SettingSelectionRow(
 							title = { Text(stringResource(Res.string.option_palette_specification)) },
 							items = ColorSpec.SpecVersion.entries.toImmutableList(),
-							label = { it.name },
+							label = { it.label() },
 							selection = preferenceManager.paletteSpec,
 							onSelect = { preferenceManager.paletteSpec = it }
 						)
@@ -175,8 +191,12 @@ private fun BaseCard(
 			.size(64.dp)
 			.border(4.dp, borderColor, shape)
 			.clip(shape)
-			.clickable(
+			.selectable(
+				selected = isSelected,
 				interactionSource = interactionSource,
+				indication = ripple(),
+				enabled = true,
+				role = Role.ValuePicker,
 				onClick = dropUnlessResumed {
 					haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
 					onSelect()
@@ -203,48 +223,50 @@ private fun ThemeCard(
 	val colorScheme = theme.colorScheme()
 	val title = stringResource(theme.title)
 
-	BaseCard(
-		modifier = Modifier.semantics {
-			contentDescription = title
-		},
-		isSelected = isSelected,
-		onSelect = onSelect,
-	) {
-		if (theme != Theme.Seeded) {
-			Box(
-				modifier = Modifier
-					.weight(1f)
-					.fillMaxSize()
-					.background(colorScheme.primary)
-			)
+	TooltipBox(title) {
+		BaseCard(
+			modifier = Modifier.semantics {
+				contentDescription = title
+			},
+			isSelected = isSelected,
+			onSelect = onSelect,
+		) {
+			if (theme != Theme.Seeded) {
+				Box(
+					modifier = Modifier
+						.weight(1f)
+						.fillMaxSize()
+						.background(colorScheme.primary)
+				)
 
-			Row(modifier = Modifier.weight(1f)) {
+				Row(modifier = Modifier.weight(1f)) {
+					Box(
+						modifier = Modifier
+							.weight(1f)
+							.fillMaxSize()
+							.background(colorScheme.secondary)
+					)
+					Box(
+						modifier = Modifier
+							.weight(1f)
+							.fillMaxSize()
+							.background(colorScheme.tertiary)
+					)
+				}
+			} else {
 				Box(
 					modifier = Modifier
 						.weight(1f)
 						.fillMaxSize()
-						.background(colorScheme.secondary)
-				)
-				Box(
-					modifier = Modifier
-						.weight(1f)
-						.fillMaxSize()
-						.background(colorScheme.tertiary)
-				)
-			}
-		} else {
-			Box(
-				modifier = Modifier
-					.weight(1f)
-					.fillMaxSize()
-					.background(MaterialTheme.colorScheme.primaryContainer),
-				contentAlignment = Alignment.Center
-			) {
-				Icon(
-					Icons.Outlined.Picker,
-					contentDescription = null,
-					tint = MaterialTheme.colorScheme.onPrimaryContainer
-				)
+						.background(MaterialTheme.colorScheme.primaryContainer),
+					contentAlignment = Alignment.Center
+				) {
+					Icon(
+						Icons.Outlined.Picker,
+						contentDescription = null,
+						tint = MaterialTheme.colorScheme.onPrimaryContainer
+					)
+				}
 			}
 		}
 	}

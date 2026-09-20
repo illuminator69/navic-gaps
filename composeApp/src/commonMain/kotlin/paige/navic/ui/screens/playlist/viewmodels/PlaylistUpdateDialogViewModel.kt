@@ -15,6 +15,7 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.core.UiState
 import dev.zt64.subsonic.api.model.Playlist as ApiPlaylist
+import kotlinx.coroutines.flow.first
 
 class PlaylistUpdateDialogViewModel(
 	private val songs: List<DomainSong>,
