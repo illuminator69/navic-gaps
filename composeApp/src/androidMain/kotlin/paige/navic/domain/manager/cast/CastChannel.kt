@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import java.net.InetSocketAddress
 import java.security.SecureRandom
 import java.security.cert.X509Certificate

@@ -28,7 +28,7 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.screens.genre.components.genreListScreenContent
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.core.UiState
-import paige.navic.util.ui.withoutTop
+import paige.navic.ui.util.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable

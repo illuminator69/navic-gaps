@@ -19,7 +19,7 @@ import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.CastSpeaker
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.random.Random
 
 private const val TAG = "CastBridgeManager"

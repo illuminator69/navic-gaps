@@ -15,7 +15,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import java.net.Inet4Address
 
 private const val TAG = "CastDiscovery"

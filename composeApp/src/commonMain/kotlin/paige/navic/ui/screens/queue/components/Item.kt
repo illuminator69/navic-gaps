@@ -38,8 +38,8 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.common.SongRowStatus
-import paige.navic.util.ui.DraggableListState
-import paige.navic.util.ui.dragHandle
+import paige.navic.ui.util.DraggableListState
+import paige.navic.ui.util.dragHandle
 import paige.navic.util.ui.segmentedShapes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

@@ -42,7 +42,7 @@ import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.screens.song.components.SongListScreenSortButton
 import paige.navic.ui.screens.song.components.songListScreenContent
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
-import paige.navic.util.ui.withoutTop
+import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)

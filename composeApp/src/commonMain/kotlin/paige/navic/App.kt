@@ -115,10 +115,10 @@ import paige.navic.ui.screens.song.SongDetailScreen
 import paige.navic.ui.screens.song.SongListScreen
 import paige.navic.ui.screens.starred.StarredScreen
 import paige.navic.ui.theme.NavicTheme
-import paige.navic.util.core.PlatformContext
-import paige.navic.util.core.PlatformType
-import paige.navic.util.core.rememberPlatformContext
-import paige.navic.util.ui.Material3Transitions
+import paige.navic.di.PlatformContext
+import paige.navic.di.PlatformType
+import paige.navic.di.rememberPlatformContext
+import paige.navic.ui.util.Material3Transitions
 import paige.navic.util.ui.rememberLibraryTabBackground
 import paige.navic.util.ui.rememberLibraryWashedScheme
 

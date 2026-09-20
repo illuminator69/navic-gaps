@@ -46,7 +46,7 @@ import paige.navic.ui.screens.album.components.AlbumListScreenSortButton
 import paige.navic.ui.screens.album.components.albumListScreenContent
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.util.ui.withoutTop
+import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)

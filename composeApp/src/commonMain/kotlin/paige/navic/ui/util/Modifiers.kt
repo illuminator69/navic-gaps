@@ -1,4 +1,4 @@
-package paige.navic.util.ui
+package paige.navic.ui.util
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode

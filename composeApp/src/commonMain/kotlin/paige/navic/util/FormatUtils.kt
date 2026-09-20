@@ -1,4 +1,4 @@
-package paige.navic.util.core
+package paige.navic.util
 
 import kotlin.math.log10
 import kotlin.math.pow

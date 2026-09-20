@@ -30,7 +30,7 @@ import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.Queue
-import paige.navic.util.core.toHoursMinutesSeconds
+import paige.navic.util.toHoursMinutesSeconds
 import kotlin.time.Duration
 
 /**

@@ -19,7 +19,7 @@
 // Based on https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:compose/foundation/foundation/integration-tests/foundation-demos/src/main/java/androidx/compose/foundation/demos/LazyColumnDragAndDropDemo.kt
 // https://issuetracker.google.com/issues/181282427
 
-package paige.navic.util.ui
+package paige.navic.ui.util
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring

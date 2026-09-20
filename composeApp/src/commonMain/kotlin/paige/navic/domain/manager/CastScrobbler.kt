@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import paige.navic.data.database.entities.SyncActionType
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.time.Clock
 
 private const val TAG = "CastScrobbler"

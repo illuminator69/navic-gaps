@@ -44,7 +44,7 @@ import paige.navic.data.database.entities.LyricEntity
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.time.Clock
 import coil3.PlatformContext as CoilPlatformContext
 

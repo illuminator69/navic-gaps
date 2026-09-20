@@ -37,7 +37,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.theme.defaultFont
-import paige.navic.util.ui.EmphasizedDecelerateEasing
+import paige.navic.ui.util.EmphasizedDecelerateEasing
 
 @Composable
 fun CollectionDetailScreenHeadingRow(

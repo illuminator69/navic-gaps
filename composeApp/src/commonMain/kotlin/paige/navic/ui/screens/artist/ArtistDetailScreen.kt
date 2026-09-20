@@ -95,7 +95,7 @@ import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.util.ui.AmbientColorHolder
-import paige.navic.util.core.ForceSystemBars
+import paige.navic.di.ForceSystemBars
 import paige.navic.util.ui.coverAmbientGradient
 import paige.navic.util.ui.onAmbientColor
 import paige.navic.util.ui.rememberCoverColorScheme

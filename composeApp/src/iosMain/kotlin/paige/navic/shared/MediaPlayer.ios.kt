@@ -25,7 +25,7 @@ import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.setActive

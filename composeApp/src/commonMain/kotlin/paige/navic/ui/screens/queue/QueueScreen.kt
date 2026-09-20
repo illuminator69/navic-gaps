@@ -81,8 +81,8 @@ import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
 import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.screens.song.components.songListScreenContent
-import paige.navic.util.ui.draggableItemsIndexed
-import paige.navic.util.ui.rememberDraggableListState
+import paige.navic.ui.util.draggableItemsIndexed
+import paige.navic.ui.util.rememberDraggableListState
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next

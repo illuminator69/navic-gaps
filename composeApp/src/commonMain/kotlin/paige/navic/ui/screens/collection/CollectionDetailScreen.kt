@@ -71,11 +71,11 @@ import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.util.ui.AmbientColorHolder
-import paige.navic.util.core.ForceSystemBars
+import paige.navic.di.ForceSystemBars
 import paige.navic.util.ui.coverAmbientGradient
 import paige.navic.util.ui.onAmbientColor
 import paige.navic.util.ui.rememberCoverColorScheme
-import paige.navic.util.ui.withoutTop
+import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)

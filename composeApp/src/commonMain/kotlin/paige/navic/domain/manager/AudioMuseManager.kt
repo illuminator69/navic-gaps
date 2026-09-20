@@ -21,7 +21,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 /**
  * Tier-2 AudioMuse-AI core API client, unlocking features the Navidrome plugin

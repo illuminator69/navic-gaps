@@ -69,7 +69,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.LyricsPriorityDialog
-import paige.navic.util.core.PlatformType
+import paige.navic.di.PlatformType
 import kotlin.math.roundToInt
 
 @Composable

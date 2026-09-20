@@ -1,4 +1,4 @@
-package paige.navic.util.core
+package paige.navic.util
 
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.DomainReplayGain

@@ -9,7 +9,7 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.concurrent.Volatile
 import kotlin.math.roundToLong
 import kotlin.time.Clock

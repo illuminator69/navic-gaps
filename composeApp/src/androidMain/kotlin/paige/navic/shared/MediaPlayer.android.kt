@@ -75,9 +75,9 @@ import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
-import paige.navic.util.core.ResourceProvider
-import paige.navic.util.core.effectiveGain
+import paige.navic.util.Logger
+import paige.navic.di.ResourceProvider
+import paige.navic.util.effectiveGain
 import java.io.File
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds

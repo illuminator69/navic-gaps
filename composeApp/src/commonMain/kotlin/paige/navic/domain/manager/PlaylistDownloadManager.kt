@@ -17,7 +17,7 @@ import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.relations.PlaylistSong
 import paige.navic.domain.repositories.DbRepository
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 @Serializable
 data class PlaylistDownloadPolicy(

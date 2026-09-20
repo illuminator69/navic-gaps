@@ -12,7 +12,7 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.repositories.SavedQueueRepository
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 /**
  * Backs the "Saved queues" list: the rolling history from [SavedQueueRepository] plus rename/delete

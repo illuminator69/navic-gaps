@@ -21,7 +21,7 @@ import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
-import paige.navic.util.ui.easedVerticalGradient
+import paige.navic.ui.util.easedVerticalGradient
 
 @Composable
 fun RootBottomBar(

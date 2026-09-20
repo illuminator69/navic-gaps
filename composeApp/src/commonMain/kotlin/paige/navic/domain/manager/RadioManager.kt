@@ -20,7 +20,7 @@ import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 /**
  * Similarity radio ("instant mix") via OpenSubsonic `getSimilarSongs2`. Works

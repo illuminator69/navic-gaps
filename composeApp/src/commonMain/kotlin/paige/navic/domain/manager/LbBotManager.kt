@@ -39,7 +39,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 /**
  * lb-bot: what the library is *missing*.

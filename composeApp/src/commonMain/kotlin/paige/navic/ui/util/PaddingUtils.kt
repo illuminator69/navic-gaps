@@ -1,4 +1,4 @@
-package paige.navic.util.ui
+package paige.navic.ui.util
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.minus

@@ -40,8 +40,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.core.UiState
-import paige.navic.util.ui.EmphasizedDecelerateEasing
-import paige.navic.util.ui.shimmerLoading
+import paige.navic.ui.util.EmphasizedDecelerateEasing
+import paige.navic.ui.util.shimmerLoading
 
 @Composable
 fun ArtGrid(

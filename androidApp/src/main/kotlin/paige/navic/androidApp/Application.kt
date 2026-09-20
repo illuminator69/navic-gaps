@@ -10,10 +10,10 @@ import coil3.SingletonImageLoader
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
-import paige.navic.androidApp.shared.AndroidResourceProvider
+import paige.navic.androidApp.di.AndroidResourceProvider
 import paige.navic.di.initKoin
 import paige.navic.di.initializeSingletonImageLoader
-import paige.navic.util.core.ResourceProvider
+import paige.navic.di.ResourceProvider
 import kotlin.system.exitProcess
 
 /**

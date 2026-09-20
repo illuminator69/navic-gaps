@@ -47,7 +47,7 @@ import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.shared.RemotePlaybackRouter
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 

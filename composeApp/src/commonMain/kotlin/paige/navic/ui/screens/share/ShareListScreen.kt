@@ -44,7 +44,7 @@ import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.share.components.ShareListScreenItem
 import paige.navic.ui.screens.share.viewmodels.ShareListViewModel
-import paige.navic.util.ui.withoutTop
+import paige.navic.ui.util.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable

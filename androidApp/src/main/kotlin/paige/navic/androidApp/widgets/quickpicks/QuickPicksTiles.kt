@@ -12,7 +12,7 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 
 private const val LOG_TAG = "QuickPicksWidget"
 

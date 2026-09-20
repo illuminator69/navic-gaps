@@ -39,7 +39,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.random.Random

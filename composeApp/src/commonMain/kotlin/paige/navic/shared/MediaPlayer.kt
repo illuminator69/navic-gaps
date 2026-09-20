@@ -29,7 +29,7 @@ import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.core.PlayerUiState
-import paige.navic.util.core.Logger
+import paige.navic.util.Logger
 import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
