@@ -45,7 +45,8 @@ fun CollectionDetailScreenSongRowDropdown(
 	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
-	var duplicateQueueDialogShown by rememberSaveable { mutableStateOf(false) }
+
+	var isPlayNextPending by rememberSaveable { mutableStateOf<Boolean?>(null) }
 
 	if (expanded) {
 		SongSheet(
@@ -65,14 +66,14 @@ fun CollectionDetailScreenSongRowDropdown(
 			}?.let { now -> { radioManager.startJourney(now.id, song.id) } },
 			onPlayNext = {
 				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
+					isPlayNextPending = true
 				} else {
 					onPlayNext()
 				}
 			},
 			onAddToQueue = {
 				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
+					isPlayNextPending = false
 				} else {
 					onAddToQueue()
 				}
@@ -116,14 +117,15 @@ fun CollectionDetailScreenSongRowDropdown(
 		)
 	}
 
-	if (duplicateQueueDialogShown) {
+	if (isPlayNextPending != null) {
 		QueueDuplicateDialog(
 			onDismissRequest = {
-				duplicateQueueDialogShown = false
+				isPlayNextPending = null
 				onDismissRequest()
 			},
 			onConfirm = {
-				onAddToQueue()
+				if (isPlayNextPending == true) onPlayNext() else onAddToQueue()
+				isPlayNextPending = null
 			}
 		)
 	}

@@ -1,12 +1,8 @@
 <resources>
 	<string name="app_name" translatable="false">Navic</string>
 
-	<string name="greeting_morning">Good morning</string>
-	<string name="greeting_afternoon">Good afternoon</string>
-	<string name="greeting_evening">Good evening</string>
-
 	<string name="title_library">Library</string>
-	<string name="title_starred">Favorites</string>
+	<string name="title_starred">Starred</string>
 	<string name="title_playlists">Playlists</string>
 	<string name="title_settings">Settings</string>
 	<string name="title_search">Search</string>
@@ -14,8 +10,6 @@
 	<string name="title_behaviour">Behaviour</string>
 	<string name="title_now_playing">Now Playing</string>
 	<string name="title_bottom_app_bar">Bottom Bar</string>
-	<string name="title_navi_connect" translatable="false">navi-connect</string>
-	<string name="subtitle_navi_connect">Remote control and playback transfer between devices</string>
 	<string name="title_playback">Playback</string>
 	<string name="title_data_storage">Data &amp; Storage</string>
 	<string name="title_sync_control">Synchronization Control</string>
@@ -30,7 +24,6 @@
 	<string name="title_create_playlist">Create playlist</string>
 	<string name="title_create_radio">Create radio</string>
 	<string name="title_albums">Albums</string>
-	<string name="title_appears_on">Appears on</string>
 	<string name="title_songs">Songs</string>
 	<string name="title_artists">Artists</string>
 	<string name="title_radios">Radios</string>
@@ -63,16 +56,14 @@
 	<string name="title_select_lyrics">Select Lyrics</string>
 	<string name="title_advanced">Advanced Transcoding</string>
 	<string name="title_logs">Logs</string>
-	<string name="hint_logs_filter">Filter by tag or text</string>
-	<string name="action_logs_copy_all">Copy visible logs</string>
-	<string name="action_logs_follow">Follow new logs</string>
-	<string name="action_logs_unfollow">Stop following</string>
-	<string name="info_logs_empty">No lines match this filter.</string>
+	<string name="title_palette">Palette</string>
+	<string name="title_theme_mode">Theme mode</string>
+	<string name="title_account">Account</string>
 
 	<string name="subtitle_appearance">Themes, colours, layout</string>
-	<string name="subtitle_now_playing">Customise the fullscreen now playing view</string>
+	<string name="subtitle_now_playing">Customise the fullscreen now playing and lyrics views</string>
 	<string name="subtitle_bottom_app_bar">Customise the bottom bar &amp; mini player</string>
-	<string name="subtitle_playback">Audio behaviour, scrobbling, lyrics</string>
+	<string name="subtitle_playback">Audio behaviour and scrobbling</string>
 	<string name="subtitle_data_storage">Manage sync, network usage, and cache</string>
 	<string name="subtitle_trigger_sync">Forces a full library pull immediately</string>
 	<string name="subtitle_pending_actions">%1$d items waiting for network</string>
@@ -92,7 +83,7 @@
 	<string name="option_now_playing_background_style">Background style</string>
 	<string name="option_now_playing_background_style_static">Static</string>
 	<string name="option_now_playing_background_style_dynamic">Dynamic</string>
-	<string name="option_accent_colour">Accent colour</string>
+	<string name="option_accent_colour">Palette accent</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_slider_style">Slider style</string>
 	<string name="option_now_playing_slider_style_flat">Flat</string>
@@ -101,6 +92,7 @@
 	<string name="option_now_playing_slider_style_yoyo">Yoyo</string>
 	<string name="option_swipe_to_skip">Swipe to change songs</string>
 	<string name="option_artwork_shape">Artwork shape</string>
+	<string name="option_artist_image_shape">Artist image shape</string>
 	<string name="option_cover_art_size">Cover artwork size</string>
 	<string name="option_use_marquee_text">Text auto-scroll speed</string>
 	<string name="option_alphabetical_scroll">Alphabetical scrolling</string>
@@ -123,7 +115,7 @@
 	<string name="option_sort_downloaded">Downloaded</string>
 	<string name="option_sort_alphabetical_by_name">Alphabetical by name</string>
 	<string name="option_sort_alphabetical_by_artist">Alphabetical by artist</string>
-	<string name="option_sort_starred">Favorites</string>
+	<string name="option_sort_starred">Starred</string>
 	<string name="option_sort_by_year">By year</string>
 	<string name="option_sort_by_genre">By genre</string>
 	<string name="option_sort_playlist_by_name">By name</string>
@@ -165,6 +157,8 @@
 	<string name="option_max_bitrate_wifi">Max Bitrate WiFi (kbps)</string>
 	<string name="option_max_bitrate_cellular">Max Bitrate Cellular (kbps)</string>
 	<string name="option_cover_art_quality">Cover art quality</string>
+	<string name="option_palette_style">Palette style</string>
+	<string name="option_palette_specification">Palette specification</string>
 
 	<string name="info_status_idle">Idle</string>
 	<string name="info_status_calculating">Calculating...</string>
@@ -197,10 +191,10 @@
 	<string name="option_navigation_bar_style">Navigation bar style</string>
 	<string name="option_navigation_bar_style_normal">Normal</string>
 	<string name="option_navigation_bar_style_short">Short</string>
-	<string name="option_navigation_bar_style_floating">Floating</string>
 	<string name="option_navigation_bar_label_visibility">Label visibility</string>
 	<string name="option_navigation_bar_label_visibility_always">Always</string>
 	<string name="option_navigation_bar_label_visibility_only_selected">Only selected</string>
+	<string name="option_navigation_bar_label_visibility_never">Never</string>
 	<string name="option_navigation_bar_tabs">Reorder navigation bar tabs</string>
 
 	<string name="option_mini_player_style">Mini player style</string>
@@ -212,15 +206,10 @@
 	<string name="option_mini_player_progress_style_seekable">Seekable</string>
 
 	<string name="theme_dynamic">Dynamic</string>
-	<string name="theme_subtitle_dynamic">Available on Android 12 and above</string>
 	<string name="theme_seeded">Tinted</string>
-	<string name="theme_subtitle_seeded">One colour for all</string>
 	<string name="theme_ios">Cupertino</string>
-	<string name="theme_subtitle_ios">A city in California</string>
 	<string name="theme_apple_music">Music.app</string>
-	<string name="theme_subtitle_apple_music">A theme with red/pink highlights</string>
 	<string name="theme_spotify">Spotlight</string>
-	<string name="theme_subtitle_spotify">A theme with green highlights</string>
 
 	<string name="theme_mode_system">System</string>
 	<string name="theme_mode_dark">Dark</string>
@@ -229,17 +218,6 @@
 	<plurals name="count_songs">
 		<item quantity="one">%1$d song</item>
 		<item quantity="other">%1$d songs</item>
-	</plurals>
-
-	<!-- Saved queues say "tracks" on both clients; Feishin has always used that word. -->
-	<plurals name="count_tracks">
-		<item quantity="one">%1$d track</item>
-		<item quantity="other">%1$d tracks</item>
-	</plurals>
-
-	<plurals name="info_index_scanned_days">
-		<item quantity="one">Last scanned %1$d day ago</item>
-		<item quantity="other">Last scanned %1$d days ago</item>
 	</plurals>
 
 	<plurals name="count_albums">
@@ -321,11 +299,6 @@
 	<string name="action_reorder">Reorder</string>
 	<string name="action_remove_from_queue">Remove from queue</string>
 	<string name="action_clear_queue">Clear queue</string>
-	<string name="action_undo">Undo</string>
-	<string name="undo_queue_cleared">Queue cleared</string>
-	<string name="undo_queue_removed">Removed from queue</string>
-	<string name="undo_queue_moved">Moved in queue</string>
-	<string name="undo_queue_replaced">Queue replaced</string>
 	<string name="action_search_history">Recent Searches</string>
 	<string name="action_remove_from_history">Remove from history</string>
 	<string name="action_clear_image_cache">Clear image cache</string>
@@ -339,6 +312,15 @@
 
 	<string name="notice_deleted_playlist">Deleted playlist.</string>
 	<string name="notice_deleted_share">Deleted share.</string>
+	<string name="notice_created_playlist">Created playlist %1$s.</string>
+	<string name="notice_deleted_download">Deleted download.</string>
+	<string name="notice_removed_from_playlist">Removed from playlist.</string>
+	<string name="notice_created_radio">Created radio %1$s.</string>
+	<string name="notice_added_to_queue">Added to queue.</string>
+	<string name="notice_play_next">Playing next.</string>
+	<string name="notice_added_to_playlist">Added to %1$s.</string>
+	<string name="notice_added_to_multiple_playlists">Added to multiple playlists.</string>
+	<string name="notice_download_started">Download started.</string>
 	<string name="notice_copied">Copied to clipboard.</string>
 	<string name="notice_expiry">Expires in %1$s.</string>
 	<string name="notice_loading_lyrics">Loading lyrics...\nThis might take a while.</string>
@@ -416,7 +398,41 @@
 	<string name="sideloading_warning_subtitle">Google is planning to kill sideloading for ALL devices with Google Play Services installed!\n</string>
 	<string name="sideloading_warning_description">While the exact details of this change is not yet fully known, this could result in ALL sideloading being blocked unless the app signer doxxes themselves to Google and/or publicly.\n\nIf you are knowledgeable enough to install a custom ROM on your device, NOW IS THE TIME TO DO IT.\n\nPlease read more about what you can do and how to have your voice heard</string>
 	<string name="sideloading_warning_link_mask">here.</string>
+	<string name="greeting_morning">Good morning</string>
+	<string name="greeting_afternoon">Good afternoon</string>
+	<string name="greeting_evening">Good evening</string>
 
+	<string name="title_navi_connect" translatable="false">navi-connect</string>
+	<string name="subtitle_navi_connect">Remote control and playback transfer between devices</string>
+	<string name="title_appears_on">Appears on</string>
+	<string name="hint_logs_filter">Filter by tag or text</string>
+	<string name="action_logs_copy_all">Copy visible logs</string>
+	<string name="action_logs_follow">Follow new logs</string>
+	<string name="action_logs_unfollow">Stop following</string>
+	<string name="info_logs_empty">No lines match this filter.</string>
+
+	<string name="option_navigation_bar_style_floating">Floating</string>
+	<string name="theme_subtitle_dynamic">Available on Android 12 and above</string>
+	<string name="theme_subtitle_seeded">One colour for all</string>
+	<string name="theme_subtitle_ios">A city in California</string>
+	<string name="theme_subtitle_apple_music">A theme with red/pink highlights</string>
+	<string name="theme_subtitle_spotify">A theme with green highlights</string>
+
+	<plurals name="count_tracks">
+		<item quantity="one">%1$d track</item>
+		<item quantity="other">%1$d tracks</item>
+	</plurals>
+
+	<plurals name="info_index_scanned_days">
+		<item quantity="one">Last scanned %1$d day ago</item>
+		<item quantity="other">Last scanned %1$d days ago</item>
+	</plurals>
+
+	<string name="action_undo">Undo</string>
+	<string name="undo_queue_cleared">Queue cleared</string>
+	<string name="undo_queue_removed">Removed from queue</string>
+	<string name="undo_queue_moved">Moved in queue</string>
+	<string name="undo_queue_replaced">Queue replaced</string>
 	<string name="tab_up_next">Up Next</string>
 	<string name="tab_related">Related</string>
 	<string name="title_saved_queues">Saved queues</string>
@@ -449,7 +465,6 @@
 	<string name="message_saved_as_playlist">Saved as a Navidrome playlist</string>
 	<string name="message_save_playlist_failed">Couldn't save the playlist</string>
 	<string name="filter_all">All</string>
-	<!-- "Queue", not "Manual": Feishin labels this kind that way and the history is shared. -->
 	<string name="queue_kind_manual">Queue</string>
 	<string name="queue_kind_album">Album</string>
 	<string name="queue_kind_playlist">Playlist</string>
@@ -478,9 +493,6 @@
 	<string name="action_cancel_all">Cancel all</string>
 	<string name="action_try_another_source">Try another source</string>
 	<string name="info_download_attempts">Attempt %1$d</string>
-	<!-- lb-bot acquisition. A different kind of download from the ones above: not a file
-	     being cached offline, but an album the library never had being fetched from
-	     Soulseek. Worded so the two can't be confused on the same screen. -->
 	<string name="section_lbbot_fills">Getting from Soulseek</string>
 	<string name="action_dismiss">Dismiss</string>
 	<string name="action_allow_mp3_retry">Allow MP3 and retry</string>
@@ -491,10 +503,6 @@
 	<string name="lbbot_fill_placed">Added — waiting for the library scan</string>
 	<string name="lbbot_fill_verified">In your library</string>
 	<string name="lbbot_fill_failed">Couldn't get this one</string>
-	<!-- lb-bot's failure kinds, shown instead of the generic line above so the row
-	     distinguishes "nobody had it" from "rejected for format" before it is opened —
-	     the second is what Allow MP3 is for. lb-bot's own sentence still follows,
-	     verbatim, because it carries the evidence no label can. -->
 	<string name="lbbot_fail_no_source">Nobody is sharing this one</string>
 	<string name="lbbot_fail_format">No copy in an allowed format</string>
 	<string name="lbbot_fail_transfer">The download itself failed</string>
@@ -505,8 +513,6 @@
 	<string name="lbbot_fill_needs_match">Downloaded, but needs sorting out in lb-bot</string>
 	<string name="lbbot_fill_needs_pick">Waiting for you to pick a source</string>
 	<string name="lbbot_fill_cancelled">Cancelled</string>
-	<!-- Shown when lb-bot never acknowledged the request, or forgot it: its own record of
-	     in-flight fills is in memory, so restarting it loses them. -->
 	<string name="lbbot_fill_gave_up">Stopped tracking this one</string>
 	<string name="lbbot_fill_done_at">Finished</string>
 	<string name="lbbot_fill_landed">%1$s is in your library</string>
@@ -524,22 +530,14 @@
 	<string name="download_source_library">Library</string>
 	<string name="download_source_queue">Queue</string>
 
-	<!-- navi-connect lb-bot: library gaps -->
 	<string name="title_discography">Discography</string>
 	<string name="action_index_artist">Find missing albums</string>
 	<string name="action_rescan_discography">Rescan discography</string>
 	<string name="info_tracks_missing">%1$d missing</string>
 	<string name="info_indexing_artist">Searching MusicBrainz…</string>
-	<!-- Shown under a disabled scan button. lb-bot's index POST needs mbid AND name,
-	     so an artist with no MusicBrainz tag genuinely cannot be scanned — saying so
-	     beats making the control disappear. -->
 	<string name="info_index_needs_mbid">This artist has no MusicBrainz tag, so lb-bot has nothing to scan</string>
 	<string name="info_index_scanned_today">Last scanned today</string>
-	<!-- The hub advertises which lb-bot routes it proxies. A client ships independently
-	     of the hub, so "my client is newer than the hub" is permanent — and an unknown
-	     route is a plain 404 that reads as a button doing nothing. -->
 	<string name="info_hub_needs_restart">Your navi-connect hub doesn't know this feature yet — restart it to pick up its newer lb-bot routes.</string>
-	<!-- A pendingSync tile: lb-bot has the files, Navidrome hasn't indexed them yet. -->
 	<string name="info_pending_sync_detail">lb-bot has placed this album. It will appear in your library once Navidrome finishes scanning.</string>
 	<string name="info_index_stale">%1$s · out of date</string>
 	<string name="info_not_in_library">Not in your library</string>
@@ -575,7 +573,6 @@
 	<string name="info_gap_pick_source">Sources found. Pick one below.</string>
 	<string name="info_gap_needs_lbbot">lb-bot needs a decision on this album. Finish it in lb-bot's own web interface.</string>
 
-	<!-- Release types, as lb-bot's index labels them -->
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>
 	<string name="title_type_single">Singles</string>
@@ -584,16 +581,11 @@
 	<string name="title_type_live">Live</string>
 	<string name="title_type_remix">Remixes</string>
 	<string name="title_type_demo">Demos</string>
-	<!-- Anything not a plain album/EP/single, including untyped rows — nothing may
-	     silently disappear from a type filter. -->
 	<string name="title_type_other">Other</string>
 	<string name="title_tracklist">Tracklist</string>
 	<string name="option_all">All</string>
 
-	<!-- Fresh releases (ListenBrainz, via lb-bot) -->
 	<string name="title_fresh">Fresh</string>
-	<!-- "Your artists" is artists already in the library — NOT albums already on
-	     disk. An owned artist with a brand-new album is exactly what this shows. -->
 	<string name="fresh_scope_yours">Your artists</string>
 	<string name="fresh_scope_all">Everyone</string>
 	<string name="fresh_window_days">%1$d days</string>
@@ -605,23 +597,17 @@
 	<string name="fresh_bucket_two_weeks">Two weeks ago</string>
 	<string name="fresh_bucket_three_weeks">Three weeks ago</string>
 	<string name="fresh_bucket_earlier">Earlier</string>
-	<!-- Earned only by the exact release being on disk. -->
 	<string name="fresh_chip_in_library">In your library</string>
 	<string name="fresh_chip_upcoming">Not out yet</string>
 	<string name="fresh_failed">Couldn't load new releases</string>
 	<string name="fresh_empty_yours">None of your artists released anything in this window</string>
 	<string name="fresh_empty_all">No new releases in this window</string>
 	<string name="fresh_empty_type">Nothing of this type here</string>
-	<!-- The feed is capped before it crosses the hub, which cannot carry the whole
-	     site-wide ListenBrainz window. Every artist in the library survives that
-	     cut, so this never means "we dropped something you own". -->
 	<string name="fresh_truncated">Showing the %1$d most-listened of %2$d releases, plus everything by artists in your library.</string>
 
-	<!-- Artists and releases the library doesn't have -->
 	<string name="info_external_artist">Not in your library — this discography comes from MusicBrainz.</string>
 	<string name="info_external_album_index_failed">Couldn't add this release to the artist's index, so it may keep listing as missing. Downloading still works.</string>
 
-	<!-- Source picker -->
 	<string name="action_find_sources">Find sources</string>
 	<string name="info_searching_sources">Searching Soulseek…</string>
 	<string name="info_source_matches_album">Matches album title</string>
@@ -643,7 +629,6 @@
 		<item quantity="other">Find %1$d missing tracks</item>
 	</plurals>
 
-	<!-- lb-bot failures -->
 	<string name="error_lbbot_hub_outdated">This hub is older than the app and can't do that yet. Restart the hub.</string>
 	<string name="error_lbbot_unreachable">Couldn't reach the hub.</string>
 	<string name="error_lbbot_busy">lb-bot is busy or unreachable. It handles one request at a time while searching; try again in a moment.</string>

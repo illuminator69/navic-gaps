@@ -5,21 +5,29 @@ import androidx.media3.common.Player
 import kotlinx.coroutines.CoroutineScope
 
 class AndroidScrobbleManager(
-    private val player: Player,
-    scope: CoroutineScope,
-    connectivityManager: ConnectivityManager,
-    syncManager: SyncManager,
-    sessionManager: SessionManager,
+	private val player: Player,
+	scope: CoroutineScope,
+	connectivityManager: ConnectivityManager,
+	syncManager: SyncManager,
+	sessionManager: SessionManager,
 	preferenceManager: PreferenceManager
 ) : Player.Listener {
 
 	private val playerSource = object : ScrobblePlayerSource {
 		override val currentPosition: Long get() = player.currentPosition
 		override val duration: Long get() = player.duration
+		override val isPlaying: Boolean get() = player.isPlaying
 	}
 
 	private val scrobbleManager =
-        ScrobbleManager(playerSource, connectivityManager, syncManager, sessionManager, scope, preferenceManager)
+		ScrobbleManager(
+			playerSource,
+			connectivityManager,
+			syncManager,
+			sessionManager,
+			scope,
+			preferenceManager
+		)
 
 	init {
 		player.addListener(this)

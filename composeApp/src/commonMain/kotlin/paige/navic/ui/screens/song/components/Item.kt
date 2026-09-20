@@ -113,6 +113,7 @@ fun SongListScreenItem(
 							modifier = Modifier.align(Alignment.CenterStart)
 						)
 					}
+
 					SwipeToDismissBoxValue.EndToStart -> {
 						Icon(
 							imageVector = Icons.Outlined.QueuePlayNext,
@@ -121,6 +122,7 @@ fun SongListScreenItem(
 							modifier = Modifier.align(Alignment.CenterEnd)
 						)
 					}
+
 					else -> {}
 				}
 			}
@@ -162,7 +164,7 @@ fun SongListScreenItem(
 					)
 				},
 				trailingContent = {
-					if(starred) {
+					if (starred) {
 						Icon(
 							Icons.Filled.Star,
 							null,
@@ -178,6 +180,7 @@ fun SongListScreenItem(
 									strokeWidth = 2.dp
 								)
 							}
+
 							DownloadStatus.DOWNLOADED -> {
 								Icon(
 									Icons.Outlined.Check,
@@ -186,6 +189,7 @@ fun SongListScreenItem(
 									tint = MaterialTheme.colorScheme.primary
 								)
 							}
+
 							DownloadStatus.FAILED -> {
 								Icon(
 									Icons.Outlined.DownloadOff,
@@ -194,6 +198,7 @@ fun SongListScreenItem(
 									tint = MaterialTheme.colorScheme.error
 								)
 							}
+
 							else -> {}
 						}
 					}

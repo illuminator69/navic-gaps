@@ -38,6 +38,7 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.common.SongRowStatus
+import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.util.DraggableListState
 import paige.navic.ui.util.dragHandle
 import paige.navic.util.ui.segmentedShapes
@@ -117,10 +118,12 @@ fun QueueScreenItem(
 					imageVector = Icons.Outlined.Delete,
 					contentDescription = stringResource(Res.string.action_remove_from_queue),
 					tint = MaterialTheme.colorScheme.onErrorContainer,
-					modifier = Modifier.align(when (dismissState.dismissDirection) {
-						SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-						else -> Alignment.CenterEnd
-					})
+					modifier = Modifier.align(
+						when (dismissState.dismissDirection) {
+							SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+							else -> Alignment.CenterEnd
+						}
+					)
 				)
 			}
 		},

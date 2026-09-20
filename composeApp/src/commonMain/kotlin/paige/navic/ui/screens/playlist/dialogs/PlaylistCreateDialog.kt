@@ -31,8 +31,8 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
-import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
 
 @Composable
 fun PlaylistCreateDialog(

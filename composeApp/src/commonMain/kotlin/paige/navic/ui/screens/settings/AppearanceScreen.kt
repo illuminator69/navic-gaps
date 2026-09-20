@@ -2,7 +2,6 @@ package paige.navic.ui.screens.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
@@ -35,13 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.dropUnlessResumed
-import dev.zt64.compose.pipette.HsvColor
-import dev.zt64.compose.pipette.RingColorPicker
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.option_accent_colour
 import navic.composeapp.generated.resources.option_alphabetical_scroll
 import navic.composeapp.generated.resources.option_animation_style
+import navic.composeapp.generated.resources.option_artist_image_shape
 import navic.composeapp.generated.resources.option_artwork_shape
 import navic.composeapp.generated.resources.option_choose_theme
 import navic.composeapp.generated.resources.option_cover_art_size
@@ -70,13 +66,13 @@ import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.ArtworkShapeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizePreview
-import paige.navic.ui.screens.settings.dialogs.ThemeDialog
 
 @Composable
 fun SettingsAppearanceScreen() {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	var showArtworkShapeDialog by rememberSaveable { mutableStateOf(false) }
+	var showArtistImageShapeDialog by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	Scaffold(
@@ -113,10 +109,9 @@ fun SettingsAppearanceScreen() {
 						}
 					}
 
-					var showThemeDialog by rememberSaveable { mutableStateOf(false) }
 					FormRow(
-						onClick = {
-							showThemeDialog = true
+						onClick = dropUnlessResumed {
+							backStack.add(Screen.Settings.Themes)
 						}
 					) {
 						Column(Modifier.weight(1f)) {
@@ -126,61 +121,6 @@ fun SettingsAppearanceScreen() {
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
-						}
-					}
-
-					ThemeDialog(
-						presented = showThemeDialog,
-						onDismissRequest = { showThemeDialog = false }
-					)
-
-					if (preferenceManager.theme == Theme.Seeded) {
-						var expanded by remember { mutableStateOf(false) }
-						FormRow {
-							Text(stringResource(Res.string.option_accent_colour))
-							Box {
-								Box(
-									Modifier
-										.clip(CircleShape)
-										.background(
-											HsvColor(
-												preferenceManager.accentColourH,
-												preferenceManager.accentColourS,
-												preferenceManager.accentColourV
-											).toColor()
-										)
-										.size(40.dp)
-										.clickable {
-											expanded = true
-										}
-								)
-								Dropdown(
-									expanded = expanded,
-									onDismissRequest = { expanded = false }
-								) {
-									FormRow(
-										color = MaterialTheme.colorScheme.surfaceContainerHigh,
-										horizontalArrangement = Arrangement.Center
-									) {
-										RingColorPicker(
-											color = {
-												HsvColor(
-													preferenceManager.accentColourH,
-													preferenceManager.accentColourS,
-													preferenceManager.accentColourV
-												)
-											},
-											onColorChange = {
-												preferenceManager.apply {
-													accentColourH = it.hue
-													accentColourS = it.saturation
-													accentColourV = it.value
-												}
-											}
-										)
-									}
-								}
-							}
 						}
 					}
 				}
@@ -202,6 +142,30 @@ fun SettingsAppearanceScreen() {
 						}
 
 						val shape = preferenceManager.coverArtShape.decreasedShape
+						Box(
+							modifier = Modifier
+								.size(48.dp)
+								.clip(shape)
+								.background(MaterialTheme.colorScheme.primaryContainer)
+								.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+						)
+					}
+
+					FormRow(
+						onClick = {
+							showArtistImageShapeDialog = true
+						}
+					) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.option_artist_image_shape))
+							Text(
+								preferenceManager.artistImageShape.name,
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+
+						val shape = preferenceManager.artistImageShape.decreasedShape
 						Box(
 							modifier = Modifier
 								.size(48.dp)
@@ -299,8 +263,18 @@ fun SettingsAppearanceScreen() {
 			}
 		}
 		ArtworkShapeDialog(
+			title = { Text(stringResource(Res.string.option_artwork_shape)) },
+			selection = preferenceManager.coverArtShape,
+			onSelect = { preferenceManager.coverArtShape = it },
 			presented = showArtworkShapeDialog,
 			onDismissRequest = { showArtworkShapeDialog = false }
+		)
+		ArtworkShapeDialog(
+			title = { Text(stringResource(Res.string.option_artist_image_shape)) },
+			selection = preferenceManager.artistImageShape,
+			onSelect = { preferenceManager.artistImageShape = it },
+			presented = showArtistImageShapeDialog,
+			onDismissRequest = { showArtistImageShapeDialog = false }
 		)
 	}
 }

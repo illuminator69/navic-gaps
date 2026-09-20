@@ -64,7 +64,8 @@ val viewModelModule = module {
 		PlaylistUpdateDialogViewModel(
 			songs = songs,
 			playlistToExclude = playlistToExclude,
-			sessionManager = get()
+			sessionManager = get(),
+			snackBarManager = get()
 		)
 	}
 
@@ -92,8 +93,26 @@ val viewModelModule = module {
 	viewModelOf(::ShareListViewModel)
 	viewModelOf(::DeletionViewModel)
 	viewModelOf(::ShareDialogViewModel)
-	viewModelOf(::PlaylistCreateDialogViewModel)
-	viewModelOf(::CollectionDetailViewModel)
+	viewModel { (songs: List<DomainSong>) ->
+		PlaylistCreateDialogViewModel(
+			songs = songs,
+			playlistDao = get(),
+			sessionManager = get(),
+			snackBarManager = get()
+		)
+	}
+	viewModel { params ->
+		CollectionDetailViewModel(
+			collectionId = params.get(),
+			repository = get(),
+			songRepository = get(),
+			albumRepository = get(),
+			downloadManager = get(),
+			sessionManager = get(),
+			snackBarManager = get(),
+			connectivityManager = get()
+		)
+	}
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::DownloadCenterViewModel)

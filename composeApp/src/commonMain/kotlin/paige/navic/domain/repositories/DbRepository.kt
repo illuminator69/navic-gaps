@@ -139,7 +139,8 @@ class DbRepository(
 
 		onProgress(0.0f, Res.string.info_syncing_albums)
 		while (true) {
-			val batch = sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
+			val batch =
+				sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
 			if (batch.isEmpty()) break
 			allAlbumSummaries.addAll(batch)
 			if (batch.size < pageSize) break
@@ -403,7 +404,11 @@ class DbRepository(
 			sessionManager.api.getPlaylist(playlistId)
 		} catch (e: Exception) {
 			if (e is SerializationException) {
-				Logger.e("DbRepository", "could not deserialize playlist $playlistId; skipping it", e)
+				Logger.e(
+					"DbRepository",
+					"could not deserialize playlist $playlistId; skipping it",
+					e
+				)
 				return@runDbOp 0
 			} else {
 				throw e

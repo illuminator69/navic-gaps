@@ -377,6 +377,49 @@ abstract class MediaPlayerViewModel(
 		}
 	}
 
+	// Upstream's replace-the-queue-and-play shorthand (alpha41). Upstream implements it as
+	// clearQueue + addToQueue + playAt, which on this fork would bypass [routeRemotely]
+	// entirely — the local player would start while the active receiver kept playing.
+	// Routed like every other queue-building command instead, and undoable for the same
+	// reason [playCollection] is: it discards whatever was playing.
+
+	fun playNow(song: DomainSong) {
+		captureQueueUndo(QueueUndoKind.REPLACE)
+		val router = routeRemotely
+		if (router != null) {
+			router.setQueue(listOf(song), 0, sourceName = song.title)
+		} else {
+			clearQueue()
+			addToQueueSingleLocal(song)
+			playAt(0)
+		}
+	}
+
+	fun playNow(collection: DomainSongCollection, startIndex: Int = 0) {
+		val startSong = collection.songs.getOrNull(startIndex)
+		if (startSong != null) {
+			// Already routing-aware, undo-aware, and it stamps the saved-queue kind/name.
+			playCollection(collection, startSong)
+			return
+		}
+		captureQueueUndo(QueueUndoKind.REPLACE)
+		clearQueue()
+		addToQueueLocal(collection)
+		playAt(startIndex)
+	}
+
+	fun playNow(songs: List<DomainSong>, startIndex: Int = 0) {
+		captureQueueUndo(QueueUndoKind.REPLACE)
+		val router = routeRemotely
+		if (router != null) {
+			router.setQueue(songs, startIndex)
+		} else {
+			clearQueue()
+			songs.forEach { addToQueueSingleLocal(it) }
+			playAt(startIndex)
+		}
+	}
+
 	fun togglePlay() {
 		if (!_uiState.value.isPaused) {
 			pause()

@@ -6,15 +6,16 @@ import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.currentItem
 import platform.AVFoundation.currentTime
 import platform.AVFoundation.duration
+import platform.AVFoundation.rate
 import platform.CoreMedia.CMTimeGetSeconds
 
 class IOSScrobbleManager(
-    private val player: AVPlayer,
-    scope: CoroutineScope,
-    connectivityManager: ConnectivityManager,
-    syncManager: SyncManager,
-    sessionManager: SessionManager,
-	private val preferenceManager: PreferenceManager
+	private val player: AVPlayer,
+	scope: CoroutineScope,
+	connectivityManager: ConnectivityManager,
+	syncManager: SyncManager,
+	sessionManager: SessionManager,
+	preferenceManager: PreferenceManager
 ) {
 	@OptIn(ExperimentalForeignApi::class)
 	private val playerSource = object : ScrobblePlayerSource {
@@ -27,11 +28,21 @@ class IOSScrobbleManager(
 				val seconds = CMTimeGetSeconds(duration)
 				return if (seconds.isNaN()) 0L else (seconds * 1000).toLong()
 			}
+
+		override val isPlaying: Boolean
+			get() = player.rate != 0.0f
 	}
 
 
 	private val scrobbleManager =
-        ScrobbleManager(playerSource, connectivityManager, syncManager, sessionManager, scope, preferenceManager)
+		ScrobbleManager(
+			playerSource,
+			connectivityManager,
+			syncManager,
+			sessionManager,
+			scope,
+			preferenceManager
+		)
 
 	fun onMediaChanged(mediaId: String?) {
 		scrobbleManager.onMediaChanged(mediaId)

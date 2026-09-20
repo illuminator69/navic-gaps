@@ -34,7 +34,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AlphabeticalScroller
-import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.snackbars.ErrorSnackbar
 import paige.navic.ui.components.common.alphabeticalHeaders
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar

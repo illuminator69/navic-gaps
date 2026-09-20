@@ -39,9 +39,9 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Error
-import paige.navic.util.Logger
-import paige.navic.ui.theme.defaultFont
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
+import paige.navic.ui.theme.defaultFont
+import paige.navic.util.Logger
 import paige.navic.util.core.CoverPlaceholder
 
 @Composable
@@ -58,7 +58,11 @@ fun CoverArt(
 	shape: Shape? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val shape = shape ?: preferenceManager.coverArtShape.shape
+	val shape = shape ?: if (!coverArtId.orEmpty().startsWith("ar-")) {
+		preferenceManager.coverArtShape.shape
+	} else {
+		preferenceManager.artistImageShape.shape
+	}
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val customHeaders = preferenceManager.customHeaders
 	val sessionManager = koinInject<SessionManager>()
@@ -82,16 +86,20 @@ fun CoverArt(
 		.shadow(shadowElevation, shape)
 		.clip(shape)
 		.background(MaterialTheme.colorScheme.surfaceContainer)
-		.then(if (onClick != null)
-			Modifier.combinedClickable(
-				onClick = onClick,
-				onLongClick = onLongClick,
-				interactionSource = interactionSource
-			)
-		else Modifier)
-		.then(if (interactionSource != null)
-			Modifier.indication(interactionSource, ripple())
-		else Modifier)
+		.then(
+			if (onClick != null)
+				Modifier.combinedClickable(
+					onClick = onClick,
+					onLongClick = onLongClick,
+					interactionSource = interactionSource
+				)
+			else Modifier
+		)
+		.then(
+			if (interactionSource != null)
+				Modifier.indication(interactionSource, ripple())
+			else Modifier
+		)
 
 	// A cover id that will only resolve to Navidrome's generic avatar is treated as no art at all,
 	// so the tile falls back to the themed box every art-less artist already gets. Done here rather

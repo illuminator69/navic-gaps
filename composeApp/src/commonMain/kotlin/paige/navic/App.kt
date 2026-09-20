@@ -19,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -28,9 +27,9 @@ import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.C
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -53,12 +52,14 @@ import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
 import androidx.savedstate.serialization.SavedStateConfiguration
 import coil3.compose.setSingletonImageLoaderFactory
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.lbbot_fill_landed
 import navic.composeapp.generated.resources.lbbot_fill_lost
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.initializeSingletonImageLoader
@@ -66,15 +67,17 @@ import paige.navic.domain.manager.BottomBarScrollManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.dialogs.SideloadingDialog
 import paige.navic.ui.components.sheets.ChangelogSheet
+import paige.navic.ui.components.snackbars.NavicSnackbar
+import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
-import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
@@ -110,6 +113,7 @@ import paige.navic.ui.screens.settings.SettingsPlaybackScreen
 import paige.navic.ui.screens.settings.SettingsScreen
 import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
+import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
 import paige.navic.ui.screens.song.SongDetailScreen
 import paige.navic.ui.screens.song.SongListScreen
@@ -131,7 +135,8 @@ private val config = SavedStateConfiguration {
 	}
 }
 
-val LocalPlatformContext = staticCompositionLocalOf<PlatformContext> { error("no platform context") }
+val LocalPlatformContext =
+	staticCompositionLocalOf<PlatformContext> { error("no platform context") }
 val LocalNavStack = staticCompositionLocalOf<NavBackStack<NavKey>> { error("no backstack") }
 val LocalSnackbarState = staticCompositionLocalOf<SnackbarHostState> { error("no snackbar state") }
 val LocalSharedTransitionScope =
@@ -177,6 +182,14 @@ fun App() {
 		}
 	)
 	val snackbarState = remember { SnackbarHostState() }
+	val snackBarManager = koinInject<SnackBarManager>()
+
+	LaunchedEffect(Unit) {
+		snackBarManager.events.collectLatest { event ->
+			snackbarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
+		}
+	}
+
 	val density = LocalDensity.current
 	val layoutDirection = LocalLayoutDirection.current
 	val scrollManager = remember {
@@ -267,10 +280,7 @@ fun App() {
 					modifier = Modifier.nestedScroll(scrollManager.connection),
 					snackbarHost = {
 						SnackbarHost(hostState = snackbarState) { snackbarData ->
-							Snackbar(
-								snackbarData = snackbarData,
-								shape = MaterialTheme.shapes.large
-							)
+							NavicSnackbar(snackbarData = snackbarData)
 						}
 					}
 				) { contentPadding ->
@@ -288,7 +298,7 @@ fun App() {
 						backStack = backStack,
 						sceneStrategies = sceneStrategies,
 						onBack = {
-							if (backStack.isNotEmpty()) {
+							if (backStack.size >= 2) {
 								backStack.removeLastOrNull()
 							}
 						},
@@ -461,6 +471,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.Fonts> {
 			FontsScreen()
+		}
+		entry<Screen.Settings.Themes> {
+			SettingsThemesScreen()
 		}
 		entry<Screen.Settings.CustomHeaders> {
 			SettingsCustomHeadersScreen()

@@ -41,6 +41,7 @@ fun NowPlayingDurationsRow() {
 				Spacer(Modifier.weight(1f))
 				Text(text = "∞", color = color, style = style)
 			}
+
 			duration != null -> {
 				Text(
 					text = ((duration.inWholeSeconds * progress).toDouble().seconds).toHoursMinutesSeconds(),
@@ -49,6 +50,7 @@ fun NowPlayingDurationsRow() {
 				Spacer(Modifier.weight(1f))
 				Text(duration.toHoursMinutesSeconds(), color = color, style = style)
 			}
+
 			else -> {
 				Text("--:--", color = color, style = style)
 				Spacer(Modifier.weight(1f))

@@ -13,6 +13,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SleepTimerManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.util.ui.AmbientColorHolder
 
@@ -45,4 +46,5 @@ val managerModule = module {
 	single(createdAtStart = true) { RadioManager(get(), get(), get(), get(), get(), get()) }
 	singleOf(::NativeApiManager)
 	single(createdAtStart = true) { PlaylistDownloadManager(get(), get(), get(), get()) }
+	singleOf(::SnackBarManager)
 }

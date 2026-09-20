@@ -79,7 +79,8 @@ actual val platformModule = module {
 			syncManager = get(),
 			sessionManager = get(),
 			preferenceManager = get(),
-			savedQueueRepository = get()
+			savedQueueRepository = get(),
+			snackBarManager = get()
 		)
 	}
 

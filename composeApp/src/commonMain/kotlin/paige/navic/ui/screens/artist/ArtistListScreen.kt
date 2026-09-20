@@ -38,7 +38,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.snackbars.ErrorSnackbar
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -176,13 +176,13 @@ fun ArtistsScreenItem(
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
 				onAddAllToPlaylist = { playlistDialogShown = true },
-				onViewOnLastFm = { 
+				onViewOnLastFm = {
 					onDeselect()
 					artist.lastFmUrl?.let { url ->
 						uriHandler.openUri(url)
 					}
 				},
-				onViewOnMusicBrainz = { 								
+				onViewOnMusicBrainz = {
 					onDeselect()
 					artist.musicBrainzId?.let { id ->
 						uriHandler.openUri(

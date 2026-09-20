@@ -28,9 +28,6 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.NowPlayingSceneStrategy.Companion.bottomSheet
 import paige.navic.util.ui.rememberCoverColorScheme
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

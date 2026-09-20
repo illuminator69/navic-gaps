@@ -7,11 +7,12 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.ui.core.LoginUiState
+import kotlinx.coroutines.flow.asStateFlow
 
 class LoginViewModel(
 	private val repository: DbRepository,
@@ -71,9 +72,12 @@ class LoginViewModel(
 			_loginUiState.value = LoginUiState.Loading
 
 			try {
-				val url = instanceState.text.toString().let {
-					if (!it.startsWith("https://") && !it.startsWith("http://")) "https://$it" else it
-				}.trim()
+				val rawUrl = instanceState.text.toString().trim().removeSuffix("/")
+				val url = if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) {
+					rawUrl
+				} else {
+					"https://$rawUrl"
+				}
 
 				sessionManager.login(
 					url,

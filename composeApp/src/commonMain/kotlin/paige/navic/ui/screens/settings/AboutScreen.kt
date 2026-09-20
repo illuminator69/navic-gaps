@@ -58,7 +58,12 @@ fun SettingsAboutScreen() {
 				SelectionContainer {
 					val text = buildString {
 						append(platformContext.name + "\n")
-						append(stringResource(Res.string.info_app_version, platformContext.appVersion))
+						append(
+							stringResource(
+								Res.string.info_app_version,
+								platformContext.appVersion
+							)
+						)
 					}
 					FormRow(onClick = {
 						clipboard.setText(AnnotatedString(text))

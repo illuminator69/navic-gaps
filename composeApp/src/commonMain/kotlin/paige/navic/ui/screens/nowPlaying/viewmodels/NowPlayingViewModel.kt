@@ -10,17 +10,17 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
+import kotlinx.coroutines.flow.StateFlow
 
 class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
 	private val songRepository: SongRepository
 ) : ViewModel(), KoinComponent {
+	val songIsStarred: StateFlow<Boolean>
+		field = MutableStateFlow(false)
 
-	private val _songIsStarred = MutableStateFlow(false)
-	val songIsStarred = _songIsStarred.asStateFlow()
-
-	private val _songRating = MutableStateFlow(0)
-	val songRating = _songRating.asStateFlow()
+	val songRating: StateFlow<Int>
+		field = MutableStateFlow(0)
 
 	init {
 		viewModelScope.launch {
@@ -33,8 +33,8 @@ class NowPlayingViewModel(
 				.distinctUntilChangedBy { it?.id }
 				.collect { song ->
 					song?.let {
-						_songIsStarred.value = songRepository.isSongStarred(it)
-						_songRating.value = songRepository.getSongRating(it)
+						songIsStarred.value = songRepository.isSongStarred(it)
+						songRating.value = songRepository.getSongRating(it)
 					}
 				}
 		}
@@ -44,7 +44,7 @@ class NowPlayingViewModel(
 		viewModelScope.launch {
 			runCatching {
 				player.uiState.value.currentSong?.let { song ->
-					_songIsStarred.value = starred
+					songIsStarred.value = starred
 					if (starred) {
 						songRepository.starSong(song)
 					} else {
@@ -59,7 +59,7 @@ class NowPlayingViewModel(
 		viewModelScope.launch {
 			runCatching {
 				player.uiState.value.currentSong?.let { song ->
-					_songRating.value = rating
+					songRating.value = rating
 					songRepository.rateSong(song, rating)
 				}
 			}

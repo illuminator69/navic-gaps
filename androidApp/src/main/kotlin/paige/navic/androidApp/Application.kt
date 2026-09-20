@@ -12,8 +12,8 @@ import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
 import paige.navic.androidApp.di.AndroidResourceProvider
 import paige.navic.di.initKoin
-import paige.navic.di.initializeSingletonImageLoader
 import paige.navic.di.ResourceProvider
+import paige.navic.di.initializeSingletonImageLoader
 import kotlin.system.exitProcess
 
 /**

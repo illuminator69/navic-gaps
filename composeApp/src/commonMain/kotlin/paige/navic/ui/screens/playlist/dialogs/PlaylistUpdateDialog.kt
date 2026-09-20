@@ -49,8 +49,8 @@ import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
-import paige.navic.ui.screens.playlist.viewmodels.PlaylistUpdateDialogViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.playlist.viewmodels.PlaylistUpdateDialogViewModel
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

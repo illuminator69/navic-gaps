@@ -40,8 +40,8 @@ import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_continue_listening
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
-import paige.navic.ui.navigation.Screen
 import paige.navic.data.database.entities.SavedQueueEntity
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -53,11 +53,11 @@ import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
+import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
-import paige.navic.ui.core.UiState
 import paige.navic.ui.util.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -226,7 +227,8 @@ class SyncManager(
 
 		scope.launch {
 			if (albumDao.getAlbumCount() == 0
-				|| preferenceManager.lastFullSyncTime <= 0L) {
+				|| preferenceManager.lastFullSyncTime <= 0L
+			) {
 				Logger.i("SyncManager", "Syncing now because we haven't synced before")
 				runSyncCycle()
 			}
@@ -311,7 +313,11 @@ class SyncManager(
 					SyncActionType.STAR -> sessionManager.api.star(action.itemId)
 					SyncActionType.UNSTAR -> sessionManager.api.unstar(action.itemId)
 					SyncActionType.DELETE_PLAYLIST -> sessionManager.api.deletePlaylist(action.itemId)
-					SyncActionType.SCROBBLE -> sessionManager.api.scrobble(action.itemId, submission = true)
+					SyncActionType.SCROBBLE -> sessionManager.api.scrobble(
+						action.itemId,
+						submission = true
+					)
+
 					SyncActionType.STAR_0 -> sessionManager.api.setRating(action.itemId, 0)
 					SyncActionType.STAR_1 -> sessionManager.api.setRating(action.itemId, 1)
 					SyncActionType.STAR_2 -> sessionManager.api.setRating(action.itemId, 2)

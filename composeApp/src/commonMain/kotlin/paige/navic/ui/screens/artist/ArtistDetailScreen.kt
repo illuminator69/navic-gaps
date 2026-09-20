@@ -67,6 +67,8 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
 import navic.composeapp.generated.resources.count_albums
 import navic.composeapp.generated.resources.info_bulk_download_warning
+import navic.composeapp.generated.resources.notice_deleted_download
+import navic.composeapp.generated.resources.notice_download_started
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_appears_on
@@ -85,6 +87,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ThemeMode
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ErrorBox
@@ -150,6 +153,8 @@ fun ArtistDetailScreen(
 	val selectedGap by viewModel.selectedGap.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
+
+	val snackBarManager = koinInject<SnackBarManager>()
 
 	val scope = rememberCoroutineScope()
 
@@ -240,7 +245,10 @@ fun ArtistDetailScreen(
 					val state = artistState.data
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
-						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
+						message = stringResource(
+							Res.string.info_bulk_download_warning,
+							state.artist.name
+						),
 						showDialog = showDownloadDialog,
 						onDismissRequest = { showDownloadDialog = false },
 						onConfirm = {
@@ -248,6 +256,7 @@ fun ArtistDetailScreen(
 								state.albums.forEach { album ->
 									downloadManager.downloadCollection(album)
 								}
+								snackBarManager.notify(Res.string.notice_download_started)
 							}
 						}
 					)
@@ -312,6 +321,7 @@ fun ArtistDetailScreen(
 								state.albums.forEach { album ->
 									downloadManager.deleteDownloadedCollection(album)
 								}
+								snackBarManager.notify(Res.string.notice_deleted_download)
 							},
 							downloadStatus = downloadStatus,
 							playEnabled = state.albums.isNotEmpty(),
@@ -381,16 +391,15 @@ fun ArtistDetailScreen(
 										modifier = Modifier.fillMaxWidth().height((rowCount * 100).dp)
 									) {
 										itemsIndexed(songs) { index, song ->
-											val download = allDownloads.find { it.songId == song.id }
+											val download =
+												allDownloads.find { it.songId == song.id }
 											SongRow(
 												width = gridRowWidth,
 												song = song,
 												selected = selection == song,
 												onClick = {
 													if (playerState.currentSong?.id != song.id) {
-														player.clearQueue()
-														songs.forEach { song -> player.addToQueueSingle(song) }
-														player.playAt(index)
+														player.playNow(songs, index)
 													} else {
 														player.togglePlay()
 													}
@@ -442,8 +451,8 @@ fun ArtistDetailScreen(
 								// over the whole downloads table, re-filtering it on every
 								// recomposition, and throwing the answer away.)
 								ArtCarouselItem(
-									coverArtId = album.coverArtId, 
-									title = album.name, 
+									coverArtId = album.coverArtId,
+									title = album.name,
 									contentDescription = null,
 									onSelect = { viewModel.selectAlbum(album) },
 									onClick = dropUnlessResumed {
@@ -515,8 +524,8 @@ fun ArtistDetailScreen(
 								state.similarArtists.toImmutableList()
 							) { artist ->
 								ArtCarouselItem(
-									coverArtId = artist.coverArtId, 
-									title = artist.name, 
+									coverArtId = artist.coverArtId,
+									title = artist.name,
 									subtitle = pluralStringResource(
 										Res.plurals.count_albums,
 										artist.albumCount,
@@ -576,7 +585,12 @@ fun ArtistDetailScreen(
 			onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
 			onAddAllToPlaylist = { playlistDialogShown = true },
 			downloadStatus = albumDownloadStatus,
-			onDownloadAll = { scope.launch { downloadManager.downloadCollection(album) } },
+			onDownloadAll = {
+				scope.launch {
+					downloadManager.downloadCollection(album)
+					snackBarManager.notify(Res.string.notice_download_started)
+				}
+			},
 			onCancelDownloadAll = {
 				scope.launch {
 					album.songs.forEach { downloadManager.cancelDownload(it.id) }

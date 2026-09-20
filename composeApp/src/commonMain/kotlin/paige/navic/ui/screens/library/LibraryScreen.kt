@@ -34,12 +34,14 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.components.snackbars.ErrorSnackbar
+import paige.navic.ui.core.LoginUiState
+import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
@@ -61,8 +63,6 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
 import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
-import paige.navic.ui.core.LoginUiState
-import paige.navic.ui.core.UiState
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -224,8 +224,8 @@ fun LibraryScreen() {
 				onSelectAlbum = { albumsViewModel.selectAlbum(it) },
 				onClearAlbumSelection = { albumsViewModel.clearSelection() },
 				onStarSelectedAlbum = { albumsViewModel.starAlbum(it) },
-				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection)},
-				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection)},
+				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
+				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
 				onRateSelectedAlbum = { albumsViewModel.setRating(it) },
 
 				artistsState = artistsState,
@@ -235,16 +235,32 @@ fun LibraryScreen() {
 				onSelectArtist = { artistsViewModel.selectArtist(it) },
 				onClearArtistSelection = { artistsViewModel.clearSelection() },
 				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
-				onPlayArtistNext = { if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(player)},
-				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
+				onPlayArtistNext = {
+					if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(
+						player
+					)
+				},
+				onAddArtistToQueue = {
+					if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(
+						player
+					)
+				},
 
 				playlistsState = playlistsState,
 				selectedPlaylist = selectedPlaylist,
 				onSelectPlaylist = { playlistsViewModel.selectPlaylist(it) },
 				onClearPlaylistSelection = { playlistsViewModel.clearSelection() },
 				onDeletePlaylist = { playlistDeletionId = it },
-				onPlayPlaylistNext = { if (selectedPlaylist != null) player.playNext(selectedPlaylist as DomainSongCollection)},
-				onAddPlaylistToQueue = { if (selectedPlaylist != null) player.addToQueue(selectedPlaylist as DomainSongCollection)},
+				onPlayPlaylistNext = {
+					if (selectedPlaylist != null) player.playNext(
+						selectedPlaylist as DomainSongCollection
+					)
+				},
+				onAddPlaylistToQueue = {
+					if (selectedPlaylist != null) player.addToQueue(
+						selectedPlaylist as DomainSongCollection
+					)
+				},
 
 				genresState = genresState
 			)
@@ -281,24 +297,24 @@ fun LibraryScreen() {
 		}
 	)
 
-    ShareDialog(
-        id = shareId,
-        onIdClear = { shareId = null },
-        expiry = shareExpiry,
-        onExpiryChange = { shareExpiry = it }
-    )
+	ShareDialog(
+		id = shareId,
+		onIdClear = { shareId = null },
+		expiry = shareExpiry,
+		onExpiryChange = { shareExpiry = it }
+	)
 
-    DeletionDialog(
-        endpoint = DeletionEndpoint.PLAYLIST,
-        id = playlistDeletionId,
-        onIdClear = { playlistDeletionId = null },
-        onRefresh = { playlistsViewModel.refreshPlaylists(false) }
-    )
+	DeletionDialog(
+		endpoint = DeletionEndpoint.PLAYLIST,
+		id = playlistDeletionId,
+		onIdClear = { playlistDeletionId = null },
+		onRefresh = { playlistsViewModel.refreshPlaylists(false) }
+	)
 
 	if (playlistCreateDialogShown) {
-        PlaylistCreateDialog(
-            onDismissRequest = { playlistCreateDialogShown = false },
-            onRefresh = { playlistsViewModel.refreshPlaylists(true) }
-        )
+		PlaylistCreateDialog(
+			onDismissRequest = { playlistCreateDialogShown = false },
+			onRefresh = { playlistsViewModel.refreshPlaylists(true) }
+		)
 	}
 }

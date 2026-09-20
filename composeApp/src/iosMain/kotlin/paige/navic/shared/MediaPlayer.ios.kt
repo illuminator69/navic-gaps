@@ -2,11 +2,11 @@
 
 package paige.navic.shared
 
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.viewModelScope
 import kotlinx.cinterop.ExperimentalForeignApi
-import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.ConnectivityManager
@@ -14,6 +14,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.IOSScrobbleManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
@@ -82,7 +83,8 @@ class IOSMediaPlayerViewModel(
 	syncManager: SyncManager,
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
-	savedQueueRepository: SavedQueueRepository
+	savedQueueRepository: SavedQueueRepository,
+	private val snackBarManager: SnackBarManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
@@ -93,7 +95,14 @@ class IOSMediaPlayerViewModel(
 	private var timeObserver: Any? = null
 	private var playbackEndObserver: Any? = null
 	private val scrobbleManager =
-		IOSScrobbleManager(player, viewModelScope, connectivityManager, syncManager, sessionManager, preferenceManager)
+		IOSScrobbleManager(
+			player,
+			viewModelScope,
+			connectivityManager,
+			syncManager,
+			sessionManager,
+			preferenceManager
+		)
 	private var pendingSyncState: PlayerUiState? = null
 	private var isTransitioningBetweenTracks = false
 
@@ -115,11 +124,13 @@ class IOSMediaPlayerViewModel(
 				val currentSeconds = CMTimeGetSeconds(currentTime)
 
 				if (!durationSeconds.isNaN() && !currentSeconds.isNaN() &&
-					(durationSeconds - currentSeconds) < 1.0) {
+					(durationSeconds - currentSeconds) < 1.0
+				) {
 					when (_uiState.value.repeatMode) {
 						1 -> {
 							seek(0f); resume()
 						}
+
 						else -> next()
 					}
 				}
@@ -150,7 +161,11 @@ class IOSMediaPlayerViewModel(
 						val isPaused = _uiState.value.isPaused
 
 						player.replaceCurrentItemWithPlayerItem(createAVPlayerItem(url))
-						player.seekToTime(currentTime, toleranceBefore = CMTimeMake(0, 1), toleranceAfter = CMTimeMake(0, 1))
+						player.seekToTime(
+							currentTime,
+							toleranceBefore = CMTimeMake(0, 1),
+							toleranceAfter = CMTimeMake(0, 1)
+						)
 						if (!isPaused) player.play()
 					}
 				}
@@ -271,13 +286,14 @@ class IOSMediaPlayerViewModel(
 				if (state.queue.isEmpty())
 					state.queue + song
 				else
-					state.queue.slice(0..state.currentIndex) + song + state.queue.slice(state.currentIndex+1..<state.queue.size)
+					state.queue.slice(0..state.currentIndex) + song + state.queue.slice(state.currentIndex + 1..<state.queue.size)
 			state.copy(
 				queue = newQueue,
 				currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
 				currentSong = if (state.currentIndex == -1) song else state.currentSong
 			)
 		}
+		snackBarManager.notifyPlayNext()
 	}
 
 	override fun playNextLocal(collection: DomainSongCollection) {
@@ -291,7 +307,7 @@ class IOSMediaPlayerViewModel(
 					state.queue + newCollection
 				else
 					state.queue.slice(0..state.currentIndex) + newCollection + state.queue.slice(
-						state.currentIndex+1..<state.queue.size
+						state.currentIndex + 1..<state.queue.size
 					)
 			state.copy(
 				queue = newQueue,
@@ -299,6 +315,7 @@ class IOSMediaPlayerViewModel(
 				currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 			)
 		}
+		snackBarManager.notifyPlayNext()
 	}
 
 	override fun playRadio(radio: DomainRadio) {
@@ -375,6 +392,7 @@ class IOSMediaPlayerViewModel(
 				currentSong = if (state.currentIndex == -1) song else state.currentSong
 			)
 		}
+		if (notify) snackBarManager.notifyAddedToQueue()
 	}
 
 	override fun addToQueueLocal(collection: DomainSongCollection) {
@@ -383,13 +401,14 @@ class IOSMediaPlayerViewModel(
 			{ it.trackNumber }
 		)) else collection.songs
 		_uiState.update { state ->
-			val newQueue = state.queue + newCollection
+			val newQueue = state.queue + songs
 			state.copy(
 				queue = newQueue,
 				currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-				currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
+				currentSong = if (state.currentIndex == -1) songs.firstOrNull() else state.currentSong
 			)
 		}
+		if (notify) snackBarManager.notifyAddedToQueue()
 	}
 
 	override fun removeFromQueue(index: Int) {
@@ -583,10 +602,11 @@ class IOSMediaPlayerViewModel(
 					var fetchedData: NSData? = null
 					val semaphore = dispatch_semaphore_create(0)
 
-					val task = NSURLSession.sharedSession.dataTaskWithRequest(request) { data, _, _ ->
-						fetchedData = data
-						dispatch_semaphore_signal(semaphore)
-					}
+					val task =
+						NSURLSession.sharedSession.dataTaskWithRequest(request) { data, _, _ ->
+							fetchedData = data
+							dispatch_semaphore_signal(semaphore)
+						}
 					task.resume()
 
 					dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER)
@@ -644,13 +664,13 @@ class IOSMediaPlayerViewModel(
 		when (connectivityManager.isCellular.value) {
 			true -> sessionManager.api.getStreamUrl(
 				id,
-				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateCellular else preferenceManager.streamingQualityCellular.bitrateIos,
+				if (preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateCellular else preferenceManager.streamingQualityCellular.bitrateIos,
 				preferenceManager.streamingQualityCellular.containerIos
 			)
 
 			false -> sessionManager.api.getStreamUrl(
 				id,
-				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateWifi else preferenceManager.streamingQualityWifi.bitrateIos,
+				if (preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateWifi else preferenceManager.streamingQualityWifi.bitrateIos,
 				preferenceManager.streamingQualityWifi.containerIos
 			)
 		} + "&estimateContentLength=true"

@@ -18,10 +18,16 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.notice_deleted_download
+import navic.composeapp.generated.resources.notice_download_started
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
@@ -29,8 +35,6 @@ import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.domain.manager.ConnectivityManager
-import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
@@ -39,6 +43,7 @@ import paige.navic.util.Logger
 import paige.navic.util.core.albumTitleKey
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import kotlinx.coroutines.flow.StateFlow
 
 @Immutable
 data class ArtistState(
@@ -128,31 +133,32 @@ class ArtistDetailViewModel(
 	private val downloadManager: DownloadManager,
 	private val lbBotManager: LbBotManager,
 	private val nativeApiManager: NativeApiManager,
+	private val snackBarManager: SnackBarManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
-	private val _artistState = MutableStateFlow<UiState<ArtistState>>(UiState.Loading())
-	val artistState = _artistState.asStateFlow()
+	val artistState: StateFlow<UiState<ArtistState>>
+		field = MutableStateFlow<UiState<ArtistState>>(UiState.Loading())
 
-	private val _starred = MutableStateFlow(false)
-	val starred = _starred.asStateFlow()
+	val starred: StateFlow<Boolean>
+		field = MutableStateFlow(false)
 
-	private val _selectedSong = MutableStateFlow<DomainSong?>(null)
-	val selectedSong = _selectedSong.asStateFlow()
+	val selectedSong: StateFlow<DomainSong?>
+		field = MutableStateFlow(null)
 
-	private val _selectedSongIsStarred = MutableStateFlow(false)
-	val selectedSongIsStarred = _selectedSongIsStarred.asStateFlow()
+	val selectedSongIsStarred: StateFlow<Boolean>
+		field = MutableStateFlow(false)
 
-	private val _selectedSongRating = MutableStateFlow(0)
-	val selectedSongRating = _selectedSongRating.asStateFlow()
+	val selectedSongRating: StateFlow<Int>
+		field = MutableStateFlow(0)
 
-	private val _selectedAlbum = MutableStateFlow<DomainAlbum?>(null)
-	val selectedAlbum = _selectedAlbum.asStateFlow()
+	val selectedAlbum: StateFlow<DomainAlbum?>
+		field = MutableStateFlow(null)
 
-	private val _selectedAlbumIsStarred = MutableStateFlow(false)
-	val selectedAlbumIsStarred = _selectedAlbumIsStarred.asStateFlow()
+	val selectedAlbumIsStarred: StateFlow<Boolean>
+		field = MutableStateFlow(false)
 
-	private val _selectedAlbumRating = MutableStateFlow(0)
-	val selectedAlbumRating = _selectedAlbumRating.asStateFlow()
+	val selectedAlbumRating: StateFlow<Int>
+		field = MutableStateFlow(0)
 
 	val isOnline = connectivityManager.isOnline
 
@@ -209,7 +215,9 @@ class ArtistDetailViewModel(
 					albumDao.getAlbumsByArtist(artistId).firstOrNull() ?: emptyList()
 
 				if (albumsWithSongs.isEmpty()) {
-					albumsWithSongs = albumDao.getAlbumsByArtistName(domainArtist.name).firstOrNull() ?: emptyList()
+					albumsWithSongs =
+						albumDao.getAlbumsByArtistName(domainArtist.name).firstOrNull()
+							?: emptyList()
 				}
 
 				val domainAlbums = albumsWithSongs.map { it.toDomainModel() }
@@ -223,9 +231,9 @@ class ArtistDetailViewModel(
 					artistDao.getArtistById(id)?.toDomainModel()
 				}
 
-				_starred.value = artistRepository.isArtistStarred(domainArtist)
+				starred.value = artistRepository.isArtistStarred(domainArtist)
 
-				_artistState.value = UiState.Success(
+				artistState.value = UiState.Success(
 					ArtistState(
 						artist = domainArtist,
 						albums = domainAlbums,
@@ -242,7 +250,7 @@ class ArtistDetailViewModel(
 
 				repository.fetchArtistMetadata(artistId)
 					.onSuccess { updatedArtist ->
-						val currentState = (_artistState.value as? UiState.Success)?.data
+						val currentState = (artistState.value as? UiState.Success)?.data
 						if (currentState != null) {
 
 							val updatedSimilarArtists =
@@ -250,7 +258,7 @@ class ArtistDetailViewModel(
 									artistDao.getArtistById(id)?.toDomainModel()
 								}
 
-							_artistState.value = UiState.Success(
+							artistState.value = UiState.Success(
 								currentState.copy(
 									artist = updatedArtist,
 									similarArtists = updatedSimilarArtists
@@ -262,7 +270,7 @@ class ArtistDetailViewModel(
 						Logger.e("ArtistDetailViewModel", "Failed to fetch artist metadata", error)
 					}
 			} catch (e: Exception) {
-				_artistState.value = UiState.Error(e)
+				artistState.value = UiState.Error(e)
 			}
 		}
 	}
@@ -293,8 +301,8 @@ class ArtistDetailViewModel(
 				.map { it.toDomainModel() }
 				.sortedByDescending { it.year ?: 0 }
 			if (albums.isEmpty()) return@launch
-			val current = (_artistState.value as? UiState.Success)?.data ?: return@launch
-			_artistState.value = UiState.Success(current.copy(appearsOn = albums))
+			val current = (artistState.value as? UiState.Success)?.data ?: return@launch
+			artistState.value = UiState.Success(current.copy(appearsOn = albums))
 		}
 	}
 
@@ -312,7 +320,7 @@ class ArtistDetailViewModel(
 	 * albums the user owns.
 	 */
 	private suspend fun reloadAlbumsFromRoom() {
-		val current = (_artistState.value as? UiState.Success)?.data ?: return
+		val current = (artistState.value as? UiState.Success)?.data ?: return
 		var rows = albumDao.getAlbumsByArtist(artistId).firstOrNull() ?: emptyList()
 		if (rows.isEmpty()) {
 			rows = albumDao.getAlbumsByArtistName(current.artist.name).firstOrNull() ?: emptyList()
@@ -322,12 +330,12 @@ class ArtistDetailViewModel(
 		if (albums.map { Triple(it.id, it.songCount, it.coverArtId) } ==
 			current.albums.map { Triple(it.id, it.songCount, it.coverArtId) }) return
 		// Re-read the state: the metadata fetch may have replaced it while Room answered.
-		val latest = (_artistState.value as? UiState.Success)?.data ?: return
-		_artistState.value = UiState.Success(latest.copy(albums = albums))
+		val latest = (artistState.value as? UiState.Success)?.data ?: return
+		artistState.value = UiState.Success(latest.copy(albums = albums))
 	}
 
 	fun loadDiscography() {
-		val state = (_artistState.value as? UiState.Success)?.data ?: return
+		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
 			if (!isOnline.value || !lbBotManager.probeAvailable()) {
 				_discography.value = DiscographyUi(available = false)
@@ -354,7 +362,7 @@ class ArtistDetailViewModel(
 
 	/** Start the (slow, rate-limited) MusicBrainz walk, then wait for the index to fill. */
 	fun indexArtist() {
-		val state = (_artistState.value as? UiState.Success)?.data ?: return
+		val state = (artistState.value as? UiState.Success)?.data ?: return
 		val mbid = state.artist.musicBrainzId
 		if (mbid.isNullOrBlank()) return
 		viewModelScope.launch {
@@ -546,7 +554,7 @@ class ArtistDetailViewModel(
 		// under the other credited artist, so the id resolves perfectly well while being absent
 		// from this page's album list — [resolvedStrayAlbumIds] is what buildSections found by
 		// looking those up directly.
-		val owned = (_artistState.value as? UiState.Success)?.data?.albums.orEmpty()
+		val owned = (artistState.value as? UiState.Success)?.data?.albums.orEmpty()
 			.mapTo(mutableSetOf()) { it.id }
 		owned.addAll(resolvedStrayAlbumIds)
 		val known = entry.release?.navidromeAlbumIds.orEmpty()
@@ -564,43 +572,43 @@ class ArtistDetailViewModel(
 
 	fun selectSong(song: DomainSong) {
 		viewModelScope.launch {
-			_selectedSong.value = song
-			_selectedSongIsStarred.value = songRepository.isSongStarred(song)
-			_selectedSongRating.value = songRepository.getSongRating(song)
+			selectedSong.value = song
+			selectedSongIsStarred.value = songRepository.isSongStarred(song)
+			selectedSongRating.value = songRepository.getSongRating(song)
 		}
 	}
 
 	fun clearSelection() {
-		_selectedSong.value = null
+		selectedSong.value = null
 	}
 
 	fun selectAlbum(album: DomainAlbum) {
 		viewModelScope.launch {
-			_selectedAlbum.value = album
-			_selectedAlbumIsStarred.value = albumRepository.isAlbumStarred(album)
-			_selectedAlbumRating.value = albumRepository.getAlbumRating(album)
+			selectedAlbum.value = album
+			selectedAlbumIsStarred.value = albumRepository.isAlbumStarred(album)
+			selectedAlbumRating.value = albumRepository.getAlbumRating(album)
 		}
 	}
 
 	fun rateSelectedAlbum(rating: Int) {
 		viewModelScope.launch {
-			val selection = _selectedAlbum.value ?: return@launch
+			val selection = selectedAlbum.value ?: return@launch
 			runCatching {
-				_selectedAlbumRating.value = rating
+				selectedAlbumRating.value = rating
 				albumRepository.rateAlbum(selection, rating)
 			}
 		}
 	}
 
 	fun clearAlbumSelection() {
-		_selectedAlbum.value = null
+		selectedAlbum.value = null
 	}
 
 	fun starSelectedSong() {
 		viewModelScope.launch {
-			val selection = _selectedSong.value ?: return@launch
+			val selection = selectedSong.value ?: return@launch
 			runCatching {
-				_selectedSongIsStarred.value = true
+				selectedSongIsStarred.value = true
 				songRepository.starSong(selection)
 				loadArtistData()
 			}
@@ -609,9 +617,9 @@ class ArtistDetailViewModel(
 
 	fun unstarSelectedSong() {
 		viewModelScope.launch {
-			val selection = _selectedSong.value ?: return@launch
+			val selection = selectedSong.value ?: return@launch
 			runCatching {
-				_selectedSongIsStarred.value = false
+				selectedSongIsStarred.value = false
 				songRepository.unstarSong(selection)
 				loadArtistData()
 			}
@@ -620,54 +628,55 @@ class ArtistDetailViewModel(
 
 	fun rateSelectedSong(rating: Int) {
 		viewModelScope.launch {
-			val selection = _selectedSong.value ?: return@launch
+			val selection = selectedSong.value ?: return@launch
 			runCatching {
-				_selectedSongRating.value = rating
+				selectedSongRating.value = rating
 				songRepository.rateSong(selection, rating)
 			}
 		}
 	}
 
-	fun starArtist(starred: Boolean) {
-		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
+	fun starArtist(isStarred: Boolean) {
+		val artist = (artistState.value as? UiState.Success)?.data?.artist ?: return
 		viewModelScope.launch {
 			runCatching {
-				if (starred) {
+				if (isStarred) {
 					artistRepository.starArtist(artist)
 				} else {
 					artistRepository.unstarArtist(artist)
 				}
-				_starred.value = starred
+				starred.value = isStarred
 			}
 		}
 	}
 
 	fun starAlbum(starred: Boolean) {
 		viewModelScope.launch {
-			val selection = _selectedAlbum.value ?: return@launch
+			val selection = selectedAlbum.value ?: return@launch
 			runCatching {
 				if (starred) {
 					albumRepository.starAlbum(selection)
 				} else {
 					albumRepository.unstarAlbum(selection)
 				}
-				_selectedAlbumIsStarred.value = starred
+				selectedAlbumIsStarred.value = starred
 			}
 		}
 	}
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
-		(_artistState.value as? UiState.Success)?.data?.let { state ->
+		(artistState.value as? UiState.Success)?.data?.let { state ->
 			player.clearQueue()
 			state.albums.forEach { album ->
 				player.addToQueue(album)
 			}
-			player.togglePlay()
+			player.playAt(0)
 		}
 	}
 
 	fun downloadSong(song: DomainSong) {
 		downloadManager.downloadSong(song)
+		snackBarManager.notify(Res.string.notice_download_started)
 	}
 
 	fun cancelDownload(songId: String) {
@@ -676,6 +685,7 @@ class ArtistDetailViewModel(
 
 	fun deleteDownload(songId: String) {
 		downloadManager.deleteDownload(songId)
+		snackBarManager.notify(Res.string.notice_deleted_download)
 	}
 
 	@OptIn(ExperimentalCoroutinesApi::class)

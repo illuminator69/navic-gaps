@@ -22,7 +22,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -101,6 +100,8 @@ class DownloadManager(
 		}.first { it }
 	}
 
+	private var libraryDownloadJob: Job? = null
+
 	val allDownloads = downloadDao.getAllDownloads().map { it.toImmutableList() }
 	val downloadCount = downloadDao.getDownloadsCount()
 	/**
@@ -110,19 +111,19 @@ class DownloadManager(
 	 */
 	val downloadSize = downloadDao.getTotalSize()
 
-	private val _downloadedSongs = MutableStateFlow<Map<String, String>>(emptyMap())
-	val downloadedSongs: StateFlow<Map<String, String>> = _downloadedSongs.asStateFlow()
+	val downloadedSongs: StateFlow<Map<String, String>>
+		field = MutableStateFlow(emptyMap())
 
-	private var libraryDownloadJob: Job? = null
-	private val _isDownloadingLibrary = MutableStateFlow(false)
-	val isDownloadingLibrary: StateFlow<Boolean> = _isDownloadingLibrary.asStateFlow()
-	private val _libraryDownloadProgress = MutableStateFlow(0f)
-	val libraryDownloadProgress: StateFlow<Float> = _libraryDownloadProgress.asStateFlow()
+	val isDownloadingLibrary: StateFlow<Boolean>
+		field = MutableStateFlow(false)
+
+	val libraryDownloadProgress: StateFlow<Float>
+		field = MutableStateFlow(0f)
 
 	init {
 		scope.launch {
 			allDownloads.collectLatest { downloads ->
-				_downloadedSongs.value = downloads
+				downloadedSongs.value = downloads
 					.filter { it.status == DownloadStatus.DOWNLOADED && it.filePath != null }
 					.associate { it.songId to it.filePath!! }
 			}
@@ -181,7 +182,7 @@ class DownloadManager(
 	}
 
 	fun getDownloadedFilePath(songId: String): String? {
-		return _downloadedSongs.value[songId]
+		return downloadedSongs.value[songId]
 	}
 
 	/** songId -> on-disk byte size for every completed download, for storage-budget accounting. */
@@ -349,12 +350,12 @@ class DownloadManager(
 	}
 
 	fun downloadEntireLibrary(songs: List<DomainSong>) {
-		if (_isDownloadingLibrary.value) return
+		if (isDownloadingLibrary.value) return
 
 		libraryDownloadJob = scope.launch(Dispatchers.IO) {
 			try {
-				_isDownloadingLibrary.value = true
-				_libraryDownloadProgress.value = 0f
+				isDownloadingLibrary.value = true
+				libraryDownloadProgress.value = 0f
 
 				// One bulk fetch of downloaded ids instead of a point query per song.
 				val downloadedIds = downloadDao.getSongIdsByStatus(DownloadStatus.DOWNLOADED).toSet()
@@ -362,8 +363,8 @@ class DownloadManager(
 				val totalToDownload = songsToDownload.size
 
 				if (totalToDownload == 0) {
-					_isDownloadingLibrary.value = false
-					_libraryDownloadProgress.value = 1f
+					isDownloadingLibrary.value = false
+					libraryDownloadProgress.value = 1f
 					return@launch
 				}
 
@@ -381,18 +382,19 @@ class DownloadManager(
 
 							progressMutex.withLock {
 								processedCount++
-								_libraryDownloadProgress.value = processedCount.toFloat() / totalToDownload.toFloat()
+								libraryDownloadProgress.value =
+									processedCount.toFloat() / totalToDownload.toFloat()
 							}
 						}
 					}
 				}
 
 				workers.joinAll()
-				_isDownloadingLibrary.value = false
+				isDownloadingLibrary.value = false
 
 			} catch (_: CancellationException) {
-				_isDownloadingLibrary.value = false
-				_libraryDownloadProgress.value = 0f
+				isDownloadingLibrary.value = false
+				libraryDownloadProgress.value = 0f
 			}
 		}
 	}
@@ -400,8 +402,8 @@ class DownloadManager(
 	fun cancelAllActiveDownloads() {
 		libraryDownloadJob?.cancel()
 		libraryDownloadJob = null
-		_isDownloadingLibrary.value = false
-		_libraryDownloadProgress.value = 0f
+		isDownloadingLibrary.value = false
+		libraryDownloadProgress.value = 0f
 
 		scope.launch(Dispatchers.IO) {
 			val jobsToCancel = activeDownloadsMutex.withLock {

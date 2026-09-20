@@ -14,14 +14,17 @@ import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.count_songs
+import navic.composeapp.generated.resources.notice_deleted_download
+import navic.composeapp.generated.resources.notice_download_started
 import org.jetbrains.compose.resources.pluralStringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.ui.navigation.Screen
-import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.models.DomainPlaylist
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
@@ -41,6 +44,7 @@ fun PlaylistListScreenItem(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val snackBarManager = koinInject<SnackBarManager>()
 	val scope = rememberCoroutineScope()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -85,9 +89,10 @@ fun PlaylistListScreenItem(
 				onAddToQueue = onAddToQueue,
 				onAddAllToPlaylist = { playlistDialogShown = true },
 				downloadStatus = downloadStatus,
-				onDownloadAll = { 
+				onDownloadAll = {
 					scope.launch {
-						downloadManager.downloadCollection(playlist) 
+						downloadManager.downloadCollection(playlist)
+						snackBarManager.notify(Res.string.notice_download_started)
 					}
 				},
 				onCancelDownloadAll = {
@@ -98,6 +103,7 @@ fun PlaylistListScreenItem(
 				onDeleteDownloadAll = {
 					scope.launch {
 						downloadManager.deleteDownloadedCollection(playlist)
+						snackBarManager.notify(Res.string.notice_deleted_download)
 					}
 				}
 			)

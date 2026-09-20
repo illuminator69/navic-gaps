@@ -7,6 +7,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.SongDao
