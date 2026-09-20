@@ -6,14 +6,15 @@ import com.russhwolf.settings.set
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
-import paige.navic.data.models.NavbarConfig
-import paige.navic.data.models.NavbarTab
-import paige.navic.utils.UiState
+import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.models.settings.NavbarTab
+import paige.navic.ui.core.UiState
 
 class NavtabsViewModel(
-	private val settings: Settings,
-	private val json: Json
+	private val settings: Settings
 ) : ViewModel() {
+	private val json = Json
+
 	private val _state = MutableStateFlow<UiState<NavbarConfig>>(UiState.Loading())
 	val state = _state.asStateFlow()
 
@@ -29,7 +30,12 @@ class NavtabsViewModel(
 		val raw = settings.getStringOrNull(NavbarConfig.KEY)
 			?: return NavbarConfig.default
 		val config: NavbarConfig = json.decodeFromString(raw)
+		// Merged, not discarded-on-mismatch alone: a tab id added after this config
+		// was written has no row in it, and without the merge it would be missing
+		// from the bar and from the reorder screen permanently. The version check
+		// still handles a genuinely incompatible shape.
 		return config.takeIf { it.version == NavbarConfig.VERSION }
+			?.let { NavbarConfig.merged(it) }
 			?: NavbarConfig.default
 	}
 

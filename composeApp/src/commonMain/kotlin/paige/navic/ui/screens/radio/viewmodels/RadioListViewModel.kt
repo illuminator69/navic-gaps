@@ -8,13 +8,14 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.repositories.RadioRepository
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 class RadioListViewModel(
-	private val repository: RadioRepository
+	private val repository: RadioRepository,
+	private val sessionManager: SessionManager
 ) : ViewModel() {
 	private val _radiosState =
 		MutableStateFlow<UiState<ImmutableList<DomainRadio>>>(UiState.Loading())
@@ -24,7 +25,7 @@ class RadioListViewModel(
 
 	init {
 		viewModelScope.launch {
-			SessionManager.isLoggedIn.collect { if (it) refreshRadios(false) }
+			sessionManager.isLoggedIn.collect { if (it) refreshRadios(false) }
 		}
 	}
 

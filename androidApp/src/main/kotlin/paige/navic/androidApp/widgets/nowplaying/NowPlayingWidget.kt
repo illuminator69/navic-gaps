@@ -37,8 +37,28 @@ abstract class NowPlayingWidget : GlanceAppWidget() {
 			val artist = prefs[NowPlayingKeys.artistKey]?.takeIf { it.isNotBlank() } ?: "No Artist"
 			val artUrl = prefs[NowPlayingKeys.artUrlKey]
 
-			val bitmap by produceState<Bitmap?>(initialValue = null, artUrl) {
+			// Cover and wash come from ONE coroutine, seeded from the process cache: a widget
+			// update is a fresh composition, so anything derived in a second step lagged a
+			// track behind, and anything not already in hand flashed the placeholder first.
+			//
+			// Ask the cache *inside* the producer, not only through `initialValue`: `produceState`
+			// keeps the previous value when its key changes, so a track change within a
+			// composition that is still alive left the last song's art in `value` — and a guard
+			// reading `value` then concluded the art was already in hand and never fetched the new
+			// one. That is the stale cover that outlived the song it belonged to. The old bitmap
+			// is deliberately left on screen while the new one loads (a blank cover for the length
+			// of a fetch is worse), but the fetch's result is assigned unconditionally, so a
+			// failure falls back to the placeholder rather than lying about a different album.
+			val coverKey = CoverArtCache.keyFor(artUrl)
+			val cover by produceState(initialValue = CoverArtCache.get(coverKey), coverKey) {
+				val cached = CoverArtCache.get(coverKey)
+				if (cached != null) {
+					value = cached
+					return@produceState
+				}
 				value = fetchBitmap(context, artUrl)
+					?.let { CoverArt(bitmap = it, wash = AmbientWash.of(it)) }
+					?.also { CoverArtCache.put(coverKey, it) }
 			}
 
 			GlanceTheme {
@@ -47,19 +67,26 @@ abstract class NowPlayingWidget : GlanceAppWidget() {
 					isPlaying = isPlaying,
 					title = title,
 					artist = artist,
-					bitmap = bitmap
+					bitmap = cover?.bitmap,
+					ambientWash = cover?.wash
 				)
 			}
 		}
 	}
 
+	/**
+	 * @param bitmap the now-playing cover, or null when there is nothing to show.
+	 * @param ambientWash [bitmap] blurred, saturated and scrimmed for use as a background. Always
+	 *   in step with [bitmap] — a widget that draws it can rely on the two matching.
+	 */
 	@Composable
 	abstract fun Content(
 		context: Context,
 		isPlaying: Boolean,
 		title: String,
 		artist: String,
-		bitmap: Bitmap?
+		bitmap: Bitmap?,
+		ambientWash: Bitmap?
 	)
 
 	/**
@@ -71,6 +98,15 @@ abstract class NowPlayingWidget : GlanceAppWidget() {
 		Intent(Intent.ACTION_MEDIA_BUTTON).apply {
 			putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
 			component = ComponentName(context, "androidx.media3.session.MediaButtonReceiver")
+		}
+
+	/**
+	 * Skip previous/next. Not a media-button broadcast: see [WidgetControlReceiver] for why one
+	 * would be discarded before it ever reached the session.
+	 */
+	protected fun createSkipIntent(context: Context, command: String) =
+		Intent(context, WidgetControlReceiver::class.java).apply {
+			putExtra(WidgetControlReceiver.EXTRA_COMMAND, command)
 		}
 
 	protected fun launchIntent(context: Context) = Intent(context, MainActivity::class.java).apply {

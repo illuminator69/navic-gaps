@@ -8,10 +8,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
-import paige.navic.utils.UiState
+import paige.navic.domain.manager.SessionManager
+import paige.navic.ui.core.UiState
 
-class RadioCreateDialogViewModel : ViewModel() {
+class RadioCreateDialogViewModel(
+	private val sessionManager: SessionManager
+) : ViewModel() {
 	private val _creationState = MutableStateFlow<UiState<Nothing?>>(UiState.Success(null))
 	val creationState = _creationState.asStateFlow()
 
@@ -26,7 +28,7 @@ class RadioCreateDialogViewModel : ViewModel() {
 		viewModelScope.launch {
 			_creationState.value = UiState.Loading()
 			try {
-				SessionManager.api.createInternetRadioStation(
+				sessionManager.api.createInternetRadioStation(
 					name = name.text.toString(),
 					streamUrl = streamUrl.text.toString(),
 					homepageUrl = homepageUrl.text.toString().trim().takeIf { it.isNotBlank() }

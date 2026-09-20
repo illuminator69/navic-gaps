@@ -27,10 +27,11 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.option_choose_theme
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.Theme
-import paige.navic.data.models.settings.enums.ThemeMode
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.Theme
+import paige.navic.domain.models.settings.ThemeMode
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -40,7 +41,8 @@ fun ThemeDialog(
 ) {
 	if (!presented) return
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	AlertDialog(
 		title = {
@@ -59,15 +61,15 @@ fun ThemeDialog(
 							.fillMaxWidth()
 							.clip(MaterialTheme.shapes.small)
 							.clickable {
-								ctx.clickSound()
-								Settings.shared.theme = theme
+								platformContext.clickSound()
+								preferenceManager.theme = theme
 								onDismissRequest()
 							},
 						horizontalArrangement = Arrangement.spacedBy(16.dp),
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						RadioButton(
-							selected = Settings.shared.theme == theme,
+							selected = preferenceManager.theme == theme,
 							onClick = null
 						)
 						Column(Modifier.weight(1f)) {
@@ -88,7 +90,7 @@ fun ThemeDialog(
 		onDismissRequest = onDismissRequest,
 		confirmButton = {
 			Button(onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				onDismissRequest()
 			}) {
 				Text(stringResource(Res.string.action_ok))
@@ -100,22 +102,23 @@ fun ThemeDialog(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ThemeModeChooser() {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	val themes = ThemeMode.entries
 	Row(
 		modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
 		horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
 	) {
 		themes.forEachIndexed { idx, mode ->
-			val checked = Settings.shared.themeMode == mode
+			val checked = preferenceManager.themeMode == mode
 			val weight by animateFloatAsState(
 				if (checked) 1.25f else 1f
 			)
 			ToggleButton(
 				checked = checked,
 				onCheckedChange = { _ ->
-					ctx.clickSound()
-					Settings.shared.themeMode = mode
+					platformContext.clickSound()
+					preferenceManager.themeMode = mode
 				},
 				shapes =
 					when (idx) {

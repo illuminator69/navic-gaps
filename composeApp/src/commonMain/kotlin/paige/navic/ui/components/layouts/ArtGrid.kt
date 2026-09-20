@@ -33,14 +33,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
-import paige.navic.LocalCtx
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalSharedTransitionScope
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
-import paige.navic.utils.EmphasizedDecelerateEasing
-import paige.navic.utils.UiState
-import paige.navic.utils.shimmerLoading
+import paige.navic.ui.core.UiState
+import paige.navic.util.ui.EmphasizedDecelerateEasing
+import paige.navic.util.ui.shimmerLoading
 
 @Composable
 fun ArtGrid(
@@ -51,13 +52,14 @@ fun ArtGrid(
 	verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
 	content: LazyGridScope.() -> Unit
 ) {
-	val ctx = LocalCtx.current
-	val artGridItemSize = Settings.shared.artGridItemSize
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val artGridItemSize = preferenceManager.artGridItemSize
 	LazyVerticalGrid(
 		modifier = modifier.fillMaxSize(),
 		state = state,
-		columns = if (ctx.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact)
-			GridCells.Fixed(Settings.shared.gridSize.value)
+		columns = if (platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact)
+			GridCells.Fixed(preferenceManager.gridSize.value)
 		else GridCells.Adaptive(artGridItemSize.dp),
 		contentPadding = contentPadding + PaddingValues(
 			start = 16.dp,
@@ -83,6 +85,14 @@ fun ArtGridItem(
 	// this parameter is a shitty workaround for shared element
 	// transitions being performed when switching between tabs
 	// this can just be an empty string if the tab is unknown
+	//
+	// It also has to be unique per LIST, not just per tab: `"$tab-$id-cover"` is the shared-element
+	// key, and two visible elements claiming one key is undefined behaviour. The library home shows
+	// three album rows at once and an album can be in all three, so they pass "library-recent" /
+	// "library-frequent" / "library-newest" rather than a single "library". With a duplicate key,
+	// opening one copy dragged the OTHER row's copy into the transition too, and one of the two
+	// popped into place instead of animating. Whatever is passed here must match what's handed to
+	// `Screen.CollectionDetail`, since the detail header rebuilds the same key from it.
 	tab: String
 ) {
 	val interactionSource = remember { MutableInteractionSource() }

@@ -4,19 +4,28 @@ package paige.navic.shared
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.cinterop.ExperimentalForeignApi
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
-import paige.navic.data.database.SyncManager
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.session.SessionManager
+import kotlinx.coroutines.launch
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.IOSScrobbleManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.SavedQueueSource
+import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.PlayerStateRepository
-import paige.navic.managers.ConnectivityManager
-import paige.navic.managers.DownloadManager
-import paige.navic.managers.IOSScrobbleManager
+import paige.navic.domain.repositories.SavedQueueRepository
+import paige.navic.ui.core.PlayerUiState
+import paige.navic.util.core.Logger
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.setActive
@@ -25,6 +34,7 @@ import platform.AVFoundation.AVPlayerItem
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
 import platform.AVFoundation.AVURLAsset
 import platform.AVFoundation.addPeriodicTimeObserverForInterval
+import platform.AVFoundation.asset
 import platform.AVFoundation.currentItem
 import platform.AVFoundation.currentTime
 import platform.AVFoundation.duration
@@ -69,17 +79,21 @@ class IOSMediaPlayerViewModel(
 	stateRepository: PlayerStateRepository,
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
-	syncManager: SyncManager
+	syncManager: SyncManager,
+	private val sessionManager: SessionManager,
+	private val preferenceManager: PreferenceManager,
+	savedQueueRepository: SavedQueueRepository
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
-	connectivityManager = connectivityManager
+	connectivityManager = connectivityManager,
+	savedQueueRepository = savedQueueRepository
 ) {
 	private val player = AVPlayer()
 	private var timeObserver: Any? = null
 	private var playbackEndObserver: Any? = null
 	private val scrobbleManager =
-		IOSScrobbleManager(player, viewModelScope, connectivityManager, syncManager)
+		IOSScrobbleManager(player, viewModelScope, connectivityManager, syncManager, sessionManager, preferenceManager)
 	private var pendingSyncState: PlayerUiState? = null
 	private var isTransitioningBetweenTracks = false
 
@@ -115,6 +129,32 @@ class IOSMediaPlayerViewModel(
 		pendingSyncState?.let { state ->
 			syncPlayerWithState(state)
 			pendingSyncState = null
+		}
+
+		viewModelScope.launch {
+			combine(
+				connectivityManager.isCellular,
+				snapshotFlow { preferenceManager.streamingQualityWifi },
+				snapshotFlow { preferenceManager.streamingQualityCellular },
+				snapshotFlow { preferenceManager.isAdvancedTranscodingActive },
+				snapshotFlow { preferenceManager.customMaxBitrateWifi },
+				snapshotFlow { preferenceManager.customMaxBitrateCellular }
+			) { it }.collectLatest {
+				val song = _uiState.value.currentSong ?: return@collectLatest
+				val url = getSongUrl(song) ?: return@collectLatest
+
+				if (!url.isFileURL()) {
+					val currentAsset = player.currentItem?.asset as? AVURLAsset
+					if (currentAsset?.URL?.absoluteString != url.absoluteString) {
+						val currentTime = player.currentTime()
+						val isPaused = _uiState.value.isPaused
+
+						player.replaceCurrentItemWithPlayerItem(createAVPlayerItem(url))
+						player.seekToTime(currentTime, toleranceBefore = CMTimeMake(0, 1), toleranceAfter = CMTimeMake(0, 1))
+						if (!isPaused) player.play()
+					}
+				}
+			}
 		}
 	}
 
@@ -198,13 +238,40 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
-	override fun playNextSingle(song: DomainSong) {
+	override fun playCollectionLocal(collection: DomainSongCollection, startSong: DomainSong) {
+		val newCollection = if (collection is DomainAlbum) {
+			collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
+		} else {
+			collection.songs
+		}
+
+		val startIndex = newCollection.indexOfFirst { it.id == startSong.id }.coerceAtLeast(0)
+
+		_uiState.update { state ->
+			state.copy(
+				queue = newCollection,
+				currentIndex = startIndex,
+				currentSong = newCollection.getOrNull(startIndex),
+				currentCollection = collection,
+				isLoading = true,
+				// Fresh queue → saved-queue session (see SavedQueueRepository). Resolved rather than
+				// minted so replaying the same collection refreshes its card instead of cloning it.
+				savedQueueId = sessionIdFor(newCollection),
+				savedQueueKind = collection.toSavedQueueKind(),
+				savedQueueName = collection.name
+			)
+		}
+
+		playAt(startIndex)
+	}
+
+	override fun playNextSingleLocal(song: DomainSong) {
 		_uiState.update { state ->
 			val newQueue =
 				if (state.queue.isEmpty())
 					state.queue + song
 				else
-					state.queue.slice(0..state.currentIndex) + song + state.queue.slice(state.currentIndex+1..state.queue.size-1)
+					state.queue.slice(0..state.currentIndex) + song + state.queue.slice(state.currentIndex+1..<state.queue.size)
 			state.copy(
 				queue = newQueue,
 				currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
@@ -213,7 +280,7 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
-	override fun playNext(collection: DomainSongCollection) {
+	override fun playNextLocal(collection: DomainSongCollection) {
 		val newCollection = if (collection is DomainAlbum) collection.songs.sortedWith(compareBy(
 			{ it.discNumber },
 			{ it.trackNumber }
@@ -223,7 +290,9 @@ class IOSMediaPlayerViewModel(
 				if (state.queue.isEmpty())
 					state.queue + newCollection
 				else
-					state.queue.slice(0..state.currentIndex) + newCollection + state.queue.slice(state.currentIndex+1..state.queue.size-1)
+					state.queue.slice(0..state.currentIndex) + newCollection + state.queue.slice(
+						state.currentIndex+1..<state.queue.size
+					)
 			state.copy(
 				queue = newQueue,
 				currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
@@ -285,7 +354,10 @@ class IOSMediaPlayerViewModel(
 				queue = listOf(dummyRadioSong),
 				currentIndex = 0,
 				currentSong = dummyRadioSong,
-				isLoading = true
+				isLoading = true,
+				savedQueueId = sessionIdFor(listOf(dummyRadioSong)),
+				savedQueueKind = SavedQueueSource.RADIO,
+				savedQueueName = radio.name
 			)
 		}
 
@@ -294,7 +366,7 @@ class IOSMediaPlayerViewModel(
 		updateNowPlayingInfo(dummyRadioSong)
 	}
 
-	override fun addToQueueSingle(song: DomainSong) {
+	override fun addToQueueSingleLocal(song: DomainSong) {
 		_uiState.update { state ->
 			val newQueue = state.queue + song
 			state.copy(
@@ -305,7 +377,7 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
-	override fun addToQueue(collection: DomainSongCollection) {
+	override fun addToQueueLocal(collection: DomainSongCollection) {
 		val newCollection = if (collection is DomainAlbum) collection.songs.sortedWith(compareBy(
 			{ it.discNumber },
 			{ it.trackNumber }
@@ -367,7 +439,16 @@ class IOSMediaPlayerViewModel(
 		player.pause()
 		player.replaceCurrentItemWithPlayerItem(null)
 		_uiState.update {
-			it.copy(queue = emptyList(), currentSong = null, currentIndex = -1, progress = 0f, isPaused = true)
+			it.copy(
+				queue = emptyList(),
+				currentSong = null,
+				currentIndex = -1,
+				progress = 0f,
+				isPaused = true,
+				savedQueueId = null,
+				savedQueueKind = "manual",
+				savedQueueName = null
+			)
 		}
 		scrobbleManager.onIsPlayingChanged(false)
 		updateNowPlayingInfo(null)
@@ -411,13 +492,17 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
-	override fun shufflePlay(collection: DomainSongCollection) {
+	override fun shufflePlayLocal(collection: DomainSongCollection) {
 		val shuffledSongs = collection.songs.shuffled()
 		_uiState.update { state ->
 			state.copy(
 				queue = shuffledSongs,
 				currentIndex = 0,
-				currentSong = shuffledSongs.firstOrNull()
+				currentSong = shuffledSongs.firstOrNull(),
+				currentCollection = collection,
+				savedQueueId = sessionIdFor(shuffledSongs),
+				savedQueueKind = collection.toSavedQueueKind(),
+				savedQueueName = collection.name
 			)
 		}
 		playAt(0)
@@ -483,11 +568,11 @@ class IOSMediaPlayerViewModel(
 			requestHandler = { _ ->
 				runCatching {
 					val url = song.coverArtId
-						?.let { SessionManager.getCoverArtUrl(it) }
+						?.let { sessionManager.getCoverArtUrl(it) }
 						?.let { NSURL.URLWithString(it) } ?: return@runCatching null
 
 					val request = NSMutableURLRequest.requestWithURL(url).apply {
-						val customHeaders = Settings.shared.customHeadersMap()
+						val customHeaders = preferenceManager.customHeadersMap()
 						if (customHeaders.isNotEmpty()) {
 							customHeaders.forEach { (key, value) ->
 								addValue(key, forHTTPHeaderField = value)
@@ -524,7 +609,7 @@ class IOSMediaPlayerViewModel(
 	override fun syncPlayerWithState(state: PlayerUiState) {
 		if (state.queue.isEmpty() || player.currentItem != null) return
 
-		val index = if (state.currentIndex in 0 until state.queue.size) state.currentIndex else 0
+		val index = if (state.currentIndex in state.queue.indices) state.currentIndex else 0
 		val song = state.queue.getOrNull(index) ?: return
 
 		val url = getSongUrl(song) ?: return
@@ -546,7 +631,7 @@ class IOSMediaPlayerViewModel(
 	}
 
 	private fun createAVPlayerItem(url: NSURL): AVPlayerItem {
-		val headers = Settings.shared.customHeadersMap()
+		val headers = preferenceManager.customHeadersMap()
 		if (headers.isEmpty() || url.isFileURL()) {
 			return AVPlayerItem(url)
 		}
@@ -557,16 +642,16 @@ class IOSMediaPlayerViewModel(
 
 	private fun getStreamUrl(id: String) =
 		when (connectivityManager.isCellular.value) {
-			true -> SessionManager.api.getStreamUrl(
+			true -> sessionManager.api.getStreamUrl(
 				id,
-				if(Settings.shared.isAdvancedTranscodingActive) Settings.shared.customMaxBitrateCellular else Settings.shared.streamingQualityCellular.bitrateIos,
-				Settings.shared.streamingQualityCellular.containerIos
+				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateCellular else preferenceManager.streamingQualityCellular.bitrateIos,
+				preferenceManager.streamingQualityCellular.containerIos
 			)
 
-			false -> SessionManager.api.getStreamUrl(
+			false -> sessionManager.api.getStreamUrl(
 				id,
-				if(Settings.shared.isAdvancedTranscodingActive) Settings.shared.customMaxBitrateWifi else Settings.shared.streamingQualityWifi.bitrateIos,
-				Settings.shared.streamingQualityWifi.containerIos
+				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateWifi else preferenceManager.streamingQualityWifi.bitrateIos,
+				preferenceManager.streamingQualityWifi.containerIos
 			)
 		} + "&estimateContentLength=true"
 

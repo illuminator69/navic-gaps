@@ -27,9 +27,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.delay
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.MarqueeSpeed
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.MarqueeSpeed
+import kotlin.time.Duration.Companion.seconds
 
 @Composable
 fun MarqueeText(
@@ -37,7 +41,8 @@ fun MarqueeText(
 	style: TextStyle = LocalTextStyle.current,
 	modifier: Modifier = Modifier
 ) {
-	if (Settings.shared.marqueeSpeed != MarqueeSpeed.Disabled) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	if (preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled) {
 		Marquee(modifier) {
 			Text(text, maxLines = 1, style = style)
 		}
@@ -50,11 +55,21 @@ fun MarqueeText(
 fun MarqueeText(
 	text: AnnotatedString,
 	style: TextStyle = LocalTextStyle.current,
-	inlineContent: Map<String, InlineTextContent> = mapOf(),
-	modifier: Modifier = Modifier
+	inlineContent: PersistentMap<String, InlineTextContent> = persistentMapOf(),
+	modifier: Modifier = Modifier,
+	/**
+	 * Drag to read instead of scrolling on its own.
+	 *
+	 * For text whose parts are individually tappable: a line that is auto-scrolling moves the tap
+	 * target out from under the finger, which made a featured artist's name in the now-playing
+	 * credits effectively impossible to hit. Everywhere else auto-scroll is still the right
+	 * behaviour and stays the default.
+	 */
+	manualScroll: Boolean = false
 ) {
-	if (Settings.shared.marqueeSpeed != MarqueeSpeed.Disabled) {
-		Marquee(modifier) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	if (manualScroll || preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled) {
+		Marquee(modifier, manualScroll = manualScroll) {
 			Text(text, maxLines = 1, style = style, inlineContent = inlineContent)
 		}
 	} else {
@@ -67,28 +82,30 @@ fun MarqueeText(
 private fun Marquee(
 	modifier: Modifier = Modifier,
 	edgeWidth: Dp = 16.dp,
-	delayMillis: Int = 1000,
+	manualScroll: Boolean = false,
 	content: @Composable () -> Unit
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val scrollState = rememberScrollState()
 	val edgeWidthPx = with(LocalDensity.current) { edgeWidth.toPx() }
 
-	LaunchedEffect(scrollState.maxValue) {
+	LaunchedEffect(scrollState.maxValue, manualScroll) {
+		if (manualScroll) return@LaunchedEffect
 		if (scrollState.maxValue == 0) return@LaunchedEffect
 
 		while (true) {
-			delay(delayMillis.toLong())
+			delay(1.seconds)
 
 			scrollState.animateScrollTo(
 				value = scrollState.maxValue,
-				animationSpec = tween(Settings.shared.marqueeSpeed.value)
+				animationSpec = tween(preferenceManager.marqueeSpeed.value)
 			)
 
-			delay(delayMillis.toLong())
+			delay(1.seconds)
 
 			scrollState.animateScrollTo(
 				value = 0,
-				animationSpec = tween(Settings.shared.marqueeSpeed.value)
+				animationSpec = tween(preferenceManager.marqueeSpeed.value)
 			)
 		}
 	}
@@ -121,7 +138,7 @@ private fun Marquee(
 			}
 	) {
 		Row(
-			modifier = Modifier.horizontalScroll(scrollState, false)
+			modifier = Modifier.horizontalScroll(scrollState, enabled = manualScroll)
 		) {
 			content()
 		}

@@ -9,17 +9,19 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
+import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 @OptIn(ExperimentalCoroutinesApi::class)
 open class AlbumListViewModel(
 	initialListType: DomainAlbumListType = DomainAlbumListType.AlphabeticalByArtist,
-	private val repository: AlbumRepository
-) : ViewModel() {
+	private val repository: AlbumRepository,
+	private val sessionManager: SessionManager
+) : ViewModel(), KoinComponent {
 	private val _albumsState =
 		MutableStateFlow<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading())
 	val albumsState = _albumsState.asStateFlow()
@@ -43,7 +45,7 @@ open class AlbumListViewModel(
 
 	init {
 		viewModelScope.launch {
-			SessionManager.isLoggedIn.collect { if (it) refreshAlbums(false) }
+			sessionManager.isLoggedIn.collect { if (it) refreshAlbums(false) }
 		}
 	}
 

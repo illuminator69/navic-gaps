@@ -24,6 +24,7 @@ import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.icons.Icons
+import paige.navic.domain.manager.RadioManager
 import paige.navic.icons.outlined.MoreVert
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -31,7 +32,7 @@ import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 @Composable
 fun ArtistDetailScreenTopBar(
@@ -47,6 +48,7 @@ fun ArtistDetailScreenTopBar(
 	)
 
 	val player = koinInject<MediaPlayerViewModel>()
+	val radioManager = koinInject<RadioManager>()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
@@ -79,6 +81,7 @@ fun ArtistDetailScreenTopBar(
 						ArtistSheet(
 							onDismissRequest = { expanded = false },
 							artist = state.artist,
+							onStartRadio = { radioManager.startRadio(state.artist.id) },
 							onPlayNext = {
 								state.albums.reversed().forEach { album ->
 									player.playNext(album)
@@ -114,7 +117,6 @@ fun ArtistDetailScreenTopBar(
 			}
 		)
 		if (playlistDialogShown) {
-			@Suppress("AssignedValueIsNeverRead")
 			PlaylistUpdateDialog(
 				songs = state.albums.flatMap { it.songs }.toPersistentList(),
 				onDismissRequest = { playlistDialogShown = false }

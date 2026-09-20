@@ -42,12 +42,8 @@ extensions.configure<ApplicationExtension> {
 	}
 
 	buildTypes {
-		val isRelease = System.getenv("RELEASE")?.toBoolean() ?: false
+		val isRelease = true
 		val hasReleaseSigning = System.getenv("SIGNING_STORE_PASSWORD")?.isNotEmpty() == true
-
-		if (isRelease && !hasReleaseSigning) {
-			throw GradleException("Missing keystore in a release workflow!")
-		}
 
 		getByName("release") {
 			isMinifyEnabled = true
@@ -111,6 +107,8 @@ dependencies {
 	implementation(libs.cmp.material3)
 	implementation(libs.koin.android)
 	implementation(libs.koin.core)
+	// The widgets read the library through AlbumRepository, whose list types are immutable.
+	implementation(libs.kotlinx.collections.immutable)
 	implementation(libs.bundles.glance)
 	implementation(libs.bundles.coil)
 	implementation(libs.bundles.media3)

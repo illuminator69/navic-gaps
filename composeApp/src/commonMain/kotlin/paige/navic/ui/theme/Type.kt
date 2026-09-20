@@ -10,8 +10,9 @@ import androidx.compose.ui.text.font.FontVariation
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.google_sans
 import org.jetbrains.compose.resources.Font
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.FontOption
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.FontOption
 
 private val defaultTypography = Typography()
 
@@ -21,6 +22,8 @@ fun googleSans(
 	width: Float = 100f,
 	round: Float = 0f
 ): FontFamily {
+	// `Font(...)` builds a new descriptor (and a new FontVariation.Settings) each time it runs, so
+	// it belongs inside the remember alongside the FontFamily, keyed on the variation axes.
 	val font = Font(
 		Res.font.google_sans,
 		variationSettings = FontVariation.Settings(
@@ -29,7 +32,7 @@ fun googleSans(
 			FontVariation.Setting("ROND", round)
 		)
 	)
-	return remember { FontFamily(font) }
+	return remember(grade, width, round) { FontFamily(font) }
 }
 
 @OptIn(ExperimentalTextApi::class)
@@ -39,9 +42,10 @@ fun defaultFont(
 	width: Float = 100f,
 	round: Float = 0f
 ): FontFamily {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val googleSans = googleSans(grade, width, round)
-	return remember(Settings.shared.font, Settings.shared.fontPath) {
-		when (Settings.shared.font) {
+	return remember(preferenceManager.font, preferenceManager.fontPath) {
+		when (preferenceManager.font) {
 			FontOption.System -> FontFamily.Default
 			FontOption.GoogleSans -> googleSans
 			FontOption.Custom -> FontFamily.Default
@@ -53,7 +57,11 @@ fun defaultFont(
 @Composable
 fun typography(): Typography {
 	val fontFamily = defaultFont()
-	return Typography(
+	// Remembered on the resolved family: this builds 30 TextStyle copies, and — because Typography
+	// has identity equality — an unremembered one made MaterialExpressiveTheme publish a new
+	// LocalTypography on every recomposition of NavicTheme, invalidating every Text in the subtree.
+	return remember(fontFamily) {
+		Typography(
 		displayLarge = defaultTypography.displayLarge.copy(fontFamily = fontFamily),
 		displayLargeEmphasized = defaultTypography.displayLargeEmphasized.copy(fontFamily = fontFamily),
 		displayMedium = defaultTypography.displayMedium.copy(fontFamily = fontFamily),
@@ -88,5 +96,6 @@ fun typography(): Typography {
 		labelMediumEmphasized = defaultTypography.labelMediumEmphasized.copy(fontFamily = fontFamily),
 		labelSmall = defaultTypography.labelSmall.copy(fontFamily = fontFamily),
 		labelSmallEmphasized = defaultTypography.labelSmallEmphasized.copy(fontFamily = fontFamily)
-	)
+		)
+	}
 }

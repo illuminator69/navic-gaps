@@ -23,9 +23,9 @@ import navic.composeapp.generated.resources.title_acknowledgements
 import navic.composeapp.generated.resources.title_chat
 import navic.composeapp.generated.resources.title_source
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Form
@@ -38,8 +38,8 @@ fun SettingsAboutScreen() {
 	val clipboard = LocalClipboardManager.current
 	val uriHandler = LocalUriHandler.current
 	val backStack = LocalNavStack.current
-	val ctx = LocalCtx.current
-	val hideBack = ctx.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+	val platformContext = LocalPlatformContext.current
+	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 	Scaffold(
 		topBar = {
 			NestedTopBar(
@@ -57,8 +57,8 @@ fun SettingsAboutScreen() {
 			Form {
 				SelectionContainer {
 					val text = buildString {
-						append(ctx.name + "\n")
-						append(stringResource(Res.string.info_app_version, ctx.appVersion))
+						append(platformContext.name + "\n")
+						append(stringResource(Res.string.info_app_version, platformContext.appVersion))
 					}
 					FormRow(onClick = {
 						clipboard.setText(AnnotatedString(text))
@@ -69,7 +69,7 @@ fun SettingsAboutScreen() {
 			}
 			Form {
 				FormRow(onClick = {
-					uriHandler.openUri("https://github.com/paigely/Navic")
+					uriHandler.openUri("https://github.com/ssalggnikool/Navic")
 				}) {
 					Text(stringResource(Res.string.title_source))
 					Icon(Icons.Outlined.ChevronForward, null)

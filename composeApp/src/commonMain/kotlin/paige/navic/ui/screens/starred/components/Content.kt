@@ -50,11 +50,12 @@ import navic.composeapp.generated.resources.title_songs
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.Screen
+import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -63,7 +64,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
-import paige.navic.managers.DownloadManager
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -71,7 +72,7 @@ import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,14 +85,14 @@ fun StarredScreenContent(
 	selectedSong: DomainSong?,
 	selectedSongIsStarred: Boolean,
 	selectedSongRating: Int,
-	allDownloads: List<DownloadEntity>,
+	allDownloads: ImmutableList<DownloadEntity>,
 	onSelectSong: (DomainSong) -> Unit,
 	onClearSongSelection: () -> Unit,
 	onAddSongStar: () -> Unit,
 	onRemoveSongStar: () -> Unit,
 	onPlaySongNext: (DomainSong) -> Unit,
 	onAddSongToQueue: (DomainSong) -> Unit,
-	onPlaySong: (DomainSong, Int) -> Unit,
+	onPlaySong: (Int) -> Unit,
 	onSetSongRating: (Int) -> Unit,
 	onDownloadSong: (DomainSong) -> Unit,
 	onCancelDownloadSong: (DomainSong) -> Unit,
@@ -112,7 +113,7 @@ fun StarredScreenContent(
 	// artists
 	artistsState: UiState<ImmutableList<DomainArtist>>,
 	selectedArtist: DomainArtist?,
-	selectedArtistAlbums: List<DomainAlbum>?,
+	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	selectedArtistIsStarred: Boolean,
 	onSelectArtist: (DomainArtist) -> Unit,
 	onClearArtistSelection: () -> Unit,
@@ -121,12 +122,13 @@ fun StarredScreenContent(
 	onAddArtistToQueue: () -> Unit,
 ) {
 	val gridState = rememberLazyGridState()
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val albums = albumsState.data.orEmpty()
 	val songs = songsState.data.orEmpty()
 	val artists = artistsState.data.orEmpty()
 	val downloadManager = koinInject<DownloadManager>()
+	val radioManager = koinInject<RadioManager>()
 	val uriHandler = LocalUriHandler.current
 
 	val scope = rememberCoroutineScope()
@@ -192,7 +194,7 @@ fun StarredScreenContent(
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.primary,
 						modifier = Modifier.clickable(onClick = dropUnlessResumed {
-							ctx.clickSound()
+							platformContext.clickSound()
 							backStack.add(
 								Screen.SongList(
 									nested = true,
@@ -224,10 +226,10 @@ fun StarredScreenContent(
 							modifier = Modifier.weight(1f),
 							song = song,
 							selected = selectedSong == song,
-							onClick = { onPlaySong(song, index) },
+							onClick = { onPlaySong(index) },
 							onLongClick = { onSelectSong(song) },
 							onDismissRequest = { onClearSongSelection() },
-							starredState = selectedSongIsStarred,
+							starredState = if (selectedSong == song) selectedSongIsStarred else song.starredAt != null,
 							onAddStar = onAddSongStar,
 							onRemoveStar = onRemoveSongStar,
 							download = download,
@@ -319,6 +321,7 @@ fun StarredScreenContent(
 					ArtistSheet(
 						onDismissRequest = onClearArtistSelection,
 						artist = artist,
+						onStartRadio = { radioManager.startRadio(artist.id) },
 						onPlayNext = onPlayArtistNext,
 						onAddToQueue = onAddArtistToQueue,
 						onAddAllToPlaylist = { 
@@ -347,7 +350,6 @@ fun StarredScreenContent(
 	}
 
 	songsToAddToPlaylist?.let {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistUpdateDialog(
 			songs = it,
 			onDismissRequest = { songsToAddToPlaylist = null }

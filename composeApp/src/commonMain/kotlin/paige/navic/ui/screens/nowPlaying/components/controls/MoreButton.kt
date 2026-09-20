@@ -19,9 +19,11 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalCtx
+import paige.navic.domain.manager.RadioManager
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.NowPlayingSheetController
+import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreHoriz
 import paige.navic.shared.MediaPlayerViewModel
@@ -37,9 +39,10 @@ fun NowPlayingMoreButton(
 	onSetSongRating: (Int) -> Unit
 ) {
 	val backStack = LocalNavStack.current
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsState()
+	val radioManager = koinInject<RadioManager>()
+	val playerState by player.steadyState.collectAsState()
 	val song = playerState.currentSong
 	var expanded by remember { mutableStateOf(false) }
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -48,7 +51,7 @@ fun NowPlayingMoreButton(
 
 	IconButton(
 		onClick = {
-			ctx.clickSound()
+			platformContext.clickSound()
 			expanded = true
 		},
 		colors = IconButtonDefaults.filledTonalIconButtonColors(),
@@ -69,19 +72,30 @@ fun NowPlayingMoreButton(
 				collection = playerState.currentCollection,
 				onViewAlbum = dropUnlessResumed {
 					playerState.currentCollection?.let { collection ->
-						backStack.remove(Screen.NowPlaying)
-						backStack.add(Screen.CollectionDetail(collection.id, ""))
+						NowPlayingSheetController.requestHide {
+							backStack.add(Screen.CollectionDetail(collection.id, ""))
+						}
 					}
 				},
 				onViewArtist = dropUnlessResumed {
-					backStack.remove(Screen.NowPlaying)
-					backStack.add(Screen.ArtistDetail(song.artistId))
+					// Animated close, then navigate — see NowPlayingSheetController.requestHide.
+					NowPlayingSheetController.requestHide {
+						backStack.add(Screen.ArtistDetail(song.artistId))
+					}
+				},
+				onViewArtistId = { id ->
+					NowPlayingSheetController.requestHide {
+						backStack.add(Screen.ArtistDetail(id))
+					}
 				},
 				onShare = {
 					shareId = song.id
 				},
 				onAddToPlaylist = {
 					playlistDialogShown = true
+				},
+				onStartRadio = {
+					radioManager.startRadio(song.id, song)
 				},
 				onTrackInfo = dropUnlessResumed {
 					backStack.remove(Screen.NowPlaying)
@@ -97,11 +111,10 @@ fun NowPlayingMoreButton(
 
 	if (playlistDialogShown && song != null) {
 		NavicTheme {
-			@Suppress("AssignedValueIsNeverRead")
-			PlaylistUpdateDialog(
-				songs = persistentListOf(song),
-				onDismissRequest = { playlistDialogShown = false }
-			)
+            PlaylistUpdateDialog(
+                songs = persistentListOf(song),
+                onDismissRequest = { playlistDialogShown = false }
+            )
 		}
 	}
 

@@ -1,13 +1,42 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?><!--
+   Navic talks to a self-hosted server whose address the user types in at runtime, so this
+   config cannot name the hosts it trusts. Two separate permissions were being granted
+   globally, and only one of them is actually required.
+
+   cleartextTrafficPermitted stays true. A LAN Navidrome on plain HTTP is a supported
+   setup, and Android has no way to express "cleartext for whatever host the user
+   configured" in a static file. Deployments reachable from outside the LAN should
+   terminate TLS at a reverse proxy — that is a documented requirement for the hub and for
+   the Chromecast stream URLs anyway (PROTOCOL §12, CLAUDE.md §3).
+
+   User-installed CAs are now debug-only. They were trusted in the base config, which
+   applied to EVERY HTTPS destination the app touches — Navidrome, the hub, AudioMuse,
+   lb-bot, cover art — so anyone who could get a certificate installed on the device could
+   read all of it. debug-overrides is the Android-sanctioned scope for that: it applies
+   only to a debuggable build, which is where intercepting proxies belong.
+
+   NOTE: a release build no longer trusts user CAs, so a self-signed HTTPS server needs its
+   certificate in the system store (or the server needs a publicly-trusted certificate).
+   Plain HTTP to such a server keeps working unchanged.
+
+   The Chromecast v2 socket is a deliberate, separate exception: it speaks TLS to a
+   self-signed device certificate on the LAN and uses its own trust-all socket factory
+   inside CastChannel. That factory must never be handed to a general HTTP client.
+-->
 <network-security-config xmlns:tools="http://schemas.android.com/tools">
 	<base-config
 		cleartextTrafficPermitted="true"
 		tools:ignore="InsecureBaseConfiguration">
 		<trust-anchors>
 			<certificates src="system" />
+		</trust-anchors>
+	</base-config>
+	<debug-overrides>
+		<trust-anchors>
+			<certificates src="system" />
 			<certificates
 				src="user"
 				tools:ignore="AcceptsUserCertificates" />
 		</trust-anchors>
-	</base-config>
+	</debug-overrides>
 </network-security-config>

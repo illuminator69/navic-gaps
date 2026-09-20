@@ -43,12 +43,13 @@ import navic.composeapp.generated.resources.action_update_app
 import navic.composeapp.generated.resources.info_update
 import navic.composeapp.generated.resources.title_update
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.shared.Ctx
-import paige.navic.shared.Logger
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.util.core.Logger
+import paige.navic.util.core.PlatformContext
 import paige.navic.ui.components.common.Markdown
 import paige.navic.ui.theme.defaultFont
 
@@ -60,7 +61,7 @@ data class GitHubRelease(
 )
 
 class ChangelogViewModel(
-	ctx: Ctx
+	platformContext: PlatformContext
 ) : ViewModel() {
 	private val _release = MutableStateFlow<GitHubRelease?>(null)
 	val release = _release.asStateFlow()
@@ -72,14 +73,14 @@ class ChangelogViewModel(
 	}
 
 	init {
-		checkForUpdates(ctx.appVersion)
+		checkForUpdates(platformContext.appVersion)
 	}
 
 	fun checkForUpdates(currentVersion: String) {
 		viewModelScope.launch {
 			_release.value = try {
 				val release: GitHubRelease =
-					updateClient.get("https://api.github.com/repos/paigely/Navic/releases/latest")
+					updateClient.get("https://api.github.com/repos/ssalggnikool/Navic/releases/latest")
 						.body()
 				val remoteVersion = release.tag
 					.filter { it.isDigit() }
@@ -105,10 +106,11 @@ class ChangelogViewModel(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChangelogSheet() {
-	val ctx = LocalCtx.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
 	val uriHandler = LocalUriHandler.current
 	val viewModel = koinViewModel<ChangelogViewModel>(
-		parameters = { parametersOf(ctx) }
+		parameters = { parametersOf(platformContext) }
 	)
 	val release by viewModel.release.collectAsStateWithLifecycle()
 
@@ -156,7 +158,7 @@ fun ChangelogSheet() {
 
 				Button(
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						viewModel.clearRelease()
 						uriHandler.openUri(release.url)
 					},
@@ -171,9 +173,9 @@ fun ChangelogSheet() {
 
 				OutlinedButton(
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						viewModel.clearRelease()
-						Settings.shared.checkForUpdates = false
+						preferenceManager.checkForUpdates = false
 					},
 					modifier = Modifier.fillMaxWidth(),
 					shape = ContinuousCapsule

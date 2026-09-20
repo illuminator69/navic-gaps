@@ -10,7 +10,7 @@ import androidx.room3.Transaction
 import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.relations.AlbumWithSongs
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 
 @Dao
 interface AlbumDao {
@@ -26,6 +26,11 @@ interface AlbumDao {
 	@Query("SELECT * FROM AlbumEntity ORDER BY name ASC")
 	suspend fun getAllAlbumsList(): List<AlbumWithSongs>
 
+	// @Transaction is mandatory, not tidiness: AlbumWithSongs makes Room walk the cursor twice —
+	// once to collect albumIds, then again to attach the songs it fetched for them. Without a
+	// transaction a concurrent sync can insert an album between the passes, and the second pass
+	// hits a row the first never saw ("Key <albumId> is missing in the map").
+	@Transaction
 	@RawQuery
 	suspend fun getAlbumsByQuery(query: RoomRawQuery): List<AlbumWithSongs>
 
@@ -46,6 +51,10 @@ interface AlbumDao {
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC")
 	fun getAlbumsByArtist(artistId: String): Flow<List<AlbumWithSongs>>
+
+	@Transaction
+	@Query("SELECT * FROM AlbumEntity WHERE artistName = :artistName ORDER BY year DESC")
+	fun getAlbumsByArtistName(artistName: String): Flow<List<AlbumWithSongs>>
 
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId AND albumId != :albumId ORDER BY year DESC")
@@ -73,6 +82,10 @@ interface AlbumDao {
 	@Query("SELECT albumId FROM AlbumEntity")
 	suspend fun getAllAlbumIds(): List<String>
 
+	/** Just enough of every album to tell whether Navidrome's copy has changed. */
+	@Query("SELECT albumId, songCount, coverArtId FROM AlbumEntity")
+	suspend fun getAlbumFingerprints(): List<AlbumFingerprint>
+
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE albumId IN (:ids)")
 	suspend fun getAlbumsByIds(ids: List<String>): List<AlbumWithSongs>
@@ -99,3 +112,10 @@ interface AlbumDao {
 		}
 	}
 }
+
+/** An album row reduced to what [AlbumDao.getAlbumFingerprints] compares. */
+data class AlbumFingerprint(
+	val albumId: String,
+	val songCount: Int,
+	val coverArtId: String
+)

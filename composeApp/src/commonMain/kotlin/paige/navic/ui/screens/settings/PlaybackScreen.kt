@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,33 +50,43 @@ import navic.composeapp.generated.resources.title_behaviour
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_streaming_quality
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.ReplayGainMode
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.AudioMuseManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.models.settings.AutoplayMode
+import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.LyricsPriorityDialog
+import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
 @Composable
 fun SettingsPlaybackScreen() {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	var showLyricsPriorityDialog by rememberSaveable { mutableStateOf(false) }
+	val preferenceManager = koinInject<PreferenceManager>()
+	val audioMuseManager = koinInject<AudioMuseManager>()
+	val radioManager = koinInject<RadioManager>()
+	val autoplayMode by radioManager.autoplayMode.collectAsState()
 
 	Scaffold(
 		topBar = {
 			NestedTopBar(
 				{ Text(stringResource(Res.string.title_playback)) },
-				hideBack = ctx.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 			)
 		}
 	) { innerPadding ->
@@ -103,25 +114,53 @@ fun SettingsPlaybackScreen() {
 						}
 						Icon(Icons.Outlined.ChevronForward, null)
 					}
-					if (!listOf("ipados", "ios").contains(ctx.name.lowercase())) {
+					SettingSelectionRow(
+						title = { Text("Autoplay") },
+						description = "keep the queue topped up when it runs out",
+						// Fingerprint + Mood Flow need the AudioMuse core API (Tier 2).
+						items = (if (audioMuseManager.isConfigured) {
+							listOf(
+								AutoplayMode.Off,
+								AutoplayMode.Similar,
+								AutoplayMode.Fingerprint,
+								AutoplayMode.Adaptive,
+							)
+						} else {
+							listOf(AutoplayMode.Off, AutoplayMode.Similar)
+						}).toImmutableList(),
+						label = { it.label },
+						selection = autoplayMode,
+						onSelect = { radioManager.setAutoplayMode(it) }
+					)
+					if (audioMuseManager.isConfigured) {
+						SettingSelectionRow(
+							title = { Text("Mood Flow character") },
+							description = "how the adaptive mix reacts to skips",
+							items = MoodCharacter.entries.toImmutableList(),
+							label = { it.label },
+							selection = preferenceManager.moodCharacter,
+							onSelect = { preferenceManager.moodCharacter = it }
+						)
+					}
+					if (platformContext.platformType == PlatformType.Android) {
 						SettingSelectionRow(
 							title = { Text(stringResource(Res.string.option_replay_gain)) },
 							items = ReplayGainMode.entries.toImmutableList(),
 							label = { stringResource(it.displayName) },
-							selection = Settings.shared.replayGainMode,
-							onSelect = { Settings.shared.replayGainMode = it }
+							selection = preferenceManager.replayGainMode,
+							onSelect = { preferenceManager.replayGainMode = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_gapless_playback)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_gapless_playback)) },
-							value = Settings.shared.gaplessPlayback,
-							onSetValue = { Settings.shared.gaplessPlayback = it }
+							value = preferenceManager.gaplessPlayback,
+							onSetValue = { preferenceManager.gaplessPlayback = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_audio_offload)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_audio_offload)) },
-							value = Settings.shared.audioOffload,
-							onSetValue = { Settings.shared.audioOffload = it }
+							value = preferenceManager.audioOffload,
+							onSetValue = { preferenceManager.audioOffload = it }
 						)
 					}
 				}
@@ -130,32 +169,32 @@ fun SettingsPlaybackScreen() {
 				Form {
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_lyrics_autoscroll)) },
-						value = Settings.shared.lyricsAutoscroll,
-						onSetValue = { Settings.shared.lyricsAutoscroll = it }
+						value = preferenceManager.lyricsAutoscroll,
+						onSetValue = { preferenceManager.lyricsAutoscroll = it }
 					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_lyrics_beat_by_beat)) },
-						value = Settings.shared.lyricsBeatByBeat,
-						onSetValue = { Settings.shared.lyricsBeatByBeat = it }
+						value = preferenceManager.lyricsBeatByBeat,
+						onSetValue = { preferenceManager.lyricsBeatByBeat = it }
 					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_lyrics_keep_alive)) },
-						value = Settings.shared.lyricsKeepAlive,
-						onSetValue = { Settings.shared.lyricsKeepAlive = it }
+						value = preferenceManager.lyricsKeepAlive,
+						onSetValue = { preferenceManager.lyricsKeepAlive = it }
 					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_lyrics_blur)) },
-						value = Settings.shared.lyricsBlur,
-						onSetValue = { Settings.shared.lyricsBlur = it }
+						value = preferenceManager.lyricsBlur,
+						onSetValue = { preferenceManager.lyricsBlur = it }
 					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_lyrics_bright_inactive)) },
-						value = Settings.shared.lyricsBrightInactive,
-						onSetValue = { Settings.shared.lyricsBrightInactive = it }
+						value = preferenceManager.lyricsBrightInactive,
+						onSetValue = { preferenceManager.lyricsBrightInactive = it }
 					)
 
 					FormRow(
@@ -170,8 +209,8 @@ fun SettingsPlaybackScreen() {
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_enable_scrobbling)) },
 						subtitle = { Text(stringResource(Res.string.subtitle_enable_scrobbling)) },
-						value = Settings.shared.enableScrobbling,
-						onSetValue = { Settings.shared.enableScrobbling = it }
+						value = preferenceManager.enableScrobbling,
+						onSetValue = { preferenceManager.enableScrobbling = it }
 					)
 
 					FormRow {
@@ -182,7 +221,7 @@ fun SettingsPlaybackScreen() {
 							) {
 								Text(stringResource(Res.string.option_scrobble_percentage))
 								Text(
-									"${(Settings.shared.scrobblePercentage * 100).roundToInt()}%",
+									"${(preferenceManager.scrobblePercentage * 100).roundToInt()}%",
 									fontFamily = FontFamily.Monospace,
 									fontWeight = FontWeight(400),
 									fontSize = 13.sp,
@@ -190,9 +229,9 @@ fun SettingsPlaybackScreen() {
 								)
 							}
 							Slider(
-								value = Settings.shared.scrobblePercentage,
+								value = preferenceManager.scrobblePercentage,
 								onValueChange = {
-									Settings.shared.scrobblePercentage = it
+									preferenceManager.scrobblePercentage = it
 								},
 								valueRange = 0f..1f,
 							)
@@ -206,7 +245,7 @@ fun SettingsPlaybackScreen() {
 							) {
 								Text(stringResource(Res.string.option_min_duration_to_scrobble))
 								Text(
-									"${Settings.shared.minDurationToScrobble.toInt()}s",
+									"${preferenceManager.minDurationToScrobble.toInt()}s",
 									fontFamily = FontFamily.Monospace,
 									fontWeight = FontWeight(400),
 									fontSize = 13.sp,
@@ -214,9 +253,9 @@ fun SettingsPlaybackScreen() {
 								)
 							}
 							Slider(
-								value = Settings.shared.minDurationToScrobble,
+								value = preferenceManager.minDurationToScrobble,
 								onValueChange = {
-									Settings.shared.minDurationToScrobble = it
+									preferenceManager.minDurationToScrobble = it
 								},
 								valueRange = 0f..400f,
 							)

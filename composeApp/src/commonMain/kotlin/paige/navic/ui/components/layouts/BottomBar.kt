@@ -16,31 +16,53 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import com.kyant.capsule.ContinuousCapsule
+import paige.navic.ui.components.common.blur.LocalExpressiveBlur
+import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_library
 import navic.composeapp.generated.resources.title_playlists
+import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_radios
 import navic.composeapp.generated.resources.title_search
 import navic.composeapp.generated.resources.title_songs
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalCtx
 import paige.navic.LocalNavStack
-import paige.navic.data.models.NavbarConfig
-import paige.navic.data.models.NavbarTab
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.NavigationBarLabelVisibility
-import paige.navic.data.models.settings.enums.NavigationBarStyle
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.models.settings.NavbarTab
+import paige.navic.domain.models.settings.NavigationBarLabelVisibility
+import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Album
 import paige.navic.icons.filled.Artist
@@ -56,8 +78,9 @@ import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Search
 import paige.navic.ui.components.common.animatedTabIconPainter
+import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
-import paige.navic.utils.UiState
 
 private enum class NavItem(
 	val destination: Screen,
@@ -111,6 +134,12 @@ private enum class NavItem(
 		icon = Icons.Filled.Radio,
 		iconUnselected = Icons.Outlined.Radio,
 		label = Res.string.title_radios
+	),
+	FRESH(
+		destination = Screen.Fresh(),
+		icon = Icons.Filled.Album,
+		iconUnselected = Icons.Outlined.Album,
+		label = Res.string.title_fresh
 	)
 }
 
@@ -123,15 +152,48 @@ fun BottomBar(
 ) {
 	val viewModel = koinViewModel<NavtabsViewModel>()
 	val backStack = LocalNavStack.current
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val state by viewModel.state.collectAsState()
 	val containerColor by animateColorAsState(containerColor)
+	val preferenceManager = koinInject<PreferenceManager>()
+	// lb-bot is optional infrastructure, and "not configured" must render nothing at
+	// all — the app has to look exactly as it did before lb-bot existed. So the Fresh
+	// tab is dropped from the bar rather than shown leading to an empty screen, which
+	// is also what lets it default to visible without costing everyone else a slot.
+	//
+	// Collected from the manager, NOT held in a `remember` here. This composable is
+	// mounted inside each screen's own Scaffold and a tab tap clears the back stack,
+	// so it is destroyed and rebuilt on every navigation — local state restarted at
+	// `false` and re-probed the network each time, which made this very tab blink out
+	// and back on every tap. `ensureAvailability` is TTL-guarded, so calling it on
+	// each mount costs one request a minute rather than one per navigation.
+	val lbBot = koinInject<LbBotManager>()
+	val lbBotAvailable by lbBot.available.collectAsState()
+	LaunchedEffect(Unit) { lbBot.ensureAvailability() }
 	val tabs = ((state as? UiState.Success)?.data ?: NavbarConfig.default)
-		.tabs.filter { tab -> tab.visible }
+		.tabs.filter { tab ->
+			tab.visible && (tab.id != NavbarTab.Id.FRESH || lbBotAvailable)
+		}
+
+	// Floating capsule nav: a centered, wrap-content frosted pill instead of a docked bar.
+	// Icon-only unselected + an expanded cover-neutral chip for the selected tab keeps it
+	// compact from 3 up to 8 configured tabs. Falls through to the docked bars otherwise.
+	if (preferenceManager.navigationBarStyle == NavigationBarStyle.Floating
+		&& platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
+		&& tabs.size > 1
+	) {
+		FloatingCapsuleBar(
+			tabs = tabs,
+			enabled = enabled,
+			windowInsets = windowInsets,
+			modifier = modifier
+		)
+		return
+	}
 
 	AnimatedContent(
-		Settings.shared.navigationBarStyle != NavigationBarStyle.Short
-			&& ctx.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
+		preferenceManager.navigationBarStyle != NavigationBarStyle.Short
+			&& platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
 			&& tabs.size > 1
 	) {
 		if (tabs.size < 2) return@AnimatedContent
@@ -151,16 +213,17 @@ fun BottomBar(
 						NavbarTab.Id.GENRES -> NavItem.GENRES
 						NavbarTab.Id.SONGS -> NavItem.SONGS
 						NavbarTab.Id.RADIOS -> NavItem.RADIOS
+						NavbarTab.Id.FRESH -> NavItem.FRESH
 					}
 					val selected = backStack.lastOrNull() == item.destination
 
 					NavigationBarItem(
 						selected = selected,
 						enabled = enabled,
-						alwaysShowLabel = Settings.shared.navigationBarLabelVisibility
+						alwaysShowLabel = preferenceManager.navigationBarLabelVisibility
 							== NavigationBarLabelVisibility.Always,
 						onClick = {
-							ctx.clickSound()
+							platformContext.clickSound()
 							backStack.apply {
 								clear()
 								add(item.destination)
@@ -206,17 +269,18 @@ fun BottomBar(
 						NavbarTab.Id.GENRES -> NavItem.GENRES
 						NavbarTab.Id.SONGS -> NavItem.SONGS
 						NavbarTab.Id.RADIOS -> NavItem.RADIOS
+						NavbarTab.Id.FRESH -> NavItem.FRESH
 					}
 					val selected = backStack.last() == item.destination
 
 					ShortNavigationBarItem(
-						iconPosition = if (ctx.sizeClass.widthSizeClass > WindowWidthSizeClass.Compact)
+						iconPosition = if (platformContext.sizeClass.widthSizeClass > WindowWidthSizeClass.Compact)
 							NavigationItemIconPosition.Start
 						else NavigationItemIconPosition.Top,
 						selected = backStack.last() == item.destination,
 						enabled = enabled,
 						onClick = {
-							ctx.clickSound()
+							platformContext.clickSound()
 							backStack.apply {
 								clear()
 								add(item.destination)
@@ -240,6 +304,119 @@ fun BottomBar(
 					)
 				}
 			}
+		}
+	}
+}
+
+private fun navItemFor(id: NavbarTab.Id): NavItem = when (id) {
+	NavbarTab.Id.LIBRARY -> NavItem.LIBRARY
+	NavbarTab.Id.ALBUMS -> NavItem.ALBUMS
+	NavbarTab.Id.PLAYLISTS -> NavItem.PLAYLISTS
+	NavbarTab.Id.ARTISTS -> NavItem.ARTISTS
+	NavbarTab.Id.SEARCH -> NavItem.SEARCH
+	NavbarTab.Id.GENRES -> NavItem.GENRES
+	NavbarTab.Id.SONGS -> NavItem.SONGS
+	NavbarTab.Id.RADIOS -> NavItem.RADIOS
+	NavbarTab.Id.FRESH -> NavItem.FRESH
+}
+
+/**
+ * Centered, wrap-content frosted capsule replacing the docked nav bar. Unselected tabs are
+ * icon-only; the selected tab expands to a labelled chip, so it stays compact from 3 up to the
+ * max 8 configured tabs. Frosts its own pill shape (Haze) so it floats over content; falls back
+ * to a translucent surface when Expressive blur is off.
+ */
+@Composable
+private fun FloatingCapsuleBar(
+	tabs: List<NavbarTab>,
+	enabled: Boolean,
+	windowInsets: WindowInsets,
+	modifier: Modifier = Modifier
+) {
+	val backStack = LocalNavStack.current
+	val platformContext = LocalPlatformContext.current
+	val expressiveBlur = LocalExpressiveBlur.current
+	Box(
+		modifier = modifier
+			.fillMaxWidth()
+			.windowInsetsPadding(windowInsets)
+			.padding(horizontal = 20.dp, vertical = 8.dp),
+		contentAlignment = Alignment.Center
+	) {
+		Row(
+			modifier = Modifier
+				.clip(ContinuousCapsule)
+				.then(
+					if (expressiveBlur.enabled) Modifier.expressiveBlurEffect(expressiveBlur)
+					else Modifier
+				)
+				.background(
+					MaterialTheme.colorScheme.surfaceContainer.copy(
+						alpha = if (expressiveBlur.enabled) 0.55f else 0.94f
+					)
+				)
+				.padding(6.dp),
+			horizontalArrangement = Arrangement.spacedBy(4.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			tabs.forEach { tab ->
+				val item = navItemFor(tab.id)
+				FloatingNavItem(
+					item = item,
+					selected = backStack.lastOrNull() == item.destination,
+					enabled = enabled,
+					onClick = {
+						platformContext.clickSound()
+						backStack.apply {
+							clear()
+							add(item.destination)
+						}
+					}
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun FloatingNavItem(
+	item: NavItem,
+	selected: Boolean,
+	enabled: Boolean,
+	onClick: () -> Unit
+) {
+	val chipColor by animateColorAsState(
+		if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+	)
+	val contentColor = if (selected)
+		MaterialTheme.colorScheme.onSecondaryContainer
+	else MaterialTheme.colorScheme.onSurfaceVariant
+	Row(
+		modifier = Modifier
+			.clip(ContinuousCapsule)
+			.clickable(enabled = enabled, onClick = onClick)
+			.background(chipColor)
+			.padding(horizontal = if (selected) 16.dp else 12.dp, vertical = 10.dp),
+		horizontalArrangement = Arrangement.spacedBy(6.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		if (selected) {
+			val painter = animatedTabIconPainter(item.destination)
+			if (painter != null) {
+				Icon(painter = painter, contentDescription = null, tint = contentColor, modifier = Modifier.size(22.dp))
+			} else {
+				Icon(item.icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(22.dp))
+			}
+		} else {
+			Icon(item.iconUnselected, contentDescription = null, tint = contentColor, modifier = Modifier.size(22.dp))
+		}
+		AnimatedVisibility(selected) {
+			Text(
+				stringResource(item.label),
+				color = contentColor,
+				maxLines = 1,
+				style = MaterialTheme.typography.labelLarge
+			)
 		}
 	}
 }

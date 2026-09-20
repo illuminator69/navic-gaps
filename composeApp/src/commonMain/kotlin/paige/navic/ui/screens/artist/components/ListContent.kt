@@ -35,8 +35,8 @@ import paige.navic.ui.components.common.AlphabeticalScroller
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.screens.artist.ArtistsScreenItem
-import paige.navic.utils.UiState
-import paige.navic.utils.withoutTop
+import paige.navic.ui.core.UiState
+import paige.navic.util.ui.withoutTop
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,7 +48,7 @@ fun ArtistListScreenContent(
 	innerPadding: PaddingValues,
 	nested: Boolean,
 	selectedArtist: DomainArtist?,
-	selectedArtistAlbums: List<DomainAlbum>?,
+	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	onUpdateSelection: (DomainArtist) -> Unit,
 	onClearSelection: () -> Unit,
 	onSetStarred: (Boolean) -> Unit,
@@ -60,9 +60,15 @@ fun ArtistListScreenContent(
 
 	val totalArtistCount = data.size
 
-	val grouped = data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
-		.toList()
-		.sortedBy { it.first }
+	// Remembered on the data: this buckets and sorts the WHOLE artist library, and it ran on every
+	// recomposition of this screen (a long-press selection, a starred flag, a download tick).
+	// `headerIndices` below was already memoized — but off `grouped`, which was a new list each
+	// pass, so that remember never actually hit either.
+	val grouped = remember(data) {
+		data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+			.toList()
+			.sortedBy { it.first }
+	}
 
 	val headerIndices = remember(grouped) {
 		var currentIndex = 1
@@ -87,9 +93,10 @@ fun ArtistListScreenContent(
 		) {
 			item(span = { GridItemSpan(maxLineSpan) }) {
 				Row(
-					Modifier
-						.background(MaterialTheme.colorScheme.surface)
-						.padding(bottom = 8.dp),
+					// No opaque surface band. These are ordinary grid items, not pinned headers,
+					// so nothing ever scrolls under them — and against the page's cover wash the
+					// band read as a white bar cut across a coloured background.
+					Modifier.padding(bottom = 8.dp),
 					verticalAlignment = Alignment.CenterVertically
 				) {
 					Text(
@@ -105,9 +112,8 @@ fun ArtistListScreenContent(
 			grouped.forEach { (letter, artists) ->
 				item(span = { GridItemSpan(maxLineSpan) }) {
 					Row(
-						Modifier
-							.background(MaterialTheme.colorScheme.surface)
-							.padding(bottom = 8.dp),
+						// Transparent, as above: the alphabet header sits in the wash.
+						Modifier.padding(bottom = 8.dp),
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						Text(

@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.library
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -15,7 +17,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_library
@@ -23,8 +27,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import paige.navic.LocalBottomBarScrollManager
+import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -41,9 +48,21 @@ import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.utils.LocalBottomBarScrollManager
-import paige.navic.utils.LoginState
-import paige.navic.utils.UiState
+import paige.navic.ui.theme.NavicTheme
+import paige.navic.util.ui.rememberLibraryWashedScheme
+import paige.navic.util.ui.rememberAppIsDark
+import paige.navic.util.ui.rememberCoverColorScheme
+import paige.navic.util.ui.rememberNowPlayingCoverArtId
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import paige.navic.domain.repositories.AlbumRepository
+import paige.navic.domain.repositories.SavedQueueRepository
+import paige.navic.data.database.entities.SavedQueueEntity
+import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
+import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
+import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
+import paige.navic.ui.core.LoginUiState
+import paige.navic.ui.core.UiState
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -54,6 +73,16 @@ fun LibraryScreen() {
 		parameters = { parametersOf(DomainAlbumListType.Recent) }
 	)
 	val albumsState by albumsViewModel.albumsState.collectAsStateWithLifecycle()
+
+	// Lightweight top-20 loads (full AlbumListViewModels here would read the
+	// ENTIRE library with songs three times in parallel — jank + crashes).
+	val albumRepository = koinInject<AlbumRepository>()
+	var frequentAlbumsState by remember {
+		mutableStateOf<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading(persistentListOf()))
+	}
+	var newestAlbumsState by remember {
+		mutableStateOf<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading(persistentListOf()))
+	}
 	val selectedAlbum by albumsViewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
@@ -83,27 +112,85 @@ fun LibraryScreen() {
 	var playlistCreateDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val player = koinInject<MediaPlayerViewModel>()
+	val preferenceManager = koinInject<PreferenceManager>()
+
+	// Continue listening: the most-recent saved queues, minus the one already playing (no point
+	// offering to resume what's live). Capped so the home row stays short.
+	val savedQueueRepository = koinInject<SavedQueueRepository>()
+	val allSavedQueues by savedQueueRepository.observeAll()
+		.collectAsStateWithLifecycle(initialValue = emptyList())
+	val playerLocalState by player.localUiState.collectAsStateWithLifecycle()
+	// What's playing may be on ANOTHER device, in which case only the hub session knows the
+	// queue's identity — keying this on local state alone left a remotely-playing queue
+	// listed as "continue listening" (and unmarked as current). Same rule as SavedQueuesScreen.
+	val hubManager = koinInject<paige.navic.domain.manager.HubManager>()
+	val hubConnected by hubManager.connected.collectAsStateWithLifecycle()
+	val hubSession by hubManager.remoteSession.collectAsStateWithLifecycle()
+	val playingQueueId = (if (hubConnected) hubSession.savedQueueId else null)
+		?: playerLocalState.savedQueueId
+	// The queue that's playing is pinned FIRST and marked, rather than hidden: this is one shared
+	// history rendered on two clients, and Feishin's carousel puts it first — a row that silently
+	// omitted whatever you were listening to disagreed with the desktop about what the list even is.
+	val continueListening = remember(allSavedQueues, playingQueueId) {
+		allSavedQueues
+			.sortedByDescending { it.id == playingQueueId }
+			.take(10)
+	}
+
+	// Stale-library signal: when a full sync last failed at the top level (server unreachable), tell
+	// the user the grid below is the cached copy instead of implying it's empty/broken.
+	// Same hub-routed edits the Saved Queues screen uses, so the card menu here can't drift from it.
+	val savedQueuesViewModel = koinViewModel<SavedQueuesViewModel>()
+	val savedQueueActions = rememberSavedQueueActions(savedQueuesViewModel, player)
+	var previewQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
+
+	val syncManager = koinInject<paige.navic.domain.manager.SyncManager>()
+	val syncState by syncManager.syncState.collectAsStateWithLifecycle()
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-	LaunchedEffect(loginState is LoginState.Success) {
+	// Theme the whole home to the NOW-PLAYING song so the chrome (buttons, section labels,
+	// nav chip, top bar) carries its hue — not just the hero wash. Keep the app's light/dark
+	// brightness (followArtworkBrightness = false) so the page doesn't flip per cover; when
+	// nothing is playing, fall back to the default app scheme.
+	val libraryScheme = rememberLibraryWashedScheme()
+
+	LaunchedEffect(loginState is LoginUiState.Success) {
 		albumsViewModel.refreshAlbums(false)
+		runCatching {
+			frequentAlbumsState =
+				UiState.Success(albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20))
+			newestAlbumsState =
+				UiState.Success(albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20))
+		}
 		playlistsViewModel.refreshPlaylists(false)
 		artistsViewModel.refreshArtists(false)
 		genresViewModel.refreshGenres(false)
 	}
 
+	// Washed: the page's surface carries the now-playing sleeve's colour, and so does
+	// everything drawn on it that paints `surface` itself.
+	NavicTheme(libraryScheme) {
 	Scaffold(
-		topBar = { RootTopBar({ Text(stringResource(Res.string.title_library)) }, scrollBehavior) },
+		topBar = {
+			// No special content colour: the page's `surface` IS the wash (see
+			// [rememberLibraryWashedScheme]), so the bar's default `onSurface` reads over it — and
+			// the title, the action icons beside it and the greeting under it are all the same
+			// colour without anyone having to coordinate.
+			RootTopBar(
+				{ Text(stringResource(Res.string.title_library)) },
+				scrollBehavior
+			)
+		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
 			RootBottomBar(scrolled = scrollManager.isTriggered)
 		}
 	) { innerPadding ->
+		Box(modifier = Modifier.fillMaxSize()) {
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
+				.padding(top = innerPadding.calculateTopPadding()),
 			finished = albumsState !is UiState.Loading &&
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
@@ -121,7 +208,16 @@ fun LibraryScreen() {
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
 
+				continueListening = continueListening,
+				activeQueueId = playingQueueId,
+				onResumeQueue = { savedQueueActions.resume(it) },
+				onPreviewQueue = { previewQueue = it },
+				onRemoveQueue = { savedQueueActions.delete(it) },
+				syncFailed = syncState.lastSyncFailed && !syncState.isSyncing,
+
 				albumsState = albumsState,
+				frequentAlbumsState = frequentAlbumsState,
+				newestAlbumsState = newestAlbumsState,
 				selectedAlbum = selectedAlbum,
 				selectedAlbumIsStarred = selectedAlbumIsStarred,
 				selectedAlbumRating = selectedAlbumRating,
@@ -153,6 +249,8 @@ fun LibraryScreen() {
 				genresState = genresState
 			)
 		}
+		}
+	}
 	}
 
 	val flattenedErrors = listOf(
@@ -161,6 +259,17 @@ fun LibraryScreen() {
 		(artistsState as? UiState.Error)?.error,
 		(genresState as? UiState.Error)?.error
 	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+
+	previewQueue?.let { target ->
+		SavedQueuePreviewSheet(
+			queue = target,
+			onResume = {
+				previewQueue = null
+				savedQueueActions.resume(target)
+			},
+			onDismissRequest = { previewQueue = null }
+		)
+	}
 
 	ErrorSnackbar(
 		error = flattenedErrors?.let { Error(it) },
@@ -172,27 +281,24 @@ fun LibraryScreen() {
 		}
 	)
 
-	@Suppress("AssignedValueIsNeverRead")
-	ShareDialog(
-		id = shareId,
-		onIdClear = { shareId = null },
-		expiry = shareExpiry,
-		onExpiryChange = { shareExpiry = it }
-	)
+    ShareDialog(
+        id = shareId,
+        onIdClear = { shareId = null },
+        expiry = shareExpiry,
+        onExpiryChange = { shareExpiry = it }
+    )
 
-	@Suppress("AssignedValueIsNeverRead")
-	DeletionDialog(
-		endpoint = DeletionEndpoint.PLAYLIST,
-		id = playlistDeletionId,
-		onIdClear = { playlistDeletionId = null },
-		onRefresh = { playlistsViewModel.refreshPlaylists(false) }
-	)
+    DeletionDialog(
+        endpoint = DeletionEndpoint.PLAYLIST,
+        id = playlistDeletionId,
+        onIdClear = { playlistDeletionId = null },
+        onRefresh = { playlistsViewModel.refreshPlaylists(false) }
+    )
 
 	if (playlistCreateDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
-		PlaylistCreateDialog(
-			onDismissRequest = { playlistCreateDialogShown = false },
-			onRefresh = { playlistsViewModel.refreshPlaylists(true) }
-		)
+        PlaylistCreateDialog(
+            onDismissRequest = { playlistCreateDialogShown = false },
+            onRefresh = { playlistsViewModel.refreshPlaylists(true) }
+        )
 	}
 }

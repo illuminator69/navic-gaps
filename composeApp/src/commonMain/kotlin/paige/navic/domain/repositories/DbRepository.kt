@@ -1,9 +1,8 @@
 package paige.navic.domain.repositories
 
 import androidx.room3.concurrent.AtomicInt
-import dev.zt64.subsonic.api.model.Album
-import dev.zt64.subsonic.api.model.AlbumListType
-import dev.zt64.subsonic.client.SubsonicClient
+import dev.zt64.subsonic.api.model.Album as ApiAlbum
+import dev.zt64.subsonic.api.model.AlbumListType as ApiAlbumListType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
@@ -40,9 +39,9 @@ import paige.navic.data.database.entities.PlaylistSongCrossRef
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainArtist
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 import kotlin.coroutines.cancellation.CancellationException
 
 class DbRepository(
@@ -53,9 +52,9 @@ class DbRepository(
 	private val artistDao: ArtistDao,
 	private val radioDao: RadioDao,
 	private val lyricDao: LyricDao,
-	private val syncDao: SyncActionDao
+	private val syncDao: SyncActionDao,
+	private val sessionManager: SessionManager
 ) {
-	private val api: SubsonicClient get() = SessionManager.api
 	private val concurrentRequestLimit = Semaphore(20)
 
 	private val dbChunkSize = 500 // should be enough
@@ -85,10 +84,11 @@ class DbRepository(
 	suspend fun syncEverything(
 		onProgress: (Float, StringResource) -> Unit = { _, _ -> }
 	): Result<Unit> = runDbOp {
-		val progressCallback = { progress: Float, message: StringResource ->
-			Logger.i("DbRepository", "$progress $message")
-			onProgress(progress, message)
-		}
+		// Deliberately not logged. This fires once per album, tens of times a second on a full
+		// pull, and each line was a bare float plus a StringResource's toString — no diagnostic
+		// value, and enough volume to bury every other tag in logcat. The per-section
+		// "- X Synced" lines below carry the actual progress information.
+		val progressCallback = onProgress
 
 		progressCallback(0.0f, Res.string.info_syncing)
 
@@ -135,21 +135,23 @@ class DbRepository(
 	): Result<Int> = runDbOp {
 		val pageSize = 500
 		var offset = 0
-		val allAlbumSummaries = mutableListOf<Album>()
+		val allAlbumSummaries = mutableListOf<ApiAlbum>()
 
 		onProgress(0.0f, Res.string.info_syncing_albums)
 		while (true) {
-			val batch = api.getAlbums(AlbumListType.AlphabeticalByName, pageSize, offset)
+			val batch = sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
 			if (batch.isEmpty()) break
 			allAlbumSummaries.addAll(batch)
 			if (batch.size < pageSize) break
 			offset += pageSize
 		}
 
+		Logger.i("DbRepository", "- Album list fetched: ${allAlbumSummaries.size} albums")
 		if (allAlbumSummaries.isEmpty()) return@runDbOp 0
 
 		val totalAlbums = allAlbumSummaries.size
 		val completedAlbums = AtomicInt(0)
+		val failedAlbums = AtomicInt(0)
 		var finalSongsSynced = 0
 
 		val allValidAlbumIds = mutableSetOf<String>()
@@ -157,7 +159,7 @@ class DbRepository(
 
 		onProgress(0.1f, Res.string.info_syncing_albums)
 
-		val albumChannel = Channel<Album>(capacity = 100)
+		val albumChannel = Channel<ApiAlbum>(capacity = 100)
 
 		coroutineScope {
 			launch(Dispatchers.IO) {
@@ -165,19 +167,30 @@ class DbRepository(
 					launch {
 						concurrentRequestLimit.withPermit {
 							try {
-								val album = api.getAlbum(summary.id)
+								// Retry once on transient failures (timeouts
+								// through the tunnel etc.); skip the album on a
+								// second failure rather than aborting the whole
+								// sync — which previously meant new albums were
+								// never inserted at all.
+								val album = try {
+									sessionManager.api.getAlbum(summary.id)
+								} catch (first: Exception) {
+									if (first is SerializationException) throw first
+									Logger.e("DbRepository", "retrying album ${summary.id} (${summary.name}): ${first.message}")
+									sessionManager.api.getAlbum(summary.id)
+								}
 
 								val done = completedAlbums.incrementAndGet()
+								// Thousands of getAlbum calls used to log nothing, so a stall read the same as a failure.
+								if (done % 250 == 0) Logger.i("DbRepository", "- Albums fetched: $done/$totalAlbums")
 								val fetchProgress = 0.1f + (0.8f * (done.toFloat() / totalAlbums))
 								onProgress(fetchProgress, Res.string.info_syncing_albums)
 
 								albumChannel.send(album)
 							} catch (e: Exception) {
-								if (e is SerializationException) {
-									Logger.e("DbRepository", "could not deserialize album ${summary.id} (${summary.name}); skipping it", e)
-								} else {
-									throw e
-								}
+								completedAlbums.incrementAndGet()
+								failedAlbums.incrementAndGet()
+								Logger.e("DbRepository", "skipping album ${summary.id} (${summary.name}) after failure", e)
 							}
 						}
 					}
@@ -188,14 +201,14 @@ class DbRepository(
 			launch(Dispatchers.IO) {
 				val albumBatch = mutableListOf<AlbumEntity>()
 				val songBatch = mutableListOf<SongEntity>()
+				val summariesMap = allAlbumSummaries.associateBy { it.id }
 
 				for (album in albumChannel) {
-					val albumEntity = album.toEntity()
+					val (albumEntity, songEntities) = album.toEntities(summariesMap[album.id])
 					albumBatch.add(albumEntity)
 					allValidAlbumIds.add(albumEntity.albumId)
 
-					album.songs.forEach { song ->
-						val songEntity = song.toEntity()
+					songEntities.forEach { songEntity ->
 						songBatch.add(songEntity)
 						allValidSongIds.add(songEntity.songId)
 					}
@@ -218,8 +231,15 @@ class DbRepository(
 			}
 		}
 
-		albumDao.deleteObsoleteAlbums(allValidAlbumIds)
-		songDao.deleteObsoleteSongs(allValidSongIds)
+		if (failedAlbums.get() == 0) {
+			albumDao.deleteObsoleteAlbums(allValidAlbumIds)
+			songDao.deleteObsoleteSongs(allValidSongIds)
+		} else {
+			Logger.w(
+				"DbRepository",
+				"skipping obsolete cleanup because ${failedAlbums.get()} album fetches failed"
+			)
+		}
 
 		Logger.i(
 			"DbRepository",
@@ -230,8 +250,140 @@ class DbRepository(
 		finalSongsSynced
 	}
 
+	/**
+	 * One album and its songs as Room rows. Shared by the full pull and the targeted
+	 * one below, so an album synced either way comes out identical.
+	 *
+	 * [summary] is the album-list entry when there is one; its artist wins over the
+	 * detail call's, as it always has in the full pull.
+	 */
+	private fun ApiAlbum.toEntities(summary: ApiAlbum?): Pair<AlbumEntity, List<SongEntity>> {
+		val albumEntity = toEntity(
+			artistIdOverride = summary?.artistId,
+			artistNameOverride = summary?.artistName
+		)
+		val songEntities = songs.map { song ->
+			// The album's artist is a FALLBACK for a track that doesn't name one, not an
+			// override. Forcing it onto every track threw away the credit the server
+			// actually sent — on Navidrome the full "A feat. B" string — which is why a
+			// featured artist was invisible everywhere in the app, and why the same song
+			// could show a different artist depending on whether this sync or the
+			// playlist/search path (neither of which overrides) wrote the row last.
+			// Still preferred over the mapper's "unknown artist" default, which would
+			// otherwise leave such a track with no artist page to open.
+			song.toEntity(
+				artistIdOverride = song.artistId?.takeIf { it.isNotBlank() }
+					?: albumEntity.artistId,
+				artistNameOverride = song.artistName.takeIf { it.isNotBlank() }
+					?: albumEntity.artistName
+			)
+		}
+		return albumEntity to songEntities
+	}
+
+	/**
+	 * Pull exactly these albums into Room — the landing path for an lb-bot fill.
+	 *
+	 * A fill used to buy a full library pull (one `getAlbum` per album in the library)
+	 * after a 90 s debounce, which is minutes between Navidrome having an album and this
+	 * app showing it. lb-bot now names the album ids once Navidrome has indexed them, so
+	 * the same result costs one request per album.
+	 *
+	 * Upsert only. An album that gained tracks (a gap fill) is re-read whole, and
+	 * nothing here deletes: removals stay the full sync's job.
+	 */
+	suspend fun syncAlbumsById(ids: Collection<String>): Result<Int> = runDbOp {
+		val wanted = ids.filter { it.isNotBlank() }.distinct()
+		if (wanted.isEmpty()) return@runDbOp 0
+		val albums = coroutineScope {
+			wanted.map { id ->
+				async {
+					concurrentRequestLimit.withPermit {
+						try {
+							sessionManager.api.getAlbum(id)
+						} catch (e: Exception) {
+							if (e is CancellationException) throw e
+							Logger.w("DbRepository", "targeted sync: album $id failed: ${e.message}")
+							null
+						}
+					}
+				}
+			}.awaitAll().filterNotNull()
+		}
+		if (albums.isEmpty()) error("none of ${wanted.size} album(s) could be fetched")
+		val entities = albums.map { it.toEntities(it) }
+		albumDao.insertAlbums(entities.map { it.first })
+		entities.flatMap { it.second }.chunked(1500).forEach { songDao.insertSongs(it) }
+		Logger.i("DbRepository", "- Targeted sync: ${albums.size} album(s)")
+		albums.size
+	}
+
+	/**
+	 * Pull albums Navidrome added since the last sync, for a landing that didn't name
+	 * its album ids (an older lb-bot, or files placed some other way).
+	 *
+	 * Walks the `newest` list until a page is entirely known to Room, bounded by
+	 * [maxPages] — a first run on a stale cache is the full sync's job, not this one's.
+	 */
+	suspend fun syncNewestAlbums(pageSize: Int = 50, maxPages: Int = 4): Result<Int> = runDbOp {
+		val known = albumDao.getAllAlbumIds().toHashSet()
+		val unknown = mutableListOf<String>()
+		var offset = 0
+		for (page in 0 until maxPages) {
+			val batch = sessionManager.api.getAlbums(ApiAlbumListType.Newest, pageSize, offset)
+			val fresh = batch.map { it.id }.filterNot { it in known }
+			unknown += fresh
+			if (fresh.isEmpty() || batch.size < pageSize) break
+			offset += pageSize
+		}
+		if (unknown.isEmpty()) 0 else syncAlbumsById(unknown).getOrThrow()
+	}
+
+	/**
+	 * Bring Room up to date with whatever changed in Navidrome, from anywhere.
+	 *
+	 * The lb-bot events only cover fills lb-bot announces, and only while the hub is
+	 * reachable: an album downloaded from lb-bot's own page, a gap filled from Feishin, or
+	 * files matched by hand arrived in Navidrome and stayed invisible here until the hourly
+	 * full sync. Worse for a gap fill: the lb-bot row said the album was whole again while
+	 * Room still held the old tracklist, and [syncNewestAlbums] can't see it because the
+	 * album isn't new.
+	 *
+	 * Cheap by construction: the album *list* is a handful of paged requests even for a
+	 * large library (the full sync's cost is one `getAlbum` per album), and only albums that
+	 * are new, or whose track count or cover changed, are re-read. Above [maxChanged] it
+	 * gives up and leaves the job to the full sync. Upsert only; removals stay its job too.
+	 */
+	suspend fun syncChangedAlbums(maxChanged: Int = 300): Result<Int> = runDbOp {
+		val pageSize = 500
+		val remote = mutableListOf<ApiAlbum>()
+		var offset = 0
+		while (true) {
+			val batch = sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
+			remote += batch
+			if (batch.size < pageSize) break
+			offset += pageSize
+		}
+		val local = albumDao.getAlbumFingerprints().associateBy { it.albumId }
+		val changed = remote.filter { album ->
+			val known = local[album.id]
+			known == null || known.songCount != album.songCount || known.coverArtId != album.coverArtId
+		}.map { it.id }
+		when {
+			changed.isEmpty() -> 0
+			changed.size > maxChanged -> {
+				Logger.i("DbRepository", "- ${changed.size} changed albums: leaving it to the full sync")
+				0
+			}
+			else -> {
+				Logger.i("DbRepository", "- Changed albums: ${changed.size}")
+				syncAlbumsById(changed).getOrThrow()
+			}
+		}
+	}
+
 	suspend fun syncPlaylists(): Result<List<PlaylistEntity>> = runDbOp {
-		val remotePlaylists = api.getPlaylists()
+		val remotePlaylists = sessionManager.api.getPlaylists()
 		val playlistEntities = remotePlaylists.map { it.toEntity() }
 		val validPlaylistIds = playlistEntities.map { it.playlistId }.toSet()
 
@@ -248,7 +400,7 @@ class DbRepository(
 
 	suspend fun syncPlaylistSongs(playlistId: String): Result<Int> = runDbOp {
 		val playlist = try {
-			api.getPlaylist(playlistId)
+			sessionManager.api.getPlaylist(playlistId)
 		} catch (e: Exception) {
 			if (e is SerializationException) {
 				Logger.e("DbRepository", "could not deserialize playlist $playlistId; skipping it", e)
@@ -280,43 +432,48 @@ class DbRepository(
 	}
 
 	suspend fun syncGenres(): Result<Unit> = runDbOp {
-		val remoteGenres = api.getGenres()
+		val remoteGenres = sessionManager.api.getGenres()
 		val entities = remoteGenres.map { it.toEntity() }
 
 		entities.chunked(dbChunkSize).forEach { chunk ->
-			genreDao.updateAllGenres(chunk)
+			genreDao.insertGenres(chunk)
 		}
+		genreDao.deleteObsoleteGenres(entities.map { it.genreName }.toSet())
 
 		Logger.i("DbRepository", "- Genres Synced: ${entities.size} genres found")
 	}
 
 	suspend fun syncArtists(): Result<Unit> = runDbOp {
-		val remoteArtistsWrapper = api.getArtists()
-		val flatArtists = remoteArtistsWrapper.flatMap { indexGroup ->
-			indexGroup.artists
-		}
+		// ALBUM artists via getArtists (canonical list, like Feishin). search3
+		// returns every track/featured artist too — a 7k mess — and its
+		// albumCount is populated for those, so an albumCount filter doesn't
+		// distinguish them. fetchAlbumArtists hits getArtists with a lenient
+		// raw parse (the library's getArtists deserializer was broken).
+		val flatArtists = sessionManager.fetchAlbumArtists()
 		val entities = flatArtists.map { it.toEntity() }
 
 		entities.chunked(dbChunkSize).forEach { chunk ->
-			artistDao.updateAllArtists(chunk)
+			artistDao.insertArtists(chunk)
 		}
+		artistDao.deleteObsoleteArtists(entities.map { it.artistId }.toSet())
 
 		Logger.i("DbRepository", "- Artists Synced: ${entities.size} artists found")
 	}
 
 	suspend fun syncRadios(): Result<Unit> = runDbOp {
-		val remoteRadios = api.getInternetRadioStations()
+		val remoteRadios = sessionManager.api.getInternetRadioStations()
 		val entities = remoteRadios.map { it.toEntity() }
 
 		entities.chunked(dbChunkSize).forEach { chunk ->
-			radioDao.updateAllRadios(chunk)
+			radioDao.insertRadios(chunk)
 		}
+		radioDao.deleteObsoleteRadios(entities.map { it.radioId }.toSet())
 
 		Logger.i("DbRepository", "- Radios Synced: ${entities.size} stations found")
 	}
 
 	suspend fun fetchArtistMetadata(artistId: String): Result<DomainArtist> = runDbOp {
-		val artistInfo = api.getArtistInfo(artistId)
+		val artistInfo = sessionManager.api.getArtistInfo(artistId)
 		val simIds = artistInfo.similarArtists.map { it.id }
 
 		val currentEntity = artistDao.getArtistById(artistId)

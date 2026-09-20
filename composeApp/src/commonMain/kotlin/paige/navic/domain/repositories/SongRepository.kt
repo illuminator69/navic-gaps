@@ -7,8 +7,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import paige.navic.data.database.SyncManager
-import paige.navic.data.database.dao.AlbumDao
+import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.SyncActionType
@@ -16,13 +15,12 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
-import paige.navic.utils.UiState
-import paige.navic.utils.sortedByListType
+import paige.navic.ui.core.UiState
+import paige.navic.util.core.toSongSqlQuery
 import kotlin.time.Clock
 
 class SongRepository(
 	private val songDao: SongDao,
-	private val albumDao: AlbumDao,
 	private val downloadDao: DownloadDao,
 	private val dbRepository: DbRepository,
 	private val syncManager: SyncManager
@@ -36,24 +34,40 @@ class SongRepository(
 		reversed: Boolean,
 		artistId: String? = null
 	): ImmutableList<DomainSong> {
-		val songs = songDao
-			.getAllSongs()
-			.map { it.toDomainModel() }
-		val filtered = if (artistId != null) {
-			songs.filter { it.artistId == artistId }
+		val songs = if (listType == DomainSongListType.Downloaded) {
+			getDownloadedSongs(artistId)
 		} else {
-			songs
-		}.toImmutableList().sortedByListType(
-			listType,
-			downloads = downloadDao.getAllDownloadsList(),
-			albums = albumDao.getAllAlbumsList().map { it.toDomainModel() }
-		)
+			songDao
+				.getSongsByQuery(listType.toSongSqlQuery(artistId))
+				.map { it.toDomainModel() }
+		}
 
 		return if (reversed) {
-			filtered.reversed().toImmutableList()
+			songs.asReversed().toImmutableList()
 		} else {
-			filtered
+			songs.toImmutableList()
 		}
+	}
+
+	/**
+	 * Downloads are stored in a different database file than songs, so this filter can't be a JOIN:
+	 * the downloaded ids get bound into the song query instead. SQLite caps how many variables one
+	 * statement may bind, so the ids are chunked — which means each chunk sorts independently and
+	 * the result has to be re-sorted. That sort is over downloaded songs only, not the library.
+	 */
+	private suspend fun getDownloadedSongs(artistId: String?): List<DomainSong> {
+		val downloadedSongIds = downloadDao.getSongIdsByStatus()
+		if (downloadedSongIds.isEmpty()) return emptyList()
+
+		return downloadedSongIds
+			.chunked(SQLITE_BIND_CHUNK)
+			.flatMap { chunk ->
+				songDao.getSongsByQuery(
+					DomainSongListType.Downloaded.toSongSqlQuery(artistId, chunk)
+				)
+			}
+			.map { it.toDomainModel() }
+			.sortedBy { it.title.lowercase() }
 	}
 
 	private suspend fun refreshLocalData(
@@ -115,5 +129,10 @@ class SongRepository(
 			4 -> syncManager.enqueueAction(SyncActionType.STAR_4, song.id)
 			5 -> syncManager.enqueueAction(SyncActionType.STAR_5, song.id)
 		}
+	}
+
+	private companion object {
+		/** Kept well under SQLite's bound-variable ceiling, leaving room for the artist filter. */
+		const val SQLITE_BIND_CHUNK = 900
 	}
 }

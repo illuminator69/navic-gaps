@@ -3,18 +3,24 @@ package paige.navic.ui.screens.collection.components
 import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.kyant.capsule.ContinuousRoundedRectangle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import navic.composeapp.generated.resources.Res
@@ -22,16 +28,16 @@ import navic.composeapp.generated.resources.info_unknown_genre
 import navic.composeapp.generated.resources.info_unknown_year
 import navic.composeapp.generated.resources.subtitle_playlist
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.LocalSharedTransitionScope
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.theme.defaultFont
-import paige.navic.utils.EmphasizedDecelerateEasing
+import paige.navic.util.ui.EmphasizedDecelerateEasing
 
 @Composable
 fun CollectionDetailScreenHeadingRow(
@@ -39,29 +45,43 @@ fun CollectionDetailScreenHeadingRow(
 	tab: String,
 	titleAlpha: Float
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val coverCardShape = ContinuousRoundedRectangle(18.dp)
 	with(LocalSharedTransitionScope.current) {
-		CoverArt(
-			coverArtId = collection.coverArtId,
-			contentDescription = collection.name,
+		// A small cover CARD floating over the blurred ambient wash (Apple-Music/Spotify
+		// style), replacing the old full-bleed cover that alpha-faded into the gradient.
+		Box(
 			modifier = Modifier
-				.widthIn(0.dp, 420.dp)
-				.padding(horizontal = 64.dp)
-				.aspectRatio(1f)
-				.sharedElement(
-					sharedContentState = this@with.rememberSharedContentState("${tab}-${collection.id}-cover"),
-					boundsTransform = BoundsTransform { _, _ ->
-						tween(
-							durationMillis = 500,
-							easing = EmphasizedDecelerateEasing
-						)
-					},
-					animatedVisibilityScope = LocalNavAnimatedContentScope.current
-				)
-				.alpha(titleAlpha),
-			crossfadeMs = 0
-		)
+				.fillMaxWidth()
+				.padding(top = 24.dp, bottom = 6.dp),
+			contentAlignment = Alignment.Center
+		) {
+			CoverArt(
+				coverArtId = collection.coverArtId,
+				contentDescription = collection.name,
+				shape = coverCardShape,
+				modifier = Modifier
+					.size(212.dp)
+					.sharedElement(
+						sharedContentState = this@with.rememberSharedContentState("${tab}-${collection.id}-cover"),
+						boundsTransform = BoundsTransform { _, _ ->
+							tween(
+								durationMillis = 500,
+								easing = EmphasizedDecelerateEasing
+							)
+						},
+						animatedVisibilityScope = LocalNavAnimatedContentScope.current
+					)
+					.alpha(titleAlpha)
+					// Soft drop shadow so the card reads as floating above the wash.
+					.dropShadow(
+						coverCardShape,
+						Shadow(radius = 30.dp, color = Color.Black, alpha = 0.5f)
+					),
+				crossfadeMs = 0
+			)
+		}
 		Column(
 			modifier = Modifier
 				.padding(horizontal = 31.dp)
@@ -84,7 +104,7 @@ fun CollectionDetailScreenHeadingRow(
 					subtitle,
 					color = MaterialTheme.colorScheme.primary,
 					modifier = Modifier.clickable(collection is DomainAlbum, onClick = dropUnlessResumed {
-						ctx.clickSound()
+						platformContext.clickSound()
 						(collection as? DomainAlbum)?.artistId?.let { id ->
 							backStack.add(Screen.ArtistDetail(id))
 						}
@@ -101,7 +121,7 @@ fun CollectionDetailScreenHeadingRow(
 						)
 					}"
 				else stringResource(Res.string.subtitle_playlist),
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				color = LocalContentColor.current.copy(alpha = 0.7f),
 				style = MaterialTheme.typography.bodySmall,
 				fontFamily = defaultFont(grade = 100, round = 100f)
 			)

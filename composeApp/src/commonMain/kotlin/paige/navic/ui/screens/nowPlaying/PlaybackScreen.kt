@@ -27,17 +27,16 @@ import com.kyant.capsule.ContinuousCapsule
 import com.kyant.capsule.ContinuousRoundedRectangle
 import org.koin.compose.koinInject
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.utils.rememberDraggableListState
+import paige.navic.util.ui.rememberDraggableListState
 import kotlin.math.round
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun PlaybackSpeedScreen(
-	player: MediaPlayerViewModel = koinInject<MediaPlayerViewModel>(),
-) {
+fun PlaybackSpeedScreen() {
+	val player = koinInject<MediaPlayerViewModel>()
 	val lazyListState = rememberLazyListState()
 	val haptic = LocalHapticFeedback.current
-	val playerState by player.uiState.collectAsStateWithLifecycle()
+	val playerState by player.steadyState.collectAsStateWithLifecycle()
 
 	val draggableState = rememberDraggableListState(lazyListState) { from, to ->
 		player.moveQueueItem(from, to)

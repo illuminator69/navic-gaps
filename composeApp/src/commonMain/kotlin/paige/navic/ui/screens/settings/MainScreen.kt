@@ -28,6 +28,7 @@ import navic.composeapp.generated.resources.subtitle_appearance
 import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_data_storage
 import navic.composeapp.generated.resources.subtitle_developer
+import navic.composeapp.generated.resources.subtitle_navi_connect
 import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
 import navic.composeapp.generated.resources.title_about
@@ -35,14 +36,15 @@ import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_developer
+import navic.composeapp.generated.resources.title_navi_connect
 import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_settings
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.BottomNavigation
 import paige.navic.icons.filled.Info
@@ -52,9 +54,11 @@ import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Code
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.Radio
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -98,6 +102,13 @@ fun SettingsScreen() {
 					subtitle = Res.string.subtitle_playback
 				)
 				PageRow(
+					destination = Screen.Settings.NaviConnect,
+					icon = Icons.Outlined.Radio,
+					iconSize = 24.dp,
+					title = Res.string.title_navi_connect,
+					subtitle = Res.string.subtitle_navi_connect
+				)
+				PageRow(
 					destination = Screen.Settings.DataStorage,
 					icon = Icons.Outlined.DataTable,
 					iconSize = 24.dp,
@@ -134,6 +145,7 @@ private fun PageRow(
 	subtitle: StringResource
 ) {
 	val backStack = LocalNavStack.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	FormRow(
 		onClick = dropUnlessResumed {
 			destination?.let { destination ->
@@ -148,9 +160,9 @@ private fun PageRow(
 			}
 		},
 		horizontalArrangement = Arrangement.spacedBy(12.dp),
-		contentPadding = PaddingValues(if (Settings.shared.theme.isMaterialLike()) 16.dp else 12.dp)
+		contentPadding = PaddingValues(if (preferenceManager.theme.isMaterialLike()) 16.dp else 12.dp)
 	) {
-		if (Settings.shared.theme.isMaterialLike()) {
+		if (preferenceManager.theme.isMaterialLike()) {
 			Column(
 				modifier = Modifier
 					.size(40.dp)
@@ -194,7 +206,7 @@ private fun PageRow(
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 		}
-		if (!Settings.shared.theme.isMaterialLike()) {
+		if (!preferenceManager.theme.isMaterialLike()) {
 			Icon(
 				Icons.Outlined.ChevronForward,
 				null,

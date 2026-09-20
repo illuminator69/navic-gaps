@@ -25,21 +25,22 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 @Composable
 fun PlaylistCreateDialog(
 	onDismissRequest: () -> Unit,
 	onRefresh: () -> Unit,
 	songs: ImmutableList<DomainSong> = persistentListOf(),
-	navigateAfterwards: Boolean = true
+	navigateAfterwards: Boolean = true,
+	onSmartRequested: (() -> Unit)? = null
 ) {
 	val viewModel = koinViewModel<PlaylistCreateDialogViewModel>(
 		key = songs.joinToString { it.id },
@@ -84,6 +85,16 @@ fun PlaylistCreateDialog(
 						modifier = Modifier.size(20.dp)
 					)
 				}
+			}
+			if (onSmartRequested != null) {
+				FormButton(
+					onClick = {
+						onDismissRequest()
+						onSmartRequested()
+					},
+					enabled = state !is UiState.Loading,
+					content = { Text("Smart…") }
+				)
 			}
 			FormButton(
 				onClick = {

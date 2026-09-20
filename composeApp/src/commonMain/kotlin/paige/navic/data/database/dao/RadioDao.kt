@@ -7,7 +7,7 @@ import androidx.room3.Query
 import androidx.room3.Transaction
 import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.RadioEntity
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 
 @Dao
 interface RadioDao {
@@ -42,5 +42,15 @@ interface RadioDao {
 			}
 		}
 		insertRadios(remoteRadios)
+	}
+
+	@Transaction
+	suspend fun deleteObsoleteRadios(remoteIds: Set<String>) {
+		getAllRadioIds().forEach { localId ->
+			if (localId !in remoteIds) {
+				Logger.w("RadioDao", "Radio $localId no longer exists remotely")
+				deleteRadio(localId)
+			}
+		}
 	}
 }

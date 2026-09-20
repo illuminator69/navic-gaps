@@ -39,9 +39,10 @@ import navic.composeapp.generated.resources.info_click_to_retry
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtist
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Lastfm
@@ -54,15 +55,18 @@ import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
+import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.util.ui.rememberCoverAmbient
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ArtistSheet(
 	onDismissRequest: () -> Unit,
 	artist: DomainArtist,
+	onStartRadio: (() -> Unit)? = null,
 	onPlayNext: (() -> Unit)? = null,
 	onAddToQueue: (() -> Unit)? = null,
 	onAddAllToPlaylist: (() -> Unit)? = null,
@@ -75,16 +79,22 @@ fun ArtistSheet(
 	onCancelDownloadAll: (() -> Unit)? = null,
 	onDeleteDownloadAll: (() -> Unit)? = null,
 ) {
-	val ctx = LocalCtx.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
 	val contentPadding = PaddingValues(horizontal = 16.dp)
+	// Cover-scheme row colours (not the outer app/system theme) — see CollectionSheet.
+	val ambient = rememberCoverAmbient(artist.coverArtId)
 	val colors = ListItemDefaults.colors(
 		containerColor = Color.Transparent,
-		trailingIconColor = MaterialTheme.colorScheme.onSurface,
-		headlineColor = MaterialTheme.colorScheme.onSurface
+		headlineColor = ambient.scheme.onSurface,
+		leadingIconColor = ambient.scheme.onSurfaceVariant,
+		supportingColor = ambient.scheme.onSurfaceVariant,
+		trailingIconColor = ambient.scheme.onSurface
 	)
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
 		dragHandle = null,
+		ambient = ambient,
 		contentWindowInsets = { BottomSheetDefaults.modalWindowInsets.add(WindowInsets(
 			left = 8.dp,
 			right = 8.dp
@@ -97,10 +107,17 @@ fun ArtistSheet(
 				CoverArt(
 					coverArtId = artist.coverArtId,
 					modifier = Modifier.size(50.dp),
-					shape = Settings.shared.coverArtShape.decreasedShape
+					shape = preferenceManager.coverArtShape.decreasedShape
 				)
 			},
-			headlineContent = { MarqueeText(artist.name.orEmpty()) },
+			headlineContent = {
+				MarqueeText(
+					artist.name,
+					style = MaterialTheme.typography.bodyLarge.copy(
+						color = MaterialTheme.colorScheme.primary
+					)
+				)
+			},
 			supportingContent = {
 				Text(
 					text = artist.albumCount.let {
@@ -114,12 +131,26 @@ fun ArtistSheet(
 		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 
 		Column(Modifier.verticalScroll(rememberScrollState())) {
+			if (onStartRadio != null) {
+				ListItem(
+					content = { Text("Start radio") },
+					leadingContent = { Icon(Icons.Outlined.Radio, null) },
+					onClick = {
+						platformContext.clickSound()
+						onStartRadio()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
 			if (onViewOnLastFm != null && artist.lastFmUrl != null) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_view_on_lastfm)) },
 					leadingContent = { Icon(Icons.Brand.Lastfm, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewOnLastFm(artist.lastFmUrl)
 						onDismissRequest()
 					},
@@ -133,7 +164,7 @@ fun ArtistSheet(
 					content = { Text(stringResource(Res.string.action_view_on_musicbrainz)) },
 					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewOnMusicBrainz(artist.musicBrainzId)
 						onDismissRequest()
 					},
@@ -147,7 +178,7 @@ fun ArtistSheet(
 					content = { Text(stringResource(Res.string.action_play_next)) },
 					leadingContent = { Icon(Icons.Outlined.QueuePlayNext, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onPlayNext()
 						onDismissRequest()
 					},
@@ -161,7 +192,7 @@ fun ArtistSheet(
 					content = { Text(stringResource(Res.string.action_add_to_queue)) },
 					leadingContent = { Icon(Icons.Outlined.Queue, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddToQueue()
 						onDismissRequest()
 					},
@@ -175,7 +206,7 @@ fun ArtistSheet(
 					content = { Text(stringResource(Res.string.action_add_to_playlist)) },
 					leadingContent = { Icon(Icons.Outlined.PlaylistAdd, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddAllToPlaylist()
 						onDismissRequest()
 					},
@@ -193,7 +224,7 @@ fun ArtistSheet(
 						Icon(if (starred) Icons.Filled.Star else Icons.Outlined.Star, null)
 					},
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onSetStarred(!starred)
 						onDismissRequest()
 					},
@@ -209,7 +240,7 @@ fun ArtistSheet(
 							content = { Text(stringResource(Res.string.action_cancel_download)) },
 							leadingContent = { Icon(Icons.Outlined.Close, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onCancelDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -223,7 +254,7 @@ fun ArtistSheet(
 							content = { Text(stringResource(Res.string.action_delete_download)) },
 							leadingContent = { Icon(Icons.Outlined.Delete, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDeleteDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -255,7 +286,7 @@ fun ArtistSheet(
 								)
 							},
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -269,7 +300,7 @@ fun ArtistSheet(
 							content = { Text(stringResource(Res.string.action_download)) },
 							leadingContent = { Icon(Icons.Outlined.Download, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -283,7 +314,7 @@ fun ArtistSheet(
 					content = { Text(stringResource(Res.string.action_download)) },
 					leadingContent = { Icon(Icons.Outlined.Download, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onDownloadAll()
 						onDismissRequest()
 					},

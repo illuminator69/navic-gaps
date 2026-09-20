@@ -35,14 +35,14 @@ import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalSnackbarState
-import paige.navic.data.database.SyncManager
+import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.entities.SyncActionType
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.ui.components.common.FormButton
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 enum class DeletionEndpoint(
 	val questionText: StringResource,
@@ -54,7 +54,8 @@ enum class DeletionEndpoint(
 
 class DeletionViewModel(
 	private val syncManager: SyncManager,
-	private val playlistDao: PlaylistDao
+	private val playlistDao: PlaylistDao,
+	private val sessionManager: SessionManager
 ) : ViewModel() {
 	private val _state = MutableStateFlow<UiState<Nothing?>>(UiState.Success(null))
 	val state = _state.asStateFlow()
@@ -70,7 +71,7 @@ class DeletionViewModel(
 			_state.value = UiState.Loading()
 			try {
 				if (endpoint == DeletionEndpoint.SHARE) {
-					SessionManager.api.deleteShare(id)
+					sessionManager.api.deleteShare(id)
 				} else {
 					syncManager.enqueueAction(
 						actionType = SyncActionType.DELETE_PLAYLIST,

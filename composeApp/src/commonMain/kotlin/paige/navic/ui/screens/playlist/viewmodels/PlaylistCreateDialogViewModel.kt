@@ -11,14 +11,15 @@ import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 class PlaylistCreateDialogViewModel(
 	private val songs: List<DomainSong>,
-	private val playlistDao: PlaylistDao
+	private val playlistDao: PlaylistDao,
+	private val sessionManager: SessionManager
 ) : ViewModel() {
 	private val _creationState = MutableStateFlow<UiState<Nothing?>>(UiState.Success(null))
 	val creationState = _creationState.asStateFlow()
@@ -32,7 +33,7 @@ class PlaylistCreateDialogViewModel(
 		viewModelScope.launch {
 			_creationState.value = UiState.Loading()
 			try {
-				val playlist = SessionManager.api.createPlaylist(
+				val playlist = sessionManager.api.createPlaylist(
 					name = name.text.toString(),
 					songIds = songs.map { it.id }
 				)

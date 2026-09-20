@@ -30,7 +30,7 @@ import org.jetbrains.compose.resources.stringResource
 import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.ui.components.common.CoverArt
 
@@ -42,7 +42,7 @@ fun <T> ArtCarousel(
 	destination: NavKey? = null,
 	content: @Composable CarouselItemScope.(item: T) -> Unit
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 
 	if (items.isNotEmpty()) {
@@ -59,6 +59,7 @@ fun <T> ArtCarousel(
 						title,
 						style = MaterialTheme.typography.titleMediumEmphasized,
 						fontWeight = FontWeight(600),
+						color = MaterialTheme.colorScheme.primary,
 						modifier = Modifier.heightIn(min = 32.dp).padding(top = 8.dp)
 					)
 					Text(
@@ -68,7 +69,7 @@ fun <T> ArtCarousel(
 						modifier = Modifier
 							.heightIn(min = 32.dp).padding(top = 8.dp)
 							.clickable(onClick = dropUnlessResumed {
-								ctx.clickSound()
+								platformContext.clickSound()
 								backStack.add(destination)
 							})
 					)
@@ -78,6 +79,7 @@ fun <T> ArtCarousel(
 					title,
 					style = MaterialTheme.typography.titleMediumEmphasized,
 					fontWeight = FontWeight(600),
+					color = MaterialTheme.colorScheme.primary,
 					modifier = Modifier.heightIn(min = 32.dp).padding(top = 8.dp)
 				)
 			}
@@ -109,7 +111,7 @@ fun CarouselItemScope.ArtCarouselItem(
 	onSelect: () -> Unit = {},
 	onClick: () -> Unit = {}
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val focusManager = LocalFocusManager.current
 
 	Column(
@@ -124,7 +126,7 @@ fun CarouselItemScope.ArtCarouselItem(
 				.maskClip(MaterialTheme.shapes.large),
 			shape = RectangleShape,
 			onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				focusManager.clearFocus(true)
 				onClick()
 			},

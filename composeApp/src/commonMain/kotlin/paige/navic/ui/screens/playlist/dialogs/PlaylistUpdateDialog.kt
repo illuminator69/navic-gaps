@@ -28,7 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import dev.zt64.subsonic.api.model.Playlist
+import dev.zt64.subsonic.api.model.Playlist as ApiPlaylist
 import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_playlist
@@ -41,7 +41,7 @@ import navic.composeapp.generated.resources.info_no_playlists
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistAdd
@@ -50,7 +50,7 @@ import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistUpdateDialogViewModel
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -63,14 +63,14 @@ fun PlaylistUpdateDialog(
 		key = songs.joinToString() + playlistToExclude,
 		parameters = { parametersOf(songs, playlistToExclude) }
 	)
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val state by viewModel.playlistsState.collectAsState()
 	val confirmState by viewModel.confirmState.collectAsState()
 	val selectedPlaylists by viewModel.selectedPlaylists.collectAsState()
 
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
 
-	val list: @Composable (playlists: List<Playlist>) -> Unit = { playlists ->
+	val list: @Composable (playlists: List<ApiPlaylist>) -> Unit = { playlists ->
 		LazyColumn(
 			modifier = Modifier
 				.clip(MaterialTheme.shapes.largeIncreased)
@@ -83,7 +83,7 @@ fun PlaylistUpdateDialog(
 						.toggleable(
 							value = isSelected,
 							onValueChange = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								viewModel.togglePlaylistSelection(playlist)
 							},
 							role = Role.Checkbox
@@ -119,7 +119,7 @@ fun PlaylistUpdateDialog(
 		action = {
 			IconButton(
 				onClick = {
-					ctx.clickSound()
+					platformContext.clickSound()
 					viewModel.refreshResults()
 				},
 				enabled = state !is UiState.Loading,
@@ -201,7 +201,6 @@ fun PlaylistUpdateDialog(
 	)
 
 	if (createDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistCreateDialog(
 			navigateAfterwards = false,
 			onDismissRequest = { createDialogShown = false },

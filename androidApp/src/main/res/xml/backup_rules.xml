@@ -1,13 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Android auto-backup rules (API 30 and below; API 31+ uses data_extraction_rules.xml).
+
+   Everything the app stores in preferences lives in ONE file, and that file holds the
+   Navidrome password, the hub token and the AudioMuse token. Backup would copy them to
+   Google's servers and onto whatever device a restore lands on, which is not somewhere a
+   self-hosted setup's credentials should end up by default.
+
+   Multiplatform-Settings' `Settings()` factory maps to the default SharedPreferences
+   file, i.e. <applicationId>_preferences.xml — "paige.navic" here, plus the ".debug"
+   suffix on debug builds, so both are named.
+
+   The trade is real and deliberate: a restored install asks for the server details again.
+   Cached library data lives in the Room databases and is re-syncable, so it is excluded
+   too rather than dragging a stale copy of the library onto a new device.
 -->
 <full-backup-content>
-	<!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+	<exclude
+		domain="sharedpref"
+		path="paige.navic_preferences.xml" />
+	<exclude
+		domain="sharedpref"
+		path="paige.navic.debug_preferences.xml" />
+	<exclude
+		domain="database"
+		path="cache.db" />
+	<exclude
+		domain="database"
+		path="downloads.db" />
 </full-backup-content>

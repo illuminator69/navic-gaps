@@ -7,12 +7,18 @@
 		android:protectionLevel="signature" />
 
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission
 		android:name="android.permission.FOREGROUND_SERVICE"
 		tools:ignore="ForegroundServicesPolicy" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 	<uses-permission android:name="${applicationId}.permission.PLAYBACK_SERVICE" />
+	<!-- Only for lb-bot fill outcomes (see FillNotifier). Playback's own notification
+	     rides on the media session's foreground service and needs nothing here, which is
+	     why the app had no notification permission at all until now. Requested lazily,
+	     the first time a fill is started, so nobody who never uses lb-bot is ever asked. -->
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
 	<application
 		android:name=".Application"
@@ -83,6 +89,28 @@
 				android:name="android.appwidget.provider"
 				android:resource="@xml/turn_table_widget" />
 		</receiver>
+
+		<!-- quick picks receiver -->
+		<receiver
+			android:name=".widgets.quickpicks.QuickPicksReceiver"
+			android:exported="false"
+			android:label="Quick Picks">
+			<intent-filter>
+				<action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+				<action android:name="${applicationId}.NOW_PLAYING_UPDATED" />
+			</intent-filter>
+			<meta-data
+				android:name="android.appwidget.provider"
+				android:resource="@xml/quick_picks_widget" />
+		</receiver>
+
+		<!-- Widget skip buttons. media3's MediaButtonReceiver below drops every key event that
+		     isn't a play command on API 26+, so next/previous go through a MediaController
+		     instead — see WidgetControlReceiver. Addressed by explicit component, hence no
+		     intent-filter. -->
+		<receiver
+			android:name=".widgets.nowplaying.WidgetControlReceiver"
+			android:exported="false" />
 
 		<!-- needed for widgets to control playback -->
 		<receiver

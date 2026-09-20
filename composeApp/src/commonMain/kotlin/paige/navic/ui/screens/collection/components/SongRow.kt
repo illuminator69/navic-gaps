@@ -3,16 +3,12 @@ package paige.navic.ui.screens.collection.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
@@ -39,9 +35,6 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_play_next
-import navic.composeapp.generated.resources.info_download_failed
-import navic.composeapp.generated.resources.info_downloaded
-import navic.composeapp.generated.resources.info_not_available_offline
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.data.database.entities.DownloadEntity
@@ -49,18 +42,15 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Check
-import paige.navic.icons.outlined.DownloadOff
-import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
-import paige.navic.ui.components.common.Waveform
-import paige.navic.utils.InlineExplicitIcon
-import paige.navic.utils.segmentedShapes
-import paige.navic.utils.toHoursMinutesSeconds
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.common.SongRowStatus
+import paige.navic.util.core.InlineExplicitIcon
+import paige.navic.util.ui.segmentedShapes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -73,11 +63,14 @@ fun CollectionDetailScreenSongRow(
 	onLongClick: (() -> Unit),
 	onPlayNext: (() -> Unit),
 	onAddToQueue: (() -> Unit),
+	isStarred: Boolean,
 	download: DownloadEntity? = null,
 	isOffline: Boolean = false
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsStateWithLifecycle()
+	// steadyState, not uiState — see the note on the common SongRow: one collector per visible
+	// row, none of which draws the playhead.
+	val playerState by player.steadyState.collectAsStateWithLifecycle()
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
 	val isCurrentTrack = playerState.currentSong?.id == song.id
@@ -104,7 +97,10 @@ fun CollectionDetailScreenSongRow(
 			Box(
 				modifier = Modifier
 					.fillMaxSize()
-					.clip(MaterialTheme.shapes.largeIncreased)
+					// Match the segmented card shape: this background shows THROUGH the
+					// translucent (frosted) card as a distinguishing backing, so it must
+					// share the card's grouped corners (not the fully-rounded largeIncreased).
+					.clip(itemShape.shape)
 					.background(MaterialTheme.colorScheme.primaryContainer)
 					.padding(horizontal = 20.dp)
 			) {
@@ -131,27 +127,30 @@ fun CollectionDetailScreenSongRow(
 		}
 	) {
 		SegmentedListItem(
-			contentPadding = PaddingValues(14.dp),
+			contentPadding = SongRowDefaults.ContentPadding,
 			onClick = onClick,
 			onLongClick = onLongClick,
 			shapes = itemShape,
 			colors = ListItemDefaults.segmentedColors(
-				containerColor = MaterialTheme.colorScheme.surfaceContainer
+				// Translucent so the album's cover gradient shows through (frosted look);
+				// the playing row lifts to a higher tint — same rule as the queue.
+				containerColor = SongRowDefaults.containerColor(isCurrentTrack),
+				contentColor = SongRowDefaults.contentColor(isCurrentTrack)
 			),
 			leadingContent = {
-				if (isPlaylist) 
+				if (isPlaylist)
 						CoverArt(
-							modifier = Modifier.size(48.dp),
+							modifier = Modifier.size(SongRowDefaults.CoverSize),
 							coverArtId = song.coverArtId,
-							shape = MaterialTheme.shapes.small
+							shape = SongRowDefaults.CoverShape
 						)
-				else 
+				else
 					Text(
 						text = "${index + 1}",
 						modifier = Modifier.width(25.dp),
 						style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
 						fontWeight = FontWeight(400),
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						color = SongRowDefaults.supportingContentColor(isCurrentTrack),
 						maxLines = 1,
 						textAlign = TextAlign.Center,
 						autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
@@ -177,66 +176,16 @@ fun CollectionDetailScreenSongRow(
 				}
 			},
 			trailingContent = {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					if (!canPlay) {
-						Icon(
-							Icons.Outlined.Offline,
-							stringResource(Res.string.info_not_available_offline),
-							modifier = Modifier.size(20.dp)
-						)
-						Spacer(Modifier.width(6.dp))
-					}
-					if (download != null && !isCurrentTrack) {
-						when (download.status) {
-							DownloadStatus.DOWNLOADING -> {
-								CircularProgressIndicator(
-									progress = { download.progress },
-									modifier = Modifier.size(16.dp),
-									strokeWidth = 2.dp
-								)
-								Spacer(Modifier.width(8.dp))
-							}
-
-							DownloadStatus.DOWNLOADED -> {
-								Icon(
-									Icons.Outlined.Check,
-									contentDescription = stringResource(Res.string.info_downloaded),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.primary
-								)
-								Spacer(Modifier.width(8.dp))
-							}
-
-							DownloadStatus.FAILED -> {
-								Icon(
-									Icons.Outlined.DownloadOff,
-									contentDescription = stringResource(Res.string.info_download_failed),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.error
-								)
-								Spacer(Modifier.width(8.dp))
-							}
-
-							else -> {}
-						}
-					}
-					if (isCurrentTrack) {
-						Waveform(
-							modifier = Modifier.padding(end = 12.dp),
-							isPlaying = !playerState.isPaused
-						)
-					}
-					song.duration.toHoursMinutesSeconds().let {
-						Text(
-							text = it,
-							style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-							fontWeight = FontWeight(400),
-							fontSize = 13.sp,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							maxLines = 1
-						)
-					}
-				}
+				SongRowStatus(
+					isStarred = isStarred,
+					canPlay = canPlay,
+					downloadStatus = download?.status,
+					downloadProgress = download?.progress ?: 0f,
+					isCurrentTrack = isCurrentTrack,
+					isPlaying = !playerState.isPaused,
+					duration = song.duration,
+					durationColor = SongRowDefaults.supportingContentColor(isCurrentTrack)
+				)
 			}
 		)
 	}

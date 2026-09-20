@@ -150,6 +150,8 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.kotlinx.collections.immutable)
 			implementation(libs.androidx.datastore.preferences)
 			implementation(libs.coil.gif)
+			implementation(libs.haze)
+			implementation(libs.haze.blur)
 
 			implementation(libs.subsonicKotlin)
 		}

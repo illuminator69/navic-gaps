@@ -46,6 +46,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_remove_from_history
 import navic.composeapp.generated.resources.action_search_history
+import navic.composeapp.generated.resources.info_no_search_results
 import navic.composeapp.generated.resources.info_not_available_offline
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_all
@@ -56,24 +57,32 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalCtx
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import paige.navic.domain.manager.AudioMuseManager
+import paige.navic.domain.manager.ClapAvailability
+import paige.navic.domain.manager.RadioManager
+import paige.navic.ui.components.sheets.MoodSearchSheet
+import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.BottomBarVisibilityMode
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.History
+import paige.navic.icons.outlined.NoSearchResults
 import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.Queue
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.MarqueeText
@@ -83,6 +92,8 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.ArtistsScreenItem
@@ -90,8 +101,6 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
-import paige.navic.utils.LocalBottomBarScrollManager
-import paige.navic.utils.UiState
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),
@@ -105,6 +114,8 @@ enum class SearchCategory(val res: StringResource) {
 fun SearchScreen(
 	nested: Boolean
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
+
 	val viewModel = koinViewModel<SearchViewModel>()
 	val selectedSong by viewModel.selectedSong.collectAsStateWithLifecycle()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
@@ -130,12 +141,32 @@ fun SearchScreen(
 	val isOnline by viewModel.isOnline.collectAsState()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsState()
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
+	val radioManager = koinInject<RadioManager>()
+	val audioMuseManager = koinInject<AudioMuseManager>()
 	val backStack = LocalNavStack.current
 
 	var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+
+	// CLAP text→mood search (AudioMuse Tier 2). Probed for availability AND reason: when
+	// Tier 2 is configured but unusable the entry is shown disabled with what's wrong,
+	// rather than vanishing — a dead hub route and "this feature doesn't exist" used to
+	// look identical, which is how a hub that wasn't routing /sonic/* went unnoticed.
+	// Keyed on the route config so changing it re-probes instead of caching a stale miss.
+	var clapState by remember { mutableStateOf(ClapAvailability.NOT_CONFIGURED) }
+	LaunchedEffect(audioMuseManager.routeSignature) {
+		clapState = audioMuseManager.clapAvailability()
+	}
+
+	// Mood-search preview sheet: clicking the entry fetches the proposed queue
+	// and shows it (Feishin-style) instead of immediately playing.
+	val moodScope = rememberCoroutineScope()
+	var showMoodSheet by remember { mutableStateOf(false) }
+	var moodLoading by remember { mutableStateOf(false) }
+	var moodQuery by remember { mutableStateOf("") }
+	var moodSongs by remember { mutableStateOf<List<DomainSong>>(emptyList()) }
 
 	Scaffold(
 		topBar = {
@@ -161,7 +192,7 @@ fun SearchScreen(
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested || Settings.shared.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
+			if (!nested || preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -183,6 +214,13 @@ fun SearchScreen(
 					val songs =
 						if (showAll || selectedCategory == SearchCategory.SONGS) results.filterIsInstance<DomainSong>() else emptyList()
 
+					if (query.text.isNotBlank() && albums.isEmpty() && artists.isEmpty() && songs.isEmpty()) {
+						ContentUnavailable(
+							icon = Icons.Outlined.NoSearchResults,
+							label = stringResource(Res.string.info_no_search_results)
+						)
+					}
+
 					LazyVerticalGrid(
 						modifier = Modifier.fillMaxSize(),
 						columns = GridCells.Fixed(2),
@@ -191,6 +229,76 @@ fun SearchScreen(
 						verticalArrangement = Arrangement.spacedBy(8.dp)
 					) {
 						if (query.text.isNotBlank()) {
+							if (clapState.usable) {
+								item(span = { GridItemSpan(maxLineSpan) }) {
+									ListItem(
+										modifier = Modifier
+											.background(MaterialTheme.colorScheme.surface),
+										onClick = {
+											platformContext.clickSound()
+											val q = query.text.toString()
+											viewModel.addToSearchHistory(q)
+											moodQuery = q
+											moodSongs = emptyList()
+											moodLoading = true
+											showMoodSheet = true
+											moodScope.launch {
+												moodSongs = radioManager.fetchMoodSearchSongs(q)
+												moodLoading = false
+											}
+										},
+										content = { Text("Mood search") },
+										supportingContent = {
+											Text("Play tracks matching \"${query.text}\"")
+										}
+									)
+								}
+							} else if (clapState != ClapAvailability.NOT_CONFIGURED) {
+								// Configured but unusable — say so. Hidden entirely only when
+								// there's no Tier-2 route at all, so users who never set up
+								// AudioMuse don't get a permanently dead row.
+								item(span = { GridItemSpan(maxLineSpan) }) {
+									ListItem(
+										modifier = Modifier
+											.background(MaterialTheme.colorScheme.surface),
+										// Tapping re-probes: these failures are transient (a hub
+										// restarting, analysis still running), so the row doubles
+										// as the retry rather than being inert.
+										onClick = {
+											platformContext.clickSound()
+											moodScope.launch {
+												clapState = audioMuseManager.clapAvailability()
+											}
+										},
+										content = {
+											Text(
+												"Mood search",
+												color = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										},
+										supportingContent = {
+											Text(
+												when (clapState) {
+													ClapAvailability.HUB_UNREACHABLE ->
+														"Unavailable — the hub isn't answering " +
+															"AudioMuse requests, and no direct " +
+															"AudioMuse server is configured."
+													ClapAvailability.UNREACHABLE ->
+														"Unavailable — can't reach the AudioMuse server."
+													ClapAvailability.DISABLED_ON_SERVER ->
+														"Unavailable — CLAP is switched off on the " +
+															"AudioMuse server."
+													ClapAvailability.NOT_ANALYZED ->
+														"Unavailable — your library hasn't been " +
+															"analyzed by AudioMuse yet."
+													else -> "Unavailable."
+												},
+												color = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										}
+									)
+								}
+							}
 							if (songs.isNotEmpty()) {
 								item(span = { GridItemSpan(maxLineSpan) }) {
 									Text(
@@ -259,7 +367,7 @@ fun SearchScreen(
 											modifier = Modifier
 												.background(MaterialTheme.colorScheme.surface),
 											onClick = {
-												ctx.clickSound()
+												platformContext.clickSound()
 												player.clearQueue()
 												player.addToQueueSingle(song)
 												player.playAt(0)
@@ -275,7 +383,7 @@ fun SearchScreen(
 												CoverArt(
 													coverArtId = song.coverArtId,
 													modifier = Modifier.size(50.dp),
-													shape = Settings.shared.coverArtShape.decreasedShape
+													shape = preferenceManager.coverArtShape.decreasedShape
 												)
 											},
 											trailingContent = {
@@ -291,6 +399,10 @@ fun SearchScreen(
 										if (selectedSong == song) {
 											SongSheet(
 												onDismissRequest = { viewModel.clearSelectedSong() },
+												onStartRadio = { radioManager.startRadio(song.id, song) },
+												onStartJourney = player.uiState.value.currentSong?.takeIf {
+													radioManager.sonicSimilarityAvailable.value && it.id != song.id
+												}?.let { now -> { radioManager.startJourney(now.id, song.id) } },
 												song = song,
 												onPlayNext = {
 													if (player.uiState.value.queue.any { it.id == song.id }) {
@@ -399,7 +511,7 @@ fun SearchScreen(
 									val historyItem = searchHistory[index]
 									ListItem(
 										modifier = Modifier.clickable {
-											ctx.clickSound()
+											platformContext.clickSound()
 											query.clearText()
 											query.edit { insert(0, historyItem) }
 										},
@@ -413,7 +525,7 @@ fun SearchScreen(
 										},
 										trailingContent = {
 											IconButton(onClick = {
-												ctx.clickSound()
+												platformContext.clickSound()
 												viewModel.removeFromSearchHistory(historyItem)
 											}) {
 												Icon(
@@ -439,6 +551,17 @@ fun SearchScreen(
 			onConfirm = {
 				songToQueue?.let { player.addToQueueSingle(it) }
 			}
+		)
+	}
+
+	if (showMoodSheet) {
+		MoodSearchSheet(
+			query = moodQuery,
+			songs = moodSongs,
+			loading = moodLoading,
+			onPlay = { radioManager.playMoodMix(moodSongs) },
+			onAddToQueue = { radioManager.enqueueMoodMix(moodSongs) },
+			onDismissRequest = { showMoodSheet = false }
 		)
 	}
 }

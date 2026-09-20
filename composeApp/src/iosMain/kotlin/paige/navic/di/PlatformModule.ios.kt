@@ -2,22 +2,30 @@ package paige.navic.di
 
 import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import coil3.PlatformContext
 import kotlinx.cinterop.ExperimentalForeignApi
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
+import paige.navic.data.database.MIGRATION_CACHE_15_16
+import paige.navic.data.database.MIGRATION_CACHE_16_17
+import paige.navic.data.database.MIGRATION_CACHE_17_18
+import paige.navic.data.database.MIGRATION_CACHE_18_19
+import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
+import paige.navic.domain.manager.CastBridgeStatus
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.NoopCastBridgeStatus
+import paige.navic.domain.manager.ShareManager
+import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
-import paige.navic.managers.ConnectivityManager
-import paige.navic.managers.ShareManager
-import paige.navic.managers.StorageManager
 import paige.navic.shared.IOSMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
+import coil3.PlatformContext as CoilPlatformContext
 
 actual val platformModule = module {
 	single<CacheDatabase> {
@@ -25,6 +33,14 @@ actual val platformModule = module {
 		Room
 			.databaseBuilder<CacheDatabase>(dbPath)
 			.setDriver(BundledSQLiteDriver())
+			// See the Android module: without this the DownloadEntity change would wipe the
+			// cached library.
+			.addMigrations(
+				MIGRATION_CACHE_15_16,
+				MIGRATION_CACHE_16_17,
+				MIGRATION_CACHE_17_18,
+				MIGRATION_CACHE_18_19
+			)
 			.fallbackToDestructiveMigration(true)
 			.build()
 	}
@@ -34,6 +50,8 @@ actual val platformModule = module {
 		Room
 			.databaseBuilder<DownloadDatabase>(dbPath)
 			.setDriver(BundledSQLiteDriver())
+			// See the Android module: dropping this table would orphan every downloaded file.
+			.addMigrations(MIGRATION_DOWNLOAD_3_4)
 			.fallbackToDestructiveMigration(true)
 			.build()
 	}
@@ -58,14 +76,19 @@ actual val platformModule = module {
 			stateRepository = get(),
 			downloadManager = get(),
 			connectivityManager = get(),
-			syncManager = get()
+			syncManager = get(),
+			sessionManager = get(),
+			preferenceManager = get(),
+			savedQueueRepository = get()
 		)
 	}
 
 	singleOf(::ShareManager)
-	single<PlatformContext> { PlatformContext.INSTANCE }
-	single<StorageManager> { StorageManager() }
-	single<ConnectivityManager> { ConnectivityManager(get()) }
+	single<CoilPlatformContext> { CoilPlatformContext.INSTANCE }
+	singleOf(::StorageManager)
+	singleOf(::ConnectivityManager)
+	singleOf(::LogManager)
+	single<CastBridgeStatus> { NoopCastBridgeStatus() }
 }
 
 @OptIn(ExperimentalForeignApi::class)

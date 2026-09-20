@@ -4,9 +4,11 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
+import androidx.room3.RawQuery
+import androidx.room3.RoomRawQuery
 import androidx.room3.Transaction
 import paige.navic.data.database.entities.SongEntity
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 
 @Dao
 interface SongDao {
@@ -24,6 +26,10 @@ interface SongDao {
 
 	@Query("SELECT * FROM SongEntity")
 	suspend fun getAllSongs(): List<SongEntity>
+
+	/** Sorted/filtered song list. Build [query] with `DomainSongListType.toSongSqlQuery`. */
+	@RawQuery
+	suspend fun getSongsByQuery(query: RoomRawQuery): List<SongEntity>
 
 	@Query("SELECT * FROM SongEntity WHERE belongsToAlbumId = :albumId")
 	suspend fun getSongsByAlbumId(albumId: String): List<SongEntity>
@@ -46,6 +52,13 @@ interface SongDao {
 
 	@Query("SELECT * FROM SongEntity WHERE songId IN (:ids)")
 	suspend fun getSongsByIds(ids: List<String>): List<SongEntity>
+
+	// Offline-radio fallback (AudioMuse / similar-songs agents unavailable): a local mix.
+	@Query("SELECT * FROM SongEntity WHERE genre = :genre ORDER BY RANDOM() LIMIT :limit")
+	suspend fun getRandomSongsByGenre(genre: String, limit: Int): List<SongEntity>
+
+	@Query("SELECT * FROM SongEntity ORDER BY RANDOM() LIMIT :limit")
+	suspend fun getRandomSongs(limit: Int): List<SongEntity>
 
 	@Query("SELECT * FROM SongEntity WHERE title LIKE '%' || :query || '%' COLLATE NOCASE")
 	suspend fun searchSongsList(query: String): List<SongEntity>

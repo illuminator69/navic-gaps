@@ -41,7 +41,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
-import coil3.compose.LocalPlatformContext
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -76,7 +75,9 @@ import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_offline_mode
+import navic.composeapp.generated.resources.subtitle_download_center
 import navic.composeapp.generated.resources.subtitle_pending_actions
+import navic.composeapp.generated.resources.title_download_center
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
@@ -87,31 +88,37 @@ import navic.composeapp.generated.resources.title_network
 import navic.composeapp.generated.resources.title_sync_control
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.CoverArtQuality
-import paige.navic.data.models.settings.enums.OfflineMode
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.CoverArtQuality
+import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.LocalNavStack
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import kotlin.time.Clock
 import kotlin.time.Instant
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
 @Composable
 fun SettingsDataStorageScreen() {
 	val viewModel = koinViewModel<SettingsDataStorageViewModel>()
 
-	val ctx = LocalCtx.current
-	val scope = rememberCoroutineScope()
+	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
-	val imageLoader = SingletonImageLoader.get(platformContext)
+	val preferenceManager = koinInject<PreferenceManager>()
+	val scope = rememberCoroutineScope()
+	val coilPlatformContext = LocalCoilPlatformContext.current
+	val imageLoader = SingletonImageLoader.get(coilPlatformContext)
 
 	val syncState by viewModel.syncState.collectAsStateWithLifecycle()
 	val pendingActionCount by viewModel.pendingActionCount.collectAsStateWithLifecycle()
@@ -183,7 +190,7 @@ fun SettingsDataStorageScreen() {
 		topBar = {
 			NestedTopBar(
 				title = { Text(stringResource(Res.string.title_data_storage)) },
-				hideBack = ctx.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 			)
 		},
 		contentWindowInsets = WindowInsets.statusBars
@@ -202,16 +209,16 @@ fun SettingsDataStorageScreen() {
 						items = OfflineMode.entries.toImmutableList(),
 						label = { stringResource(it.displayName) },
 						description = stringResource(Res.string.subtitle_offline_mode),
-						selection = Settings.shared.offlineMode,
-						onSelect = { Settings.shared.offlineMode = it }
+						selection = preferenceManager.offlineMode,
+						onSelect = { preferenceManager.offlineMode = it }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_cover_art_quality)) },
 						items = CoverArtQuality.entries.toImmutableList(),
 						label = { stringResource(it.displayName) },
-						selection = Settings.shared.coverArtQuality,
+						selection = preferenceManager.coverArtQuality,
 						onSelect = {
-							Settings.shared.coverArtQuality = it
+							preferenceManager.coverArtQuality = it
 							imageLoader.memoryCache?.clear()
 							scope.launch(Dispatchers.IO) {
 								imageLoader.diskCache?.clear()
@@ -271,11 +278,11 @@ fun SettingsDataStorageScreen() {
 						Column(Modifier.weight(1f)) {
 							Text(stringResource(Res.string.option_last_sync))
 							Text(
-								text = if (Settings.shared.lastFullSyncTime == 0L) {
+								text = if (preferenceManager.lastFullSyncTime == 0L) {
 									stringResource(Res.string.info_sync_never)
 								} else {
 									Instant.fromEpochMilliseconds(
-										Settings.shared.lastFullSyncTime
+										preferenceManager.lastFullSyncTime
 									).toRelativeString(
 										justNow = stringResource(Res.string.info_sync_just_now),
 										minsAgo = stringResource(Res.string.info_sync_mins_ago),
@@ -316,6 +323,17 @@ fun SettingsDataStorageScreen() {
 									downloadCount
 								)
 									+ downloadsSizeMb,
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+					}
+
+					FormRow(onClick = { backStack.add(Screen.Settings.DownloadCenter) }) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.title_download_center))
+							Text(
+								stringResource(Res.string.subtitle_download_center),
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
@@ -367,7 +385,7 @@ fun SettingsDataStorageScreen() {
 										Row(verticalAlignment = Alignment.CenterVertically) {
 											TextButton(
 												onClick = {
-													ctx.clickSound()
+													platformContext.clickSound()
 													viewModel.cancelLibraryDownload()
 												},
 												contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),

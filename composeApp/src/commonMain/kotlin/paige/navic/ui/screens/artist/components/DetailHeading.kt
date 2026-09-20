@@ -38,6 +38,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.screens.artist.truncateText
+import paige.navic.util.ui.onAmbientColor
 
 @Composable
 fun ArtistDetailScreenHeading(
@@ -46,7 +47,8 @@ fun ArtistDetailScreenHeading(
 	subtitle: String?,
 	lastfm: String?,
 	innerPadding: PaddingValues,
-	scrolled: Boolean
+	scrolled: Boolean,
+	ambientColor: Color
 ) {
 	val layoutDirection = LocalLayoutDirection.current
 	val progress by animateFloatAsState(if (scrolled) 0f else 1f)
@@ -70,7 +72,7 @@ fun ArtistDetailScreenHeading(
 					.fillMaxSize()
 					.background(
 						Brush.linearGradient(
-							0.025f to MaterialTheme.colorScheme.background,
+							0.025f to ambientColor,
 							1.0f to Color.Transparent,
 							start = Offset(0f, Float.POSITIVE_INFINITY),
 							end = Offset(0f, 0f)
@@ -98,7 +100,7 @@ fun ArtistDetailScreenHeading(
 							}
 						},
 						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurface,
+						color = onAmbientColor(ambientColor, MaterialTheme.colorScheme),
 						modifier = Modifier.widthIn(max = 500.dp)
 					)
 				}
@@ -106,6 +108,7 @@ fun ArtistDetailScreenHeading(
 					text = artistName,
 					style = MaterialTheme.typography.displaySmall.copy(
 						fontWeight = FontWeight.Bold,
+						color = MaterialTheme.colorScheme.primary,
 					),
 					modifier = Modifier
 						.fillMaxWidth()

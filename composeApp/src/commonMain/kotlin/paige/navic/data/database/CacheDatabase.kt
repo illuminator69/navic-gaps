@@ -12,6 +12,7 @@ import paige.navic.data.database.dao.GenreDao
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.RadioDao
+import paige.navic.data.database.dao.SavedQueueDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.dao.SyncActionDao
 import paige.navic.data.database.entities.AlbumEntity
@@ -22,11 +23,15 @@ import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.database.entities.PlaylistEntity
 import paige.navic.data.database.entities.PlaylistSongCrossRef
 import paige.navic.data.database.entities.RadioEntity
+import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.entities.SyncActionEntity
 
 @Database(
-	version = 12,
+	// NOTE: [DownloadEntity] is an entity of BOTH databases, so changing it changes THIS schema
+	// too. Forgetting to bump this version is exactly how you get Room's "changed schema but
+	// forgot to update the version number" identity-hash crash on launch.
+	version = 19,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,
@@ -37,7 +42,8 @@ import paige.navic.data.database.entities.SyncActionEntity
 		RadioEntity::class,
 		LyricEntity::class,
 		SyncActionEntity::class,
-		DownloadEntity::class
+		DownloadEntity::class,
+		SavedQueueEntity::class
 	]
 )
 @TypeConverters(Converters::class)
@@ -52,6 +58,7 @@ abstract class CacheDatabase : RoomDatabase() {
 	abstract fun radioDao(): RadioDao
 	abstract fun lyricDao(): LyricDao
 	abstract fun syncActionDao(): SyncActionDao
+	abstract fun savedQueueDao(): SavedQueueDao
 }
 
 @Suppress("KotlinNoActualForExpect")

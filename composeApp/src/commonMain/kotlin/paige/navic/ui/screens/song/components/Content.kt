@@ -12,7 +12,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Note
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 fun LazyListScope.songListScreenContent(
 	state: UiState<ImmutableList<DomainSong>>,
@@ -40,7 +40,7 @@ fun LazyListScope.songListScreenContent(
 				modifier = Modifier.animateItem(),
 				song = song,
 				selected = song == selectedSong,
-				starred = if (song == selectedSong) selectedSongIsStarred else false,
+				starred = if (song == selectedSong) selectedSongIsStarred else song.starredAt != null,
 				rating = if (song == selectedSong) selectedSongRating else 0,
 				onSelect = { onUpdateSelection(song) },
 				onDeselect = { onClearSelection() },

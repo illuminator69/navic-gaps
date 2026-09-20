@@ -7,15 +7,16 @@ import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
-import paige.navic.data.session.SessionManager
-import paige.navic.managers.ConnectivityManager
-import paige.navic.shared.Logger
+import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.util.core.Logger
 
 class SearchRepository(
 	private val albumDao: AlbumDao,
 	private val artistDao: ArtistDao,
 	private val songDao: SongDao,
 	private val playlistDao: PlaylistDao,
+	private val sessionManager: SessionManager,
 	connectivityManager: ConnectivityManager
 ) {
 	val isOnline = connectivityManager.isOnline
@@ -23,7 +24,7 @@ class SearchRepository(
 	suspend fun search(query: String): List<Any> {
 		return if (isOnline.value) {
 			try {
-				val data = SessionManager.api.searchID3(query)
+				val data = sessionManager.api.searchID3(query)
 
 				albumDao.insertAlbumsIgnoringConflicts(data.albums.map { it.toEntity() })
 				artistDao.insertArtistsIgnoringConflicts(data.artists.map { it.toEntity() })

@@ -3,13 +3,22 @@ package paige.navic.di
 import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import org.koin.android.ext.koin.androidApplication
+import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
+import paige.navic.data.database.MIGRATION_CACHE_15_16
+import paige.navic.data.database.MIGRATION_CACHE_16_17
+import paige.navic.data.database.MIGRATION_CACHE_17_18
+import paige.navic.data.database.MIGRATION_CACHE_18_19
+import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
+import paige.navic.domain.manager.CastBridgeStatus
+import paige.navic.domain.manager.cast.CastBridgeManager
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.ShareManager
+import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
-import paige.navic.managers.ConnectivityManager
-import paige.navic.managers.ShareManager
-import paige.navic.managers.StorageManager
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
 
@@ -21,6 +30,14 @@ actual val platformModule = module {
 		Room
 			.databaseBuilder<CacheDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
+			// Without this, bumping the cache version for the DownloadEntity change would drop the
+			// user's entire cached library and force a full re-sync.
+			.addMigrations(
+				MIGRATION_CACHE_15_16,
+				MIGRATION_CACHE_16_17,
+				MIGRATION_CACHE_17_18,
+				MIGRATION_CACHE_18_19
+			)
 			.fallbackToDestructiveMigration(true)
 			.build()
 	}
@@ -32,6 +49,11 @@ actual val platformModule = module {
 		Room
 			.databaseBuilder<DownloadDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
+			// Unlike the cache DB, this one must NOT be dropped on upgrade: its rows are the only
+			// record of which audio files exist on disk. Dropping it would orphan every downloaded
+			// file — invisible to the app, still occupying the user's storage. The destructive
+			// fallback stays only as a last resort for versions with no migration path.
+			.addMigrations(MIGRATION_DOWNLOAD_3_4)
 			.fallbackToDestructiveMigration(true)
 			.build()
 	}
@@ -50,22 +72,23 @@ actual val platformModule = module {
 			stateRepository = get(),
 			albumDao = get(),
 			downloadManager = get(),
-			connectivityManager = get()
+			connectivityManager = get(),
+			sessionManager = get(),
+			preferenceManager = get(),
+			savedQueueRepository = get()
 		)
 	}
 
-	single<ShareManager> {
-		ShareManager(context = get())
-	}
+	singleOf(::ShareManager)
+	singleOf(::StorageManager)
+	singleOf(::ConnectivityManager)
+	singleOf(::LogManager)
 
-	single<StorageManager> {
-		StorageManager(context = androidApplication())
+	// Eager: discovery has to already be running when the picker opens, and the bridge has to be
+	// up for the speaker to appear in OTHER clients' pickers whether or not this phone's UI is
+	// on screen. Same reason HubManager is createdAtStart.
+	single(createdAtStart = true) {
+		CastBridgeManager(androidApplication(), get(), get()).apply { start() }
 	}
-
-	single<ConnectivityManager> {
-		ConnectivityManager(
-			context = androidApplication(),
-			scope = get()
-		)
-	}
+	single<CastBridgeStatus> { get<CastBridgeManager>() }
 }

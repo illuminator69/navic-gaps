@@ -23,7 +23,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_navigate_back
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
@@ -32,12 +32,14 @@ import paige.navic.icons.outlined.ArrowBack
 @Composable
 fun NestedTopBar(
 	title: @Composable () -> Unit,
+	modifier: Modifier = Modifier,
 	actions: @Composable RowScope.() -> Unit = {},
 	colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(),
 	hideBack: Boolean = false
 ) {
 	val backStack = LocalNavStack.current
 	TopAppBar(
+		modifier = modifier,
 		title = title,
 		colors = colors,
 		actions = {
@@ -77,19 +79,21 @@ fun TopBarButton(
 	enabled: Boolean = true,
 	content: @Composable () -> Unit
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	Surface(
 		modifier = modifier.size(40.dp),
 		onClick = {
-			ctx.clickSound()
+			platformContext.clickSound()
 			onClick()
 		},
 		enabled = enabled,
 		shape = CircleShape,
 		shadowElevation = shadowElevation,
+		// Translucent glass circle so the button floats over the ambient wash instead of
+		// reading as an opaque chip. Cover-tinted automatically under the detail scheme.
 		color = if (enabled)
-			MaterialTheme.colorScheme.surfaceContainer
-		else MaterialTheme.colorScheme.surfaceContainerLow,
+			MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f)
+		else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.6f),
 		contentColor = if (enabled)
 			MaterialTheme.colorScheme.onSurfaceVariant
 		else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f)

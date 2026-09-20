@@ -8,13 +8,14 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainGenre
 import paige.navic.domain.repositories.GenreRepository
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
 class GenreListViewModel(
-	private val repository: GenreRepository
+	private val repository: GenreRepository,
+	private val sessionManager: SessionManager
 ) : ViewModel() {
 	private val _genresState =
 		MutableStateFlow<UiState<ImmutableList<DomainGenre>>>(UiState.Loading())
@@ -24,7 +25,7 @@ class GenreListViewModel(
 
 	init {
 		viewModelScope.launch {
-			SessionManager.isLoggedIn.collect { if (it) refreshGenres(false) }
+			sessionManager.isLoggedIn.collect { if (it) refreshGenres(false) }
 		}
 	}
 

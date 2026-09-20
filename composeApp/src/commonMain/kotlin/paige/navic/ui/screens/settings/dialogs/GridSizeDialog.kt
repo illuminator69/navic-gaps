@@ -26,9 +26,10 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.option_grid_items_per_row
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.GridSize
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.GridSize
 
 @Composable
 fun GridSizeDialog(
@@ -37,7 +38,8 @@ fun GridSizeDialog(
 ) {
 	if (!presented) return
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	AlertDialog(
 		title = {
@@ -56,8 +58,8 @@ fun GridSizeDialog(
 							.fillMaxWidth()
 							.clip(MaterialTheme.shapes.small)
 							.clickable {
-								ctx.clickSound()
-								Settings.shared.gridSize = size
+								platformContext.clickSound()
+								preferenceManager.gridSize = size
 								onDismissRequest()
 							}
 							.padding(8.dp),
@@ -65,7 +67,7 @@ fun GridSizeDialog(
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						RadioButton(
-							selected = Settings.shared.gridSize == size,
+							selected = preferenceManager.gridSize == size,
 							onClick = null
 						)
 						GridSizePreview(size = size.value)
@@ -77,7 +79,7 @@ fun GridSizeDialog(
 		onDismissRequest = onDismissRequest,
 		confirmButton = {
 			Button(onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				onDismissRequest()
 			}) {
 				Text(stringResource(Res.string.action_ok))

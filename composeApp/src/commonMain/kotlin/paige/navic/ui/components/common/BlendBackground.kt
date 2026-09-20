@@ -18,47 +18,63 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import paige.navic.data.images.getStaticImageLoader
-import paige.navic.data.session.SessionManager
+import coil3.request.crossfade
+import org.koin.compose.koinInject
+import paige.navic.di.getStaticImageLoader
+import paige.navic.domain.manager.SessionManager
 import kotlin.time.TimeSource
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
+/**
+ * Blurred, saturation-boosted cover-art wash. Fills its parent by default; pass a sizing
+ * [modifier] (and, for a capped hero, a `BlendMode.DstIn` fade mask) to confine it to a region —
+ * [modifier] is applied outside the blur, so a mask there fades the already-blurred result.
+ *
+ * [scrim] is drawn over the artwork; the default flat black works for a full-screen wash, while a
+ * vertical brush lets a capped hero resolve to the page's own surface colour at its bottom edge.
+ */
 @Composable
 fun BlendBackground(
 	coverArtId: String?,
 	modifier: Modifier = Modifier,
-	isPaused: Boolean = false
+	isPaused: Boolean = false,
+	scrim: Brush? = null
 ) {
+	val resolvedScrim = scrim ?: remember { SolidColor(Color.Black.copy(alpha = 0.4f)) }
 	var frameRotation by remember { mutableStateOf(0f) }
 	var topLeftRotation by remember { mutableStateOf(0f) }
 	var botRightRotation by remember { mutableStateOf(0f) }
 
 	val colorMatrix = remember {
-		ColorMatrix().apply { setToSaturation(1f) }
+		ColorMatrix().apply { setToSaturation(1.5f) }
 	}
 
-	val platformContext = LocalPlatformContext.current
+	val coilPlatformContext = LocalCoilPlatformContext.current
 
-	val staticImageLoader = remember(platformContext) {
-		getStaticImageLoader(platformContext)
+	val staticImageLoader = remember(coilPlatformContext) {
+		getStaticImageLoader(coilPlatformContext)
 	}
 
+	val sessionManager = koinInject<SessionManager>()
 	val model = remember(coverArtId) {
-		ImageRequest.Builder(platformContext)
-			.data(coverArtId?.let { SessionManager.getCoverArtUrl(it) })
+		ImageRequest.Builder(coilPlatformContext)
+			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(coverArtId?.let { "${it}_static" })
 			.diskCacheKey(coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
+			.crossfade(400)
 			.build()
 	}
 
@@ -100,7 +116,7 @@ fun BlendBackground(
 		Box(
 			modifier = Modifier
 				.fillMaxSize()
-				.rotate(frameRotation)
+				.graphicsLayer { rotationZ = frameRotation }
 		) {
 			Box(
 				modifier = Modifier
@@ -117,7 +133,7 @@ fun BlendBackground(
 					colorFilter = ColorFilter.colorMatrix(colorMatrix),
 					modifier = Modifier
 						.fillMaxSize()
-						.rotate(topLeftRotation)
+						.graphicsLayer { rotationZ = topLeftRotation }
 				)
 			}
 			Box(
@@ -135,7 +151,7 @@ fun BlendBackground(
 					colorFilter = ColorFilter.colorMatrix(colorMatrix),
 					modifier = Modifier
 						.fillMaxSize()
-						.rotate(botRightRotation)
+						.graphicsLayer { rotationZ = botRightRotation }
 				)
 			}
 		}
@@ -144,7 +160,7 @@ fun BlendBackground(
 				.fillMaxSize()
 				.drawWithContent {
 					drawContent()
-					drawRect(color = Color.Black.copy(alpha = 0.4f))
+					drawRect(brush = resolvedScrim)
 				}
 		)
 	}

@@ -10,11 +10,12 @@ import kotlinx.collections.immutable.persistentListOf
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.manager.RadioManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
@@ -32,7 +33,6 @@ fun CollectionDetailScreenSongRowDropdown(
 	onRemoveFromPlaylist: () -> Unit,
 	starred: Boolean,
 	downloadStatus: DownloadStatus?,
-	isOnline: Boolean,
 	onDownload: () -> Unit,
 	onCancelDownload: () -> Unit,
 	onDeleteDownload: () -> Unit,
@@ -42,6 +42,7 @@ fun CollectionDetailScreenSongRowDropdown(
 	onSetRating: (Int) -> Unit
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
+	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	var duplicateQueueDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -56,6 +57,12 @@ fun CollectionDetailScreenSongRowDropdown(
 				if (starred) onAddStar() else onRemoveStar()
 			},
 			onShare = onShare,
+			onStartRadio = {
+				radioManager.startRadio(song.id, song)
+			},
+			onStartJourney = player.uiState.value.currentSong?.takeIf {
+				radioManager.sonicSimilarityAvailable.value && it.id != song.id
+			}?.let { now -> { radioManager.startJourney(now.id, song.id) } },
 			onPlayNext = {
 				if (player.uiState.value.queue.any { it.id == song.id }) {
 					duplicateQueueDialogShown = true
@@ -100,7 +107,6 @@ fun CollectionDetailScreenSongRowDropdown(
 	}
 
 	if (playlistDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistUpdateDialog(
 			songs = persistentListOf(song),
 			playlistToExclude = if (collection is DomainPlaylist)

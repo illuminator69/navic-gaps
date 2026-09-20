@@ -42,9 +42,10 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.NowPlayingSliderStyle
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.ui.components.common.SlimSlider
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -55,8 +56,9 @@ fun NowPlayingSliderStyleDialog(
 ) {
 	if (!presented) return
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	var sliderValue by rememberSaveable { mutableFloatStateOf(0.6767f) }
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	AlertDialog(
 		title = {
@@ -75,9 +77,9 @@ fun NowPlayingSliderStyleDialog(
 					item(key = style.ordinal) {
 						Option(
 							onClick = {
-								Settings.shared.nowPlayingSliderStyle = style
+								preferenceManager.nowPlayingSliderStyle = style
 							},
-							selected = Settings.shared.nowPlayingSliderStyle == style,
+							selected = preferenceManager.nowPlayingSliderStyle == style,
 							label = stringResource(style.displayName)
 						) {
 							when (style) {
@@ -149,7 +151,7 @@ fun NowPlayingSliderStyleDialog(
 		onDismissRequest = onDismissRequest,
 		confirmButton = {
 			Button(onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				onDismissRequest()
 			}) {
 				Text(stringResource(Res.string.action_ok))
@@ -165,7 +167,7 @@ private fun Option(
 	label: String,
 	content: @Composable () -> Unit
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	Card(
 		border = BorderStroke(
 			width = 1.dp,
@@ -176,7 +178,7 @@ private fun Option(
 		shape = MaterialTheme.shapes.large,
 		onClick = {
 			onClick()
-			ctx.clickSound()
+			platformContext.clickSound()
 		}
 	) {
 		Column {

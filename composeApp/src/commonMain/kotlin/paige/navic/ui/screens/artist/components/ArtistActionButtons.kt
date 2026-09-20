@@ -32,7 +32,7 @@ import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
@@ -52,7 +52,7 @@ fun ArtistActionButtons(
 	playEnabled: Boolean,
 	modifier: Modifier = Modifier
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 
 	Row(
 		modifier = modifier
@@ -71,7 +71,7 @@ fun ArtistActionButtons(
 					else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
 				)
 				.clickable(enabled = playEnabled) {
-					ctx.clickSound()
+					platformContext.clickSound()
 					onPlay()
 				}
 				.semantics { role = Role.Button },
@@ -101,16 +101,18 @@ fun ArtistActionButtons(
 		OutlinedButton(
 			modifier = Modifier.size(width = 52.dp, height = 44.dp),
 			onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				when (downloadStatus) {
 					DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED -> onDownload()
-					DownloadStatus.DOWNLOADING -> onCancelDownload()
+					// Queued work is cancellable exactly like an in-flight transfer.
+					DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> onCancelDownload()
 					DownloadStatus.DOWNLOADED -> onDeleteDownload()
 				}
 			},
 			shape = ContinuousCapsule,
 			enabled = when (downloadStatus) {
 				DownloadStatus.DOWNLOADING,
+				DownloadStatus.QUEUED,
 				DownloadStatus.DOWNLOADED,
 				DownloadStatus.FAILED -> true
 				DownloadStatus.NOT_DOWNLOADED -> playEnabled

@@ -22,8 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,11 +55,12 @@ import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.option_playback_speed
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalCtx
 import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
+import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
@@ -67,6 +70,7 @@ import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Bedtime
+import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
@@ -76,16 +80,21 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
+import paige.navic.icons.outlined.Radio
+import paige.navic.icons.outlined.Route
 import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Speed
 import paige.navic.icons.outlined.Star
-import paige.navic.managers.SleepTimerManager
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RatingRow
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.theme.positive
-import paige.navic.utils.InlineExplicitIcon
-import paige.navic.utils.label
+import paige.navic.util.core.CreditedArtist
+import paige.navic.util.core.InlineExplicitIcon
+import paige.navic.util.core.creditedArtists
+import paige.navic.util.core.label
+import paige.navic.util.ui.rememberCoverAmbient
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -96,11 +105,21 @@ fun SongSheet(
 	starred: Boolean? = null,
 	onSetStarred: ((Boolean) -> Unit)? = null,
 	onShare: (() -> Unit)? = null,
+	onStartRadio: (() -> Unit)? = null,
+	onStartJourney: (() -> Unit)? = null,
 	onPlayNext: (() -> Unit)? = null,
 	onAddToQueue: (() -> Unit)? = null,
 	onTrackInfo: (() -> Unit)? = null,
 	onViewAlbum: (() -> Unit)? = null,
 	onViewArtist: (() -> Unit)? = null,
+	/**
+	 * Open a SPECIFIC artist, for the chooser shown when a song credits more than one.
+	 *
+	 * Callers that live inside a sheet must pass this: [onViewArtist] usually closes its own host
+	 * (the player, the queue) before navigating, and the chooser cannot know how. Without it the
+	 * chooser falls back to a plain push, which would leave that host sitting over the destination.
+	 */
+	onViewArtistId: ((String) -> Unit)? = null,
 	onAddToPlaylist: (() -> Unit)? = null,
 	onRemoveFromPlaylist: (() -> Unit)? = null,
 	downloadStatus: DownloadStatus? = null,
@@ -112,22 +131,37 @@ fun SongSheet(
 	showSleepTimer: Boolean = false,
 	showPlaybackSpeed: Boolean = false
 ) {
-	val ctx = LocalCtx.current
+	val preferenceManager = koinInject<PreferenceManager>()
+
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	// Resolved here rather than by every caller: the sheet already has the song, and "View artist"
+	// is ambiguous on a collaboration wherever it is shown. One artist behaves exactly as before.
+	val artistDao = koinInject<ArtistDao>()
+	var credits by remember { mutableStateOf<List<CreditedArtist>>(emptyList()) }
+	var artistChooserShown by rememberSaveable { mutableStateOf(false) }
+	LaunchedEffect(song.id, song.artistName) {
+		credits = creditedArtists(song, artistDao).filter { it.id != null }
+	}
 	var sleepTimerSheetShown by rememberSaveable { mutableStateOf(false) }
 	val sleepTimerManager = koinInject<SleepTimerManager>()
 	val sleepTimerLeft = sleepTimerManager.timeLeft
 	val contentPadding = PaddingValues(horizontal = 16.dp)
+	// Cover-scheme row colours (not the outer app/system theme) — see CollectionSheet.
+	val ambient = rememberCoverAmbient(song.coverArtId)
 	val colors = ListItemDefaults.colors(
 		containerColor = Color.Transparent,
-		trailingIconColor = MaterialTheme.colorScheme.onSurface,
-		headlineColor = MaterialTheme.colorScheme.onSurface
+		headlineColor = ambient.scheme.onSurface,
+		leadingIconColor = ambient.scheme.onSurfaceVariant,
+		supportingColor = ambient.scheme.onSurfaceVariant,
+		trailingIconColor = ambient.scheme.onSurface
 	)
 
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
 		dragHandle = null,
 		sheetState = rememberModalBottomSheetState(true),
+		ambient = ambient,
 		contentWindowInsets = {
 			BottomSheetDefaults.modalWindowInsets.add(
 				WindowInsets(
@@ -150,6 +184,9 @@ fun SongSheet(
 						}
 					},
 					inlineContent = InlineExplicitIcon,
+					style = MaterialTheme.typography.bodyLarge.copy(
+						color = MaterialTheme.colorScheme.primary
+					),
 				)
 			},
 			supportingContent = {
@@ -161,7 +198,7 @@ fun SongSheet(
 				CoverArt(
 					coverArtId = song.coverArtId,
 					modifier = Modifier.size(50.dp),
-					shape = Settings.shared.coverArtShape.decreasedShape
+					shape = preferenceManager.coverArtShape.decreasedShape
 				)
 			},
 			colors = colors
@@ -182,7 +219,7 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_share)) },
 					leadingContent = { Icon(Icons.Outlined.Share, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onShare()
 						onDismissRequest()
 					},
@@ -200,7 +237,7 @@ fun SongSheet(
 						Icon(if (starred) Icons.Filled.Star else Icons.Outlined.Star, null)
 					},
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onSetStarred(!starred)
 						onDismissRequest()
 					},
@@ -216,7 +253,7 @@ fun SongSheet(
 							content = { Text(stringResource(Res.string.action_cancel_download)) },
 							leadingContent = { Icon(Icons.Outlined.Close, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onCancelDownload?.invoke()
 								onDismissRequest()
 							},
@@ -230,7 +267,7 @@ fun SongSheet(
 							content = { Text(stringResource(Res.string.action_delete_download)) },
 							leadingContent = { Icon(Icons.Outlined.Delete, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDeleteDownload?.invoke()
 								onDismissRequest()
 							},
@@ -262,7 +299,7 @@ fun SongSheet(
 								)
 							},
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownload?.invoke()
 								onDismissRequest()
 							},
@@ -276,7 +313,7 @@ fun SongSheet(
 							content = { Text(stringResource(Res.string.action_download)) },
 							leadingContent = { Icon(Icons.Outlined.Download, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownload?.invoke()
 								onDismissRequest()
 							},
@@ -290,8 +327,36 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_download)) },
 					leadingContent = { Icon(Icons.Outlined.Download, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onDownload()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onStartRadio != null) {
+				ListItem(
+					content = { Text("Start radio") },
+					leadingContent = { Icon(Icons.Outlined.Radio, null) },
+					onClick = {
+						platformContext.clickSound()
+						onStartRadio()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onStartJourney != null) {
+				ListItem(
+					content = { Text("Journey to this song") },
+					leadingContent = { Icon(Icons.Outlined.Route, null) },
+					onClick = {
+						platformContext.clickSound()
+						onStartJourney()
 						onDismissRequest()
 					},
 					colors = colors,
@@ -304,7 +369,7 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_play_next)) },
 					leadingContent = { Icon(Icons.Outlined.QueuePlayNext, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onPlayNext()
 						onDismissRequest()
 					},
@@ -318,7 +383,7 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_add_to_queue)) },
 					leadingContent = { Icon(Icons.Outlined.Queue, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddToQueue()
 						onDismissRequest()
 					},
@@ -340,7 +405,7 @@ fun SongSheet(
 					},
 					leadingContent = { Icon(Icons.Outlined.PlaylistAdd, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddToPlaylist()
 						onDismissRequest()
 					},
@@ -354,7 +419,7 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_remove_from_playlist)) },
 					leadingContent = { Icon(Icons.Outlined.PlaylistRemove, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onRemoveFromPlaylist()
 						onDismissRequest()
 					},
@@ -370,7 +435,7 @@ fun SongSheet(
 					},
 					leadingContent = { Icon(Icons.Outlined.Album, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewAlbum()
 						onDismissRequest()
 					},
@@ -380,13 +445,24 @@ fun SongSheet(
 			}
 
 			if (onViewArtist != null) {
+				val severalArtists = credits.size > 1
 				ListItem(
 					content = { Text(stringResource(Res.string.action_view_artist)) },
 					leadingContent = { Icon(Icons.Outlined.Artist, null) },
+					// With two or more credited artists there is no single right answer, so ask
+					// instead of silently picking the first. The sheet stays open behind the
+					// chooser; a single artist keeps the direct, caller-supplied action.
+					trailingContent = if (severalArtists) {
+						{ Icon(Icons.Outlined.ChevronForward, null) }
+					} else null,
 					onClick = {
-						ctx.clickSound()
-						onViewArtist()
-						onDismissRequest()
+						platformContext.clickSound()
+						if (severalArtists) {
+							artistChooserShown = true
+						} else {
+							onViewArtist()
+							onDismissRequest()
+						}
 					},
 					colors = colors,
 					contentPadding = contentPadding
@@ -413,7 +489,7 @@ fun SongSheet(
 							)
 						},
 						onClick = {
-							ctx.clickSound()
+							platformContext.clickSound()
 							sleepTimerSheetShown = true
 						},
 						colors = colors,
@@ -433,7 +509,7 @@ fun SongSheet(
 							)
 						},
 						onClick = {
-							ctx.clickSound()
+							platformContext.clickSound()
 							sleepTimerSheetShown = true
 						},
 						colors = colors,
@@ -456,7 +532,7 @@ fun SongSheet(
 						)
 					},
 					onClick = dropUnlessResumed {
-						ctx.clickSound()
+						platformContext.clickSound()
 						backStack.add(Screen.PlaybackSpeed)
 					},
 					colors = colors,
@@ -469,7 +545,7 @@ fun SongSheet(
 					content = { Text(stringResource(Res.string.action_track_info)) },
 					leadingContent = { Icon(Icons.Outlined.Info, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onTrackInfo()
 						onDismissRequest()
 					},
@@ -489,5 +565,52 @@ fun SongSheet(
 				}
 			}
 		)
+	}
+
+	if (artistChooserShown) {
+		// A second SHEET, not a dialog: this is a pick-one-of-a-list action reached from a sheet,
+		// exactly like the sleep timer, and a centred alert box in the middle of that flow read as
+		// borrowed from another app. Carries the same cover ambient as its parent so the two
+		// surfaces match.
+		//
+		// Main artist first, then the guests — the order they are credited in, which is the order
+		// [creditedArtists] returns them.
+		ModalBottomSheet(
+			onDismissRequest = { artistChooserShown = false },
+			sheetState = rememberModalBottomSheetState(true),
+			ambient = ambient,
+			contentWindowInsets = {
+				BottomSheetDefaults.modalWindowInsets.add(
+					WindowInsets(left = 8.dp, right = 8.dp)
+				)
+			}
+		) {
+			Column(
+				modifier = Modifier.verticalScroll(rememberScrollState())
+			) {
+				Text(
+					text = stringResource(Res.string.action_view_artist),
+					style = MaterialTheme.typography.titleLarge,
+					color = ambient.scheme.onSurface,
+					modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+				)
+				credits.forEach { credit ->
+					val id = credit.id ?: return@forEach
+					ListItem(
+						content = { Text(credit.name) },
+						leadingContent = { Icon(Icons.Outlined.Artist, null) },
+						onClick = {
+							platformContext.clickSound()
+							artistChooserShown = false
+							onDismissRequest()
+							onViewArtistId?.invoke(id) ?: backStack.add(Screen.ArtistDetail(id))
+						},
+						colors = colors,
+						contentPadding = contentPadding
+					)
+				}
+				Spacer(Modifier.height(8.dp))
+			}
+		}
 	}
 }

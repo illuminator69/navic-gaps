@@ -1,8 +1,11 @@
 package paige.navic.ui.screens.collection.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,25 +23,29 @@ import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
+import paige.navic.ui.components.common.blur.LocalExpressiveBlur
+import paige.navic.ui.components.common.blur.expressiveBlurEffect
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.ui.screens.playlist.dialogs.PlaylistDownloadDialog
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreVert
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.utils.UiState
+import paige.navic.ui.core.UiState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionDetailScreenTopBar(
 	collection: DomainSongCollection?,
 	albumInfoState: UiState<DomainAlbumInfo>,
 	titleAlpha: Float,
 	onSetShareId: (shareId: String?) -> Unit,
-	isOnline: Boolean,
 	onDownloadAll: () -> Unit,
 	onCancelDownloadAll: () -> Unit,
 	onPlayNext: () -> Unit,
@@ -52,9 +59,19 @@ fun CollectionDetailScreenTopBar(
 ) {
 	val uriHandler = LocalUriHandler.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	var autoDownloadDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 
 	NestedTopBar(
+		// Frost the wash under the bar (same Haze layer as the rest of the chrome) instead
+		// of fading in a solid surface slab. No-op when Expressive blur is off.
+		modifier = Modifier.expressiveBlurEffect(LocalExpressiveBlur.current),
+		// Transparent over the hero; as the title appears on scroll (titleAlpha 0→1) a
+		// *translucent* cover-scheme surface rides over the frost so the bar stays legible
+		// without becoming an opaque block. Capped at 0.7 so the wash keeps showing through.
+		colors = TopAppBarDefaults.topAppBarColors(
+			containerColor = MaterialTheme.colorScheme.surface.copy(alpha = titleAlpha * 0.7f)
+		),
 		title = {
 			Text(
 				text = collection?.name.orEmpty(),
@@ -98,7 +115,10 @@ fun CollectionDetailScreenTopBar(
 						rating = rating,
 						onSetRating = onSetRating,
 						starred = starred,
-						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null
+						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null,
+						onAutoDownload = if (collection is DomainPlaylist) {
+							{ autoDownloadDialogShown = true }
+						} else null
 					)
 				}
 			}
@@ -106,10 +126,17 @@ fun CollectionDetailScreenTopBar(
 	)
 
 	if (playlistDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistUpdateDialog(
 			songs = collection?.songs.orEmpty().toPersistentList(),
 			onDismissRequest = { playlistDialogShown = false }
+		)
+	}
+
+	if (autoDownloadDialogShown && collection != null) {
+		PlaylistDownloadDialog(
+			playlistId = collection.id,
+			playlistName = collection.name,
+			onDismissRequest = { autoDownloadDialogShown = false }
 		)
 	}
 }

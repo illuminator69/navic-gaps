@@ -8,7 +8,7 @@ import androidx.room3.Transaction
 import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.GenreEntity
 import paige.navic.data.database.relations.GenreWithAlbums
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 
 @Dao
 interface GenreDao {
@@ -53,5 +53,15 @@ interface GenreDao {
 			}
 		}
 		insertGenres(remoteGenres)
+	}
+
+	@Transaction
+	suspend fun deleteObsoleteGenres(remoteNames: Set<String>) {
+		getAllGenreNames().forEach { localName ->
+			if (localName !in remoteNames) {
+				Logger.w("GenreDao", "genre $localName no longer exists remotely")
+				deleteGenre(localName)
+			}
+		}
 	}
 }

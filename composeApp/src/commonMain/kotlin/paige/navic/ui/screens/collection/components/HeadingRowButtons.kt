@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +33,7 @@ import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
@@ -42,7 +43,7 @@ import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Shuffle
-import paige.navic.managers.DownloadManager
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.theme.defaultFont
 
@@ -50,7 +51,7 @@ import paige.navic.ui.theme.defaultFont
 fun CollectionDetailScreenHeadingRowButtons(
 	collection: DomainSongCollection
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val downloadManager = koinInject<DownloadManager>()
 	val scope = rememberCoroutineScope()
@@ -69,13 +70,19 @@ fun CollectionDetailScreenHeadingRowButtons(
 	) {
 		val buttonShape = ContinuousCapsule
 		val buttonHeight = 44.dp
+		// Translucent glass fill so the secondary controls read as frosted pills floating
+		// over the ambient wash (cover-tinted under the detail scheme), matching the mockup.
+		val glassColors = ButtonDefaults.outlinedButtonColors(
+			containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f)
+		)
 		OutlinedButton(
 			modifier = Modifier.size(width = 52.dp, height = buttonHeight),
 			onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				player.shufflePlay(collection)
 			},
 			shape = buttonShape,
+			colors = glassColors,
 			contentPadding = PaddingValues(0.dp),
 			enabled = collection.songs.isNotEmpty()
 		) {
@@ -88,7 +95,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 		Button(
 			modifier = Modifier.weight(1f).height(buttonHeight),
 			onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				player.clearQueue()
 				player.addToQueue(collection)
 				player.playAt(0)
@@ -114,14 +121,16 @@ fun CollectionDetailScreenHeadingRowButtons(
 		}
 		OutlinedButton(
 			modifier = Modifier.size(width = 52.dp, height = buttonHeight),
+			colors = glassColors,
 			onClick = {
-				ctx.clickSound()
+				platformContext.clickSound()
 				scope.launch {
 					when (downloadStatus) {
 						DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED -> {
 							downloadManager.downloadCollection(collection)
 						}
-						DownloadStatus.DOWNLOADING -> {
+						// Queued work is cancellable exactly like an in-flight transfer.
+						DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> {
 							downloadManager.cancelCollectionDownload(collection)
 						}
 						DownloadStatus.DOWNLOADED -> {

@@ -31,9 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.HubManager
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
@@ -49,13 +52,22 @@ import paige.navic.ui.components.common.playPauseIconPainter
 
 @Composable
 fun NowPlayingButtonsRow() {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsState()
+	val hubManager = koinInject<HubManager>()
+	val isRemoteActive by hubManager.isRemoteActive.collectAsState()
+	val playerState by player.steadyState.collectAsState()
 	val interactionSource = remember { MutableInteractionSource() }
 	val isPressed by interactionSource.collectIsPressedAsState()
 	val scale = remember { Animatable(1f) }
 	val enabled = playerState.currentSong != null
+	val haptic = LocalHapticFeedback.current
+
+	val hapticType = if (playerState.isPaused) {
+		HapticFeedbackType.ToggleOn
+	} else {
+		HapticFeedbackType.ToggleOff
+	}
 
 	LaunchedEffect(isPressed) {
 		if (!isPressed) {
@@ -85,8 +97,8 @@ fun NowPlayingButtonsRow() {
 		IconButton(
 			modifier = Modifier.weight(1f).aspectRatio(1f),
 			onClick = {
-				ctx.clickSound()
-				player.toggleShuffle()
+				platformContext.clickSound()
+				if (isRemoteActive) hubManager.actToggleShuffle() else player.toggleShuffle()
 			},
 			enabled = enabled,
 		) {
@@ -101,8 +113,8 @@ fun NowPlayingButtonsRow() {
 		IconButton(
 			modifier = Modifier.weight(1f).aspectRatio(1f),
 			onClick = {
-				ctx.clickSound()
-				player.previous()
+				platformContext.clickSound()
+				if (isRemoteActive) hubManager.actPrevious() else player.previous()
 			},
 			enabled = enabled
 		) {
@@ -121,8 +133,9 @@ fun NowPlayingButtonsRow() {
 				.indication(interactionSource, ripple(color = Color.Black)),
 			colors = IconButtonDefaults.filledIconButtonColors(),
 			onClick = {
-				ctx.clickSound()
-				player.togglePlay()
+				haptic.performHapticFeedback(hapticType)
+				platformContext.clickSound()
+				if (isRemoteActive) hubManager.actPlayPause() else player.togglePlay()
 			},
 			enabled = enabled,
 			interactionSource = interactionSource
@@ -157,8 +170,8 @@ fun NowPlayingButtonsRow() {
 		IconButton(
 			modifier = Modifier.weight(1f).aspectRatio(1f),
 			onClick = {
-				ctx.clickSound()
-				player.next()
+				platformContext.clickSound()
+				if (isRemoteActive) hubManager.actNext() else player.next()
 			},
 			enabled = enabled,
 		) {
@@ -171,8 +184,8 @@ fun NowPlayingButtonsRow() {
 		IconButton(
 			modifier = Modifier.weight(1f).aspectRatio(1f),
 			onClick = {
-				ctx.clickSound()
-				player.toggleRepeat()
+				platformContext.clickSound()
+				if (isRemoteActive) hubManager.actToggleRepeat() else player.toggleRepeat()
 			},
 			enabled = enabled,
 		) {

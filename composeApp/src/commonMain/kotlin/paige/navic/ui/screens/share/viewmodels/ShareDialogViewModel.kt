@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
-import paige.navic.utils.UiState
+import paige.navic.domain.manager.SessionManager
+import paige.navic.ui.core.UiState
 import kotlin.time.Clock
 import kotlin.time.Duration
 
-class ShareDialogViewModel : ViewModel() {
+class ShareDialogViewModel(
+	private val sessionManager: SessionManager
+) : ViewModel() {
 	private val _state = MutableStateFlow<UiState<String?>>(UiState.Success(null))
 	val state = _state.asStateFlow()
 
@@ -22,7 +24,7 @@ class ShareDialogViewModel : ViewModel() {
 			_state.value = UiState.Loading()
 			try {
 				val expiration = expiry?.let { Clock.System.now() + it }
-				val url = SessionManager.api
+				val url = sessionManager.api
 					.createShare(listOf(id), expiresAt = expiration)
 					.url
 				_state.value = UiState.Success(url)

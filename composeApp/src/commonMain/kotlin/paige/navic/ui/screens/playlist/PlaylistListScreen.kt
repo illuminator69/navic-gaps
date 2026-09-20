@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,42 +31,49 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.collections.immutable.persistentListOf
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_create_playlist
 import navic.composeapp.generated.resources.title_playlists
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.BottomBarCollapseMode
-import paige.navic.data.models.settings.enums.BottomBarVisibilityMode
+import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainPlaylistListType
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.settings.BottomBarCollapseMode
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.dialogs.DeletionDialog
+import paige.navic.ui.components.common.AlphabeticalScroller
+import paige.navic.ui.components.common.alphabeticalHeaders
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenSortButton
 import paige.navic.ui.screens.playlist.components.playlistListScreenContent
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.utils.LocalBottomBarScrollManager
-import paige.navic.utils.UiState
-import paige.navic.utils.withoutTop
+import paige.navic.util.ui.withoutTop
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -73,6 +81,8 @@ import kotlin.time.Duration
 fun PlaylistListScreen(
 	nested: Boolean = false
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
+
 	val viewModel = koinViewModel<PlaylistListViewModel>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playlistsState by viewModel.playlistsState.collectAsState()
@@ -80,7 +90,7 @@ fun PlaylistListScreen(
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val scrollManager = LocalBottomBarScrollManager.current
 
 	var shareId by remember { mutableStateOf<String?>(null) }
@@ -92,6 +102,7 @@ fun PlaylistListScreen(
 	val scaleInSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
 
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
+	val backStack = LocalNavStack.current
 
 	val gridState = rememberLazyGridState()
 
@@ -123,7 +134,7 @@ fun PlaylistListScreen(
 		floatingActionButton = {
 			AnimatedContent(
 				!scrollManager.isTriggered
-					|| Settings.shared.bottomBarCollapseMode == BottomBarCollapseMode.Never,
+					|| preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never,
 				transitionSpec = {
 					val transformOrigin = TransformOrigin(0f, 1f)
 					(slideInHorizontally(slideSpec) { it / 2 }
@@ -140,7 +151,7 @@ fun PlaylistListScreen(
 						shape = MaterialTheme.shapes.large,
 						containerColor = MaterialTheme.colorScheme.primary,
 						onClick = {
-							ctx.clickSound()
+							platformContext.clickSound()
 							createDialogShown = true
 						}
 					) {
@@ -154,19 +165,19 @@ fun PlaylistListScreen(
 			}
 		},
 		bottomBar = {
-			if (!nested || Settings.shared.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
+			if (!nested || preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
 	) { innerPadding ->
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
+				.padding(top = innerPadding.calculateTopPadding()),
 			finished = playlistsState !is UiState.Loading,
 			onRefresh = { viewModel.refreshPlaylists(true) },
 			key = playlistsState
 		) {
+			Box {
 			ArtGrid(
 				modifier = if (!nested)
 					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -192,6 +203,22 @@ fun PlaylistListScreen(
 					onAddToQueue = { if (selectedPlaylist != null) player.addToQueue(selectedPlaylist as DomainSongCollection)}
 				)
 			}
+
+			// Alphabetical jump rail — only in name-sorted mode (items have no leading cells).
+			val alphaHeaders = remember(playlistsState, selectedSorting) {
+				val data = playlistsState.data.orEmpty()
+				if (selectedSorting == DomainPlaylistListType.Name)
+					alphabeticalHeaders(data) { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+				else persistentListOf<Pair<String, Int>>()
+			}
+			if (alphaHeaders.isNotEmpty()) {
+				AlphabeticalScroller(
+					state = gridState,
+					headers = alphaHeaders,
+					modifier = Modifier.align(Alignment.TopEnd)
+				)
+			}
+			}
 		}
 	}
 
@@ -200,7 +227,6 @@ fun PlaylistListScreen(
 		onClearError = { viewModel.clearError() }
 	)
 
-	@Suppress("AssignedValueIsNeverRead")
 	ShareDialog(
 		id = shareId,
 		onIdClear = { shareId = null },
@@ -208,7 +234,6 @@ fun PlaylistListScreen(
 		onExpiryChange = { shareExpiry = it }
 	)
 
-	@Suppress("AssignedValueIsNeverRead")
 	DeletionDialog(
 		endpoint = DeletionEndpoint.PLAYLIST,
 		id = deletionId,
@@ -217,10 +242,10 @@ fun PlaylistListScreen(
 	)
 
 	if (createDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistCreateDialog(
 			onDismissRequest = { createDialogShown = false },
-			onRefresh = { viewModel.refreshPlaylists(true) }
+			onRefresh = { viewModel.refreshPlaylists(true) },
+			onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor) }
 		)
 	}
 }

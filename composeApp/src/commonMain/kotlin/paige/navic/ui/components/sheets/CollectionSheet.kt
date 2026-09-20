@@ -37,14 +37,16 @@ import navic.composeapp.generated.resources.action_star
 import navic.composeapp.generated.resources.action_view_artist
 import navic.composeapp.generated.resources.action_view_on_lastfm
 import navic.composeapp.generated.resources.action_view_on_musicbrainz
+import navic.composeapp.generated.resources.action_fill_gaps_count
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.info_click_to_retry
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.DomainPlaylist
@@ -67,6 +69,7 @@ import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RatingRow
+import paige.navic.util.ui.rememberCoverAmbient
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -89,18 +92,32 @@ fun CollectionSheet(
 	onSetStarred: ((Boolean) -> Unit)? = null,
 	onDelete: (() -> Unit)? = null,
 	rating: Int? = null,
-	onSetRating: ((Int) -> Unit)? = null
+	onSetRating: ((Int) -> Unit)? = null,
+	onAutoDownload: (() -> Unit)? = null,
+	// lb-bot knows this album is missing tracks. Passed only from the artist
+	// discography shelf, where the gap is known; null everywhere else, so the row
+	// hides itself exactly like every other optional action here.
+	missingTrackCount: Int? = null,
+	onFillGaps: (() -> Unit)? = null
 ) {
-	val ctx = LocalCtx.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
 	val contentPadding = PaddingValues(horizontal = 16.dp)
+	// Build the row colours from the COVER scheme (not the outer app/system theme): these
+	// are computed here, before the cover-themed sheet content, so referencing
+	// MaterialTheme would pick up the system Material You colour instead of the album's.
+	val ambient = rememberCoverAmbient(collection?.coverArtId)
 	val colors = ListItemDefaults.colors(
 		containerColor = Color.Transparent,
-		trailingIconColor = MaterialTheme.colorScheme.onSurface,
-		headlineColor = MaterialTheme.colorScheme.onSurface
+		headlineColor = ambient.scheme.onSurface,
+		leadingIconColor = ambient.scheme.onSurfaceVariant,
+		supportingColor = ambient.scheme.onSurfaceVariant,
+		trailingIconColor = ambient.scheme.onSurface
 	)
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
 		dragHandle = null,
+		ambient = ambient,
 		contentWindowInsets = { BottomSheetDefaults.modalWindowInsets.add(WindowInsets(
 			left = 8.dp,
 			right = 8.dp
@@ -113,10 +130,17 @@ fun CollectionSheet(
 				CoverArt(
 					coverArtId = collection?.coverArtId,
 					modifier = Modifier.size(50.dp),
-					shape = Settings.shared.coverArtShape.decreasedShape
+					shape = preferenceManager.coverArtShape.decreasedShape
 				)
 			},
-			headlineContent = { MarqueeText(collection?.name.orEmpty()) },
+			headlineContent = {
+				MarqueeText(
+					collection?.name.orEmpty(),
+					style = MaterialTheme.typography.bodyLarge.copy(
+						color = MaterialTheme.colorScheme.primary
+					)
+				)
+			},
 			supportingContent = {
 				MarqueeText(
 					listOfNotNull(
@@ -143,12 +167,36 @@ fun CollectionSheet(
 		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 
 		Column(Modifier.verticalScroll(rememberScrollState())) {
+			// First, because it is the only row here that says something is *wrong*
+			// with the album rather than offering another thing to do with it.
+			if (onFillGaps != null) {
+				ListItem(
+					content = {
+						Text(
+							pluralStringResource(
+								Res.plurals.action_fill_gaps_count,
+								missingTrackCount ?: 0,
+								missingTrackCount ?: 0
+							)
+						)
+					},
+					leadingContent = { Icon(Icons.Outlined.Download, null) },
+					onClick = {
+						platformContext.clickSound()
+						onFillGaps()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
 			if (onViewOnLastFm != null && albumInfo?.lastFmUrl != null) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_view_on_lastfm)) },
 					leadingContent = { Icon(Icons.Brand.Lastfm, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewOnLastFm(albumInfo.lastFmUrl)
 						onDismissRequest()
 					},
@@ -162,7 +210,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_view_on_musicbrainz)) },
 					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewOnMusicBrainz(albumInfo.musicBrainzId)
 						onDismissRequest()
 					},
@@ -176,7 +224,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_share)) },
 					leadingContent = { Icon(Icons.Outlined.Share, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onShare()
 						onDismissRequest()
 					},
@@ -190,7 +238,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_play_next)) },
 					leadingContent = { Icon(Icons.Outlined.QueuePlayNext, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onPlayNext()
 						onDismissRequest()
 					},
@@ -205,7 +253,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_add_to_queue)) },
 					leadingContent = { Icon(Icons.Outlined.Queue, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddToQueue()
 						onDismissRequest()
 					},
@@ -220,7 +268,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_add_to_playlist)) },
 					leadingContent = { Icon(Icons.Outlined.PlaylistAdd, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onAddAllToPlaylist()
 						onDismissRequest()
 					},
@@ -235,7 +283,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_view_artist)) },
 					leadingContent = { Icon(Icons.Outlined.Artist, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onViewArtist()
 						onDismissRequest()
 					},
@@ -254,7 +302,7 @@ fun CollectionSheet(
 						Icon(if (starred) Icons.Filled.Star else Icons.Outlined.Star, null)
 					},
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onSetStarred(!starred)
 						onDismissRequest()
 					},
@@ -270,7 +318,7 @@ fun CollectionSheet(
 							content = { Text(stringResource(Res.string.action_cancel_download)) },
 							leadingContent = { Icon(Icons.Outlined.Close, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onCancelDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -284,7 +332,7 @@ fun CollectionSheet(
 							content = { Text(stringResource(Res.string.action_delete_download)) },
 							leadingContent = { Icon(Icons.Outlined.Delete, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDeleteDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -316,7 +364,7 @@ fun CollectionSheet(
 								)
 							},
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -330,7 +378,7 @@ fun CollectionSheet(
 							content = { Text(stringResource(Res.string.action_download)) },
 							leadingContent = { Icon(Icons.Outlined.Download, null) },
 							onClick = {
-								ctx.clickSound()
+								platformContext.clickSound()
 								onDownloadAll?.invoke()
 								onDismissRequest()
 							},
@@ -344,7 +392,7 @@ fun CollectionSheet(
 					content = { Text(stringResource(Res.string.action_download)) },
 					leadingContent = { Icon(Icons.Outlined.Download, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onDownloadAll()
 						onDismissRequest()
 					},
@@ -354,12 +402,26 @@ fun CollectionSheet(
 				)
 			}
 
+			if (onAutoDownload != null) {
+				ListItem(
+					content = { Text("Auto-download…") },
+					leadingContent = { Icon(Icons.Outlined.Download, null) },
+					onClick = {
+						platformContext.clickSound()
+						onAutoDownload()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
 			if (onDelete != null) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_delete)) },
 					leadingContent = { Icon(Icons.Outlined.PlaylistRemove, null) },
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onDelete()
 						onDismissRequest()
 					},

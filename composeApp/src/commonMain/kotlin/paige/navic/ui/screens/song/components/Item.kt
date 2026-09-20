@@ -37,14 +37,16 @@ import navic.composeapp.generated.resources.info_downloaded
 import navic.composeapp.generated.resources.info_unknown_album
 import navic.composeapp.generated.resources.info_unknown_year
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.RadioManager
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.data.models.Screen
-import paige.navic.data.models.settings.Settings
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Queue
@@ -52,8 +54,9 @@ import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.utils.InlineExplicitIcon
+import paige.navic.util.core.InlineExplicitIcon
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -77,9 +80,12 @@ fun SongListScreenItem(
 	onDeleteDownload: () -> Unit,
 ) {
 	val backStack = LocalNavStack.current
+	val radioManagerItem = org.koin.compose.koinInject<RadioManager>()
+	val playerItem = org.koin.compose.koinInject<paige.navic.shared.MediaPlayerViewModel>()
 	val dismissState = rememberSwipeToDismissBoxState()
 	val scope = rememberCoroutineScope()
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	SwipeToDismissBox(
 		modifier = modifier,
@@ -152,10 +158,17 @@ fun SongListScreenItem(
 					CoverArt(
 						coverArtId = song.coverArtId,
 						modifier = Modifier.size(50.dp),
-						shape = Settings.shared.coverArtShape.decreasedShape
+						shape = preferenceManager.coverArtShape.decreasedShape
 					)
 				},
 				trailingContent = {
+					if(starred) {
+						Icon(
+							Icons.Filled.Star,
+							null,
+							modifier = Modifier.size(16.dp)
+						)
+					}
 					if (download != null) {
 						when (download.status) {
 							DownloadStatus.DOWNLOADING -> {
@@ -194,6 +207,10 @@ fun SongListScreenItem(
 					rating = rating,
 					onSetStarred = onSetStarred,
 					onShare = { onSetShareId(song.id) },
+					onStartRadio = { radioManagerItem.startRadio(song.id, song) },
+				onStartJourney = playerItem.uiState.value.currentSong?.takeIf {
+					radioManagerItem.sonicSimilarityAvailable.value && it.id != song.id
+				}?.let { now -> { radioManagerItem.startJourney(now.id, song.id) } },
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,
 					onTrackInfo = dropUnlessResumed {
@@ -223,7 +240,6 @@ fun SongListScreenItem(
 	}
 
 	if (playlistDialogShown) {
-		@Suppress("AssignedValueIsNeverRead")
 		PlaylistUpdateDialog(
 			songs = persistentListOf(song),
 			onDismissRequest = { playlistDialogShown = false }

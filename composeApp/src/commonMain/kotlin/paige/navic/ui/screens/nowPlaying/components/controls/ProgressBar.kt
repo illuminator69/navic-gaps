@@ -21,37 +21,55 @@ import ir.mahozad.multiplatform.wavyslider.material3.WaveAnimationSpecs
 import ir.mahozad.multiplatform.wavyslider.material3.WaveVelocity
 import ir.mahozad.multiplatform.wavyslider.material3.WavySlider
 import org.koin.compose.koinInject
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.models.settings.enums.NowPlayingSliderStyle
+import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.SlimSlider
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingProgressBar() {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsState()
+	val hubManager = koinInject<HubManager>()
+	val isRemoteActive by hubManager.isRemoteActive.collectAsState()
+	// This one genuinely draws the playhead, so it takes the narrow [progress] flow and leaves the
+	// rest on steadyState — it still ticks ~5x a second, but alone, instead of dragging every
+	// sibling in the now-playing sheet along with it.
+	val playerState by player.steadyState.collectAsState()
+	val progress by player.progress.collectAsState()
 	val enabled = playerState.currentSong != null
+
+	// While remote, seeking drives the hub (in ms); otherwise the local player.
+	val onSeek: (Float) -> Unit = { fraction ->
+		if (isRemoteActive) {
+			val durationMs = playerState.currentSong?.duration?.inWholeMilliseconds ?: 0L
+			hubManager.actSeek((fraction * durationMs).toLong())
+		} else {
+			player.seek(fraction)
+		}
+	}
 	val waveHeight by animateDpAsState(
 		if (!playerState.isPaused)
 			6.dp
 		else 0.dp
 	)
 
-	when (Settings.shared.nowPlayingSliderStyle) {
+	when (preferenceManager.nowPlayingSliderStyle) {
 		NowPlayingSliderStyle.Flat -> {
 			Slider(
-				value = playerState.progress,
-				onValueChange = { player.seek(it) },
+				value = progress,
+				onValueChange = onSeek,
 				modifier = Modifier.padding(horizontal = 16.dp),
 				enabled = enabled
 			)
 		}
 		NowPlayingSliderStyle.Squiggly, NowPlayingSliderStyle.Yoyo -> {
-			val isYoyo = Settings.shared.nowPlayingSliderStyle == NowPlayingSliderStyle.Yoyo
+			val isYoyo = preferenceManager.nowPlayingSliderStyle == NowPlayingSliderStyle.Yoyo
 			WavySlider(
-				value = playerState.progress,
-				onValueChange = { player.seek(it) },
+				value = progress,
+				onValueChange = onSeek,
 				modifier = Modifier.padding(
 					horizontal = if (isYoyo) 7.dp else 14.dp
 				),
@@ -84,8 +102,8 @@ fun NowPlayingProgressBar() {
 		}
 		NowPlayingSliderStyle.Slim -> {
 			SlimSlider(
-				value = playerState.progress,
-				onValueChange = { player.seek(it) },
+				value = progress,
+				onValueChange = onSeek,
 				modifier = Modifier.padding(horizontal = 16.dp),
 				enabled = enabled
 			)

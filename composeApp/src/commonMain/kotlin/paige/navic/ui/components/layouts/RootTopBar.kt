@@ -19,36 +19,42 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_log_out
 import navic.composeapp.generated.resources.action_sleep_timer
 import navic.composeapp.generated.resources.action_sleep_timer_enabled
 import navic.composeapp.generated.resources.action_view_shares
+import navic.composeapp.generated.resources.title_saved_queues
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
-import paige.navic.data.models.NavbarConfig
-import paige.navic.data.models.NavbarTab
-import paige.navic.data.models.Screen
+import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.models.settings.NavbarTab
+import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.AccountCircle
 import paige.navic.icons.outlined.Bedtime
 import paige.navic.icons.outlined.Logout
+import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Share
-import paige.navic.managers.SleepTimerManager
+import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.DropdownItem
+import paige.navic.ui.components.common.blur.LocalExpressiveBlur
+import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.components.sheets.SleepTimerSheet
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.theme.positive
-import paige.navic.utils.UiState
-import paige.navic.utils.label
+import paige.navic.ui.core.UiState
+import paige.navic.util.core.label
 
 @OptIn(
 	ExperimentalMaterial3Api::class,
@@ -67,7 +73,13 @@ fun RootTopBar(
 	val navState by navViewModel.state.collectAsState()
 	val config = (navState as? UiState.Success)?.data
 
+	// Frost the scrolled content under the bar (same Haze layer as the mini-player /
+	// nav) instead of snapping to a solid surface slab. No-op when Expressive blur is
+	// off — the translucent scrolledContainerColor below then keeps the title readable.
+	val expressiveBlur = LocalExpressiveBlur.current
+
 	MediumFlexibleTopAppBar(
+		modifier = Modifier.expressiveBlurEffect(expressiveBlur),
 		title = {
 			CompositionLocalProvider(
 				LocalTextStyle provides when (LocalTextStyle.current) {
@@ -90,8 +102,16 @@ fun RootTopBar(
 			)
 		},
 		scrollBehavior = scrollBehavior,
+		// Transparent at rest so the active theme/home-wash shows through. When scrolled,
+		// the bar dematerialises rather than becoming a solid slab: a *translucent* surface
+		// tint rides over the frosted backdrop (a lower alpha when blur is on, since the haze
+		// already carries the contrast; higher when it's off so the title stays readable).
+		// Title/icons follow LocalContentColor, so the bar adapts to any cover scheme.
 		colors = TopAppBarDefaults.topAppBarColors(
-			scrolledContainerColor = MaterialTheme.colorScheme.surface
+			containerColor = Color.Transparent,
+			scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(
+				alpha = if (expressiveBlur.enabled) 0.4f else 0.7f
+			)
 		),
 	)
 }
@@ -101,7 +121,7 @@ private fun Actions(
 	onLogOut: () -> Unit,
 	config: NavbarConfig?,
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 
 	val isSearchEnabled = config?.tabs?.any {
@@ -111,7 +131,7 @@ private fun Actions(
 	if (!isSearchEnabled) {
 		IconButton(
 			onClick = dropUnlessResumed {
-				ctx.clickSound()
+				platformContext.clickSound()
 				backStack.add(Screen.Search(nested = true))
 			}
 		) {
@@ -123,7 +143,17 @@ private fun Actions(
 	}
 
 	IconButton(onClick = dropUnlessResumed {
-		ctx.clickSound()
+		platformContext.clickSound()
+		backStack.add(Screen.SavedQueues)
+	}) {
+		Icon(
+			Icons.Outlined.Queue,
+			contentDescription = stringResource(Res.string.title_saved_queues)
+		)
+	}
+
+	IconButton(onClick = dropUnlessResumed {
+		platformContext.clickSound()
 		backStack.add(Screen.Settings.Root)
 	}) {
 		Icon(
@@ -139,7 +169,7 @@ private fun Actions(
 
 	Box {
 		IconButton(onClick = {
-			ctx.clickSound()
+			platformContext.clickSound()
 			expanded = true
 		}) {
 			Icon(

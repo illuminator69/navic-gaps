@@ -4,15 +4,33 @@ import android.app.ActivityManager
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
 import paige.navic.androidApp.shared.AndroidResourceProvider
 import paige.navic.di.initKoin
-import paige.navic.shared.ResourceProvider
+import paige.navic.di.initializeSingletonImageLoader
+import paige.navic.util.core.ResourceProvider
 import kotlin.system.exitProcess
 
-class Application : android.app.Application() {
+/**
+ * Implements [SingletonImageLoader.Factory] so Coil builds OUR image loader
+ * lazily on the first `SingletonImageLoader.get()` call from anywhere in the
+ * process — the playback service, a widget, or the Activity. This removes the
+ * install-ordering race that crashed on in-place updates: the service could
+ * load album art (creating Coil's default singleton) before the Activity's
+ * `App()` composable installed the factory, and the late install threw
+ * "singleton image loader has already been created". With the factory on the
+ * Application, whoever calls `.get()` first gets the configured loader.
+ */
+class Application : android.app.Application(), SingletonImageLoader.Factory {
+
+	override fun newImageLoader(context: PlatformContext): ImageLoader =
+		initializeSingletonImageLoader(context)
+
 	override fun onCreate() {
 		super.onCreate()
 
@@ -20,10 +38,10 @@ class Application : android.app.Application() {
 			return
 		}
 
-		Thread.setDefaultUncaughtExceptionHandler { _, exception ->
+		Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
 			try {
 				val intent = Intent(this, CrashActivity::class.java).apply {
-					putExtra("stacktrace", Log.getStackTraceString(exception))
+					putExtra("stacktrace", Log.getStackTraceString(throwable))
 					flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
 				}
 				startActivity(intent)

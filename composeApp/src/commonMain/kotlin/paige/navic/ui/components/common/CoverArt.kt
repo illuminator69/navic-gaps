@@ -25,7 +25,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
@@ -35,12 +34,15 @@ import coil3.request.crossfade
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_image_failed_to_load
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.session.SessionManager
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Error
-import paige.navic.shared.Logger
+import paige.navic.util.core.Logger
 import paige.navic.ui.theme.defaultFont
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
+import paige.navic.util.core.CoverPlaceholder
 
 @Composable
 fun CoverArt(
@@ -53,16 +55,19 @@ fun CoverArt(
 	crossfadeMs: Int = 500,
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
-	shape: Shape = Settings.shared.coverArtShape.shape
+	shape: Shape? = null
 ) {
-	val platformContext = LocalPlatformContext.current
-	val customHeaders = Settings.shared.customHeaders
+	val preferenceManager = koinInject<PreferenceManager>()
+	val shape = shape ?: preferenceManager.coverArtShape.shape
+	val coilPlatformContext = LocalCoilPlatformContext.current
+	val customHeaders = preferenceManager.customHeaders
+	val sessionManager = koinInject<SessionManager>()
 	val model = remember(coverArtId, customHeaders) {
 		val networkHeaders = NetworkHeaders.Builder().apply {
-			Settings.shared.customHeadersMap().forEach { (key, value) -> add(key, value) }
+			preferenceManager.customHeadersMap().forEach { (key, value) -> add(key, value) }
 		}.build()
-		ImageRequest.Builder(platformContext)
-			.data(coverArtId?.let { SessionManager.getCoverArtUrl(it) })
+		ImageRequest.Builder(coilPlatformContext)
+			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(coverArtId)
 			.diskCacheKey(coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
@@ -88,7 +93,13 @@ fun CoverArt(
 			Modifier.indication(interactionSource, ripple())
 		else Modifier)
 
-	if (coverArtId.isNullOrBlank()) return Box(commonModifier)
+	// A cover id that will only resolve to Navidrome's generic avatar is treated as no art at all,
+	// so the tile falls back to the themed box every art-less artist already gets. Done here rather
+	// than by blanking the id in the mapper, because DomainArtist round-trips back into the database
+	// on a star/unstar and would have written the erasure back.
+	if (coverArtId.isNullOrBlank() || CoverPlaceholder.isPlaceholder(coverArtId)) {
+		return Box(commonModifier)
+	}
 	SubcomposeAsyncImage(
 		model = model,
 		contentDescription = contentDescription,

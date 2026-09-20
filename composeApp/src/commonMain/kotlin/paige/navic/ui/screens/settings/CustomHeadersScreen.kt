@@ -33,9 +33,10 @@ import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_new
 import navic.composeapp.generated.resources.option_custom_headers
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
-import paige.navic.data.models.settings.Settings
-import paige.navic.data.session.SessionManager
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.outlined.Delete
@@ -54,10 +55,12 @@ private data class Header(
 
 @Composable
 fun SettingsCustomHeadersScreen() {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
+	val sessionManager = koinInject<SessionManager>()
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	val headers = remember {
-		Settings.shared.customHeaders.lines()
+		preferenceManager.customHeaders.lines()
 			.filter { it.contains(":") }
 			.map {
 				val parts = it.split(":", limit = 2)
@@ -69,17 +72,17 @@ fun SettingsCustomHeadersScreen() {
 	val hiddenHeaders = remember { mutableStateSetOf<Long>() }
 
 	fun updateSettings() {
-		Settings.shared.customHeaders = headers
+		preferenceManager.customHeaders = headers
 			.filter { !hiddenHeaders.contains(it.id) }
 			.joinToString("\n") { "${it.key}:${it.value}" }
-		SessionManager.refreshClient()
+		sessionManager.refreshClient()
 	}
 
 	Scaffold(
 		topBar = {
 			NestedTopBar(
 				{ Text(stringResource(Res.string.option_custom_headers)) },
-				hideBack = ctx.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 			)
 		}
 	) { innerPadding ->
@@ -123,7 +126,7 @@ fun SettingsCustomHeadersScreen() {
 				}
 				FilledTonalButton(
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						headers.add(Header(key = "", value = ""))
 						updateSettings()
 					},

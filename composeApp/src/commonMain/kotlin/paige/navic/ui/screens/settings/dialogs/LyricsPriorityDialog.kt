@@ -29,17 +29,17 @@ import navic.composeapp.generated.resources.action_reorder
 import navic.composeapp.generated.resources.option_lyrics_priority
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalCtx
-import paige.navic.domain.repositories.LyricsProvider
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.models.lyrics.LyricsProvider
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.DragHandle
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
-import paige.navic.utils.DraggableListState
-import paige.navic.utils.UiState
-import paige.navic.utils.dragHandle
-import paige.navic.utils.draggableItems
-import paige.navic.utils.rememberDraggableListState
+import paige.navic.util.ui.DraggableListState
+import paige.navic.util.ui.dragHandle
+import paige.navic.util.ui.draggableItems
+import paige.navic.util.ui.rememberDraggableListState
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -51,7 +51,7 @@ fun LyricsPriorityDialog(
 
 	val viewModel = koinViewModel<LyricsPriorityViewModel>()
 
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val haptic = LocalHapticFeedback.current
 	val state by viewModel.state.collectAsState()
 
@@ -93,7 +93,7 @@ fun LyricsPriorityDialog(
 				onDismissRequest = onDismissRequest,
 				confirmButton = {
 					Button(onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						onDismissRequest()
 					}) {
 						Text(stringResource(Res.string.action_ok))

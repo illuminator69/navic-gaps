@@ -2,10 +2,7 @@ package paige.navic.ui.screens.queue.components
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,30 +22,38 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.kyant.capsule.ContinuousRoundedRectangle
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_remove_from_queue
 import navic.composeapp.generated.resources.action_reorder
-import navic.composeapp.generated.resources.info_not_available_offline
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.DragHandle
-import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
-import paige.navic.ui.components.common.Waveform
-import paige.navic.utils.DraggableListState
-import paige.navic.utils.dragHandle
-import paige.navic.utils.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.common.SongRowStatus
+import paige.navic.util.ui.DraggableListState
+import paige.navic.util.ui.dragHandle
+import paige.navic.util.ui.segmentedShapes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun QueueScreenItem(
 	index: Int,
+	/**
+	 * The list key of this row, for the drag handle.
+	 *
+	 * The key overload of [dragHandle] is used rather than the index one because the
+	 * pointerInput modifier never restarts, so a captured index goes stale the moment the drag
+	 * reorders anything. It is also what every other reorderable list in the app passes.
+	 */
+	dragKey: Any,
 	count: Int,
 	song: DomainSong,
 	isPlaying: Boolean,
@@ -56,7 +61,10 @@ fun QueueScreenItem(
 	isDragging: Boolean,
 	draggableState: DraggableListState,
 	onClick: () -> Unit,
+	/** Long-press opens this row's song sheet — every card, not just the playing one. */
+	onLongClick: () -> Unit,
 	onRemove: () -> Unit,
+	dragEnabled: Boolean = true,
 	isOffline: Boolean = false,
 	isDownloaded: Boolean = false
 ) {
@@ -70,17 +78,12 @@ fun QueueScreenItem(
 	val dismissState = rememberSwipeToDismissBoxState()
 	val scope = rememberCoroutineScope()
 
-	val color = if (isSelected)
-		MaterialTheme.colorScheme.surfaceContainerHighest
-	else MaterialTheme.colorScheme.surfaceContainerHigh
-
-	val contentColor = if (isSelected)
-		MaterialTheme.colorScheme.primary
-	else MaterialTheme.colorScheme.onSurface
-
-	val supportingContentColor = if (isSelected)
-		MaterialTheme.colorScheme.primary.copy(alpha = .7f)
-	else MaterialTheme.colorScheme.onSurfaceVariant
+	// Shared with the album/search rows — translucent, so the queue's ONE ambient wash
+	// (from the now-playing song) shows through every card rather than each row tinting
+	// itself from its own cover.
+	val color = SongRowDefaults.containerColor(isSelected)
+	val contentColor = SongRowDefaults.contentColor(isSelected)
+	val supportingContentColor = SongRowDefaults.supportingContentColor(isSelected)
 
 	val itemShape = segmentedShapes(
 		index = index,
@@ -101,7 +104,13 @@ fun QueueScreenItem(
 				modifier = Modifier
 					.fillMaxSize()
 					.clip(itemShape.shape)
-					.background(MaterialTheme.colorScheme.errorContainer)
+					// Only paint the red delete background while actively swiping —
+					// otherwise it would bleed through the translucent (frosted) card.
+					.background(
+						if (dismissState.dismissDirection == SwipeToDismissBoxValue.Settled)
+							Color.Transparent
+						else MaterialTheme.colorScheme.errorContainer
+					)
 					.padding(horizontal = 20.dp)
 			) {
 				Icon(
@@ -122,6 +131,7 @@ fun QueueScreenItem(
 			) {
 				SegmentedListItem(
 					onClick = onClick,
+					onLongClick = onLongClick,
 					enabled = canPlay,
 					colors = ListItemDefaults.colors(
 						containerColor = color,
@@ -137,41 +147,42 @@ fun QueueScreenItem(
 					supportingContent = { MarqueeText(song.artistName) },
 					leadingContent = {
 						CoverArt(
-							modifier = Modifier.size(48.dp),
+							modifier = Modifier.size(SongRowDefaults.CoverSize),
 							coverArtId = song.coverArtId,
-							shape = ContinuousRoundedRectangle(10.dp)
+							shape = SongRowDefaults.CoverShape
 						)
 					},
 					trailingContent = {
-						Row(
-							horizontalArrangement = Arrangement.spacedBy(8.dp),
-							verticalAlignment = Alignment.CenterVertically
-						) {
-							if (!canPlay) {
-								Icon(
-									Icons.Outlined.Offline,
-									stringResource(Res.string.info_not_available_offline),
-									modifier = Modifier.size(20.dp)
-								)
-							}
-							if (isSelected) {
-								Waveform(isPlaying = isPlaying)
-							}
-							IconButton(
-								modifier = Modifier.dragHandle(
-									state = draggableState,
-									index = index
-								),
-								onClick = {}
-							) {
-								Icon(
-									Icons.Outlined.DragHandle,
-									contentDescription = stringResource(Res.string.action_reorder)
-								)
-							}
-						}
+						SongRowStatus(
+							canPlay = canPlay,
+							downloadStatus = if (isDownloaded) DownloadStatus.DOWNLOADED else null,
+							isCurrentTrack = isSelected,
+							isPlaying = isPlaying,
+							duration = song.duration,
+							durationColor = supportingContentColor,
+							// Appended AFTER the status cluster so the handle keeps the same
+							// position whichever icons a given row happens to show. Drag reorders
+							// the local queue, or the hub session queue when another device is
+							// active (the hub broadcasts the new order back).
+							trailing = if (dragEnabled) {
+								{
+									IconButton(
+										modifier = Modifier.dragHandle(
+											state = draggableState,
+											key = dragKey
+										),
+										onClick = {}
+									) {
+										Icon(
+											Icons.Outlined.DragHandle,
+											contentDescription = stringResource(Res.string.action_reorder)
+										)
+									}
+								}
+							} else null
+						)
 					},
-					contentPadding = PaddingValues(10.dp)
+					contentPadding = SongRowDefaults.ContentPadding
 				)
 			}
 		}

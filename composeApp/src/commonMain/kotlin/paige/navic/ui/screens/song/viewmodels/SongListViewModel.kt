@@ -9,19 +9,20 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import paige.navic.data.session.SessionManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.managers.ConnectivityManager
-import paige.navic.managers.DownloadManager
-import paige.navic.utils.UiState
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.ui.core.UiState
 
 class SongListViewModel(
 	initialListType: DomainSongListType = DomainSongListType.FrequentlyPlayed,
 	private val artistId: String? = null,
 	private val repository: SongRepository,
 	private val downloadManager: DownloadManager,
+	private val sessionManager: SessionManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	private val _songsState =
@@ -31,7 +32,7 @@ class SongListViewModel(
 		.stateIn(
 			scope = viewModelScope,
 			started = SharingStarted.Lazily,
-			initialValue = emptyList()
+			initialValue = persistentListOf()
 		)
 
 	private val _selectedSong = MutableStateFlow<DomainSong?>(null)
@@ -53,7 +54,7 @@ class SongListViewModel(
 
 	init {
 		viewModelScope.launch {
-			SessionManager.isLoggedIn.collect { if (it) refreshSongs(false) }
+			sessionManager.isLoggedIn.collect { if (it) refreshSongs(false) }
 		}
 	}
 

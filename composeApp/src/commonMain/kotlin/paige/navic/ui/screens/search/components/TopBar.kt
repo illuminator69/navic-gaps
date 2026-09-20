@@ -31,11 +31,12 @@ import navic.composeapp.generated.resources.action_clear_search
 import navic.composeapp.generated.resources.action_navigate_back
 import navic.composeapp.generated.resources.title_search
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.LocalCtx
+import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Close
+import paige.navic.ui.theme.defaultFont
 
 @Composable
 fun SearchScreenTopBar(
@@ -43,7 +44,7 @@ fun SearchScreenTopBar(
 	nested: Boolean,
 	onSearch: (String) -> Unit
 ) {
-	val ctx = LocalCtx.current
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 
 	val focusManager = LocalFocusManager.current
@@ -63,7 +64,7 @@ fun SearchScreenTopBar(
 			) {
 				IconButton(
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						focusManager.clearFocus(true)
 						if (backStack.size > 1) backStack.removeLastOrNull()
 					}
@@ -91,7 +92,7 @@ fun SearchScreenTopBar(
 					onSearch(query.text.toString())
 				}
 			},
-			textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+			textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontFamily = defaultFont()),
 			cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
 			decorator = { innerTextField ->
 				Box(contentAlignment = Alignment.CenterStart) {
@@ -113,7 +114,7 @@ fun SearchScreenTopBar(
 				IconButton(
 					modifier = Modifier.padding(horizontal = 8.dp),
 					onClick = {
-						ctx.clickSound()
+						platformContext.clickSound()
 						query.clearText()
 					}
 				) {

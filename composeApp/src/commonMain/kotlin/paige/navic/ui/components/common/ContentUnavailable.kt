@@ -2,6 +2,7 @@ package paige.navic.ui.components.common
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -14,14 +15,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun ContentUnavailable(
-	modifier: Modifier = Modifier,
+	modifier: Modifier = Modifier.fillMaxSize(),
 	icon: ImageVector,
 	label: String,
-	color: Color = MaterialTheme.colorScheme.onSurface
+	color: Color = MaterialTheme.colorScheme.onSurface,
+	/** Optional second line, for when the headline alone doesn't say how the list gets filled. */
+	description: String? = null
 ) {
 	Column(
 		modifier = modifier.fillMaxWidth().alpha(.6f),
@@ -38,7 +42,17 @@ fun ContentUnavailable(
 			label,
 			style = MaterialTheme.typography.headlineMedium,
 			color = color,
+			textAlign = TextAlign.Center,
 			modifier = Modifier.widthIn(max = 400.dp)
 		)
+		description?.let {
+			Text(
+				it,
+				style = MaterialTheme.typography.bodyMedium,
+				color = color,
+				textAlign = TextAlign.Center,
+				modifier = Modifier.widthIn(max = 400.dp)
+			)
+		}
 	}
 }

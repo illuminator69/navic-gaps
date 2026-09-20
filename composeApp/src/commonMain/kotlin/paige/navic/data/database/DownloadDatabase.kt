@@ -8,7 +8,8 @@ import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.entities.DownloadEntity
 
 @Database(
-	version = 1,
+	// v4 adds the download-center columns. Migrated, NOT dropped — see [MIGRATION_DOWNLOAD_3_4].
+	version = 4,
 	entities = [DownloadEntity::class]
 )
 @ConstructedBy(DownloadDatabaseConstructor::class)
