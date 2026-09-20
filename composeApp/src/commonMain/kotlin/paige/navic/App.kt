@@ -51,7 +51,7 @@ import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
 import androidx.savedstate.serialization.SavedStateConfiguration
-import coil3.compose.setSingletonImageLoaderFactory
+import coil3.SingletonImageLoader
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
@@ -164,12 +164,7 @@ internal expect val installComposeSingletonImageLoader: Boolean
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun App() {
-	if (installComposeSingletonImageLoader && !imageLoaderFactoryInstalled) {
-		imageLoaderFactoryInstalled = true
-		setSingletonImageLoaderFactory { platformContext ->
-	 		initializeSingletonImageLoader(platformContext)
-		}
-	}
+	// upstream injects the Coil ImageLoader (alpha51), so there is no singleton to install.
 
 	val platformContext = rememberPlatformContext()
 	val sessionManager = koinInject<SessionManager>()

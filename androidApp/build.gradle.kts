@@ -8,6 +8,8 @@ plugins {
 	alias(libs.plugins.composeCompiler)
 }
 
+val isTaskRelease = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+
 extensions.configure<ApplicationExtension> {
 	namespace = "paige.navic.androidApp"
 	compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -20,13 +22,12 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "paige.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 45
-		versionName = "v1.0.0-alpha45"
+		versionCode = 51
+		versionName = "v1.0.0-alpha51"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
-			val isRelease = System.getenv("RELEASE")?.toBoolean() ?: false
-			if (!isRelease) {
+			if (!isTaskRelease) {
 				abiFilters.add("x86_64")
 			}
 		}
@@ -51,7 +52,7 @@ extensions.configure<ApplicationExtension> {
 			isProfileable = false
 			isJniDebuggable = false
 			isShrinkResources = true
-			signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debug")
+			signingConfig = signingConfigs.findByName("release")?.takeIf { it.storeFile != null }
 			proguardFiles(
 				getDefaultProguardFile("proguard-android-optimize.txt"),
 				"proguard-rules.pro"
@@ -74,6 +75,10 @@ extensions.configure<ApplicationExtension> {
 			excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
 			excludes += "/org/bouncycastle/**"
 			excludes += "/META-INF/{AL2.0,LGPL2.1}"
+		}
+
+		jniLibs {
+			keepDebugSymbols.add("**/*.so")
 		}
 	}
 

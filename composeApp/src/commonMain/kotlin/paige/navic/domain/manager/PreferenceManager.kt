@@ -129,7 +129,7 @@ class PreferenceManager(
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
 	var nowPlayingCoverArtAction by preference(CoverArtTapAction.ShowLyrics)
 	var customHeaders by preference("")
-	var checkForUpdates by preference(true)
+	var checkForUpdates by preference(false)
 	var explicitContentPlayback by preference(ExplicitContentPlayback.Allowed)
 	var autoFillQueue by preference(false)
 
@@ -213,6 +213,12 @@ class PreferenceManager(
 	var freshScope by preference("YOURS")
 	var freshSort by preference("DATE")
 	var freshType by preference("ALL")
+
+	// these values are bitmasks of `DomainFilter`
+	var albumFilters by preference(0)
+	var songFilters by preference(0)
+	var artistFilters by preference(0)
+	var playlistFilters by preference(0)
 
 	fun customHeadersMap(): Map<String, String> = buildMap {
 		for (line in customHeaders.lines()) {

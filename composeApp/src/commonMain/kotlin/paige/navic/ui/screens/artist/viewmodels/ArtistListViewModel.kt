@@ -12,20 +12,25 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.models.DomainFilter
+import paige.navic.domain.models.toBitmask
+import paige.navic.domain.models.toDomainFilters
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
-import kotlinx.coroutines.flow.asStateFlow
 
 class ArtistListViewModel(
 	initialListType: DomainArtistListType = DomainArtistListType.AlphabeticalByName,
+	initialFilters: Set<DomainFilter>? = null,
 	private val repository: ArtistRepository,
 	private val albumDao: AlbumDao,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	val artistsState: StateFlow<UiState<ImmutableList<DomainArtist>>>
 		field = MutableStateFlow<UiState<ImmutableList<DomainArtist>>>(UiState.Loading())
@@ -36,14 +41,16 @@ class ArtistListViewModel(
 	val selectedArtist: StateFlow<DomainArtist?>
 		field = MutableStateFlow(null)
 
-	private val _selectedArtistAlbums = MutableStateFlow<ImmutableList<DomainAlbum>?>(null)
-	val selectedArtistAlbums = _selectedArtistAlbums.asStateFlow()
+	val selectedArtistAlbums: StateFlow<ImmutableList<DomainAlbum>?>
+		field = MutableStateFlow(null)
 
 	val listType: StateFlow<DomainArtistListType>
 		field = MutableStateFlow(initialListType)
 
-	private val _selectedReversed = MutableStateFlow(false)
-	val selectedReversed = _selectedReversed.asStateFlow()
+	val selectedFilters: StateFlow<Set<DomainFilter>>
+		field = MutableStateFlow(
+			initialFilters ?: preferenceManager.artistFilters.toDomainFilters()
+		)
 
 	val gridState = LazyGridState()
 
@@ -55,9 +62,10 @@ class ArtistListViewModel(
 
 	fun refreshArtists(fullRefresh: Boolean) {
 		viewModelScope.launch {
-			repository.getArtistsFlow(fullRefresh, listType.value, _selectedReversed.value).collect {
-				artistsState.value = it
-			}
+			repository.getArtistsFlow(fullRefresh, listType.value, selectedFilters.value)
+				.collect {
+					artistsState.value = it
+				}
 		}
 	}
 
@@ -66,7 +74,7 @@ class ArtistListViewModel(
 			selectedArtist.value = artist
 			val artistAlbums =
 				albumDao.getAlbumsByArtist(artist.id).firstOrNull() ?: emptyList()
-			_selectedArtistAlbums.value = artistAlbums.map { it.toDomainModel() }.toImmutableList()
+			selectedArtistAlbums.value = artistAlbums.map { it.toDomainModel() }.toImmutableList()
 			starred.value = repository.isArtistStarred(artist)
 		}
 	}
@@ -112,14 +120,19 @@ class ArtistListViewModel(
 	}
 
 	fun setListType(newListType: DomainArtistListType) {
-		if (listType.value == newListType) return
 		listType.value = newListType
 		refreshArtists(false)
 	}
 
-	fun setReversed(reversed: Boolean) {
-		if (_selectedReversed.value == reversed) return
-		_selectedReversed.value = reversed
+	fun toggleFilter(filter: DomainFilter) {
+		val current = selectedFilters.value
+		val newFilters = if (current.contains(filter)) {
+			current - filter
+		} else {
+			current + filter
+		}
+		selectedFilters.value = newFilters
+		preferenceManager.artistFilters = newFilters.toBitmask()
 		refreshArtists(false)
 	}
 

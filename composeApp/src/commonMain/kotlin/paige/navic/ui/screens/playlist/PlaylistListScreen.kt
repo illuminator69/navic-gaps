@@ -101,6 +101,7 @@ fun PlaylistListScreen(
 	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
 
 	val scrollManager = LocalBottomBarScrollManager.current
 
@@ -125,7 +126,9 @@ fun PlaylistListScreen(
 			selectedReversed = selectedReversed,
 			onSetReversed = { viewModel.setReversed(it) },
 			selectedViewMode = selectedViewMode,
-			onSetViewMode = { preferenceManager.playlistListViewMode = it }
+			onSetViewMode = { preferenceManager.playlistListViewMode = it },
+			selectedFilters = selectedFilters,
+			onToggleFilter = { viewModel.toggleFilter(it) }
 		)
 	}
 

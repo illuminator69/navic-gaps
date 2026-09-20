@@ -1,13 +1,12 @@
 package paige.navic.ui.screens.album
 
-import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -16,12 +15,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.collections.immutable.persistentListOf
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_albums
@@ -37,22 +34,21 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.AlphabeticalScroller
-import paige.navic.ui.components.snackbars.ErrorSnackBar
-import paige.navic.ui.components.common.alphabeticalHeaders
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.album.components.AlbumListScreenSortButton
 import paige.navic.ui.screens.album.components.albumListScreenContent
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
+import paige.navic.di.isLandscape
+import paige.navic.ui.util.withoutTop
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +72,7 @@ fun AlbumListScreen(
 	val player = koinInject<MediaPlayerViewModel>()
 	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
 	val albumsState by viewModel.albumsState.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
@@ -92,7 +89,9 @@ fun AlbumListScreen(
 			selectedReversed = selectedReversed,
 			onSetReversed = { viewModel.setReversed(it) },
 			selectedViewMode = selectedViewMode,
-			onSetViewMode = { preferenceManager.albumListViewMode = it }
+			onSetViewMode = { preferenceManager.albumListViewMode = it },
+			selectedFilters = selectedFilters,
+			onToggleFilter = { viewModel.toggleFilter(it) }
 		)
 	}
 
@@ -118,61 +117,43 @@ fun AlbumListScreen(
 	) { innerPadding ->
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
+				.padding(top = innerPadding.calculateTopPadding())
+				.background(MaterialTheme.colorScheme.surface),
 			finished = albumsState !is UiState.Loading,
 			onRefresh = { viewModel.refreshAlbums(true) },
 			key = albumsState
 		) {
-			Box {
-				ArtGrid(
-					modifier = if (!nested)
-						Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-					else Modifier,
-					state = viewModel.gridState,
-					contentPadding = innerPadding.withoutTop(),
-					verticalArrangement = if ((albumsState as? UiState.Success)?.data?.isEmpty() == true)
-						Arrangement.Center
-					else Arrangement.spacedBy(12.dp),
-					selectedViewMode = selectedViewMode
-				) {
-					albumListScreenContent(
-						state = albumsState,
-						starred = starred,
-						selectedAlbum = selectedAlbum,
-						selectedAlbumRating = rating,
-						selectedViewMode = selectedViewMode,
-						onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
-						onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
-						onUpdateSelection = { viewModel.selectAlbum(it) },
-						onClearSelection = { viewModel.clearSelection() },
-						onSetShareId = { newShareId ->
-							shareId = newShareId
-						},
-						onSetStarred = { viewModel.starAlbum(it) },
-						onRateSelectedAlbum = { viewModel.setRating(it) }
-					)
-				}
-
-				// Alphabetical jump rail — only when the list is actually sorted by a name, so a
-				// letter maps to a contiguous run. albumListScreenContent places items with no
-				// leading cells, so the item index is the album's position in the list.
-				val alphaHeaders = remember(albumsState, selectedSorting) {
-					val data = albumsState.data.orEmpty()
-					when (selectedSorting) {
-						DomainAlbumListType.AlphabeticalByName ->
-							alphabeticalHeaders(data) { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
-						DomainAlbumListType.AlphabeticalByArtist ->
-							alphabeticalHeaders(data) { it.artistName.firstOrNull()?.uppercaseChar() ?: '#' }
-						else -> persistentListOf<Pair<String, Int>>()
-					}
-				}
-				if (alphaHeaders.isNotEmpty()) {
-					AlphabeticalScroller(
-						state = viewModel.gridState,
-						headers = alphaHeaders,
-						modifier = Modifier.align(Alignment.TopEnd)
-					)
-				}
+			ArtGrid(
+				modifier = if (!nested)
+					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+				else Modifier,
+				state = viewModel.gridState,
+				contentPadding = innerPadding.withoutTop(),
+				verticalArrangement = if (albumsState.data?.isEmpty() == true) {
+					Arrangement.Center
+				} else if (selectedViewMode == ListViewMode.List) {
+					Arrangement.spacedBy(0.dp)
+				} else {
+					Arrangement.spacedBy(12.dp)
+				},
+				selectedViewMode = selectedViewMode
+			) {
+				albumListScreenContent(
+					state = albumsState,
+					starred = starred,
+					selectedAlbum = selectedAlbum,
+					selectedAlbumRating = rating,
+					selectedViewMode = selectedViewMode,
+					onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
+					onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
+					onUpdateSelection = { viewModel.selectAlbum(it) },
+					onClearSelection = { viewModel.clearSelection() },
+					onSetShareId = { newShareId ->
+						shareId = newShareId
+					},
+					onSetStarred = { viewModel.starAlbum(it) },
+					onRateSelectedAlbum = { viewModel.setRating(it) }
+				)
 			}
 		}
 	}

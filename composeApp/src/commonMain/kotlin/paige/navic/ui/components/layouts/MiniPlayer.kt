@@ -291,7 +291,7 @@ fun MiniPlayer(
 						AsyncImage(
 							model = model,
 							contentDescription = null,
-							contentScale = ContentScale.Crop,
+							contentScale = ContentScale.Fit,
 							modifier = Modifier
 								.size(if (detached) 48.dp else 50.dp)
 								.padding(if (playerState.isLoading) 8.dp else 0.dp)

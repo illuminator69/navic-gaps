@@ -50,6 +50,7 @@ import paige.navic.util.core.CoverPlaceholder
 fun CoverArt(
 	modifier: Modifier = Modifier,
 	coverArtId: String?,
+	contentScale: ContentScale = if (coverArtId?.startsWith("ar-") == true) ContentScale.Crop else ContentScale.Fit,
 	contentDescription: String? = null,
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
@@ -114,7 +115,7 @@ fun CoverArt(
 		model = model,
 		contentDescription = contentDescription,
 		modifier = commonModifier,
-		contentScale = ContentScale.Crop,
+		contentScale = contentScale,
 		error = {
 			LaunchedEffect(it.result.throwable) {
 				Logger.w(

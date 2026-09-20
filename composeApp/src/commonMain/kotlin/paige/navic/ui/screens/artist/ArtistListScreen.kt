@@ -1,12 +1,12 @@
 package paige.navic.ui.screens.artist
 
-import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -33,19 +33,18 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.sheets.ArtistSheet
+import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.navigation.Screen
@@ -53,7 +52,8 @@ import paige.navic.ui.screens.artist.components.ArtistListScreenContent
 import paige.navic.ui.screens.artist.components.ArtistListScreenSortButton
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import androidx.compose.ui.platform.LocalUriHandler
+import paige.navic.di.isLandscape
+import paige.navic.ui.util.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -77,9 +77,9 @@ fun ArtistListScreen(
 	val artistsState by viewModel.artistsState.collectAsState()
 	val selectedArtist by viewModel.selectedArtist.collectAsState()
 	val selectedArtistAlbums by viewModel.selectedArtistAlbums.collectAsState()
-	val starred by viewModel.starred.collectAsState()
 	val selectedSorting by viewModel.listType.collectAsState()
-	val selectedReversed by viewModel.selectedReversed.collectAsState()
+	val selectedFilters by viewModel.selectedFilters.collectAsState()
+	val starred by viewModel.starred.collectAsState()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	val player = koinInject<MediaPlayerViewModel>()
@@ -89,15 +89,21 @@ fun ArtistListScreen(
 			nested = nested,
 			selectedSorting = selectedSorting,
 			onSetSorting = { viewModel.setListType(it) },
-			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) }
+			selectedViewMode = selectedViewMode,
+			onSetViewMode = { preferenceManager.artistListViewMode = it },
+			selectedFilters = selectedFilters,
+			onToggleFilter = { viewModel.toggleFilter(it) }
 		)
 	}
 
 	Scaffold(
 		topBar = {
 			if (!nested) {
-				RootTopBar({ Text(stringResource(Res.string.title_artists)) }, scrollBehavior, actions)
+				RootTopBar(
+					{ Text(stringResource(Res.string.title_artists)) },
+					scrollBehavior,
+					actions
+				)
 			} else {
 				NestedTopBar({ Text(stringResource(Res.string.title_artists)) }, actions = actions)
 			}
@@ -112,7 +118,8 @@ fun ArtistListScreen(
 	) { innerPadding ->
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
+				.padding(top = innerPadding.calculateTopPadding())
+				.background(MaterialTheme.colorScheme.surface),
 			finished = artistsState !is UiState.Loading,
 			onRefresh = { viewModel.refreshArtists(true) },
 			key = artistsState
@@ -157,8 +164,6 @@ fun ArtistListScreenGridItem(
 	onSetStarred: (starred: Boolean) -> Unit
 ) {
 	val backStack = LocalNavStack.current
-	val uriHandler = LocalUriHandler.current
-	val radioManager = koinInject<RadioManager>()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
@@ -182,7 +187,6 @@ fun ArtistListScreenGridItem(
 			ArtistSheet(
 				onDismissRequest = onDeselect,
 				artist = artist,
-				onStartRadio = { radioManager.startRadio(artist.id) },
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
 				onAddAllToPlaylist = { playlistDialogShown = true },

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.media.audiofx.AudioEffect
 import android.media.audiofx.Equalizer
 import android.net.Uri
 import android.os.Bundle
@@ -79,6 +80,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import coil3.PlatformContext as CoilPlatformContext
+import paige.navic.domain.models.settings.EqualiserMode
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
@@ -114,6 +116,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val hubManager: HubManager by inject()
 	private val equaliserManager: EqualiserManager by inject()
 	private var equaliser: Equalizer? = null
+	private var audioEffectSessionId: Int = C.AUDIO_SESSION_ID_UNSET
+	private var currentAudioSessionId: Int = C.AUDIO_SESSION_ID_UNSET
+	private var equaliserMode: EqualiserMode = EqualiserMode.Disabled
 
 	override fun onCreate() {
 		super.onCreate()
@@ -233,6 +238,37 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				}
 			}
 		}
+
+		// upstream's equaliser wiring (alpha51), kept alongside the hub player swap above.
+		currentAudioSessionId = player.audioSessionId
+		equaliserMode = equaliserManager.config.value.mode
+		applyEqualiserMode(equaliserMode, currentAudioSessionId)
+
+		player.addListener(object : Player.Listener {
+			override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+				mediaSession?.setCustomLayout(makeButtons(player))
+			}
+
+			override fun onRepeatModeChanged(repeatMode: Int) {
+				mediaSession?.setCustomLayout(makeButtons(player))
+			}
+
+			override fun onAudioSessionIdChanged(audioSessionId: Int) {
+				currentAudioSessionId = audioSessionId
+				applyEqualiserMode(equaliserMode, audioSessionId)
+			}
+		})
+
+		scope.launch(Dispatchers.Main) {
+			equaliserManager.config.collect { config ->
+				if (config.mode != equaliserMode) {
+					equaliserMode = config.mode
+					applyEqualiserMode(equaliserMode, currentAudioSessionId)
+				} else {
+					updateEqualiser()
+				}
+			}
+		}
 	}
 
 	override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -244,8 +280,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onDestroy() {
-		equaliser?.release()
-		equaliser = null
+		closeAudioEffectSession(audioEffectSessionId)
+		releaseEqualiser()
 		scrobbleManager?.release()
 		serviceScope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)
@@ -303,8 +339,50 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 	}
 
-	private fun makeEqualiser(sessionId: Int) {
+	// Applies the chosen equaliser mode
+	private fun applyEqualiserMode(mode: EqualiserMode, sessionId: Int) {
+		closeAudioEffectSession(audioEffectSessionId)
+		releaseEqualiser()
+
+		when (mode) {
+			EqualiserMode.BuiltIn -> makeEqualiser(sessionId)
+			EqualiserMode.External -> openAudioEffectSession(sessionId)
+			EqualiserMode.Disabled -> Unit
+		}
+	}
+
+	private fun releaseEqualiser() {
 		equaliser?.release()
+		equaliser = null
+	}
+
+	// Announces our audio session to the system so external equalizer apps can attach effects to it
+	private fun openAudioEffectSession(sessionId: Int) {
+		if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
+		audioEffectSessionId = sessionId
+		sendBroadcast(
+			Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
+				putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+				putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+				putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+			}
+		)
+	}
+
+	// Tells external equalizer apps our audio session is going away so they can release their effects
+	private fun closeAudioEffectSession(sessionId: Int) {
+		if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
+		sendBroadcast(
+			Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+				putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+				putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+			}
+		)
+		audioEffectSessionId = C.AUDIO_SESSION_ID_UNSET
+	}
+
+	private fun makeEqualiser(sessionId: Int) {
+		releaseEqualiser()
 		try {
 			val equaliser = Equalizer(0, sessionId).apply {
 				enabled = true
@@ -878,14 +956,22 @@ class AndroidMediaPlayerViewModel(
 				repeatMode = controller.repeatMode
 			)
 		}
-		applyReplayGain()
+		applyReplayGain(currentSong)
 		updateProgress()
 	}
 
-	private fun applyReplayGain() {
+	private fun applyReplayGain(currentSong: DomainSong?) {
 		if (preferenceManager.replayGainMode != ReplayGainMode.Off) {
 			(_uiState.value.currentSong)?.replayGain?.let { replayGain ->
-				controller?.volume = replayGain.effectiveGain(preferenceManager.replayGainMode)
+				if (preferenceManager.replayGainMode != ReplayGainMode.Dynamic) {
+					controller?.volume = replayGain.effectiveGain(preferenceManager.replayGainMode)
+				} else {
+					if (_uiState.value.queue.all { it.albumId == currentSong?.albumId }) {
+						controller?.volume = replayGain.effectiveGain(ReplayGainMode.Album)
+					} else {
+						controller?.volume = replayGain.effectiveGain(ReplayGainMode.Track)
+					}
+				}
 			}
 		} else {
 			controller?.volume = 1f

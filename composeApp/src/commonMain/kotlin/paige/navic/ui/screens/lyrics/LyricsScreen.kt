@@ -400,6 +400,9 @@ fun LyricsScreen(
 									text = line.text,
 									progress = progress,
 									isActive = highlight,
+									// upstream added this so an unsynced line renders semibold
+									// and does not reset the song when tapped.
+									isSynced = isSynced,
 									onClick = {
 										if (isSelectionMode) {
 											if (selectedIndices.isEmpty()) {

@@ -39,6 +39,7 @@ fun LyricsScreenKaraokeText(
 	text: String,
 	progress: Float,
 	isActive: Boolean,
+	isSynced: Boolean,
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -60,7 +61,11 @@ fun LyricsScreenKaraokeText(
 		}
 	} ?: false
 
-	val inactiveAlpha = if (lyricsBrightInactive) 0.9f else 0.35f
+	val inactiveAlpha = when {
+		!isSynced -> 1f
+		lyricsBrightInactive -> 0.9f
+		else -> 0.35f
+	}
 
 	val alphaTransition by animateFloatAsState(
 		targetValue = if (isActive) 1f else inactiveAlpha,
@@ -71,7 +76,7 @@ fun LyricsScreenKaraokeText(
 		Text(
 			text = text,
 			fontSize = 32.sp,
-			fontWeight = FontWeight.Bold,
+			fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
 			textAlign = if (isRtl) TextAlign.End else TextAlign.Start,
 			style = MaterialTheme.typography.headlineLargeEmphasized,
 			color = if (lyricsBrightInactive) Color.White.copy(alpha = alphaTransition * 0.4f)

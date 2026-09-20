@@ -4,7 +4,6 @@ import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.cinterop.ExperimentalForeignApi
 import org.koin.core.module.dsl.singleOf
-import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
@@ -60,7 +59,7 @@ actual val platformModule = module {
 			.build()
 	}
 
-	viewModel<MediaPlayerViewModel> {
+	single<MediaPlayerViewModel> {
 		IOSMediaPlayerViewModel(
 			stateRepository = get(),
 			songRepository = get(),
