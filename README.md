@@ -21,10 +21,6 @@ shared playback session across devices, like Spotify Connect over your own Navid
 end for **[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is
 missing.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/illuminator69/navi-connect/main/docs/screenshots/navic-artist-missing-albums.png" width="45%" alt="Artist page with albums marked 7 missing, 3 missing and Not in your library" />
-  <img src="https://raw.githubusercontent.com/illuminator69/navi-connect/main/docs/screenshots/navic-missing-album-review.png" width="45%" alt="Bottom sheet showing edition options, tracklist, quality preference and Find sources" />
-</p>
 
 - **The albums you don't own**, shown on the artist page beside the ones you do, with a review sheet
   that checks a release against the canonical MusicBrainz tracklist before downloading it.
