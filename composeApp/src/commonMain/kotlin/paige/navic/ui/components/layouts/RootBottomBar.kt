@@ -19,6 +19,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.MiniPlayerStyle
+import paige.navic.ui.components.common.LocalCoverAmbientBottom
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.util.easedVerticalGradient
@@ -56,7 +57,11 @@ fun RootBottomBar(
 		targetValue = if (scrolled || !shadows) 0f else 1f,
 		animationSpec = tween(durationMillis = 600)
 	)
-	val surfaceColor = scrimColor ?: MaterialTheme.colorScheme.surface
+	// The page's own bottom colour when there is a cover ambient (see [LocalCoverAmbientBottom]);
+	// `surface` only as the last resort, for screens that paint themselves plainly.
+	val surfaceColor = scrimColor
+		?: LocalCoverAmbientBottom.current
+		?: MaterialTheme.colorScheme.surface
 	Column(
 		// Frost the backdrop (the screen content marked as the app's blur source) behind the
 		// bar when Expressive blur is on — but ONLY for the docked/full-bleed style. When

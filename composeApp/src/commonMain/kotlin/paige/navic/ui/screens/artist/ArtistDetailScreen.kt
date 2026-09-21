@@ -218,7 +218,14 @@ fun ArtistDetailScreen(
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
 			if (preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
-				RootBottomBar(scrolled = scrollManager.isTriggered)
+				// Fade the scrim to THIS page's bottom colour, not `surface`: on a light
+				// cover the scheme neutral is near-white and ended the page in a white band
+				// under the nav buttons. Same rule as the browsing pages, which get it from
+				// LocalCoverAmbientBottom.
+				RootBottomBar(
+					scrolled = scrollManager.isTriggered,
+					scrimColor = if (coverColors.themed) ambientBottom else null
+				)
 			}
 		}
 	) { contentPadding ->

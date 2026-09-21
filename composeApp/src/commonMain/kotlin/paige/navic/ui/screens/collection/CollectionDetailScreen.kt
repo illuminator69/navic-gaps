@@ -181,7 +181,7 @@ fun CollectionDetailScreen(
 	// the blurred backdrop below is skipped. `coverColors.seed` is the plain surface then, and
 	// `coverAmbientGradient` would still ease it toward white/black — i.e. paint a tint nobody
 	// asked for.
-	val (washTop, _) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	val (washTop, washBottom) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
 	val stableTop = if (coverColors.themed) washTop else MaterialTheme.colorScheme.surface
 	val onAmbient = onAmbientColor(stableTop, coverColors.scheme)
 	// The BACKGROUND wash eases between songs; kept as a State and read in the draw phase
@@ -217,7 +217,14 @@ fun CollectionDetailScreen(
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
 			if (preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens) {
-				RootBottomBar(scrolled = scrollManager.isTriggered)
+				// Fade the scrim to THIS page's bottom colour, not `surface`: on a light
+				// cover the scheme neutral is near-white and ended the page in a white band
+				// under the nav buttons. Same rule as the browsing pages, which get it from
+				// LocalCoverAmbientBottom.
+				RootBottomBar(
+					scrolled = scrollManager.isTriggered,
+					scrimColor = if (coverColors.themed) washBottom else null
+				)
 			}
 		}
 	) { contentPadding ->

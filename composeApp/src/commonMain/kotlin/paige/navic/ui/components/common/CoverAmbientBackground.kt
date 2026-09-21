@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
@@ -93,6 +95,22 @@ fun CoverAmbientBackground(
  * The background is drawn OUTSIDE the theme on purpose: [BlendBackground] fills from
  * `colorScheme.background`, and reading the transparent one would leave it with no base at all.
  */
+/**
+ * The colour the page is painting at its BOTTOM edge, or null when no cover ambient is in play.
+ *
+ * `RootBottomBar` fades a scrim up from this so the floating mini-player and nav capsule separate
+ * from whatever is scrolling behind them. It defaulted to `colorScheme.surface`, which was right
+ * while a browsing page's background WAS `surface` and is wrong now: on a light cover the scheme's
+ * neutral is near-white, so a yellow page ended in a white band under the nav buttons. Dark covers
+ * hid it, because there the neutral is near-black and the page's own gradient is heading that way
+ * anyway.
+ *
+ * Unlike the top bar (which got no such colour, because at rest it must show the page *exactly*
+ * and nothing flat can match a gradient over blurred artwork), a soft fade to approximately the
+ * right colour is all this needs.
+ */
+val LocalCoverAmbientBottom = compositionLocalOf<Color?> { null }
+
 @Composable
 fun BrowsingAmbient(content: @Composable () -> Unit) {
 	val coverArtId = rememberNowPlayingCoverArtId()
@@ -103,16 +121,18 @@ fun BrowsingAmbient(content: @Composable () -> Unit) {
 		NavicTheme(cover.scheme, content = content)
 		return
 	}
-	val (ambientTop, _) = coverAmbientGradient(cover.seed, cover.isDark)
+	val (ambientTop, ambientBottom) = coverAmbientGradient(cover.seed, cover.isDark)
 	// Status-bar icons follow the page's (cover-driven) brightness, as on the detail pages —
 	// required now that a browsing page's brightness can differ from the app theme's.
 	ForceSystemBars(cover.isDark)
 	Box(Modifier.fillMaxSize()) {
 		CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
-		NavicTheme(
-			cover.scheme.copy(background = Color.Transparent),
-			contentColor = onAmbientColor(ambientTop, cover.scheme),
-			content = content
-		)
+		CompositionLocalProvider(LocalCoverAmbientBottom provides ambientBottom) {
+			NavicTheme(
+				cover.scheme.copy(background = Color.Transparent),
+				contentColor = onAmbientColor(ambientTop, cover.scheme),
+				content = content
+			)
+		}
 	}
 }
