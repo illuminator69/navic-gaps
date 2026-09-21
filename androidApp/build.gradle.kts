@@ -56,7 +56,9 @@ extensions.configure<ApplicationExtension> {
 			isProfileable = false
 			isJniDebuggable = false
 			isShrinkResources = true
-			signingConfig = signingConfigs.findByName("release")?.takeIf { it.storeFile != null }
+			// Upstream leaves an unset SIGNING_* release UNSIGNED. This fork's installs (phone
+			// and emulator) are all debug-key signed, so falling back keeps them updatable.
+			signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debug")
 			proguardFiles(
 				getDefaultProguardFile("proguard-android-optimize.txt"),
 				"proguard-rules.pro"
