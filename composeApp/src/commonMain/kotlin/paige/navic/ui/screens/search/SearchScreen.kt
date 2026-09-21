@@ -186,7 +186,6 @@ fun SearchScreen(
 		topBar = {
 			Column(
 				modifier = Modifier
-					.background(MaterialTheme.colorScheme.surface)
 					.padding(
 						TopAppBarDefaults.windowInsets.asPaddingValues()
 					)
@@ -253,7 +252,7 @@ fun SearchScreen(
 								item(span = { GridItemSpan(maxLineSpan) }) {
 									ListItem(
 										modifier = Modifier
-											.background(MaterialTheme.colorScheme.surface),
+											.background(MaterialTheme.colorScheme.surfaceContainer),
 										onClick = {
 											platformContext.clickSound()
 											val q = query.text.toString()
@@ -280,7 +279,7 @@ fun SearchScreen(
 								item(span = { GridItemSpan(maxLineSpan) }) {
 									ListItem(
 										modifier = Modifier
-											.background(MaterialTheme.colorScheme.surface),
+											.background(MaterialTheme.colorScheme.surfaceContainer),
 										// Tapping re-probes: these failures are transient (a hub
 										// restarting, analysis still running), so the row doubles
 										// as the retry rather than being inert.
@@ -388,7 +387,7 @@ fun SearchScreen(
 									) {
 										ListItem(
 											modifier = Modifier
-												.background(MaterialTheme.colorScheme.surface),
+												.background(MaterialTheme.colorScheme.surfaceContainer),
 											onClick = {
 												player.playNow(song)
 											},

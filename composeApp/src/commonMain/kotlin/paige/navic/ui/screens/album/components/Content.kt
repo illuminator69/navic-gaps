@@ -55,8 +55,11 @@ fun LazyGridScope.albumListScreenContent(
 			grouped.forEach { (letter, albums) ->
 				stickyHeader {
 					Row(
+						// `surfaceContainer`, not `surface`: a sticky header is a LIFTED element
+						// and the page behind it is the cover ambient now, so the page role
+						// would read as a mismatched slab sliding over the gradient.
 						modifier = Modifier
-							.background(MaterialTheme.colorScheme.surface)
+							.background(MaterialTheme.colorScheme.surfaceContainer)
 							.padding(textPadding),
 						verticalAlignment = Alignment.CenterVertically
 					) {

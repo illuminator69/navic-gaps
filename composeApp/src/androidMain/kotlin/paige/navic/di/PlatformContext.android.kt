@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ThemeMode
@@ -44,10 +45,16 @@ actual fun rememberPlatformContext(): PlatformContext {
 	}
 	val activity = LocalActivity.current!!
 	val sizeClass = calculateWindowSizeClass(activity)
+	// The app theme's brightness is the DEFAULT for the status-bar icons, not the last word.
+	// This used to assign `isAppearanceLightStatusBars` directly — and from a `SideEffect`, which
+	// runs after EVERY recomposition of this composable, at the app root. So it silently undid
+	// whatever [ForceSystemBars] had set for the page you were actually looking at: a dark
+	// cover-themed page under a light app theme showed black status icons on a near-black bar,
+	// and only until the next root recomposition if it ever looked right at all. Both now go
+	// through [SystemBars], which keeps the page's override on top of this default.
 	SideEffect {
 		activity.window?.let { window ->
-			WindowCompat.getInsetsController(window, view)
-				.isAppearanceLightStatusBars = !isDark
+			SystemBars.setAppDefault(WindowCompat.getInsetsController(window, view), isDark)
 		}
 	}
 	return remember(isDark, sizeClass) {
@@ -105,19 +112,60 @@ actual fun rememberPlatformContext(): PlatformContext {
 
 actual fun <T> synchronized(lock: Any, block: () -> T): T = kotlin.synchronized(lock, block)
 
+/**
+ * Who decides the status-bar icon colour.
+ *
+ * There are two callers with different lifetimes and neither can simply own the window flag.
+ * [rememberPlatformContext]'s `SideEffect` re-asserts the app theme's brightness after every root
+ * recomposition; [ForceSystemBars] asserts a page's own, from a `DisposableEffect` that only
+ * re-runs when its argument changes. Written directly, the first always wins eventually.
+ *
+ * So the page's value is an OVERRIDE over the app default, and the overrides are a stack rather
+ * than a single slot: during a push both the old screen's and the new screen's effects are alive,
+ * and restoring "the previous value" on dispose — what this used to do — handed back a value the
+ * other screen had already replaced. Keyed by token, a screen removes only its own entry and the
+ * one still standing is the one still on screen.
+ */
+private object SystemBars {
+	private var controller: WindowInsetsControllerCompat? = null
+	private var appDefaultIsDark: Boolean = false
+	private val overrides = mutableListOf<Pair<Any, Boolean>>()
+
+	fun setAppDefault(controller: WindowInsetsControllerCompat, isDark: Boolean) {
+		this.controller = controller
+		appDefaultIsDark = isDark
+		apply()
+	}
+
+	fun push(controller: WindowInsetsControllerCompat?, token: Any, isDark: Boolean) {
+		controller?.let { this.controller = it }
+		overrides.removeAll { it.first === token }
+		overrides.add(token to isDark)
+		apply()
+	}
+
+	fun pop(token: Any) {
+		overrides.removeAll { it.first === token }
+		apply()
+	}
+
+	private fun apply() {
+		// Light (white) icons over a dark background, dark icons over a light one.
+		val isDark = overrides.lastOrNull()?.second ?: appDefaultIsDark
+		controller?.isAppearanceLightStatusBars = !isDark
+	}
+}
+
 @Composable
 actual fun ForceSystemBars(isDarkBackground: Boolean) {
 	val view = LocalView.current
-	DisposableEffect(isDarkBackground) {
+	val token = remember { Any() }
+	DisposableEffect(isDarkBackground, token) {
 		val controller = (view.context as? Activity)?.window?.let {
 			WindowCompat.getInsetsController(it, view)
 		}
-		val previous = controller?.isAppearanceLightStatusBars ?: true
-		// Light (white) icons over a dark background, dark icons over a light one.
-		controller?.isAppearanceLightStatusBars = !isDarkBackground
-		onDispose {
-			controller?.isAppearanceLightStatusBars = previous
-		}
+		SystemBars.push(controller, token, isDarkBackground)
+		onDispose { SystemBars.pop(token) }
 	}
 }
 

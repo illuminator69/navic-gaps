@@ -126,8 +126,7 @@ fun ArtistListScreen(
 	) { innerPadding ->
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
+				.padding(top = innerPadding.calculateTopPadding()),
 			finished = artistsState !is UiState.Loading,
 			onRefresh = { viewModel.refreshArtists(true) },
 			key = artistsState

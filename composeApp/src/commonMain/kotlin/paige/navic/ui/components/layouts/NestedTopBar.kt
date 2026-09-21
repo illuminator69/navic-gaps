@@ -60,7 +60,14 @@ fun NestedTopBar(
 	modifier: Modifier = Modifier,
 	actions: @Composable RowScope.() -> Unit = {},
 	navigationAction: @Composable () -> Unit = NestedTopBarDefaults::NavigationAction,
-	colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors()
+	// Transparent by default: the bar shows whatever the page paints behind it. The M3 default is
+	// an opaque `surface`, which on a page whose background is the cover gradient (Starred, and
+	// any washed screen added later) draws a visibly darker, flatter band across the top —
+	// including under the status bar. On every other screen the page behind IS `surface`, so this
+	// looks identical to what it replaced. Same rule as `RootTopBar` and the album page's bar.
+	colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(
+		containerColor = Color.Transparent
+	)
 ) {
 	TopAppBar(
 		modifier = modifier,

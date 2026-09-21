@@ -129,8 +129,7 @@ fun AlbumListScreen(
 	) { innerPadding ->
 		PullToRefreshBox(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
+				.padding(top = innerPadding.calculateTopPadding()),
 			finished = albumsState !is UiState.Loading,
 			onRefresh = { viewModel.refreshAlbums(true) },
 			key = albumsState
