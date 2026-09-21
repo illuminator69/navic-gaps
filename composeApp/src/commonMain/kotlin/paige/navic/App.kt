@@ -135,6 +135,9 @@ import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.util.rememberLibraryWashedScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import paige.navic.ui.screens.genre.GenreDetailScreen
+import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
+import paige.navic.ui.screens.settings.SettingsEqualiserScreen
 
 @OptIn(ExperimentalSerializationApi::class)
 private val config = SavedStateConfiguration {
@@ -472,6 +475,18 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.Developer>(metadata = detailPane("settings")) {
 			SettingsDeveloperScreen()
+		}
+		entry<Screen.GenreDetail> { key ->
+			GenreDetailScreen(key.genreName)
+		}
+		entry<Screen.Settings.DownloadQuality> {
+			SettingsDownloadQualityScreen()
+		}
+		entry<Screen.Settings.AppIcon>(metadata = detailPane("settings")) {
+			SettingsAppIconScreen()
+		}
+		entry<Screen.Settings.Equaliser> {
+			SettingsEqualiserScreen()
 		}
 		entry<Screen.Settings.About>(metadata = detailPane("settings")) {
 			SettingsAboutScreen()

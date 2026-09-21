@@ -71,6 +71,9 @@ import paige.navic.di.PlatformType
 import kotlin.math.roundToInt
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
+import navic.composeapp.generated.resources.title_audio_effects
+import navic.composeapp.generated.resources.subtitle_audio_effects
+import paige.navic.di.currentPlatformType
 
 @Composable
 fun SettingsPlaybackScreen() {
@@ -118,6 +121,24 @@ fun SettingsPlaybackScreen() {
 							)
 						}
 						Icon(Icons.Outlined.ChevronForward, null)
+					}
+					// upstream's audio-effects page, and the only way to reach the equaliser.
+					// Android-only: the equaliser is backed by android.media.audiofx.
+					if (currentPlatformType == PlatformType.Android) {
+						FormRow(
+							onClick = dropUnlessResumed { backStack.add(Screen.Settings.Effects) },
+							horizontalArrangement = Arrangement.Start
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.title_audio_effects))
+								Text(
+									text = stringResource(Res.string.subtitle_audio_effects),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.ChevronForward, null)
+						}
 					}
 					SettingSelectionRow(
 						title = { Text("Autoplay") },
