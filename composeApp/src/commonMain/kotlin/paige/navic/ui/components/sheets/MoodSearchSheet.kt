@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
+import paige.navic.domain.models.creditText
 
 /**
  * Feishin-style preview for a CLAP text→mood search: shows the proposed queue
@@ -111,7 +112,7 @@ fun MoodSearchSheet(
 								overflow = TextOverflow.Ellipsis
 							)
 							Text(
-								song.artistName,
+								song.creditText,
 								style = MaterialTheme.typography.bodySmall,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 								maxLines = 1,

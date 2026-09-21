@@ -1,6 +1,6 @@
 package paige.navic.domain.manager
 
-import coil3.SingletonImageLoader
+import coil3.ImageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Size
@@ -40,16 +40,17 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
+import paige.navic.di.PlatformType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.Logger
 import kotlin.time.Clock
-import paige.navic.di.PlatformType
 import coil3.PlatformContext as CoilPlatformContext
 
 class DownloadManager(
 	private val coilPlatformContext: CoilPlatformContext,
+	private val imageLoader: ImageLoader,
 	private val downloadDao: DownloadDao,
 	private val albumDao: AlbumDao,
 	private val storageManager: StorageManager,
@@ -555,7 +556,7 @@ class DownloadManager(
 			.memoryCachePolicy(CachePolicy.DISABLED)
 			.build()
 
-		SingletonImageLoader.get(coilPlatformContext).execute(imageRequest)
+		imageLoader.execute(imageRequest)
 		Logger.i("DownloadManager", "cached cover art for $coverId")
 	}
 
@@ -628,8 +629,8 @@ class DownloadManager(
 			}
 		}
 
-		val path = storageManager.getDownloadPath(song.id, song.fileExtension)
-		val tempPath = storageManager.getTempDownloadPath(song.id, song.fileExtension)
+		val path = storageManager.getDownloadPath(song.id, song.fileExtension.orEmpty())
+		val tempPath = storageManager.getTempDownloadPath(song.id, song.fileExtension.orEmpty())
 
 		try {
 			request.execute { response ->

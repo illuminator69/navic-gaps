@@ -90,7 +90,7 @@ fun CollectionDetailScreenHeadingRow(
 			horizontalAlignment = Alignment.CenterHorizontally
 		) {
 			Text(
-				collection.name,
+				collection.name ?: "[unknown album]",
 				style = MaterialTheme.typography.headlineSmall,
 				textAlign = TextAlign.Center,
 				modifier = Modifier

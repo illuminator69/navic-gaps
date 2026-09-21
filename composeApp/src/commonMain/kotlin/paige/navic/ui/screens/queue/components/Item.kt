@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
@@ -42,8 +41,8 @@ import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.util.DraggableListState
 import paige.navic.ui.util.dragHandle
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.domain.models.creditText
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun QueueScreenItem(
 	index: Int,
@@ -147,7 +146,7 @@ fun QueueScreenItem(
 					shapes = itemShape,
 					verticalAlignment = Alignment.CenterVertically,
 					content = { MarqueeText(song.title) },
-					supportingContent = { MarqueeText(song.artistName) },
+					supportingContent = { MarqueeText(song.creditText) },
 					leadingContent = {
 						CoverArt(
 							modifier = Modifier.size(SongRowDefaults.CoverSize),

@@ -28,10 +28,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ThemeMode
 import kotlinx.coroutines.launch
 
-@OptIn(
-	ExperimentalMaterial3WindowSizeClassApi::class,
-	ExperimentalMaterial3ExpressiveApi::class
-)
+@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
 actual fun rememberPlatformContext(): PlatformContext {
 	val view = LocalView.current

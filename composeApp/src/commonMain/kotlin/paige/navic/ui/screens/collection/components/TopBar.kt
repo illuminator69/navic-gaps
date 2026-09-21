@@ -9,7 +9,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,8 +19,8 @@ import kotlinx.collections.immutable.toPersistentList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.di.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.navigation.Screen
@@ -37,6 +36,7 @@ import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
+import paige.navic.domain.models.displayName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,8 +80,8 @@ fun CollectionDetailScreenTopBar(
 		},
 		actions = {
 			Box {
-				var expanded by remember { mutableStateOf(false) }
-				TopBarButton({
+				var expanded by rememberSaveable { mutableStateOf(false) }
+				TopBarButton(onClick = {
 					expanded = true
 					refreshCollection()
 				}) {
@@ -129,7 +129,7 @@ fun CollectionDetailScreenTopBar(
 	if (autoDownloadDialogShown && collection != null) {
 		PlaylistDownloadDialog(
 			playlistId = collection.id,
-			playlistName = collection.name,
+			playlistName = collection.displayName,
 			onDismissRequest = { autoDownloadDialogShown = false }
 		)
 	}

@@ -67,12 +67,10 @@ fun ArtistDetailScreenTopBar(
 			actions = {
 				Box {
 					var expanded by remember { mutableStateOf(false) }
-					TopBarButton({
-						expanded = true
-					}) {
+					TopBarButton(onClick = { expanded = true }) {
 						Icon(
-							Icons.Outlined.MoreVert,
-							stringResource(Res.string.action_more)
+							imageVector = Icons.Outlined.MoreVert,
+							contentDescription = stringResource(Res.string.action_more)
 						)
 					}
 					if (expanded) {
@@ -107,6 +105,6 @@ fun ArtistDetailScreenTopBar(
 			)
 		}
 	} else {
-		NestedTopBar({})
+		NestedTopBar(title = {})
 	}
 }

@@ -64,6 +64,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalSheetState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.ToolbarPosition
@@ -76,7 +77,6 @@ import paige.navic.icons.outlined.Share
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
-import paige.navic.ui.util.KeepScreenOn
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -89,10 +89,10 @@ import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
 import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
-import paige.navic.di.LocalSheetState
+import paige.navic.ui.util.KeepScreenOn
 import paige.navic.util.calculateWordProgress
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LyricsScreen(
 	song: DomainSong?

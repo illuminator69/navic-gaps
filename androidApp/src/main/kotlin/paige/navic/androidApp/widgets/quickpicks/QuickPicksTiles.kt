@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.util.Logger
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.drop
+import paige.navic.domain.models.displayName
 
 private const val LOG_TAG = "QuickPicksWidget"
 
@@ -83,8 +84,8 @@ internal suspend fun loadQuickPickTiles(context: Context): List<QuickPickTile> {
 	return tiles.map { album ->
 		QuickPickTile(
 			albumId = album.id,
-			title = album.name,
-			cover = fetchCover(context, session.getCoverArtUrl(album.coverArtId))
+			title = album.displayName,
+			cover = album.coverArtId?.let { fetchCover(context, session.getCoverArtUrl(it)) }
 		)
 	}
 }

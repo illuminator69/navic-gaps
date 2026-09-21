@@ -296,7 +296,7 @@ class DbRepository(
 			song.toEntity(
 				artistIdOverride = song.artistId?.takeIf { it.isNotBlank() }
 					?: albumEntity.artistId,
-				artistNameOverride = song.artistName.takeIf { it.isNotBlank() }
+				artistNameOverride = song.artistName?.takeIf { it.isNotBlank() }
 					?: albumEntity.artistName
 			)
 		}

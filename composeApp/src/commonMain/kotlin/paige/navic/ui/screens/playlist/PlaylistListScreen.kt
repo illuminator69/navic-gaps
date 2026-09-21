@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFloatingActionButton
@@ -82,7 +80,6 @@ import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PlaylistListScreen(
 	nested: Boolean = false
@@ -246,7 +243,7 @@ fun PlaylistListScreen(
 			val alphaHeaders = remember(playlistsState, selectedSorting) {
 				val data = playlistsState.data.orEmpty()
 				if (selectedSorting == DomainPlaylistListType.Name)
-					alphabeticalHeaders(data) { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+					alphabeticalHeaders(data) { it.name?.firstOrNull()?.uppercaseChar() ?: '#' }
 				else persistentListOf<Pair<String, Int>>()
 			}
 			if (alphaHeaders.isNotEmpty()) {

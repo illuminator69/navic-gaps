@@ -41,7 +41,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
-import coil3.SingletonImageLoader
+import coil3.ImageLoader
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -102,6 +102,7 @@ import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.components.layouts.NestedTopBarDefaults
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
@@ -115,12 +116,12 @@ import paige.navic.di.LocalPlatformContext
 fun SettingsDataStorageScreen() {
 	val viewModel = koinViewModel<SettingsDataStorageViewModel>()
 
-	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val scope = rememberCoroutineScope()
-	val coilPlatformContext = LocalCoilPlatformContext.current
-	val imageLoader = SingletonImageLoader.get(coilPlatformContext)
+	val imageLoader = koinInject<ImageLoader>()
 
 	val syncState by viewModel.syncState.collectAsStateWithLifecycle()
 	val pendingActionCount by viewModel.pendingActionCount.collectAsStateWithLifecycle()
@@ -211,7 +212,11 @@ fun SettingsDataStorageScreen() {
 		topBar = {
 			NestedTopBar(
 				title = { Text(stringResource(Res.string.title_data_storage)) },
-				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+				navigationAction = {
+					if (!hideBack) {
+						NestedTopBarDefaults.NavigationAction()
+					}
+				}
 			)
 		},
 		contentWindowInsets = WindowInsets.statusBars

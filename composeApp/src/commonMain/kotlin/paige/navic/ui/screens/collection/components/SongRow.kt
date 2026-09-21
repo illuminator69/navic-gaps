@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
@@ -60,8 +61,8 @@ import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.util.InlineExplicitIcon
+import paige.navic.domain.models.creditText
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CollectionDetailScreenSongRow(
 	song: DomainSong,
@@ -194,7 +195,7 @@ fun CollectionDetailScreenSongRow(
 						inlineContent = InlineExplicitIcon
 					)
 					Text(
-						song.artistName,
+						song.creditText,
 						style = MaterialTheme.typography.bodySmall,
 						maxLines = 1
 					)

@@ -40,6 +40,7 @@ import paige.navic.util.CreditedArtist
 import paige.navic.util.PlainArtistLinkStyles
 import paige.navic.util.artistCreditsText
 import paige.navic.util.creditedArtists
+import paige.navic.domain.models.creditText
 
 @Composable
 fun NowPlayingInfoRow(
@@ -141,7 +142,7 @@ fun NowPlayingInfoRow(
 					// this line — everything else in the app keeps the marquee.
 					manualScroll = true,
 					text = artistCreditsText(
-						display = song.artistName,
+						display = song.creditText,
 						credits = credits,
 						linkStyles = PlainArtistLinkStyles,
 						onClick = openArtist

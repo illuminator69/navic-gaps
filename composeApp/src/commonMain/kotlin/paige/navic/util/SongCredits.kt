@@ -56,7 +56,7 @@ private const val CREDIT_TRIM = "()[]{}\"' \t"
  * Never throws — a database failure degrades to the single credit the UI showed before.
  */
 suspend fun creditedArtists(song: DomainSong, artistDao: ArtistDao): List<CreditedArtist> {
-	val whole = song.artistName.trim()
+	val whole = song.artistName.orEmpty().trim()
 	if (whole.isEmpty()) return emptyList()
 
 	val primaryId = song.artistId.takeIf { it.isNotBlank() && it != "unknown artist" }

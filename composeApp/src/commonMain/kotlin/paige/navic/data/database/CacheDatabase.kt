@@ -33,7 +33,13 @@ import kotlinx.coroutines.launch
 	// NOTE: [DownloadEntity] is an entity of BOTH databases, so changing it changes THIS schema
 	// too. Forgetting to bump this version is exactly how you get Room's "changed schema but
 	// forgot to update the version number" identity-hash crash on launch.
-	version = 19,
+	//
+	// 21, not upstream's 20: this fork's 19 and upstream's 19 are DIFFERENT schemas (ours adds
+	// SavedQueueEntity), so a merged build must sit above both or Room would match an installed
+	// database against the wrong schema. The cache is rebuilt destructively on a version change
+	// by design — upstream writes no migrations for it — and saved queues are an offline cache
+	// that syncSavedQueues reconciles from the hub on reconnect.
+	version = 21,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,

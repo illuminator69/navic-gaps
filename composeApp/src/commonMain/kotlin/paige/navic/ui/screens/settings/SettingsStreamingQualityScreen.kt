@@ -68,6 +68,7 @@ import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.di.LocalPlatformContext
+import paige.navic.ui.components.layouts.NestedTopBarDefaults
 
 @Composable
 fun SettingsStreamingQualityScreen() {
@@ -88,7 +89,11 @@ fun SettingsStreamingQualityScreen() {
 		topBar = {
 			NestedTopBar(
 				{ Text(stringResource(Res.string.title_streaming_quality)) },
-				hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+				navigationAction = {
+					if (platformContext.sizeClass.widthSizeClass < WindowWidthSizeClass.Medium) {
+						NestedTopBarDefaults.NavigationAction()
+					}
+				}
 			)
 		},
 		contentWindowInsets = WindowInsets.statusBars

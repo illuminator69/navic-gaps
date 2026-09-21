@@ -52,7 +52,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
-import coil3.imageLoader
+import coil3.ImageLoader
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -107,12 +107,13 @@ import paige.navic.util.Logger
 import java.io.File
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.firstOrNull
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.util.effectiveGain
-import kotlinx.coroutines.flow.firstOrNull
-import androidx.compose.runtime.snapshotFlow
+import paige.navic.domain.models.displayName
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService(), KoinComponent {
@@ -322,7 +323,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onTaskRemoved(rootIntent: Intent?) {
-		onDestroy()
+		pauseAllPlayersAndStopSelf()
 	}
 
 	override fun onDestroy() {
@@ -531,7 +532,7 @@ class AndroidMediaPlayerViewModel(
 	private val audioGainManager: AudioGainManager,
 	private val application: Application,
 	private val albumDao: AlbumDao,
-	private val platformContext: CoilPlatformContext,
+	private val imageLoader: ImageLoader,
 	private val sessionManager: SessionManager,
 	savedQueueRepository: SavedQueueRepository,
 	private val snackBarManager: SnackBarManager
@@ -1568,7 +1569,7 @@ class AndroidMediaPlayerViewModel(
 					// rather than minted so replaying the same album refreshes its card.
 					savedQueueId = sessionIdFor(newCollection),
 					savedQueueKind = collection.toSavedQueueKind(),
-					savedQueueName = collection.name
+					savedQueueName = collection.displayName
 				)
 			}
 		}
@@ -1729,7 +1730,7 @@ class AndroidMediaPlayerViewModel(
 					currentCollection = collection,
 					savedQueueId = sessionIdFor(shuffledSongs),
 					savedQueueKind = collection.toSavedQueueKind(),
-					savedQueueName = collection.name
+					savedQueueName = collection.displayName
 				)
 			}
 		}
@@ -1831,7 +1832,7 @@ class AndroidMediaPlayerViewModel(
 			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
 
 		val artworkData = coverArtId?.let { coverId ->
-			val diskCache = platformContext.imageLoader.diskCache
+			val diskCache = imageLoader.diskCache
 			val snapshot = diskCache?.openSnapshot(coverId) ?: return@let null
 
 			val bytes = try {
@@ -1878,7 +1879,7 @@ class AndroidMediaPlayerViewModel(
 
 		// The Cast MediaItemConverter requires a MIME type (it throws without
 		// one); ExoPlayer also benefits for container sniffing.
-		if (mimeType.isNotBlank()) {
+		if (!mimeType.isNullOrBlank()) {
 			builder.setMimeType(mimeType)
 		}
 

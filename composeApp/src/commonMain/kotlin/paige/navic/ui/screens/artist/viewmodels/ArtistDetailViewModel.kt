@@ -44,6 +44,7 @@ import paige.navic.util.albumTitleKey
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import kotlinx.coroutines.flow.StateFlow
+import paige.navic.domain.models.displayName
 
 @Immutable
 data class ArtistState(
@@ -435,7 +436,7 @@ class ArtistDetailViewModel(
 			if (key.isNotEmpty() && key !in byTitle) byTitle[key] = release
 		}
 		for (album in albums) {
-			val match = byNdId[album.id] ?: byTitle[albumTitleKey(album.name)]
+			val match = byNdId[album.id] ?: byTitle[albumTitleKey(album.displayName)]
 			if (match != null && usedRgids.add(match.rgid)) claimedRelease[album.id] = match
 		}
 
@@ -478,7 +479,7 @@ class ArtistDetailViewModel(
 			val release = claimedRelease[album.id]
 			DiscographyEntry(
 				key = album.id,
-				title = album.name,
+				title = album.displayName,
 				year = release?.year ?: album.year?.toString().orEmpty(),
 				album = album,
 				release = release

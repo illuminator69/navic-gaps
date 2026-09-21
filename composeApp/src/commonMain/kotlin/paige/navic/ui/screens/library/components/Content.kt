@@ -61,7 +61,6 @@ import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
 import paige.navic.ui.screens.artist.ArtistListScreenGridItem
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreenContent(
 	state: LazyGridState,

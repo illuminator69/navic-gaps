@@ -179,7 +179,7 @@ private fun PreviewTrackRow(position: Int, song: DomainSong, isResumePoint: Bool
 			)
 			Text(
 				listOfNotNull(
-					song.artistName.takeIf { it.isNotBlank() },
+					song.artistName?.takeIf { it.isNotBlank() },
 					song.albumTitle?.takeIf { it.isNotBlank() },
 					stringResource(Res.string.queue_resumes_here).takeIf { isResumePoint }
 				).joinToString(" · "),
