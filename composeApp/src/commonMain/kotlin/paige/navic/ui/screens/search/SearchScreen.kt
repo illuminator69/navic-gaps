@@ -62,6 +62,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
@@ -69,7 +70,6 @@ import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.ClapAvailability
 import paige.navic.domain.manager.RadioManager
 import paige.navic.ui.components.sheets.MoodSearchSheet
-import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
@@ -110,6 +110,7 @@ import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.util.buildSongInfoString
+import paige.navic.ui.viewmodel.RootViewModel
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),

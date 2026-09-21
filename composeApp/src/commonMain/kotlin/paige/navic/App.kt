@@ -76,6 +76,8 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.models.settings.ExplicitContentPlayback
+import paige.navic.generated.BuildInfo
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurSource
@@ -321,7 +323,9 @@ fun App() {
 					)
 				}
 				// version check is annoying to do on iOS
-				if (preferenceManager.checkForUpdates && platformContext.platformType == PlatformType.Android) {
+				if (preferenceManager.checkForUpdates
+					&& platformContext.platformType == PlatformType.Android
+					&& !BuildInfo.FDROID) {
 					ChangelogSheet()
 				}
 			}

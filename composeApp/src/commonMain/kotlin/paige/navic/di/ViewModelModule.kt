@@ -37,6 +37,7 @@ import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareListViewModel
 import paige.navic.ui.screens.song.viewmodels.SongDetailViewModel
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
+import paige.navic.ui.viewmodel.RootViewModel
 
 val viewModelModule = module {
 	viewModelOf(::ArtistDetailViewModel)
@@ -145,4 +146,5 @@ val viewModelModule = module {
 	}
 	viewModelOf(::NavtabsViewModel)
 	viewModelOf(::LyricsPriorityViewModel)
+	viewModelOf(::RootViewModel)
 }

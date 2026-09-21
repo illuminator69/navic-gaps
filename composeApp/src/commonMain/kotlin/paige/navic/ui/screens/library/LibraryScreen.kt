@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -51,19 +52,20 @@ import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.ui.theme.NavicTheme
-import paige.navic.ui.util.rememberLibraryWashedScheme
-import paige.navic.ui.util.rememberAppIsDark
-import paige.navic.ui.util.rememberCoverColorScheme
-import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.SavedQueueRepository
-import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
 import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
+import paige.navic.ui.theme.NavicTheme
+import paige.navic.ui.util.rememberAppIsDark
+import paige.navic.ui.util.rememberCoverColorScheme
+import paige.navic.ui.util.rememberLibraryWashedScheme
+import paige.navic.ui.util.rememberNowPlayingCoverArtId
+import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -180,6 +182,17 @@ fun LibraryScreen() {
 	// Washed: the page's surface carries the now-playing sleeve's colour, and so does
 	// everything drawn on it that paints `surface` itself.
 	NavicTheme(libraryScheme) {
+	// upstream's "scroll up when tapping tabs" (alpha55)
+	val gridState = rememberLazyGridState()
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				gridState.animateScrollToItem(0)
+			}
+		}
+	}
+
 	Scaffold(
 		topBar = {
 			// No special content colour: the page's `surface` IS the wash (see
@@ -213,6 +226,7 @@ fun LibraryScreen() {
 			key = listOf(albumsState, playlistsState, artistsState, genresState)
 		) {
 			LibraryScreenContent(
+				state = gridState,
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },

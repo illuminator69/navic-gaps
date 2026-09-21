@@ -190,6 +190,12 @@ fun MiniPlayer(
 	val isRadio = song?.id?.startsWith("radio_") == true
 	val isInteractive = enabled && hasSong
 
+	// upstream's "hide mini player if idle" (alpha55): the whole bar, swiper included,
+	// is gated on there being a song unless the user wants it always visible.
+	AnimatedVisibility(
+		visible = hasSong || !preferenceManager.hideIfIdle,
+		modifier = modifier
+	) {
 	Swiper(
 		onSwipeLeft = {
 			if (isInteractive) {
@@ -203,9 +209,9 @@ fun MiniPlayer(
 		},
 		swipeLeftAccessibilityLabel = stringResource(Res.string.action_previous_song),
 		swipeRightAccessibilityLabel = stringResource(Res.string.action_next_song),
-		modifier = modifier.then(if (detached) {
+		modifier = if (detached) {
 			Modifier.windowInsetsPadding(windowInsets)
-		} else Modifier),
+		} else Modifier,
 		enabled = isInteractive
 	) {
 		Box(
@@ -416,6 +422,7 @@ fun MiniPlayer(
 				)
 			}
 		}
+	}
 	}
 }
 

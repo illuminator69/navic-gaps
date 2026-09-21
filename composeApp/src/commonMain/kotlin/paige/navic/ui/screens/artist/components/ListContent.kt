@@ -29,6 +29,7 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Artist
@@ -36,14 +37,15 @@ import paige.navic.ui.components.common.AlphabeticalScroller
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.core.UiState
-import paige.navic.ui.util.withoutTop
 import paige.navic.ui.screens.artist.ArtistListScreenGridItem
+import paige.navic.ui.util.withoutTop
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun ArtistListScreenContent(
 	state: UiState<ImmutableList<DomainArtist>>,
 	starred: Boolean,
+	selectedSorting: DomainArtistListType,
 	gridState: LazyGridState,
 	scrollBehavior: TopAppBarScrollBehavior,
 	innerPadding: PaddingValues,
@@ -62,15 +64,9 @@ fun ArtistListScreenContent(
 
 	val totalArtistCount = data.size
 
-	// Remembered on the data: this buckets and sorts the WHOLE artist library, and it ran on every
-	// recomposition of this screen (a long-press selection, a starred flag, a download tick).
-	// `headerIndices` below was already memoized — but off `grouped`, which was a new list each
-	// pass, so that remember never actually hit either.
-	val grouped = remember(data) {
-		data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
-			.toList()
-			.sortedBy { it.first }
-	}
+	val grouped = data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+		.toList()
+		.sortedBy { it.first }
 
 	val headerIndices = remember(grouped) {
 		var currentIndex = 1
@@ -103,38 +99,73 @@ fun ArtistListScreenContent(
 			},
 			selectedViewMode = selectedViewMode
 		) {
-			item(span = { GridItemSpan(maxLineSpan) }) {
-				Row(
-					// No opaque surface band. These are ordinary grid items, not pinned headers,
-					// so nothing ever scrolls under them — and against the page's cover wash the
-					// band read as a white bar cut across a coloured background.
-					Modifier.padding(bottom = 8.dp),
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					Text(
-						pluralStringResource(
-							Res.plurals.count_artists,
-							totalArtistCount,
-							totalArtistCount
-						),
-						color = MaterialTheme.colorScheme.onSurfaceVariant
-					)
-				}
-			}
-			grouped.forEach { (letter, artists) ->
-				stickyHeader {
+			if (totalArtistCount != 0) {
+				item(span = { GridItemSpan(maxLineSpan) }) {
 					Row(
-						// Transparent, as above: the alphabet header sits in the wash.
-						Modifier.padding(bottom = 8.dp),
+					// Transparent: these headers sit in the page's cover wash, and an opaque
+					// band read as a white bar cut across a coloured background.
+					modifier = Modifier.padding(bottom = 8.dp),
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						Text(
-							text = letter.toString(),
+							pluralStringResource(
+								Res.plurals.count_artists,
+								totalArtistCount,
+								totalArtistCount
+							),
 							color = MaterialTheme.colorScheme.onSurfaceVariant
 						)
 					}
 				}
-				items(artists, { it.id }) { artist ->
+			}
+			if (selectedSorting == DomainArtistListType.AlphabeticalByName) {
+				grouped.forEach { (letter, artists) ->
+					stickyHeader {
+						Row(
+					// Transparent: these headers sit in the page's cover wash, and an opaque
+					// band read as a white bar cut across a coloured background.
+					modifier = Modifier.padding(bottom = 8.dp),
+							verticalAlignment = Alignment.CenterVertically
+						) {
+							Text(
+								text = letter.toString(),
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+					}
+					items(artists, { it.id }) { artist ->
+						if (selectedViewMode == ListViewMode.Grid) {
+							ArtistListScreenGridItem(
+								modifier = Modifier.animateItem(),
+								tab = "artists",
+								artist = artist,
+								selected = artist == selectedArtist,
+								selectedArtistAlbums = selectedArtistAlbums,
+								starred = starred,
+								onSelect = { onUpdateSelection(artist) },
+								onDeselect = { onClearSelection() },
+								onSetStarred = { onSetStarred(it) },
+								onPlayNext = onPlayNext,
+								onAddToQueue = onAddToQueue
+							)
+						} else {
+							ArtistListScreenListItem(
+								modifier = Modifier.animateItem(),
+								artist = artist,
+								selected = artist == selectedArtist,
+								selectedArtistAlbums = selectedArtistAlbums,
+								starred = starred,
+								onSelect = { onUpdateSelection(artist) },
+								onDeselect = { onClearSelection() },
+								onSetStarred = { onSetStarred(it) },
+								onPlayNext = onPlayNext,
+								onAddToQueue = onAddToQueue
+							)
+						}
+					}
+				}
+			} else {
+				items(data, { it.id }) { artist ->
 					if (selectedViewMode == ListViewMode.Grid) {
 						ArtistListScreenGridItem(
 							modifier = Modifier.animateItem(),
@@ -175,10 +206,12 @@ fun ArtistListScreenContent(
 				}
 			}
 		}
-		AlphabeticalScroller(
-			state = gridState,
-			headers = headerIndices,
-			modifier = Modifier.align(Alignment.TopEnd)
-		)
+		if (selectedSorting == DomainArtistListType.AlphabeticalByName) {
+			AlphabeticalScroller(
+				state = gridState,
+				headers = headerIndices,
+				modifier = Modifier.align(Alignment.TopEnd)
+			)
+		}
 	}
 }

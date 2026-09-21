@@ -10,6 +10,10 @@ plugins {
 
 val isTaskRelease = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
 
+val fdroid = System.getenv("FDROID") == "true" || providers.gradleProperty("fdroid")
+	.map { it.toBoolean() }
+	.getOrElse(false)
+
 extensions.configure<ApplicationExtension> {
 	namespace = "paige.navic.androidApp"
 	compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -22,8 +26,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "paige.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 52
-		versionName = "v1.0.0-alpha52"
+		versionCode = 55
+		versionName = "v1.0.0-alpha55"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
@@ -97,7 +101,11 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 	onVariants { variant ->
 		variant.outputs.forEach { output ->
 			if (output is VariantOutputImpl) {
-				output.outputFileName = "Navic.apk"
+				output.outputFileName = if (fdroid) {
+					"Navic.fdroid.apk"
+				} else {
+					"Navic.apk"
+				}
 			}
 		}
 	}

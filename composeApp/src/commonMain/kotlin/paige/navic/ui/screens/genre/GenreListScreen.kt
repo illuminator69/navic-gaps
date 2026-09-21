@@ -11,6 +11,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.genre.components.genreListScreenContent
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.util.withoutTop
+import paige.navic.ui.viewmodel.RootViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -54,6 +56,15 @@ fun GenreListScreen(
 	)
 	val genresState by viewModel.genresState.collectAsState()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				viewModel.gridState.animateScrollToItem(0)
+			}
+		}
+	}
 
 	Scaffold(
 		topBar = {

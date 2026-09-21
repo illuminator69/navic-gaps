@@ -47,6 +47,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LoginManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SleepTimerMode
 import paige.navic.icons.Icons
@@ -69,6 +70,7 @@ fun AccountSheet(
 ) {
 	val backStack = LocalNavStack.current
 	val loginManager = koinInject<LoginManager>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val settings = koinInject<Settings>()
 
 	var sleepTimerSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -179,10 +181,7 @@ fun AccountSheet(
 					index = 2,
 					count = 4
 				),
-				onClick = {
-					animateToDismiss()
-					backStack.add(Screen.ShareList)
-				},
+				onClick = { sleepTimerSheetOpen = true },
 				leadingContent = {
 					val tint = when (sleepTimerMode) {
 						!is SleepTimerMode.Disabled -> MaterialTheme.colorScheme.positive

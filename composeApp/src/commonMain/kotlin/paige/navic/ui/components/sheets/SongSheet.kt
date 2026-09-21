@@ -55,9 +55,9 @@ import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.option_playback_speed
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.data.database.dao.ArtistDao
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
-import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SleepTimerManager

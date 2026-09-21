@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +64,7 @@ import paige.navic.ui.screens.artist.ArtistListScreenGridItem
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreenContent(
+	state: LazyGridState,
 	scrollBehavior: TopAppBarScrollBehavior,
 	innerPadding: PaddingValues,
 	onSetShareId: (String) -> Unit,
@@ -125,6 +127,7 @@ fun LibraryScreenContent(
 		contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp),
 		verticalArrangement = Arrangement.spacedBy(5.dp),
 		horizontalArrangement = Arrangement.spacedBy(5.dp),
+		state = state
 	) {
 		// Stale-library banner: only when a sync actually failed, so the happy path is unchanged.
 		if (syncFailed) {

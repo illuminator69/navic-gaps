@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousCapsule
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
@@ -77,10 +78,11 @@ import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Search
-import paige.navic.ui.util.animatedTabIconPainter
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
+import paige.navic.ui.util.animatedTabIconPainter
+import paige.navic.ui.viewmodel.RootViewModel
 
 private enum class NavItem(
 	val destination: Screen,
@@ -151,6 +153,7 @@ fun BottomBar(
 	enabled: Boolean = true
 ) {
 	val viewModel = koinViewModel<NavtabsViewModel>()
+	val rootViewModel = koinViewModel<RootViewModel>()
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val state by viewModel.state.collectAsState()
@@ -191,6 +194,17 @@ fun BottomBar(
 		return
 	}
 
+	val onTabSelected = { destination: Screen ->
+		if (destination !in backStack) {
+			backStack.apply {
+				clear()
+				add(destination)
+			}
+		} else {
+			rootViewModel.requestScrollToTop()
+		}
+	}
+
 	AnimatedContent(
 		preferenceManager.navigationBarStyle != NavigationBarStyle.Short
 			&& platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
@@ -222,11 +236,8 @@ fun BottomBar(
 						enabled = enabled,
 						alwaysShowLabel = preferenceManager.navigationBarLabelVisibility
 							== NavigationBarLabelVisibility.Always,
-						onClick = {
-							backStack.apply {
-								clear()
-								add(item.destination)
-							}
+						onClick = dropUnlessResumed {
+							onTabSelected(item.destination)
 						},
 						icon = {
 							if (selected) {
@@ -283,11 +294,8 @@ fun BottomBar(
 						else NavigationItemIconPosition.Top,
 						selected = backStack.last() == item.destination,
 						enabled = enabled,
-						onClick = {
-							backStack.apply {
-								clear()
-								add(item.destination)
-							}
+						onClick = dropUnlessResumed {
+							onTabSelected(item.destination)
 						},
 						icon = {
 							if (selected) {
