@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +42,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.screens.stats.viewmodels.StatisticsState
-import paige.navic.ui.util.rememberColorSchemeFromCoverArt
+import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.util.toSummaryString
 import kotlin.time.Duration
 
@@ -150,8 +151,21 @@ private fun StatPageContent(
 	duration: Duration,
 	totalDuration: Duration
 ) {
-	val colorScheme = rememberColorSchemeFromCoverArt(coverArtId)
-	val barColor = colorScheme.primary
+	// The fork's engine, not upstream's rememberColorSchemeFromCoverArt: that one is the
+	// rememberDominantColorState path replaced at alpha58 (it seeds off dominantSwatch, a flat
+	// minority patch) and it derives at the APP's themeMode, so on a page whose brightness
+	// follows the artwork it returns a light-theme primary — a black bar on a dark page.
+	// followArtworkBrightness = false because the PAGE's brightness is fixed here; a row must
+	// not flip because one artist photo happens to be dark.
+	val pageIsDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+	val cover = rememberCoverColorScheme(
+		coverArtId = coverArtId,
+		isDark = pageIsDark,
+		followArtworkBrightness = false
+	)
+	// An unresolved palette is a stand-in, not a statement about this artwork, so fall back to
+	// the page's own accent rather than painting a bar with a fabricated colour.
+	val barColor = if (cover.resolved) cover.scheme.primary else MaterialTheme.colorScheme.primary
 	val ratio = when {
 		totalDuration > Duration.ZERO -> (duration.inWholeMilliseconds.toDouble() / totalDuration.inWholeMilliseconds.toDouble()).toFloat()
 		else -> 0f

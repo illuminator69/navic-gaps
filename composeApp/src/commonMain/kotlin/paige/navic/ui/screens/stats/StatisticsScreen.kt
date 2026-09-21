@@ -176,8 +176,11 @@ fun StatisticsScreen(
 				}
 
 				item {
-					val color = MaterialTheme.colorScheme.onTertiaryContainer
-					val contentColor = MaterialTheme.colorScheme.tertiaryContainer
+					// Same orientation as the two cards beside it. Upstream passes these swapped
+					// (container as the CONTENT colour), which under a cover-derived scheme reads
+					// as gold text on a near-black card rather than a tinted card.
+					val color = MaterialTheme.colorScheme.tertiaryContainer
+					val contentColor = MaterialTheme.colorScheme.onTertiaryContainer
 					StatSummaryCard(
 						color = color,
 						contentColor = contentColor,
