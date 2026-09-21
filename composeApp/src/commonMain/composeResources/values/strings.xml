@@ -59,6 +59,10 @@
 	<string name="title_theme_mode">Theme mode</string>
 	<string name="title_account">Account</string>
 	<string name="title_track_info">Track info</string>
+	<string name="title_statistics">Stats</string>
+	<string name="title_top_songs">Top songs</string>
+	<string name="title_top_artists">Top artists</string>
+	<string name="title_top_albums">Top albums</string>
 	<string name="title_lyric_providers">Lyric providers</string>
 	<string name="title_github">GitHub</string>
 	<string name="title_codeberg">Codeberg</string>
@@ -87,12 +91,12 @@
 	<string name="subtitle_theme_overridden">Artwork is driving the colours. This still applies where there is none — settings, dialogs, and browsing pages with nothing playing.</string>
 	<string name="subtitle_app_icon_designer">Designed by: %1$s</string>
 	<string name="subtitle_local_network_denied">You need to grant Navic access to your local network in order for your server to be reachable.</string>
+	<string name="subtitle_notifications_denied">You need to grant Navic notification permissions to receive download and sync notifications.</string>
 	<string name="subtitle_equaliser">Tune &amp; enhance audio</string>
 	<string name="subtitle_equaliser_disabled">Not available when audio offload is enabled</string>
 	<string name="subtitle_configure_lyric_providers">Choose where to fetch lyrics from</string>
 	<string name="subtitle_audio_effects">Adjust how the music sounds</string>
 	<string name="subtitle_enable_ratings">Enable 5-star ratings for music</string>
-	<string name="subtitle_enable_sharing">Enable sharing links to music &amp; listing shares</string>
 
 	<string name="option_off">Off</string>
 	<string name="option_now_playing_background_style">Background style</string>
@@ -124,6 +128,8 @@
 	<string name="option_account_password">Password</string>
 	<string name="option_lyrics_autoscroll">Lyrics auto-scrolling</string>
 	<string name="option_lyrics_beat_by_beat">Beat-by-beat lyrics</string>
+	<string name="option_lyrics_fake_beat_by_beat">Fake beat-by-beat effect</string>
+	<string name="subtitle_lyrics_fake_beat_by_beat">Simulate word-level timing when it is missing</string>
 	<string name="option_sort_random">Random</string>
 	<string name="option_sort_newest">Recently added</string>
 	<string name="option_sort_rating">Rating</string>
@@ -189,6 +195,7 @@
 	<string name="option_cover_art_quality">Cover art quality</string>
 	<string name="option_palette_style">Palette style</string>
 	<string name="option_palette_specification">Palette specification</string>
+	<string name="option_use_amoled_theme">Use AMOLED theme</string>
 	<string name="option_explicit_playback">Explicit content playback</string>
 	<string name="option_explicit_playback_allowed">Allowed</string>
 	<string name="option_explicit_playback_skip">Skip explicit songs</string>
@@ -206,12 +213,11 @@
 	<string name="option_list_view_mode_grid">Grid</string>
 	<string name="option_list_view_mode_list">List</string>
 	<string name="option_enable_ratings">Enable ratings</string>
-	<string name="option_enable_sharing">Enable sharing</string>
 	<string name="option_enable_predictive_back_animations">Enable predictive back animations</string>
 
 	<string name="info_status_idle">Idle</string>
 	<string name="info_status_calculating">Calculating...</string>
-	<string name="info_status_downloading">Downloading in progress...</string>
+	<string name="info_status_downloading">Download in progress...</string>
 	<string name="info_sync_never">Never</string>
 	<string name="info_sync_just_now">Just now</string>
 	<string name="info_bulk_download_warning">Are you sure you want to download every album by %1$s?\nThis may require a significant amount of storage and data.</string>
@@ -236,13 +242,6 @@
 	<string name="option_bottom_bar_visibility_mode_default">Default</string>
 	<string name="option_bottom_bar_visibility_mode_all_screens">All screens</string>
 
-	<string name="option_navigation_bar_style">Navigation bar style</string>
-	<string name="option_navigation_bar_style_normal">Normal</string>
-	<string name="option_navigation_bar_style_short">Short</string>
-	<string name="option_navigation_bar_label_visibility">Label visibility</string>
-	<string name="option_navigation_bar_label_visibility_always">Always</string>
-	<string name="option_navigation_bar_label_visibility_only_selected">Only selected</string>
-	<string name="option_navigation_bar_label_visibility_never">Never</string>
 	<string name="option_navigation_bar_tabs">Configure and re-order tabs</string>
 
 	<string name="option_mini_player_style">Mini player style</string>
@@ -256,7 +255,7 @@
 	<string name="option_queue_info_type">Queue information</string>
 	<string name="option_queue_info_type_remining">Show songs/time remaining</string>
 	<string name="option_queue_info_type_full">Show songs/time of the whole queue</string>
-	
+
 	<string name="theme_dynamic">Dynamic</string>
 	<string name="theme_seeded">Tinted</string>
 	<string name="theme_ios">Cupertino</string>
@@ -322,6 +321,11 @@
 		<item quantity="other">Rate %1$d stars</item>
 	</plurals>
 
+	<plurals name="count_plays">
+		<item quantity="one">%1$d play</item>
+		<item quantity="other">%1$d plays</item>
+	</plurals>
+
 	<plurals name="count_lines">
 		<item quantity="one">%1$d line selected</item>
 		<item quantity="other">%1$d lines selected</item>
@@ -345,6 +349,7 @@
 	<string name="action_view_album">View album</string>
 	<string name="action_view_playlist">View playlist</string>
 	<string name="action_view_artist">View artist</string>
+	<string name="action_view_statistics">View statistics</string>
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_download">Download</string>
@@ -417,6 +422,7 @@
 	<string name="notice_login_suggestion">Did you mean...</string>
 	<string name="notice_queue_duplicate">This song is already in the queue. Do you want to add it again?</string>
 	<string name="notice_local_network_denied">Permission denied</string>
+	<string name="notice_notifications_denied">Permission denied</string>
 	<string name="notice_link_confirmation">This link is taking you to the following website:</string>
 
 	<string name="info_app_version">Navic %1$s</string>
@@ -451,6 +457,9 @@
 	<string name="info_track_replay_gain">Track ReplayGain</string>
 	<string name="info_album_replay_gain">Album ReplayGain</string>
 	<string name="info_dynamic_replay_gain">Dynamic ReplayGain</string>
+	<string name="info_total_plays">Total plays</string>
+	<string name="info_total_listening_time">Total listening time</string>
+	<string name="info_listening_stats_ratio">%1$d% of total listening time</string>
 	<string name="info_track_replay_gain_effective">ReplayGain effective value</string>
 	<string name="info_update">Version "%1$s" has been released</string>
 	<string name="info_shared_by">Shared by %1$s</string>
@@ -494,6 +503,7 @@
 	<string name="info_equaliser_unsupported">Your device does not support this feature.</string>
 	<string name="info_equaliser_mode_not_builtin">Please adjust the external equaliser using its dedicated app.</string>
 	<string name="info_lyric_provider_disclaimer">Enabling LRCLIB and/or LyricsPlus will make requests to external and unaffiliated web services.</string>
+	<string name="info_starred_songs">Starred songs</string>
 	<string name="info_duration_left">%1$s left</string>
 	<string name="option_account_navidrome_instance">Instance URL</string>
 	<string name="info_login_description_start">Log into your</string>
@@ -518,7 +528,6 @@
 	<string name="action_logs_unfollow">Stop following</string>
 	<string name="info_logs_empty">No lines match this filter.</string>
 
-	<string name="option_navigation_bar_style_floating">Floating</string>
 	<string name="theme_subtitle_dynamic">Available on Android 12 and above</string>
 	<string name="theme_subtitle_seeded">One colour for all</string>
 	<string name="theme_subtitle_ios">A city in California</string>
@@ -751,4 +760,5 @@
 	<string name="info_sync_date_format">%1$d %2$s</string>
 	<string name="info_bitrate_default_zero">Leaving this empty defaults to 0. Letting the server pick.</string>
 
+	<string name="action_allow">Allow</string>
 </resources>

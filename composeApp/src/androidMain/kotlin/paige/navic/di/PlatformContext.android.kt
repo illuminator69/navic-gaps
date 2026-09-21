@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.app.ActivityCompat.requestPermissions
@@ -99,7 +100,14 @@ actual fun rememberPlatformContext(): PlatformContext {
 			override val colorScheme: ColorScheme =
 				if (Build.VERSION.SDK_INT >= 31)
 					if (isDark)
-						dynamicDarkColorScheme(context)
+						if (preferenceManager.amoled)
+							dynamicDarkColorScheme(context).copy(
+								surface = Color.Black,
+								onSurface = Color.White,
+								background = Color.Black,
+								onBackground = Color.White
+							)
+						else dynamicDarkColorScheme(context)
 					else dynamicLightColorScheme(context)
 				else
 					if (isDark)

@@ -38,6 +38,7 @@ fun LyricsScreenKaraokeText(
 	progress: Float,
 	isActive: Boolean,
 	isSynced: Boolean,
+	isBeatByBeat: Boolean,
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -95,7 +96,7 @@ fun LyricsScreenKaraokeText(
 					.fillMaxWidth()
 					.alpha(alphaTransition)
 					.then(
-						if (lyricsBeatByBeat) {
+						if (lyricsBeatByBeat && isBeatByBeat) {
 							Modifier
 								.graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
 								.drawWithCache {

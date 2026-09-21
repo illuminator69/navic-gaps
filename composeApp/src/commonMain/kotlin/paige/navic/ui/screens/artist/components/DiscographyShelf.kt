@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,10 +15,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
@@ -212,7 +213,7 @@ private fun sectionTitle(type: String): String = when (type) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CarouselItemScope.DiscographyTile(
+private fun DiscographyTile(
 	entry: DiscographyEntry,
 	onClick: () -> Unit,
 	onLongClick: () -> Unit
@@ -220,11 +221,11 @@ private fun CarouselItemScope.DiscographyTile(
 	val present = entry.presentTracks
 	val total = entry.totalTracks
 
-	Column(Modifier.fillMaxWidth()) {
+	Column(Modifier.width(150.dp)) {
 		Box(Modifier.fillMaxWidth()) {
 			val artModifier = Modifier
 				.fillMaxWidth()
-				.maskClip(MaterialTheme.shapes.large)
+				.clip(MaterialTheme.shapes.large)
 			if (entry.owned) {
 				CoverArt(
 					coverArtId = entry.album?.coverArtId,

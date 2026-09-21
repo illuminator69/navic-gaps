@@ -15,8 +15,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -57,6 +55,10 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.common.SongRowStatus
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.common.SmallRatingRow
+import paige.navic.ui.components.common.SwipeToDismissBox
 import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
@@ -163,6 +165,7 @@ fun CollectionDetailScreenSongRow(
 				containerColor = SongRowDefaults.containerColor(isCurrentTrack),
 				contentColor = SongRowDefaults.contentColor(isCurrentTrack)
 			),
+			verticalAlignment = Alignment.CenterVertically,
 			leadingContent = {
 				if (isPlaylist)
 						CoverArt(
@@ -172,7 +175,7 @@ fun CollectionDetailScreenSongRow(
 						)
 				else
 					Text(
-						text = "${index + 1}",
+						text = song.trackNumber?.toString() ?: "${index + 1}",
 						modifier = Modifier.width(25.dp),
 						style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
 						fontWeight = FontWeight(400),
@@ -199,6 +202,9 @@ fun CollectionDetailScreenSongRow(
 						style = MaterialTheme.typography.bodySmall,
 						maxLines = 1
 					)
+					if (song.userRating != null && song.userRating != 0) {
+						SmallRatingRow(rating = song.userRating)
+					}
 				}
 			},
 			trailingContent = {

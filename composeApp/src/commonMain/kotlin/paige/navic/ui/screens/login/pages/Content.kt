@@ -38,14 +38,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousCapsule
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_log_in
 import navic.composeapp.generated.resources.action_open_settings
 import navic.composeapp.generated.resources.info_login_description
 import navic.composeapp.generated.resources.notice_local_network_denied
+import navic.composeapp.generated.resources.notice_notifications_denied
 import navic.composeapp.generated.resources.option_custom_headers
 import navic.composeapp.generated.resources.subtitle_local_network_denied
+import navic.composeapp.generated.resources.subtitle_notifications_denied
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -82,19 +87,28 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 	val permissionManager = koinInject<PermissionManager>()
 	val loginScope = rememberCoroutineScope()
 	var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
+	var notificationsDenied by rememberSaveable { mutableStateOf(false) }
+
 	val login: () -> Unit = {
 		loginScope.launch {
-			if (!permissionManager.requestLocalNetworkPermission()) {
-				localNetworkDenied = true
-				return@launch
-			}
-
-			if (!viewModel.login()) {
-				haptics.performHapticFeedback(HapticFeedbackType.Reject)
-				when {
-					viewModel.instanceError -> instanceFocusRequester.requestFocus()
-					viewModel.usernameError -> usernameFocusRequester.requestFocus()
-					viewModel.passwordError -> passwordFocusRequester.requestFocus()
+			withContext(Dispatchers.IO) {
+				if (viewModel.isLocalNetworkInstance()) {
+					if (!permissionManager.requestLocalNetworkPermission()) {
+						localNetworkDenied = true
+						return@withContext
+					}
+				}
+				if (!permissionManager.requestNotificationsPermission()) {
+					notificationsDenied = true
+					return@withContext
+				}
+				if (!viewModel.login()) {
+					haptics.performHapticFeedback(HapticFeedbackType.Reject)
+					when {
+						viewModel.instanceError -> instanceFocusRequester.requestFocus()
+						viewModel.usernameError -> usernameFocusRequester.requestFocus()
+						viewModel.passwordError -> passwordFocusRequester.requestFocus()
+					}
 				}
 			}
 		}
@@ -221,6 +235,27 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 					modifier = Modifier.fillMaxWidth(),
 					onClick = {
 						localNetworkDenied = false
+						permissionManager.openPermissionsSettings()
+					},
+					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 1)
+				) {
+					Text(stringResource(Res.string.action_open_settings))
+				}
+			}
+		)
+	}
+
+	if (notificationsDenied) {
+		FormDialog(
+			onDismissRequest = { notificationsDenied = false },
+			icon = { Icon(Icons.Outlined.Error, null) },
+			title = { Text(stringResource(Res.string.notice_notifications_denied)) },
+			content = { Text(stringResource(Res.string.subtitle_notifications_denied)) },
+			buttons = {
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = {
+						notificationsDenied = false
 						permissionManager.openPermissionsSettings()
 					},
 					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 1)

@@ -20,15 +20,16 @@
 		tools:ignore="ForegroundServicesPolicy" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+	<!-- Download and library-sync progress notifications (upstream), and lb-bot fill
+	     outcomes (see FillNotifier). Playback's own notification rides on the media
+	     session's foreground service and needs nothing here. Requested through
+	     PermissionManager.requestNotificationsPermission() — one launcher, not two. -->
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
 	<permission
 		android:name="${applicationId}.permission.PLAYBACK_SERVICE"
 		android:protectionLevel="signature" />
 	<uses-permission android:name="${applicationId}.permission.PLAYBACK_SERVICE" />
-	<!-- Only for lb-bot fill outcomes (see FillNotifier). Playback's own notification
-	     rides on the media session's foreground service and needs nothing here, which is
-	     why the app had no notification permission at all until now. Requested lazily,
-	     the first time a fill is started, so nobody who never uses lb-bot is ever asked. -->
-	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
 	<application
 		android:name=".Application"
@@ -96,6 +97,7 @@
 			<intent-filter>
 
 				<action android:name="androidx.media3.session.MediaSessionService" />
+				<action android:name="androidx.media3.session.MediaLibraryService" />
 				<action android:name="android.media.browse.MediaBrowserService" />
 			</intent-filter>
 		</service>

@@ -137,6 +137,10 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen
 
+	@Immutable
+	@Serializable
+	data class Statistics(val nested: Boolean = false) : Screen
+
 	/**
 	 * New releases from ListenBrainz, via lb-bot. A tab, hence [nested].
 	 */

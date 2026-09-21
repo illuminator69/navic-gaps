@@ -62,6 +62,7 @@ import paige.navic.ui.util.rememberAppIsDark
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
+import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
@@ -109,6 +110,11 @@ fun LibraryScreen() {
 		viewModelStoreOwner = persistentViewModelStoreOwner
 	)
 	val genresState by genresViewModel.genresState.collectAsStateWithLifecycle()
+
+	val statsViewModel = koinViewModel<StatisticsViewModel>(
+		viewModelStoreOwner = persistentViewModelStoreOwner
+	)
+	val statsState by statsViewModel.state.collectAsStateWithLifecycle()
 
 	val loginManager = koinInject<LoginManager>()
 	val loginState by loginManager.loginState.collectAsStateWithLifecycle()
@@ -277,7 +283,8 @@ fun LibraryScreen() {
 					)
 				},
 
-				genresState = genresState
+				genresState = genresState,
+				statsState = statsState
 			)
 		}
 		}

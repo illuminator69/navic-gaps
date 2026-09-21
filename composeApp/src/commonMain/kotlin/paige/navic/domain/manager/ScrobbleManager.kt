@@ -85,6 +85,7 @@ class ScrobbleManager(
 		val playedEnoughPercent = percent >= preferenceManager.scrobblePercentage
 		// Seconds, per the settings screen's own "30s" label — `duration` is milliseconds, so the
 		// unconverted comparison excluded only tracks shorter than 30ms, i.e. nothing at all.
+		// (alpha59 made the same fix upstream.)
 		val isValidSong = duration >= preferenceManager.minDurationToScrobble * 1000
 
 		if (isValidSong && playedEnoughPercent) {
@@ -97,14 +98,16 @@ class ScrobbleManager(
 		if (!preferenceManager.enableScrobbling || songId == null) return
 
 		scope.launch(Dispatchers.IO) {
+			val currentTime = Clock.System.now()
+
 			if (connectivityManager.isOnline.value) {
 				try {
-					sessionManager.api.scrobble(songId, submission = true)
+					sessionManager.api.scrobble(songId, submission = true, time = currentTime)
 				} catch (_: Exception) {
-					syncManager.enqueueAction(SyncActionType.SCROBBLE, songId)
+					syncManager.enqueueAction(SyncActionType.SCROBBLE, songId, currentTime)
 				}
 			} else {
-				syncManager.enqueueAction(SyncActionType.SCROBBLE, songId)
+				syncManager.enqueueAction(SyncActionType.SCROBBLE, songId, currentTime)
 			}
 		}
 	}

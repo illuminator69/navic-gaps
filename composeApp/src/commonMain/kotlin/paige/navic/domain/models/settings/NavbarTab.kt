@@ -17,6 +17,7 @@ data class NavbarTab(
 		GENRES,
 		SONGS,
 		RADIOS,
+		STATISTICS,
 
 		/**
 		 * New releases from ListenBrainz, via lb-bot.

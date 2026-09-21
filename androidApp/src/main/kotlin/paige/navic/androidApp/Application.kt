@@ -10,6 +10,7 @@ import coil3.SingletonImageLoader
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.component.KoinComponent
 import org.koin.dsl.module
 import paige.navic.androidApp.di.AndroidResourceProvider
 import paige.navic.di.ActivityProvider
@@ -28,7 +29,7 @@ import kotlin.system.exitProcess
  * "singleton image loader has already been created". With the factory on the
  * Application, whoever calls `.get()` first gets the configured loader.
  */
-class Application : android.app.Application(), SingletonImageLoader.Factory {
+class Application : android.app.Application(), SingletonImageLoader.Factory, KoinComponent {
 
 	override fun newImageLoader(context: PlatformContext): ImageLoader =
 		initializeSingletonImageLoader(context)

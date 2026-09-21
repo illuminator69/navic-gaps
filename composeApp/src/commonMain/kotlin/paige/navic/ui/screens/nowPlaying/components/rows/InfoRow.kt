@@ -32,6 +32,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.SmallRatingRow
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButton
 import paige.navic.ui.util.InlineExplicitIconLarge
@@ -147,6 +148,12 @@ fun NowPlayingInfoRow(
 						linkStyles = PlainArtistLinkStyles,
 						onClick = openArtist
 					)
+				)
+			}
+			if (songRating != 0) {
+				SmallRatingRow(
+					rating = songRating,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
 		}

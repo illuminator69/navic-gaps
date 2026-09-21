@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import org.jetbrains.compose.resources.getString
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.LyricDao
@@ -40,11 +41,12 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
-import paige.navic.di.PlatformType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.Logger
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_status_downloading
 import kotlin.time.Clock
 import coil3.PlatformContext as CoilPlatformContext
 
@@ -58,17 +60,11 @@ class DownloadManager(
 	private val lyricDao: LyricDao,
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
-	private val connectivityManager: ConnectivityManager
+	private val connectivityManager: ConnectivityManager,
+	private val notificationManager: NotificationManager
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-	private val client = HttpClient {
-		val customHeaders = preferenceManager.customHeadersMap()
-		if (customHeaders.isNotEmpty()) {
-			defaultRequest {
-				customHeaders.forEach { (key, value) -> header(key, value) }
-			}
-		}
-	}
+	private val client = sessionManager.api.httpClient
 	private val activeDownloadsMutex = Mutex()
 	private val activeDownloads = mutableMapOf<String, Job>()
 	// Max simultaneous transfers = the user's max-concurrency setting (capped at [MAX_CONCURRENCY]).
@@ -100,6 +96,32 @@ class DownloadManager(
 		combine(connectivityManager.isCellular, connectivityManager.isCharging) { cellular, charging ->
 			constraintsSatisfied(cellular, charging)
 		}.first { it }
+	}
+
+	private val downloadProgressMutex = Mutex()
+	private var totalSongsToDownload = 0
+	private var completedSongsDownloaded = 0
+
+	private suspend fun updateDownloadNotification() {
+		if (totalSongsToDownload == 0) return
+
+		if (completedSongsDownloaded >= totalSongsToDownload) {
+			notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+			totalSongsToDownload = 0
+			completedSongsDownloaded = 0
+		} else {
+			val progress = completedSongsDownloaded.toFloat() / totalSongsToDownload.toFloat()
+			val titleStr = getString(Res.string.info_status_downloading)
+			val msgStr = "$completedSongsDownloaded / $totalSongsToDownload"
+
+			notificationManager.showProgressNotification(
+				id = NotificationIds.DOWNLOAD_LIBRARY,
+				title = "$titleStr (${(progress * 100).toInt()}%)",
+				message = msgStr,
+				progress = progress,
+				indeterminate = false
+			)
+		}
 	}
 
 	private var libraryDownloadJob: Job? = null
@@ -225,7 +247,10 @@ class DownloadManager(
 		source: String = DownloadSource.MANUAL,
 		// True when re-attempting a previously-failed row, so the attempt count advances toward
 		// [MAX_DOWNLOAD_RETRIES]. A first attempt (or a not-yet-failed song) passes false.
-		incrementRetry: Boolean = false
+		incrementRetry: Boolean = false,
+		// Counts this song into the download-progress notification's denominator. False for the
+		// library sweep, which counts its whole batch up front (see downloadLibrary).
+		incrementCounter: Boolean = true
 	): Job {
 		val job = scope.launch(Dispatchers.IO) {
 			// Check-and-claim in ONE critical section: two concurrent calls for the same songId must
@@ -239,6 +264,14 @@ class DownloadManager(
 				}
 			}
 			if (!claimed) return@launch
+
+			if (incrementCounter) {
+				downloadProgressMutex.withLock {
+					if (totalSongsToDownload == 0) completedSongsDownloaded = 0
+					totalSongsToDownload++
+					updateDownloadNotification()
+				}
+			}
 
 			val resolved = quality ?: preferredQuality()
 			val bitrate = resolved.bitrate
@@ -277,6 +310,12 @@ class DownloadManager(
 				throw e
 			} finally {
 				activeDownloadsMutex.withLock { activeDownloads.remove(song.id) }
+				// In `finally`, not duplicated across the success path and the catch as upstream
+				// has it: every job that got past the claim counts exactly once, however it ended.
+				downloadProgressMutex.withLock {
+					completedSongsDownloaded++
+					updateDownloadNotification()
+				}
 			}
 		}
 		return job
@@ -370,6 +409,14 @@ class DownloadManager(
 					return@launch
 				}
 
+				downloadProgressMutex.withLock {
+					if (totalSongsToDownload == 0) {
+						completedSongsDownloaded = 0
+					}
+					totalSongsToDownload += totalToDownload
+					updateDownloadNotification()
+				}
+
 				val downloadQueue = Channel<DomainSong>(Channel.UNLIMITED)
 				songsToDownload.forEach { downloadQueue.trySend(it) }
 				downloadQueue.close()
@@ -380,12 +427,16 @@ class DownloadManager(
 				val workers = List(10) {
 					launch {
 						for (song in downloadQueue) {
-							downloadSong(song, source = DownloadSource.LIBRARY).join()
+							downloadSong(
+								song,
+								source = DownloadSource.LIBRARY,
+								incrementCounter = false
+							).join()
 
 							progressMutex.withLock {
 								processedCount++
-								libraryDownloadProgress.value =
-									processedCount.toFloat() / totalToDownload.toFloat()
+								val progress = processedCount.toFloat() / totalToDownload.toFloat()
+								libraryDownloadProgress.value = progress
 							}
 						}
 					}
@@ -408,6 +459,12 @@ class DownloadManager(
 		libraryDownloadProgress.value = 0f
 
 		scope.launch(Dispatchers.IO) {
+			downloadProgressMutex.withLock {
+				totalSongsToDownload = 0
+				completedSongsDownloaded = 0
+				notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+			}
+
 			val jobsToCancel = activeDownloadsMutex.withLock {
 				val copy = activeDownloads.toMap()
 				activeDownloads.clear()

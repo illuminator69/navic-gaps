@@ -19,8 +19,6 @@ import paige.navic.domain.models.settings.MarqueeSpeed
 import paige.navic.domain.models.settings.MoodCharacter
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
-import paige.navic.domain.models.settings.NavigationBarLabelVisibility
-import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
@@ -55,9 +53,9 @@ class PreferenceManager(
 	var marqueeSpeed by preference(MarqueeSpeed.Slow)
 	var alphabeticalScroll by preference(false)
 	var enableRatings by preference(true)
-	var enableSharing by preference(true)
 	var lyricsAutoscroll by preference(true)
 	var lyricsBeatByBeat by preference(true)
+	var lyricsFakeBeatByBeat by preference(false)
 	var lyricsKeepAlive by preference(true)
 	var lyricsBlur by preference(false)
 	var lyricsBrightInactive by preference(false)
@@ -150,17 +148,13 @@ class PreferenceManager(
 	var artistListViewMode by preference(ListViewMode.Grid)
 	var playlistListViewMode by preference(ListViewMode.Grid)
 	var songListViewMode by preference(ListViewMode.List)
-
-	var navigationBarStyle by preference(NavigationBarStyle.Floating)
-	var navigationBarLabelVisibility by preference(
-        NavigationBarLabelVisibility.Always
-    )
 	var miniPlayerStyle by preference(MiniPlayerStyle.Detached)
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
 
 	// theme related settings
 	var theme by preference(Theme.Dynamic)
 	var themeMode by preference(ThemeMode.System)
+	var amoled by preference(false)
 	// ON by default: the fork has always themed from cover art, and this pref had no readers at all
 	// until it was rewired (see `coverThemingEnabled`), so defaulting false would un-theme every
 	// existing install on update.

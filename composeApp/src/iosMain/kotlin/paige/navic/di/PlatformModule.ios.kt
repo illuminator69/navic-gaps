@@ -19,6 +19,7 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.NoopCastBridgeStatus
 import paige.navic.domain.manager.PermissionManager
+import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.shared.IOSMediaPlayerViewModel
@@ -74,6 +75,7 @@ actual val platformModule = module {
 	}
 
 	singleOf(::ShareManager)
+	singleOf(::NotificationManager)
 	single<CoilPlatformContext> { CoilPlatformContext.INSTANCE }
 	singleOf(::StorageManager)
 	singleOf(::ConnectivityManager)

@@ -25,6 +25,7 @@ import navic.composeapp.generated.resources.info_syncing_genres
 import navic.composeapp.generated.resources.info_syncing_playlists
 import navic.composeapp.generated.resources.info_syncing_radios
 import navic.composeapp.generated.resources.info_syncing_saved
+import navic.composeapp.generated.resources.title_sync_control
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
 import paige.navic.data.database.dao.AlbumDao
@@ -41,6 +42,8 @@ import paige.navic.data.database.entities.PlaylistSongCrossRef
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
+import paige.navic.domain.manager.NotificationIds
+import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainArtist
 import paige.navic.util.Logger
@@ -55,7 +58,8 @@ class DbRepository(
 	private val radioDao: RadioDao,
 	private val lyricDao: LyricDao,
 	private val syncDao: SyncActionDao,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	private val notificationManager: NotificationManager
 ) {
 	private val concurrentRequestLimit = Semaphore(20)
 
@@ -89,67 +93,82 @@ class DbRepository(
 		// Deliberately not logged. This fires once per album, tens of times a second on a full
 		// pull, and each line was a bare float plus a StringResource's toString — no diagnostic
 		// value, and enough volume to bury every other tag in logcat. The per-section
-		// "- X Synced" lines below carry the actual progress information.
-		val progressCallback = onProgress
+		// "- X Synced" lines below carry the actual progress information. Upstream's Logger.i
+		// here is deliberately not taken; its progress NOTIFICATION below is.
+		coroutineScope {
+			val progressCallback = suspend { progress: Float, message: StringResource ->
+				onProgress(progress, message)
 
-		progressCallback(0.0f, Res.string.info_syncing)
+				notificationManager.showProgressNotification(
+					id = NotificationIds.SYNC_LIBRARY,
+					title = "${getString(Res.string.title_sync_control)} (${(progress * 100).toInt()}%)",
+					message = getString(message),
+					progress = progress,
+					indeterminate = progress <= 0f
+				)
+			}
 
-		progressCallback(0.01f, Res.string.info_syncing_genres)
-		syncGenres().getOrThrow()
+			try {
+				progressCallback(0.0f, Res.string.info_syncing)
 
-		progressCallback(0.02f, Res.string.info_syncing_radios)
-		try {
-			syncRadios().getOrThrow()
-		} catch (ex: SubsonicException) {
-			Logger.e(
-				tag = "DbRepository",
-				msg = "could not sync radio stations, maybe this server doesn't support it",
-				tr = ex
-			)
-		}
+				progressCallback(0.01f, Res.string.info_syncing_genres)
+				syncGenres().getOrThrow()
 
-		progressCallback(0.04f, Res.string.info_syncing_artists)
-		syncArtists().getOrThrow()
+				progressCallback(0.02f, Res.string.info_syncing_radios)
+				try {
+					syncRadios().getOrThrow()
+				} catch (ex: SubsonicException) {
+					Logger.e(
+						tag = "DbRepository",
+						msg = "could not sync radio stations, maybe this server doesn't support it",
+						tr = ex
+					)
+				}
 
-		progressCallback(0.07f, Res.string.info_syncing_playlists)
-		val playlists = syncPlaylists().getOrThrow()
+				progressCallback(0.04f, Res.string.info_syncing_artists)
+				syncArtists().getOrThrow()
 
-		val validAlbumIds = mutableSetOf<String>()
-		val validSongIds = mutableSetOf<String>()
+				progressCallback(0.07f, Res.string.info_syncing_playlists)
+				val playlists = syncPlaylists().getOrThrow()
 
-		val libraryResult = syncLibrarySongs { localProgress, message ->
-			val globalProgress = 0.10f + (localProgress * 0.65f)
-			progressCallback(globalProgress, message)
-		}.getOrThrow()
+				val validAlbumIds = mutableSetOf<String>()
+				val validSongIds = mutableSetOf<String>()
 
-		validAlbumIds.addAll(libraryResult.first)
-		validSongIds.addAll(libraryResult.second)
+				val libraryResult = syncLibrarySongs { localProgress, message ->
+					val globalProgress = 0.10f + (localProgress * 0.65f)
+					progressCallback(globalProgress, message)
+				}.getOrThrow()
 
-		val totalPlaylists = playlists.size
-		if (totalPlaylists > 0) {
-			val completedPlaylists = AtomicInt(0)
+				validAlbumIds.addAll(libraryResult.first)
+				validSongIds.addAll(libraryResult.second)
 
-			coroutineScope {
-				playlists.map { playlist ->
-					async {
-						concurrentRequestLimit.withPermit {
-							val playlistSongIds =
-								syncPlaylistSongs(playlist.playlistId).getOrThrow()
-							validSongIds.addAll(playlistSongIds)
+				val totalPlaylists = playlists.size
+				if (totalPlaylists > 0) {
+					val completedPlaylists = AtomicInt(0)
 
-							val done = completedPlaylists.incrementAndGet()
-							val globalProgress = 0.75f + (0.25f * (done.toFloat() / totalPlaylists))
-							progressCallback(globalProgress, Res.string.info_syncing_playlists)
+					playlists.map { playlist ->
+						async {
+							concurrentRequestLimit.withPermit {
+								val playlistSongIds =
+									syncPlaylistSongs(playlist.playlistId).getOrThrow()
+								validSongIds.addAll(playlistSongIds)
+
+								val done = completedPlaylists.incrementAndGet()
+								val globalProgress = 0.75f + (0.25f * (done.toFloat() / totalPlaylists))
+								progressCallback(globalProgress, Res.string.info_syncing_playlists)
+							}
 						}
-					}
-				}.awaitAll()
+					}.awaitAll()
+				}
+
+				albumDao.deleteObsoleteAlbums(validAlbumIds)
+				songDao.deleteObsoleteSongs(validSongIds)
+
+				progressCallback(1.0f, Res.string.info_syncing_finished)
+			} finally {
+				notificationManager.cancelNotification(NotificationIds.SYNC_LIBRARY)
 			}
 		}
-
-		albumDao.deleteObsoleteAlbums(validAlbumIds)
-		songDao.deleteObsoleteSongs(validSongIds)
-
-		progressCallback(1.0f, Res.string.info_syncing_finished)
 	}
 
 	suspend fun syncLibrarySongs(

@@ -1,6 +1,7 @@
 package paige.navic.ui.components.common
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.creditText
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Check
@@ -111,15 +113,20 @@ fun SongRow(
 			)
 		},
 		supportingContent = {
-			MarqueeText(
-				text = buildString {
-					append(song.albumTitle ?: stringResource(Res.string.info_unknown_album))
-					append(" • ")
-					append(song.artistName)
-					append(" • ")
-					append(song.year ?: stringResource(Res.string.info_unknown_year))
+			Column {
+				MarqueeText(
+					text = buildString {
+						append(song.albumTitle ?: stringResource(Res.string.info_unknown_album))
+						append(" • ")
+						append(song.creditText)
+						append(" • ")
+						append(song.year ?: stringResource(Res.string.info_unknown_year))
+					}
+				)
+				if (song.userRating != null && song.userRating != 0) {
+					SmallRatingRow(rating = song.userRating)
 				}
-			)
+			}
 		},
 		leadingContent = {
 			CoverArt(

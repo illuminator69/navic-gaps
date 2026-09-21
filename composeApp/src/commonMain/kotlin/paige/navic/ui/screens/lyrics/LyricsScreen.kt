@@ -403,6 +403,12 @@ fun LyricsScreen(
 									// upstream added this so an unsynced line renders semibold
 									// and does not reset the song when tapped.
 									isSynced = isSynced,
+									// Word-level highlight when the line actually carries word
+									// timings, or when the user asked for it to be simulated
+									// (alpha59's "fake beat-by-beat"). Same rule as the sheet's
+									// Content.kt, which is the other caller of this composable.
+									isBeatByBeat = !line.words.isNullOrEmpty() ||
+										preferenceManager.lyricsFakeBeatByBeat,
 									onClick = {
 										if (isSelectionMode) {
 											if (selectedIndices.isEmpty()) {

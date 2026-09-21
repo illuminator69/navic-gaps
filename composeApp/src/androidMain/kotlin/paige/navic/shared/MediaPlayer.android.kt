@@ -17,6 +17,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MediaMetadata.FOLDER_TYPE_MIXED
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -25,7 +26,7 @@ import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ktor.KtorDataSource
 import androidx.media3.exoplayer.BaseRenderer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -46,13 +47,16 @@ import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.extractor.wav.WavExtractor
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaController
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import coil3.ImageLoader
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -71,6 +75,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -79,6 +84,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.data.database.dao.AlbumDao
+import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.PlaylistDao
+import paige.navic.data.database.dao.RadioDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.di.ResourceProvider
 import paige.navic.domain.manager.AndroidScrobbleManager
@@ -92,7 +101,9 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
@@ -100,8 +111,10 @@ import coil3.PlatformContext as CoilPlatformContext
 import paige.navic.domain.models.settings.EqualiserMode
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.exoplayer.AudioGainProcessor
+import paige.navic.exoplayer.ExoPlayerCoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
 import java.io.File
@@ -116,10 +129,10 @@ import paige.navic.util.effectiveGain
 import paige.navic.domain.models.displayName
 
 @OptIn(UnstableApi::class)
-class PlaybackService : MediaSessionService(), KoinComponent {
+class PlaybackService : MediaLibraryService(), KoinComponent {
 	private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-	private var mediaSession: MediaSession? = null
+	private var mediaLibrarySession: MediaLibrarySession? = null
 	private var exoPlayer: ExoPlayer? = null
 	private var remotePlayer: RemoteSessionPlayer? = null
 	private val serviceScope = MainScope()
@@ -134,6 +147,17 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val hubManager: HubManager by inject()
 	private val equaliserManager: EqualiserManager by inject()
 	private val audioGainProcessor: AudioGainProcessor by inject()
+	private val imageLoader: ImageLoader by inject()
+
+	private val albumDao: AlbumDao by inject()
+	private val artistDao: ArtistDao by inject()
+	private val playlistDao: PlaylistDao by inject()
+	private val songDao: SongDao by inject()
+	private val radioDao: RadioDao by inject()
+	private val searchRepository: SearchRepository by inject()
+
+	private val searchResultsCache = mutableMapOf<String, List<Any>>()
+
 	private var equaliser: Equalizer? = null
 	private var audioEffectSessionId: Int = C.AUDIO_SESSION_ID_UNSET
 	private var currentAudioSessionId: Int = C.AUDIO_SESSION_ID_UNSET
@@ -163,8 +187,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				setSmallIcon(resourceProvider.icNavic)
 			}
 
-		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-			.setDefaultRequestProperties(preferenceManager.customHeadersMap())
+		val httpDataSourceFactory = KtorDataSource.Factory(sessionManager.api.httpClient)
 		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
 
 		val extractorsFactory = ExtractorsFactory {
@@ -251,9 +274,15 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 		)
 
-		mediaSession = MediaSession.Builder(this, player)
+		val bitmapLoader = ExoPlayerCoilBitmapLoader(applicationContext, imageLoader)
+
+		mediaLibrarySession = MediaLibrarySession.Builder(
+			this,
+			player,
+			LibrarySessionCallback()
+		)
 			.setSessionActivity(sessionPendingIntent)
-			.setCallback(MediaSessionCallback(player))
+			.setBitmapLoader(bitmapLoader)
 			.setCustomLayout(makeButtons(player))
 			.build()
 		exoPlayer = player
@@ -269,7 +298,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			RemoteSessionPlayer(Looper.getMainLooper(), hubManager, sessionManager, serviceScope)
 		serviceScope.launch {
 			hubManager.isRemoteActive.collect { remote ->
-				val session = mediaSession ?: return@collect
+				val session = mediaLibrarySession ?: return@collect
 				val local = exoPlayer ?: return@collect
 				val rp = remotePlayer ?: return@collect
 				if (remote) {
@@ -293,11 +322,11 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		player.addListener(object : Player.Listener {
 			override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-				mediaSession?.setCustomLayout(makeButtons(player))
+				mediaLibrarySession?.setCustomLayout(makeButtons(player))
 			}
 
 			override fun onRepeatModeChanged(repeatMode: Int) {
-				mediaSession?.setCustomLayout(makeButtons(player))
+				mediaLibrarySession?.setCustomLayout(makeButtons(player))
 			}
 
 			override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -318,8 +347,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 	}
 
-	override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-		return mediaSession
+	override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
+		return mediaLibrarySession
 	}
 
 	override fun onTaskRemoved(rootIntent: Intent?) {
@@ -331,21 +360,22 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		releaseEqualiser()
 		scrobbleManager?.release()
 		serviceScope.cancel()
+		scope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)
-		mediaSession?.run {
+		mediaLibrarySession?.run {
 			player.stop()
 			release()
 		}
 		exoPlayer?.release()
 		remotePlayer?.release()
 		super.onDestroy()
-		mediaSession = null
+		mediaLibrarySession = null
 		exoPlayer = null
 		remotePlayer = null
 		stopSelf()
 	}
 
-	class MediaSessionCallback(private val player: ExoPlayer) : MediaSession.Callback {
+	private inner class LibrarySessionCallback : MediaLibrarySession.Callback {
 		override fun onConnect(
 			session: MediaSession,
 			controller: MediaSession.ControllerInfo
@@ -368,6 +398,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			customCommand: SessionCommand,
 			args: Bundle
 		): ListenableFuture<SessionResult> {
+			val player = session.player
 			when (customCommand.customAction) {
 				COMMAND_SHUFFLE -> {
 					player.shuffleModeEnabled = !player.shuffleModeEnabled
@@ -383,6 +414,288 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}
 
 			return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+		}
+
+		override fun onGetLibraryRoot(
+			session: MediaLibrarySession,
+			browser: MediaSession.ControllerInfo,
+			params: LibraryParams?
+		): ListenableFuture<LibraryResult<MediaItem>> {
+			val rootItem = MediaItem.Builder()
+				.setMediaId(MEDIA_ROOT_ID)
+				.setMediaMetadata(browsableFolder("Navic", FOLDER_TYPE_MIXED))
+				.build()
+			return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+		}
+
+		override fun onGetChildren(
+			session: MediaLibrarySession,
+			browser: MediaSession.ControllerInfo,
+			parentId: String,
+			page: Int,
+			pageSize: Int,
+			params: LibraryParams?
+		): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+			try {
+				val children: List<MediaItem> = when {
+					parentId == MEDIA_ROOT_ID -> rootChildren()
+
+					parentId == MEDIA_ALBUMS_ID -> albumDao.getAllAlbumsList()
+						.map { it.toDomainModel() }
+						.sortedBy { it.name?.lowercase() }
+						.map { it.toBrowsableAlbumItem() }
+
+					parentId == MEDIA_ARTISTS_ID -> artistDao.getArtistsAlphabeticalByName()
+						.map { it.toDomainModel() }
+						.map { it.toBrowsableArtistItem() }
+
+					parentId == MEDIA_PLAYLISTS_ID -> playlistDao.getAllPlaylistsByName()
+						.map { it.toDomainModel() }
+						.map { it.toBrowsablePlaylistItem() }
+
+					parentId == MEDIA_RADIOS_ID -> radioDao.getRadios()
+						.map { it.toDomainModel() }
+						.map { it.toPlayableRadioItem() }
+
+					parentId == MEDIA_SHUFFLE_ID -> songDao.getRandomSongs(100)
+						.map { it.toDomainModel().toBrowsableSongItem() }
+
+					parentId.startsWith(MEDIA_ALBUM_PREFIX) -> {
+						val albumId = parentId.removePrefix(MEDIA_ALBUM_PREFIX)
+						songDao.getSongsByAlbumId(albumId)
+							.map { it.toDomainModel() }
+							.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
+							.map { it.toBrowsableSongItem() }
+					}
+
+					parentId.startsWith(MEDIA_ARTIST_PREFIX) -> {
+						val artistId = parentId.removePrefix(MEDIA_ARTIST_PREFIX)
+						albumDao.getAlbumsByArtist(artistId).first()
+							.map { it.toDomainModel() }
+							.map { it.toBrowsableAlbumItem() }
+					}
+
+					parentId.startsWith(MEDIA_PLAYLIST_PREFIX) -> {
+						val playlistId = parentId.removePrefix(MEDIA_PLAYLIST_PREFIX)
+						playlistDao.getPlaylistById(playlistId)
+							?.toDomainModel()
+							?.songs
+							?.map { it.toBrowsableSongItem() }
+							?: emptyList()
+					}
+
+					else -> emptyList()
+				}
+				LibraryResult.ofItemList(ImmutableList.copyOf(children), params)
+			} catch (ex: Exception) {
+				Logger.e("PlaybackService", "error building browse tree for $parentId", ex)
+				LibraryResult.ofError<ImmutableList<MediaItem>>(SessionError.ERROR_IO)
+			}
+		}
+
+		override fun onGetItem(
+			session: MediaLibrarySession,
+			browser: MediaSession.ControllerInfo,
+			mediaId: String
+		): ListenableFuture<LibraryResult<MediaItem>> = scope.future {
+			try {
+				val item: MediaItem? = when {
+					mediaId.startsWith(MEDIA_ALBUM_PREFIX) ->
+						albumDao.getAlbumById(mediaId.removePrefix(MEDIA_ALBUM_PREFIX))
+							?.toDomainModel()
+							?.toBrowsableAlbumItem()
+
+					mediaId.startsWith(MEDIA_PLAYLIST_PREFIX) ->
+						playlistDao.getPlaylistById(mediaId.removePrefix(MEDIA_PLAYLIST_PREFIX))
+							?.toDomainModel()
+							?.toBrowsablePlaylistItem()
+
+					mediaId.startsWith(MEDIA_ARTIST_PREFIX) ->
+						artistDao.getArtistById(mediaId.removePrefix(MEDIA_ARTIST_PREFIX))
+							?.toDomainModel()
+							?.toBrowsableArtistItem()
+
+					else -> songDao.getSongById(mediaId)?.toDomainModel()?.toBrowsableSongItem()
+				}
+
+				if (item != null) {
+					LibraryResult.ofItem(item, null)
+				} else {
+					LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+				}
+			} catch (ex: Exception) {
+				Logger.e("PlaybackService", "error resolving item $mediaId", ex)
+				LibraryResult.ofError(SessionError.ERROR_IO)
+			}
+		}
+
+		override fun onSearch(
+			session: MediaLibrarySession,
+			browser: MediaSession.ControllerInfo,
+			query: String,
+			params: LibraryParams?
+		): ListenableFuture<LibraryResult<Void>> = scope.future {
+			val results = try {
+				searchRepository.search(query)
+			} catch (ex: Exception) {
+				Logger.e("PlaybackService", "voice/text search failed for '$query'", ex)
+				emptyList()
+			}
+			searchResultsCache[query] = results
+			session.notifySearchResultChanged(browser, query, results.size, params)
+			LibraryResult.ofVoid()
+		}
+
+		override fun onGetSearchResult(
+			session: MediaLibrarySession,
+			browser: MediaSession.ControllerInfo,
+			query: String,
+			page: Int,
+			pageSize: Int,
+			params: LibraryParams?
+		): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+			val cached = searchResultsCache[query] ?: try {
+				searchRepository.search(query)
+			} catch (ex: Exception) {
+				Logger.e("PlaybackService", "search failed for '$query'", ex)
+				emptyList()
+			}
+
+			val items = cached.mapNotNull { result ->
+				when (result) {
+					is DomainSong -> result.toBrowsableSongItem()
+					is DomainAlbum -> result.toBrowsableAlbumItem()
+					is DomainArtist -> result.toBrowsableArtistItem()
+					is DomainPlaylist -> result.toBrowsablePlaylistItem()
+					else -> null
+				}
+			}
+
+			LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
+		}
+
+		private fun rootChildren(): List<MediaItem> = listOf(
+			browsableFolderItem(MEDIA_SHUFFLE_ID, "Shuffle all"),
+			browsableFolderItem(MEDIA_ALBUMS_ID, "Albums"),
+			browsableFolderItem(MEDIA_ARTISTS_ID, "Artists"),
+			browsableFolderItem(MEDIA_PLAYLISTS_ID, "Playlists"),
+			browsableFolderItem(MEDIA_RADIOS_ID, "Radio")
+		)
+
+		private fun browsableFolderItem(id: String, title: String): MediaItem =
+			MediaItem.Builder()
+				.setMediaId(id)
+				.setMediaMetadata(browsableFolder(title, FOLDER_TYPE_MIXED))
+				.build()
+
+		private fun DomainAlbum.toBrowsableAlbumItem(): MediaItem {
+			val metadata = MediaMetadata.Builder()
+				.setTitle(name)
+				.setArtist(artistName)
+				.setAlbumTitle(name)
+				.setIsBrowsable(true)
+				.setIsPlayable(false)
+				.setFolderType(MediaMetadata.FOLDER_TYPE_ALBUMS)
+				.setMediaType(MediaMetadata.MEDIA_TYPE_ALBUM)
+				.setArtworkUri(coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() })
+				.build()
+			return MediaItem.Builder()
+				.setMediaId(MEDIA_ALBUM_PREFIX + id)
+				.setMediaMetadata(metadata)
+				.build()
+		}
+
+		private fun DomainArtist.toBrowsableArtistItem(): MediaItem {
+			val metadata = MediaMetadata.Builder()
+				.setTitle(name)
+				.setArtist(name)
+				.setIsBrowsable(true)
+				.setIsPlayable(false)
+				.setFolderType(MediaMetadata.FOLDER_TYPE_ARTISTS)
+				.setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
+				.setArtworkUri(coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() })
+				.build()
+			return MediaItem.Builder()
+				.setMediaId(MEDIA_ARTIST_PREFIX + id)
+				.setMediaMetadata(metadata)
+				.build()
+		}
+
+		private fun DomainPlaylist.toBrowsablePlaylistItem(): MediaItem {
+			val metadata = MediaMetadata.Builder()
+				.setTitle(name)
+				.setIsBrowsable(true)
+				.setIsPlayable(false)
+				.setFolderType(MediaMetadata.FOLDER_TYPE_PLAYLISTS)
+				.setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+				.setArtworkUri(coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() })
+				.build()
+			return MediaItem.Builder()
+				.setMediaId(MEDIA_PLAYLIST_PREFIX + id)
+				.setMediaMetadata(metadata)
+				.build()
+		}
+
+		private fun DomainRadio.toPlayableRadioItem(): MediaItem {
+			val metadata = MediaMetadata.Builder()
+				.setTitle(name)
+				.setArtist("Radio")
+				.setIsBrowsable(false)
+				.setIsPlayable(true)
+				.setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+				.build()
+			return MediaItem.Builder()
+				.setMediaId(MEDIA_RADIO_PREFIX + name.hashCode())
+				.setUri(streamUrl)
+				.setMediaMetadata(metadata)
+				.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
+				.build()
+		}
+
+		private fun DomainSong.toBrowsableSongItem(): MediaItem {
+			val displayArtist = artists.joinToString { it.name }.ifBlank { artistName }
+			val albumArtistName = albumArtists.joinToString { it.name }.ifBlank { artistName }
+
+			val metadata = MediaMetadata.Builder()
+				.setTitle(title)
+				.setSubtitle(displayArtist)
+				.setArtist(displayArtist)
+				.setAlbumArtist(albumArtistName)
+				.setAlbumTitle(albumTitle)
+				.setDurationMs(duration.inWholeMilliseconds)
+				.setIsBrowsable(false)
+				.setIsPlayable(true)
+				.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+				.setArtworkUri(coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() })
+				.build()
+
+			return MediaItem.Builder()
+				.setMediaId(id)
+				.setUri(resolveStreamUrl(id))
+				.setMediaMetadata(metadata)
+				.build()
+		}
+
+		private fun resolveStreamUrl(songId: String): Uri {
+			val isCellular = connectivityManager.isCellular.value
+			val bitrate = if (preferenceManager.isAdvancedTranscodingActive) {
+				if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
+			} else {
+				if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
+			}
+			val container = if (preferenceManager.isAdvancedTranscodingActive) {
+				if (isCellular) preferenceManager.customFormatCellular else preferenceManager.customFormatWifi
+			} else {
+				if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
+			}
+			return sessionManager.api.getStreamUrl(
+				songId,
+				bitrate,
+				container?.takeIf { it.isNotBlank() })
+				.toUri()
+				.buildUpon()
+				.appendQueryParameter("estimateContentLength", "true")
+				.build()
 		}
 	}
 
@@ -403,7 +716,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		equaliser = null
 	}
 
-	// Announces our audio session to the system so external equalizer apps can attach effects to it
+	// Announces our audio session to the system so external equaliser apps can attach effects to it
 	private fun openAudioEffectSession(sessionId: Int) {
 		if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
 		audioEffectSessionId = sessionId
@@ -416,7 +729,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		)
 	}
 
-	// Tells external equalizer apps our audio session is going away so they can release their effects
+	// Tells external equaliser apps our audio session is going away so they can release their effects
 	private fun closeAudioEffectSession(sessionId: Int) {
 		if (sessionId == C.AUDIO_SESSION_ID_UNSET) return
 		sendBroadcast(
@@ -479,6 +792,26 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		const val COMMAND_SHUFFLE = "COMMAND_SHUFFLE"
 		const val COMMAND_REPEAT = "COMMAND_REPEAT"
 
+		const val MEDIA_ROOT_ID = "navic_root"
+		const val MEDIA_SHUFFLE_ID = "navic_shuffle"
+		const val MEDIA_ALBUMS_ID = "navic_albums"
+		const val MEDIA_ARTISTS_ID = "navic_artists"
+		const val MEDIA_PLAYLISTS_ID = "navic_playlists"
+		const val MEDIA_RADIOS_ID = "navic_radios"
+
+		const val MEDIA_ALBUM_PREFIX = "navic_album_"
+		const val MEDIA_ARTIST_PREFIX = "navic_artist_"
+		const val MEDIA_PLAYLIST_PREFIX = "navic_playlist_"
+		const val MEDIA_RADIO_PREFIX = "navic_radio_"
+
+		fun browsableFolder(title: String, folderType: Int): MediaMetadata =
+			MediaMetadata.Builder()
+				.setTitle(title)
+				.setIsBrowsable(true)
+				.setIsPlayable(false)
+				.setFolderType(folderType)
+				.build()
+
 		fun makeShuffleButton(enabled: Boolean): CommandButton {
 			val icon = if (enabled) {
 				CommandButton.ICON_SHUFFLE_ON
@@ -532,7 +865,6 @@ class AndroidMediaPlayerViewModel(
 	private val audioGainManager: AudioGainManager,
 	private val application: Application,
 	private val albumDao: AlbumDao,
-	private val imageLoader: ImageLoader,
 	private val sessionManager: SessionManager,
 	savedQueueRepository: SavedQueueRepository,
 	private val snackBarManager: SnackBarManager
@@ -1851,29 +2183,9 @@ class AndroidMediaPlayerViewModel(
 			.setDurationMs(duration.inWholeMilliseconds)
 			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
 
-		val artworkData = coverArtId?.let { coverId ->
-			val diskCache = imageLoader.diskCache
-			val snapshot = diskCache?.openSnapshot(coverId) ?: return@let null
-
-			val bytes = try {
-				snapshot.use { it.data.toFile().readBytes() }
-			} catch (ex: Exception) {
-				Logger.w("MediaPlayer", "could not read artwork data", ex)
-				null
-			}
-
-			snapshot.close()
-
-			return@let bytes
-		}
-
-		if (artworkData != null) {
-			metadataBuilder.setArtworkData(artworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-		} else {
-			metadataBuilder.setArtworkUri(
-				coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
-			)
-		}
+		metadataBuilder.setArtworkUri(
+			coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
+		)
 
 		val metadata = metadataBuilder.build()
 

@@ -12,12 +12,14 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -25,6 +27,7 @@ import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.detailPane
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.listPane
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -40,7 +43,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,6 +83,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
+import paige.navic.ui.components.layouts.SideBar
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -127,6 +130,7 @@ import paige.navic.ui.screens.share.ShareListScreen
 import paige.navic.ui.screens.song.SongDetailScreen
 import paige.navic.ui.screens.song.SongListScreen
 import paige.navic.ui.screens.starred.StarredScreen
+import paige.navic.ui.screens.stats.StatisticsScreen
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.PlatformContext
 import paige.navic.ui.components.snackbars.NavicSnackBar
@@ -171,6 +175,7 @@ fun App() {
 	val platformContext = rememberPlatformContext()
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
+
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val backStack = rememberNavBackStack(
 		config, if (isLoggedIn) {
@@ -189,7 +194,6 @@ fun App() {
 	}
 
 	val density = LocalDensity.current
-	val layoutDirection = LocalLayoutDirection.current
 	val scrollManager = remember {
 		BottomBarScrollManager(with(density) { 50.dp.toPx() })
 	}
@@ -274,61 +278,66 @@ fun App() {
 			LocalExpressiveBlur provides expressiveBlur
 		) {
 			NavicTheme {
-				Scaffold(
-					modifier = Modifier.nestedScroll(scrollManager.connection),
-					snackbarHost = {
-						SnackbarHost(hostState = snackBarState) { snackBarData ->
-							NavicSnackBar(snackBarData = snackBarData)
-						}
+				Row(modifier = Modifier.fillMaxSize()) {
+					if (platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+						&& Screen.Login !in backStack) {
+						SideBar()
 					}
-				) { contentPadding ->
-					NavDisplay(
-						modifier = Modifier
-							.padding(
-								start = contentPadding
-									.calculateStartPadding(layoutDirection),
-								end = contentPadding
-									.calculateEndPadding(layoutDirection)
-							)
-							.fillMaxSize()
-							.background(rememberLibraryTabBackground())
-							.expressiveBlurSource(expressiveBlur),
-						backStack = backStack,
-						sceneStrategies = sceneStrategies,
-						onBack = {
-							if (backStack.size >= 2) {
-								backStack.removeLastOrNull()
-							}
-						},
-						entryProvider = entries,
-						transitionSpec = {
-							Material3Transitions.SharedXAxisEnterTransition(
-								density
-							) togetherWith Material3Transitions.SharedXAxisExitTransition(
-								density
-							)
-						},
-						popTransitionSpec = {
-							Material3Transitions.SharedXAxisPopEnterTransition(
-								density
-							) togetherWith Material3Transitions.SharedXAxisPopExitTransition(
-								density
-							)
-						},
-						predictivePopTransitionSpec = {
-							if (preferenceManager.enablePredictiveBackAnimations) {
-								slideInHorizontally(
-									animationSpec = tween(300, easing = EaseOutQuart),
-									initialOffsetX = { -it }
-								) togetherWith slideOutHorizontally(
-									animationSpec = tween(300, easing = EaseOutQuart),
-									targetOffsetX = { it }
-								)
-							} else {
-								ContentTransform(EnterTransition.None, ExitTransition.None)
+					Scaffold(
+						modifier = Modifier.nestedScroll(scrollManager.connection),
+						snackbarHost = {
+							SnackbarHost(hostState = snackBarState) { snackBarData ->
+								NavicSnackBar(snackBarData = snackBarData)
 							}
 						}
-					)
+					) {
+						NavDisplay(
+							modifier = Modifier
+								// weight(1f), not fillMaxSize(): the Scaffold now sits in a Row
+								// beside the SideBar, so filling would push the rail off screen.
+								.weight(1f)
+								.consumeWindowInsets(
+									WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+								)
+								.background(rememberLibraryTabBackground())
+								.expressiveBlurSource(expressiveBlur),
+							backStack = backStack,
+							sceneStrategies = sceneStrategies,
+							onBack = {
+								if (backStack.size >= 2) {
+									backStack.removeLastOrNull()
+								}
+							},
+							entryProvider = entries,
+							transitionSpec = {
+								Material3Transitions.SharedXAxisEnterTransition(
+									density
+								) togetherWith Material3Transitions.SharedXAxisExitTransition(
+									density
+								)
+							},
+							popTransitionSpec = {
+								Material3Transitions.SharedXAxisPopEnterTransition(
+									density
+								) togetherWith Material3Transitions.SharedXAxisPopExitTransition(
+									density
+								)
+							},
+							predictivePopTransitionSpec = {
+								if (preferenceManager.enablePredictiveBackAnimations) {
+									slideInHorizontally(
+										animationSpec = tween(300, easing = EaseOutQuart),
+										initialOffsetX = { -it }
+									) togetherWith slideOutHorizontally(
+										animationSpec = tween(300, easing = EaseOutQuart),
+										targetOffsetX = { it }
+									)
+								} else {
+									ContentTransform(EnterTransition.None, ExitTransition.None)
+								}
+							}
+						)
+					}
 				}
 				// version check is annoying to do on iOS
 				if (preferenceManager.checkForUpdates
@@ -441,6 +450,10 @@ private fun entryProvider(
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)
+		}
+
+		entry<Screen.Statistics>(metadata = navtabMetadata) { key ->
+			StatisticsScreen(key.nested)
 		}
 
 		// Not overloads of the two above: those take Navidrome ids and load from

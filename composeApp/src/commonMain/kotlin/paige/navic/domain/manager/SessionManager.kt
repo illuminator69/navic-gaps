@@ -2,6 +2,8 @@ package paige.navic.domain.manager
 
 import com.russhwolf.settings.Settings
 import com.russhwolf.settings.set
+import dev.zt64.subsonic.api.model.Role
+import dev.zt64.subsonic.api.model.User
 import dev.zt64.subsonic.client.SubsonicAuth
 import dev.zt64.subsonic.client.SubsonicClient
 import io.ktor.client.HttpClient
@@ -14,12 +16,19 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import paige.navic.util.Logger
 import paige.navic.util.installSubsonicResponseRepair
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.random.Random
@@ -31,6 +40,10 @@ class SessionManager(
 	private val _isLoggedIn = MutableStateFlow(false)
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
+	private var currentUser: User? = null
+	private val mutex = Mutex()
+	private val scope = CoroutineScope(Dispatchers.IO)
+
 	var api: SubsonicClient = createClient(
 		instanceUrl = settings.getString("instanceUrl", ""),
 		username = settings.getString("username", ""),
@@ -40,6 +53,7 @@ class SessionManager(
 
 	init {
 		_isLoggedIn.value = settings.getStringOrNull("username") != null
+		if (_isLoggedIn.value) getCachedUser()
 	}
 
 	private fun createClient(
@@ -87,7 +101,9 @@ class SessionManager(
 
 		try {
 			client.ping()
+			fetchCurrentUser(username, client)
 		} catch (e: Exception) {
+			// TODO: custom exception instead of the generic "Exception"
 			throw Exception(
 				"Failed to connect to the instance. Please check your credentials and try again.",
 				e
@@ -106,6 +122,7 @@ class SessionManager(
 		settings["username"] = null
 		settings["password"] = null
 		_isLoggedIn.value = false
+		currentUser = null
 	}
 
 	fun refreshClient() {
@@ -425,6 +442,47 @@ class SessionManager(
 			httpClient.close()
 		}
 	}
+
+	private suspend fun fetchCurrentUser(
+		username: String = settings.getString("username", ""),
+		client: SubsonicClient = api
+	): User? {
+		mutex.withLock {
+			if (username.isNotBlank()) {
+				currentUser = client.getUser(username)
+				return currentUser
+			}
+		}
+
+		// TODO: custom exception instead of the generic "Exception"
+		throw Exception("Failed to get current user because the username is blank")
+	}
+
+	fun getCachedUser(): User? {
+		if (currentUser != null) {
+			return currentUser
+		}
+		scope.launch {
+			try {
+				fetchCurrentUser()
+			} catch (e: Exception) {
+				Logger.e("SessionManager", "Failed to fetch current user info", e)
+			}
+		}
+		return currentUser
+	}
+}
+
+fun User.hasRole(role: Role): Boolean {
+	return this.roles.contains(role)
+}
+
+fun User.canShare(): Boolean {
+	return this.hasRole(Role.SHARE)
+}
+
+fun SessionManager.canUserShare(): Boolean {
+	return this.getCachedUser()?.canShare() ?: false
 }
 
 @Serializable

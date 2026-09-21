@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,8 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
@@ -43,6 +46,9 @@ import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.ui.navigation.Screen
+import navic.composeapp.generated.resources.title_statistics
+import org.jetbrains.compose.resources.stringResource
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -56,6 +62,8 @@ import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
+import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
+import paige.navic.ui.screens.stats.viewmodels.StatisticsState
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
@@ -112,7 +120,10 @@ fun LibraryScreenContent(
 	onAddPlaylistToQueue: () -> Unit,
 
 	// genres
-	genresState: UiState<ImmutableList<DomainGenre>>
+	genresState: UiState<ImmutableList<DomainGenre>>,
+
+	// stats
+	statsState: StatisticsState
 ) {
 	// Resolved OUTSIDE the grid, and deliberately so: read inside the greeting's `item`, this state
 	// was destroyed and rebuilt every time the greeting scrolled out of view and back, so it
@@ -331,6 +342,26 @@ fun LibraryScreenContent(
 			seeAll = true
 		) { genreWithAlbums ->
 			GenreListScreenCard(genre = genreWithAlbums)
+		}
+
+		item(span = { GridItemSpan(maxLineSpan) }) {
+			Text(
+				text = stringResource(Res.string.title_statistics),
+				style = MaterialTheme.typography.titleMediumEmphasized,
+				fontWeight = FontWeight(600),
+				modifier = Modifier
+					.heightIn(min = 32.dp)
+					.padding(top = 12.dp, start = 16.dp)
+					.semantics { heading() }
+			)
+		}
+
+		item(span = { GridItemSpan(maxLineSpan) }) {
+			val backStack = LocalNavStack.current
+			StatisticsOverviewCard(
+				statsState = statsState,
+				onClick = { backStack.add(Screen.Statistics(true)) }
+			)
 		}
 	}
 }

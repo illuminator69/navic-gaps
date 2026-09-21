@@ -11,6 +11,10 @@ data class NavbarConfig(
 ) {
 	companion object {
 		const val KEY = "navbarConfig"
+		// Deliberately NOT bumped for alpha59's STATISTICS tab. Upstream went 7 -> 8 because a
+		// version bump is the only way it can introduce a tab; this fork has merged() instead,
+		// which appends unknown ids while keeping the user's own order and visibility. Bumping
+		// here would discard every existing install's arrangement to gain one row.
 		const val VERSION = 7
 		val default = NavbarConfig(
 			tabs = listOf(
@@ -22,6 +26,7 @@ data class NavbarConfig(
 				NavbarTab(NavbarTab.Id.GENRES, false),
 				NavbarTab(NavbarTab.Id.SONGS, false),
 				NavbarTab(NavbarTab.Id.RADIOS, false),
+				NavbarTab(NavbarTab.Id.STATISTICS, false),
 				// Visible by default, and safe to be: the bar filters this tab out
 				// entirely when lb-bot isn't reachable, which is the state most
 				// installs are in. So it costs a slot only where it does something.

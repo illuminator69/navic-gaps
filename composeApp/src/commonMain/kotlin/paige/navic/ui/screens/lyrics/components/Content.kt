@@ -183,6 +183,7 @@ fun LyricsScreenContent(
 			)
 
 			val highlight = if (isSelecting) isSelected else isActive
+			val hasWords = !line.words.isNullOrEmpty()
 			val progress = when {
 				isSelecting -> if (isSelected) 1f else 0f
 				!isSynced -> 1f
@@ -199,6 +200,7 @@ fun LyricsScreenContent(
 				progress = progress,
 				isActive = highlight,
 				isSynced = isSynced,
+				isBeatByBeat = hasWords || preferenceManager.lyricsFakeBeatByBeat,
 				onClick = {
 					if (isSelecting) {
 						val lineTextLength = line.text.length

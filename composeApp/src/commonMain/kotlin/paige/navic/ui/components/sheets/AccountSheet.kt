@@ -46,9 +46,10 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LoginManager
-import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SleepTimerMode
+import paige.navic.domain.manager.canUserShare
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Bedtime
 import paige.navic.icons.outlined.Logout
@@ -69,7 +70,8 @@ fun AccountSheet(
 ) {
 	val backStack = LocalNavStack.current
 	val loginManager = koinInject<LoginManager>()
-	val preferenceManager = koinInject<PreferenceManager>()
+	val sessionManager = koinInject<SessionManager>()
+
 	val settings = koinInject<Settings>()
 
 	var sleepTimerSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -147,12 +149,18 @@ fun AccountSheet(
 
 			Spacer(Modifier.height(9.dp))
 
+			// Share is hidden when the server says this user can't share (alpha59 replaced the
+			// old enableSharing preference with this capability check), so the segmented group's
+			// own size and every index below it move with it.
+			val isSharingAllowed = sessionManager.canUserShare()
+			val count = if (isSharingAllowed) 4 else 3
+
 			// navi-connect: the shared saved-queue history ("Continue listening"), which
 			// lived in the top-bar dropdown this sheet replaced.
 			SegmentedListItem(
 				shapes = SegmentedListItemDefaults.segmentedShapes(
 					index = 0,
-					count = 4
+					count = count
 				),
 				onClick = {
 					animateToDismiss()
@@ -162,23 +170,25 @@ fun AccountSheet(
 				content = { Text(stringResource(Res.string.title_saved_queues)) }
 			)
 
-			SegmentedListItem(
-				shapes = SegmentedListItemDefaults.segmentedShapes(
-					index = 1,
-					count = 4
-				),
-				onClick = {
-					animateToDismiss()
-					backStack.add(Screen.ShareList)
-				},
-				leadingContent = { Icon(Icons.Outlined.Share, null) },
-				content = { Text(stringResource(Res.string.action_view_shares)) }
-			)
+			if (isSharingAllowed) {
+				SegmentedListItem(
+					shapes = SegmentedListItemDefaults.segmentedShapes(
+						index = 1,
+						count = count
+					),
+					onClick = {
+						animateToDismiss()
+						backStack.add(Screen.ShareList)
+					},
+					leadingContent = { Icon(Icons.Outlined.Share, null) },
+					content = { Text(stringResource(Res.string.action_view_shares)) }
+				)
+			}
 
 			SegmentedListItem(
 				shapes = SegmentedListItemDefaults.segmentedShapes(
-					index = 2,
-					count = 4
+					index = if (isSharingAllowed) 2 else 1,
+					count = count
 				),
 				onClick = { sleepTimerSheetOpen = true },
 				leadingContent = {
@@ -223,8 +233,8 @@ fun AccountSheet(
 
 			SegmentedListItem(
 				shapes = SegmentedListItemDefaults.segmentedShapes(
-					index = 3,
-					count = 4
+					index = if (isSharingAllowed) 3 else 2,
+					count = count
 				),
 				onClick = {
 					animateToDismiss()
