@@ -14,3 +14,11 @@
 xcuserdata/
 prepare/
 *.mobileprovision
+
+# Fork-local working notes and design handoffs — not part of the published source.
+# The durable ones live in CLAUDE.md / README.md; the rest are dated notes kept
+# beside the tree in navi-connect/ (which is not a git repo).
+/AUDIT-NAVI-CONNECT-2026-09-01.md
+/redesign.md
+/Navic Redesign.dc.html
+/design_handoff_widgets/
