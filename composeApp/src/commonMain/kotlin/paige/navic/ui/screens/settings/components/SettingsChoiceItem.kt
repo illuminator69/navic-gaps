@@ -33,13 +33,15 @@ fun <Choice> SettingsChoiceItem(
 	label: @Composable (Choice) -> String,
 	description: String? = null,
 	shapes: ListItemShapes,
+	enabled: Boolean = true,
 	content: @Composable () -> Unit
 ) {
 	var choiceDialogOpen by rememberSaveable { mutableStateOf(false) }
 
 	SegmentedListItem(
 		shapes = shapes,
-		onClick = { choiceDialogOpen = true },
+		enabled = enabled,
+		onClick = { if (enabled) choiceDialogOpen = true },
 		content = content,
 		supportingContent = {
 			Text(buildString {

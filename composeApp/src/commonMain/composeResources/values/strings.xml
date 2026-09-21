@@ -84,6 +84,7 @@
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_download_quality">Adjust the quality of downloaded music</string>
 	<string name="subtitle_dynamic_theming">Colour the whole app from the artwork on screen, and from the playing song</string>
+	<string name="subtitle_theme_overridden">Artwork is driving the colours. This still applies where there is none — settings, dialogs, and browsing pages with nothing playing.</string>
 	<string name="subtitle_app_icon_designer">Designed by: %1$s</string>
 	<string name="subtitle_local_network_denied">You need to grant Navic access to your local network in order for your server to be reachable.</string>
 	<string name="subtitle_equaliser">Tune &amp; enhance audio</string>

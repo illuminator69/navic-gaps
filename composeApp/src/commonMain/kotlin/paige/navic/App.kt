@@ -133,7 +133,7 @@ import paige.navic.ui.components.snackbars.NavicSnackBar
 import paige.navic.ui.screens.song.SongDetailSheet
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.rememberLibraryTabBackground
-import paige.navic.ui.util.rememberLibraryWashedScheme
+import paige.navic.ui.components.common.BrowsingAmbient
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import paige.navic.ui.screens.genre.GenreDetailScreen
 import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
@@ -522,16 +522,16 @@ private fun entryProvider(
 }
 
 /**
- * Themes a browsing screen — the tabs, and the list screens they push — so its `surface` is the
- * now-playing cover's wash ([rememberLibraryWashedScheme]).
+ * Themes a browsing screen — the tabs, and the list screens they push — with the same cover
+ * pipeline the album and artist detail pages use: see
+ * [paige.navic.ui.components.common.BrowsingAmbient].
  *
  * Applied here rather than inside each screen because it has to wrap the whole Scaffold, bars
- * included, and because one hook is the difference between a tab that was washed and a tab
- * somebody forgot. [paige.navic.ui.screens.library.LibraryScreen] is the exception: it already
- * wraps itself in the cover's scheme for its accents, so it washes that scheme itself rather than
- * being handed a second one here.
+ * included, and because one hook is the difference between a tab that was themed and a tab
+ * somebody forgot. [paige.navic.ui.screens.library.LibraryScreen] is the exception: it wraps
+ * itself in the same helper.
  */
 @Composable
 private fun Washed(content: @Composable () -> Unit) {
-	NavicTheme(rememberLibraryWashedScheme(), content = content)
+	BrowsingAmbient(content = content)
 }

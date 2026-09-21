@@ -576,70 +576,15 @@ fun rememberNowPlayingCoverAmbient(): CoverAmbient =
 fun rememberLibraryTabBackground(): Brush = SolidColor(MaterialTheme.colorScheme.surface)
 
 /**
- * The browsing pages' base scheme: the now-playing cover's, or the app's own when nothing is
- * playing. Accents, containers and content colours all come from here; [rememberLibraryWashedScheme]
- * then replaces its surfaces with the wash.
+ * The browsing pages' scheme and wash both come from [paige.navic.ui.components.common.
+ * BrowsingAmbient] now, which runs the album page's pipeline.
  *
- * One definition for the home and the tabs, because they sit next to each other: the home was
- * already on the cover's scheme while the tabs kept the app's, so a warm page carried lavender
- * chips and a lavender mini-player the moment you left the home.
+ * What used to be here — `rememberNowPlayingScheme` plus a `rememberLibraryWashedScheme` that
+ * replaced `surface`/`background` with a flat 32% mix toward the cover's dominant — is gone. It
+ * held the APP's light/dark brightness while every detail page followed the artwork's, so the same
+ * sleeve was rendered two different ways depending on which screen you were looking at; and being
+ * a single flat colour it could not carry a gradient. Both were deliberate at the time: the flat
+ * surface existed because a *drawn* background leaves anything painting `surface` sitting on it as
+ * a slab. Following the artwork's brightness is what retires that constraint, since the scheme's
+ * own neutrals then sit in the same tonal register as the gradient behind them.
  */
-@Composable
-fun rememberNowPlayingScheme(): ColorScheme {
-	val coverArtId = rememberNowPlayingCoverArtId()
-	val cover = rememberCoverColorScheme(
-		coverArtId,
-		isDark = rememberAppIsDark(),
-		followArtworkBrightness = false
-	)
-	// `resolved`, NOT `coverArtId != null`. A cover id only says a song is playing; it says nothing
-	// about whether its colours are known yet, and publishing the unresolved scheme is what put a
-	// fabricated accent on the home page.
-	return if (cover.resolved) cover.scheme else MaterialTheme.colorScheme
-}
-
-/**
- * How far a browsing page's `surface` is mixed from the app's own toward the now-playing cover's
- * dominant colour. The one knob for the whole effect.
- */
-private const val LIBRARY_WASH = 0.32f
-
-/**
- * The browsing pages' scheme: [base] with its `surface` and `background` replaced by the
- * now-playing sleeve's colour.
- *
- * The wash is the page's SURFACE, not a gradient painted behind it. That distinction is the whole
- * point. A drawn background leaves every component that paints `surface` itself — and Material's
- * `ListItem` does, opaquely, at 62 call sites here — sitting on the page as a white slab: the
- * Favorites list read as three bright bars with the wash resuming underneath them. Making the
- * wash the surface means the rows, the alphabet headers, the top bar's scrolled tint and the
- * bottom bar's scrim all match by construction, including anything added later.
- *
- * The price is that the background is flat. A gradient cannot be expressed as a scheme colour, so
- * the choice was one uniform colour everywhere or a gradient with a seam around every list row.
- *
- * `surface` and `background` only: the `surfaceContainer` roles are left alone so cards, chips and
- * sheets still lift off the page. They come from the same dominant-seeded neutral palette (see
- * [rememberCoverColorScheme]), so they lift in the page's own hue.
- *
- * Not animated, deliberately. Publishing a new [ColorScheme] invalidates every descendant that
- * reads it, so easing this over 450ms would recompose the whole screen on every frame of a song
- * change; the scheme's accents already change in one step for the same reason.
- */
-@Composable
-fun rememberLibraryWashedScheme(base: ColorScheme = rememberNowPlayingScheme()): ColorScheme {
-	val cover = rememberCoverColorScheme(
-		rememberNowPlayingCoverArtId(),
-		isDark = rememberAppIsDark(),
-		followArtworkBrightness = false
-	)
-	// Nothing playing, or a cover whose palette hasn't landed: no wash. (This used to lean on the
-	// dominant falling back to the surface, making the lerp a no-op — true only while the fallback
-	// and `base.surface` were the same colour, which stopped being so the moment `base` was itself
-	// a cover scheme.)
-	if (!cover.resolved) return base
-	return remember(base, cover.dominant) {
-		val wash = lerp(base.surface, cover.dominant, LIBRARY_WASH)
-		base.copy(surface = wash, background = wash)
-	}
-}

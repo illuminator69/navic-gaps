@@ -58,10 +58,9 @@ import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
 import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
-import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.rememberAppIsDark
 import paige.navic.ui.util.rememberCoverColorScheme
-import paige.navic.ui.util.rememberLibraryWashedScheme
+import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
@@ -157,11 +156,6 @@ fun LibraryScreen() {
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-	// Theme the whole home to the NOW-PLAYING song so the chrome (buttons, section labels,
-	// nav chip, top bar) carries its hue — not just the hero wash. Keep the app's light/dark
-	// brightness (followArtworkBrightness = false) so the page doesn't flip per cover; when
-	// nothing is playing, fall back to the default app scheme.
-	val libraryScheme = rememberLibraryWashedScheme()
 
 	LaunchedEffect(loginState is LoginUiState.Success) {
 		albumsViewModel.refreshAlbums(false)
@@ -176,9 +170,10 @@ fun LibraryScreen() {
 		genresViewModel.refreshGenres(false)
 	}
 
-	// Washed: the page's surface carries the now-playing sleeve's colour, and so does
-	// everything drawn on it that paints `surface` itself.
-	NavicTheme(libraryScheme) {
+	// The home gets the album page's pipeline: the now-playing sleeve's scheme at the ARTWORK's
+	// brightness, over the blurred cover and its gradient. Same helper as every other browsing
+	// screen (App.kt's `Washed`), so the home and the tabs beside it cannot drift apart.
+	BrowsingAmbient {
 	// upstream's "scroll up when tapping tabs" (alpha55)
 	val gridState = rememberLazyGridState()
 	val rootViewModel = koinViewModel<RootViewModel>()

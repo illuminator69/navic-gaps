@@ -53,7 +53,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Note
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.BlendBackground
+import paige.navic.ui.components.common.CoverAmbientBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -222,28 +222,12 @@ fun CollectionDetailScreen(
 		}
 	) { contentPadding ->
 		Box(Modifier.fillMaxSize()) {
-			// The blurred cover art itself, washed by the SAME gradient the page used to paint
-			// flat. The gradient is now BlendBackground's scrim rather than the whole background,
-			// so the artwork adds texture while the colour landing under the text stays the known
-			// `coverAmbientGradient` one — `onAmbient` is derived from it, so contrast still holds.
-			//
-			// `isPaused = true` pins the rotation animation: this sits behind a scrolling
-			// LazyColumn, and an always-animating 80dp blur there is the lag the flat gradient
-			// was chosen to avoid. The eased seed is read in the draw phase (drawWithCache), so
-			// the song crossfade never recomposes the content tree.
-			if (coverColors.themed) BlendBackground(
+			// The blurred cover art under this page's own gradient — the shared
+			// [CoverAmbientBackground], which the browsing pages use too.
+			if (coverColors.themed) CoverAmbientBackground(
 				coverArtId = collection?.coverArtId,
-				isPaused = true,
-				modifier = Modifier.drawWithCache {
-					val (t, b) = coverAmbientGradient(animatedSeed.value, coverColors.isDark)
-					val wash = Brush.verticalGradient(
-						listOf(t.copy(alpha = 0.82f), b.copy(alpha = 0.92f))
-					)
-					onDrawWithContent {
-						drawContent()
-						drawRect(wash)
-					}
-				}
+				seed = coverColors.seed,
+				isDark = coverColors.isDark
 			)
 		PullToRefreshBox(
 			modifier = Modifier.fillMaxSize(),

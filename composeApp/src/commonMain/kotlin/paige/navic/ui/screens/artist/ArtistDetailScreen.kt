@@ -47,8 +47,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
@@ -89,7 +87,7 @@ import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.BlendBackground
+import paige.navic.ui.components.common.CoverAmbientBackground
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
@@ -203,10 +201,9 @@ fun ArtistDetailScreen(
 	val onAmbient = onAmbientColor(ambientTop, coverColors.scheme)
 		// Status-bar icons follow the (cover-driven) page brightness.
 		ForceSystemBars(coverColors.isDark)
-	// The WASH eases between artists. Kept as a State and read in the DRAW phase (drawWithCache,
-	// below) — reading it here in composition would recompose the whole page, blurred backdrop
-	// and all, on every frame of the 450ms ease. That was the stutter.
-	val animatedSeed = animateColorAsState(coverColors.seed, animationSpec = tween(450))
+	// The wash's own ease lives inside [CoverAmbientBackground], in the draw phase — reading it
+	// here in composition would recompose the whole page, blurred backdrop and all, on every
+	// frame of the 450ms ease. That was the stutter.
 	NavicTheme(coverColors.scheme, contentColor = onAmbient) {
 	Scaffold(
 		containerColor = ambientTop,
@@ -263,36 +260,16 @@ fun ArtistDetailScreen(
 							}
 						}
 					)
-					// Blurred artist photo behind the page, washed by the SAME ambient gradient the
-					// Column used to paint on its own — so the colour under the text is still the
-					// known `coverAmbientGradient` one that `onAmbient` was derived from, while the
-					// artwork adds depth. Paused for the same reason as the album page: this sits
-					// behind a scrolling column, and a live 80dp blur there is pure jank.
-					//
-					// The wash is applied in the DRAW phase (the eased seed is read inside
-					// drawWithCache), so easing to a new artist's colour never recomposes — and so
-					// never re-renders the blur — it only redraws a gradient over the cached one.
 					Box(Modifier.fillMaxSize()) {
-					if (coverColors.themed) BlendBackground(
+					// The artist photo under this page's gradient — the shared
+					// [CoverAmbientBackground], which the album page and every browsing page use
+					// too. Transparent artwork scrim, unlike the album page's default: a press
+					// photo is busy enough without one.
+					if (coverColors.themed) CoverAmbientBackground(
 						coverArtId = state.artist.coverArtId,
-						isPaused = true,
-						scrim = SolidColor(Color.Transparent),
-						modifier = Modifier.drawWithCache {
-							val (t, b) = coverAmbientGradient(
-								animatedSeed.value,
-								coverColors.isDark
-							)
-							// Mostly opaque: the colour reaching the text stays essentially the
-							// ambient one `onAmbient` guarantees contrast against, and the photo
-							// shows through only as texture.
-							val wash = Brush.verticalGradient(
-								listOf(t.copy(alpha = 0.82f), b.copy(alpha = 0.92f))
-							)
-							onDrawWithContent {
-								drawContent()
-								drawRect(wash)
-							}
-						}
+						seed = coverColors.seed,
+						isDark = coverColors.isDark,
+						artworkScrim = SolidColor(Color.Transparent)
 					)
 					Column(
 						modifier = Modifier

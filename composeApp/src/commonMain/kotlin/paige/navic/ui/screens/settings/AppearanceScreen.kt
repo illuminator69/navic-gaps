@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.toImmutableList
+import navic.composeapp.generated.resources.subtitle_theme_overridden
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_alphabetical_scroll
 import navic.composeapp.generated.resources.option_animation_style
@@ -129,7 +130,16 @@ fun SettingsAppearanceScreen() {
 							backStack.add(Screen.Settings.Themes)
 						},
 						content = { Text(stringResource(Res.string.option_choose_theme)) },
-						supportingContent = { Text(stringResource(preferenceManager.theme.title)) }
+						supportingContent = {
+							// Still navigable while cover theming is on — the screen behind it
+							// also holds the palette controls, which drive every surface artwork
+							// can't reach. The rows it overrides are greyed there.
+							Text(
+								if (preferenceManager.dynamicTheming)
+									stringResource(Res.string.subtitle_theme_overridden)
+								else stringResource(preferenceManager.theme.title)
+							)
+						}
 					)
 					if (isAndroid) {
 						SegmentedListItem(

@@ -55,6 +55,7 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import dev.zt64.compose.pipette.HsvColor
 import dev.zt64.compose.pipette.RingColorPicker
 import kotlinx.collections.immutable.toImmutableList
+import navic.composeapp.generated.resources.subtitle_theme_overridden
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_accent_colour
 import navic.composeapp.generated.resources.option_choose_theme
@@ -73,10 +74,14 @@ import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.TooltipBox
 import paige.navic.ui.components.layouts.NestedTopBar
+import androidx.compose.ui.draw.alpha
 import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.util.label
+
+/** Material's disabled-content opacity, for the theme picker while cover theming owns it. */
+private const val DisabledAlpha = 0.38f
 
 @Composable
 fun SettingsThemesScreen() {
@@ -95,6 +100,13 @@ fun SettingsThemesScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
+				// Cover theming takes page brightness from the ARTWORK and the accents from the
+				// cover's palette, so while it is on neither of these decides what you are
+				// looking at on a browsing or detail page. They are greyed rather than hidden
+				// because they are NOT inert: the stored values still drive the settings
+				// screens, every dialog, and any page with no artwork to read.
+				val overriddenByCover = preferenceManager.dynamicTheming
+				val overrideNote = stringResource(Res.string.subtitle_theme_overridden)
 				SettingsGroup {
 					SettingsChoiceItem(
 						choices = ThemeMode.entries.toImmutableList(),
@@ -102,6 +114,8 @@ fun SettingsThemesScreen() {
 						onChoiceSelected = { preferenceManager.themeMode = it },
 						content = { Text(stringResource(Res.string.title_theme_mode)) },
 						label = { stringResource(it.title) },
+						enabled = !overriddenByCover,
+						description = if (overriddenByCover) overrideNote else null,
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
 					)
 				}
@@ -112,10 +126,12 @@ fun SettingsThemesScreen() {
 
 					SegmentedListItem(
 						onClick = {},
+						enabled = !overriddenByCover,
 						content = {
 							LazyRow(
 								modifier = Modifier
 									.fillMaxWidth()
+									.alpha(if (overriddenByCover) DisabledAlpha else 1f)
 									.selectableGroup(),
 								horizontalArrangement = Arrangement.SpaceBetween
 							) {
@@ -123,7 +139,9 @@ fun SettingsThemesScreen() {
 									ThemeCard(
 										theme = theme,
 										isSelected = preferenceManager.theme == theme,
-										onSelect = { preferenceManager.theme = theme }
+										onSelect = {
+											if (!overriddenByCover) preferenceManager.theme = theme
+										}
 									)
 								}
 							}
