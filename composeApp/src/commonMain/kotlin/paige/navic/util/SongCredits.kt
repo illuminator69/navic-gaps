@@ -7,6 +7,30 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import paige.navic.domain.models.DomainSongArtist
+import paige.navic.data.database.dao.ArtistDao
+
+/**
+ * The credited artists that actually have a page to open.
+ *
+ * [DomainSong.artists] is the server's full credit list, but this fork's library sync stores
+ * only ALBUM artists (see DbRepository.fetchAlbumArtists), so a featured track artist — "Kid
+ * Cudi" on a Consequence track — has no Room row and its detail screen correctly refuses to
+ * load. Linking it anyway produces a tappable name that lands on "Something went wrong".
+ *
+ * So the names are still the server's, and so are the ids; only the LINKS are filtered. The
+ * rest of the credit line renders as plain text, which is what the old name-splitting
+ * implementation did for exactly the same reason.
+ */
+suspend fun linkableArtists(
+	artists: List<DomainSongArtist>,
+	artistDao: ArtistDao
+): List<DomainSongArtist> {
+	if (artists.isEmpty()) return emptyList()
+	val known = runCatching { artistDao.getArtistsByIds(artists.map { it.id }) }
+		.getOrElse { return emptyList() }
+		.mapTo(mutableSetOf()) { it.artistId }
+	return artists.filter { it.id in known }
+}
 
 /**
  * The credit string with each credited artist turned into a link, joining text kept verbatim.

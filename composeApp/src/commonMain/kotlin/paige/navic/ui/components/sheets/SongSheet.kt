@@ -95,6 +95,8 @@ import paige.navic.ui.util.buildSongInfoString
 import paige.navic.ui.util.label
 import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import paige.navic.ui.util.rememberCoverAmbient
+import paige.navic.util.linkableArtists
+import paige.navic.domain.models.DomainSongArtist
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -137,8 +139,11 @@ fun SongSheet(
 	val backStack = LocalNavStack.current
 	// Resolved here rather than by every caller: the sheet already has the song, and "View artist"
 	// is ambiguous on a collaboration wherever it is shown. One artist behaves exactly as before.
-	// song.artists is the server's own OpenSubsonic artists[] — no lookup, no guessing.
-	val credits = song.artists
+	// song.artists is the server's own OpenSubsonic artists[]; only the ones this library
+	// actually holds get linked (see linkableArtists).
+	val artistDao = koinInject<ArtistDao>()
+	var credits by remember { mutableStateOf<List<DomainSongArtist>>(emptyList()) }
+	LaunchedEffect(song.id) { credits = linkableArtists(song.artists, artistDao) }
 	var artistChooserShown by rememberSaveable { mutableStateOf(false) }
 	var sleepTimerSheetShown by rememberSaveable { mutableStateOf(false) }
 	val sleepTimerManager = koinInject<SleepTimerManager>()

@@ -39,6 +39,8 @@ import paige.navic.ui.util.appendArtists
 import paige.navic.util.PlainArtistLinkStyles
 import paige.navic.util.artistCreditsText
 import paige.navic.domain.models.creditText
+import paige.navic.util.linkableArtists
+import paige.navic.domain.models.DomainSongArtist
 
 @Composable
 fun NowPlayingInfoRow(
@@ -57,8 +59,11 @@ fun NowPlayingInfoRow(
 	val hubDevices by hubManager.devices.collectAsState()
 	val hubActiveId by hubManager.activeDeviceId.collectAsState()
 	val remoteDeviceName = hubDevices.firstOrNull { it.id == hubActiveId }?.name ?: "remote device"
-	// song.artists is the server's own OpenSubsonic artists[] — no lookup, no guessing.
-	val credits = song?.artists.orEmpty()
+	// song.artists is the server's own OpenSubsonic artists[]; only the ones this library
+	// actually holds get linked (see linkableArtists).
+	val artistDao = koinInject<ArtistDao>()
+	var credits by remember { mutableStateOf<List<DomainSongArtist>>(emptyList()) }
+	LaunchedEffect(song?.id) { credits = linkableArtists(song?.artists.orEmpty(), artistDao) }
 	Row(
 		modifier = Modifier
 			.padding(horizontal = 16.dp)
