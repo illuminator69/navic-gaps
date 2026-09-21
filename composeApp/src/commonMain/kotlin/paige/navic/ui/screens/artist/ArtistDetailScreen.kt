@@ -114,7 +114,6 @@ import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
 
@@ -198,7 +197,9 @@ fun ArtistDetailScreen(
 	// STABLE (per-artist) ambient colours drive the theme, the containers and the text colour —
 	// so the crossfade below never re-derives the scheme or flips LocalContentColor per frame.
 	// Same split as CollectionDetailScreen.
-	val (ambientTop, ambientBottom) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	// See CollectionDetailScreen: off means the app's own surface, not an eased tint of it.
+	val (washTop, ambientBottom) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	val ambientTop = if (coverColors.themed) washTop else MaterialTheme.colorScheme.surface
 	val onAmbient = onAmbientColor(ambientTop, coverColors.scheme)
 		// Status-bar icons follow the (cover-driven) page brightness.
 		ForceSystemBars(coverColors.isDark)
@@ -272,7 +273,7 @@ fun ArtistDetailScreen(
 					// drawWithCache), so easing to a new artist's colour never recomposes — and so
 					// never re-renders the blur — it only redraws a gradient over the cached one.
 					Box(Modifier.fillMaxSize()) {
-					BlendBackground(
+					if (coverColors.themed) BlendBackground(
 						coverArtId = state.artist.coverArtId,
 						isPaused = true,
 						scrim = SolidColor(Color.Transparent),

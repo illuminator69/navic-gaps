@@ -70,7 +70,6 @@ import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.ForceSystemBars
 import paige.navic.di.isLandscape
-import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import paige.navic.ui.util.AmbientColorHolder
 import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
@@ -178,7 +177,12 @@ fun CollectionDetailScreen(
 	// with no late colour pop — background + hero fade ease together off `animatedSeed`.
 	// STABLE (per-song) ambient colours drive the theme + text colour, so the crossfade below
 	// never re-derives the scheme or flips LocalContentColor every frame (recomposition storm).
-	val (stableTop, _) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	// With cover theming off there is no hero wash at all: the page is the app's own surface, and
+	// the blurred backdrop below is skipped. `coverColors.seed` is the plain surface then, and
+	// `coverAmbientGradient` would still ease it toward white/black — i.e. paint a tint nobody
+	// asked for.
+	val (washTop, _) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	val stableTop = if (coverColors.themed) washTop else MaterialTheme.colorScheme.surface
 	val onAmbient = onAmbientColor(stableTop, coverColors.scheme)
 	// The BACKGROUND wash eases between songs; kept as a State and read in the draw phase
 	// (drawWithCache, below), so per-frame updates never recompose the content tree.
@@ -227,7 +231,7 @@ fun CollectionDetailScreen(
 			// LazyColumn, and an always-animating 80dp blur there is the lag the flat gradient
 			// was chosen to avoid. The eased seed is read in the draw phase (drawWithCache), so
 			// the song crossfade never recomposes the content tree.
-			BlendBackground(
+			if (coverColors.themed) BlendBackground(
 				coverArtId = collection?.coverArtId,
 				isPaused = true,
 				modifier = Modifier.drawWithCache {

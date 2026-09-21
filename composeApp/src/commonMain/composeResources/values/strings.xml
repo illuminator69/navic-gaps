@@ -83,7 +83,7 @@
 	<string name="subtitle_offline_mode">Dictates when the app should go into an offline mode. Requires application restart</string>
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_download_quality">Adjust the quality of downloaded music</string>
-	<string name="subtitle_dynamic_theming">Dynamically theme the album and artist view based on the cover art</string>
+	<string name="subtitle_dynamic_theming">Colour the whole app from the artwork on screen, and from the playing song</string>
 	<string name="subtitle_app_icon_designer">Designed by: %1$s</string>
 	<string name="subtitle_local_network_denied">You need to grant Navic access to your local network in order for your server to be reachable.</string>
 	<string name="subtitle_equaliser">Tune &amp; enhance audio</string>

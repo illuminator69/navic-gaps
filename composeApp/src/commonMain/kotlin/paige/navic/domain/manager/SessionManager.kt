@@ -116,10 +116,17 @@ class SessionManager(
 		)
 	}
 
-	fun getCoverArtUrl(coverArtId: String) = api.getCoverArtUrl(
+	/**
+	 * [size] overrides the user's cover-art quality for callers that want a specific pixel size.
+	 * It is a PARAMETER rather than something a caller appends, because the URL this returns
+	 * already carries a `size`: `"$url&size=128"` produced `…&size=4096&size=128`, and Subsonic
+	 * reads the first, so the palette extractor silently downloaded a 4096px image for every
+	 * cover it quantised.
+	 */
+	fun getCoverArtUrl(coverArtId: String, size: Int? = null) = api.getCoverArtUrl(
 		coverArtId,
 		auth = true,
-		size = "${preferenceManager.coverArtQuality.value}"
+		size = "${size ?: preferenceManager.coverArtQuality.value}"
 	)
 
 	/**

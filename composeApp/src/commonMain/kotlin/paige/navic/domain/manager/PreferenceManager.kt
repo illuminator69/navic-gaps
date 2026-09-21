@@ -161,7 +161,10 @@ class PreferenceManager(
 	// theme related settings
 	var theme by preference(Theme.Dynamic)
 	var themeMode by preference(ThemeMode.System)
-	var dynamicTheming by preference(false)
+	// ON by default: the fork has always themed from cover art, and this pref had no readers at all
+	// until it was rewired (see `coverThemingEnabled`), so defaulting false would un-theme every
+	// existing install on update.
+	var dynamicTheming by preference(true)
 	var paletteStyle by preference(PaletteStyle.TonalSpot)
 	var paletteSpec by preference(ColorSpec.SpecVersion.SPEC_2025)
 	var paletteAccentH by preference(0f)

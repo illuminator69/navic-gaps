@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.LocalSheetState
-import paige.navic.ui.util.rememberColorSchemeForCurrentSong
 import paige.navic.ui.util.rememberScreenCornerRadius
 import androidx.compose.runtime.CompositionLocalProvider
 

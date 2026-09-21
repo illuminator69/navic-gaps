@@ -36,8 +36,6 @@ import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.di.LocalSheetState
 import paige.navic.ui.navigation.BottomSheetSceneStrategy.Companion.bottomSheet
 import paige.navic.ui.theme.NavicTheme
-import paige.navic.ui.util.rememberColorSchemeForCurrentSong
-import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import androidx.compose.material3.rememberModalBottomSheetState
 

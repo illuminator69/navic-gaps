@@ -19,6 +19,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainFilter
 import paige.navic.ui.core.UiState
+import paige.navic.util.CoverPlaceholder
 import kotlin.time.Clock
 
 class ArtistRepository(
@@ -28,10 +29,32 @@ class ArtistRepository(
 	private val syncManager: SyncManager,
 	private val dbRepository: DbRepository
 ) {
+	/**
+	 * Refresh which cover hash is Navidrome's generic avatar (see [CoverPlaceholder]). One indexed
+	 * GROUP BY, next to a read that already pulls the whole artist table, and it has to run before
+	 * the tiles are composed or the first pass shows the grey squares anyway.
+	 *
+	 * Lost in the alpha58 merge: upstream rewrote [getLocalData] (`reversed` -> `filters`) and the
+	 * merge took its function whole, dropping this call and the helper with it. Nothing failed to
+	 * compile — [CoverPlaceholder.learn] simply never ran, so `imageHash` stayed null,
+	 * `isPlaceholder` always answered false, and both the tile fallback and (now) the theming skip
+	 * were dead. Same failure class as SESSION-2026-09-21 §3, minus the crash that would have
+	 * announced it.
+	 */
+	private suspend fun learnCoverPlaceholder() {
+		val counts = artistDao.coverImageHashCounts()
+		CoverPlaceholder.learn(
+			topHash = counts.firstOrNull()?.hash,
+			topCount = counts.firstOrNull()?.artistCount ?: 0,
+			runnerUpCount = counts.getOrNull(1)?.artistCount ?: 0
+		)
+	}
+
 	private suspend fun getLocalData(
 		listType: DomainArtistListType,
 		filters: Set<DomainFilter> = emptySet()
 	): ImmutableList<DomainArtist> {
+		learnCoverPlaceholder()
 		val artists = when (listType) {
 			DomainArtistListType.AlphabeticalByName -> artistDao.getArtistsAlphabeticalByName()
 			DomainArtistListType.Random -> artistDao.getArtistsRandom()
