@@ -82,6 +82,11 @@ actual val platformModule = module {
 		)
 	}
 
+	singleOf(::AppIconManager)
+	singleOf(::AudioGainManager)
+	singleOf(::AudioGainProcessor)
+	singleOf(::LinkManager)
+	singleOf(::PermissionManager)
 	singleOf(::ShareManager)
 	singleOf(::StorageManager)
 	singleOf(::ConnectivityManager)
