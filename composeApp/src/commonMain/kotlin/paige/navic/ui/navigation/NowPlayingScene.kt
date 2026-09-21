@@ -35,6 +35,7 @@ import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.LocalSheetState
 import paige.navic.ui.util.rememberColorSchemeForCurrentSong
 import paige.navic.ui.util.rememberScreenCornerRadius
+import androidx.compose.runtime.CompositionLocalProvider
 
 /** An [OverlayScene] that renders an [entry] within a [ModalBottomSheet]. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,8 +88,14 @@ internal class NowPlayingScene<T : Any>(
 					RectangleShape
 				else BottomSheetDefaults.ExpandedShape
 			) {
-				Box(Modifier.fillMaxSize()) {
-					entry.Content()
+				// Upstream's screens dismiss themselves through LocalSheetState, and its
+				// default throws. Upstream provides it from its own scenes; this fork kept
+				// its scenes, so it has to publish the same state or NowPlayingScreen and
+				// LyricsScreen throw the moment they compose.
+				CompositionLocalProvider(LocalSheetState provides sheetState) {
+					Box(Modifier.fillMaxSize()) {
+						entry.Content()
+					}
 				}
 			}
 		}

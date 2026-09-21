@@ -39,6 +39,7 @@ import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.rememberColorSchemeForCurrentSong
 import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
+import androidx.compose.material3.rememberModalBottomSheetState
 
 /** An [OverlayScene] that renders an [entry] within a [ModalBottomSheet]. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,8 +56,12 @@ internal data class BottomSheetScene<T : Any>(
 
 	override val content: @Composable (() -> Unit) = {
 		val lifecycleOwner = rememberLifecycleOwner()
+		// Hoisted so it can be published as LocalSheetState below — the sheets hosted here
+		// (Queue, PlaybackSpeed) reach for it to animate their own dismissal.
+		val sheetState = rememberModalBottomSheetState()
 		ModalBottomSheet(
 			onDismissRequest = onBack,
+			sheetState = sheetState,
 			properties = modalBottomSheetProperties,
 			// Tint the sheet (Queue / PlaybackSpeed) by the now-playing cover so its
 			// surface, drag handle and content all adapt — no detached notch.
@@ -71,7 +76,10 @@ internal data class BottomSheetScene<T : Any>(
 				}
 			}
 		) {
-			CompositionLocalProvider(LocalLifecycleOwner provides lifecycleOwner) {
+			CompositionLocalProvider(
+				LocalLifecycleOwner provides lifecycleOwner,
+				LocalSheetState provides sheetState
+			) {
 				entry.Content()
 			}
 		}
