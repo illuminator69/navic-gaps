@@ -36,10 +36,8 @@ import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButto
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButton
 import paige.navic.ui.util.InlineExplicitIconLarge
 import paige.navic.ui.util.appendArtists
-import paige.navic.util.CreditedArtist
 import paige.navic.util.PlainArtistLinkStyles
 import paige.navic.util.artistCreditsText
-import paige.navic.util.creditedArtists
 import paige.navic.domain.models.creditText
 
 @Composable
@@ -59,11 +57,8 @@ fun NowPlayingInfoRow(
 	val hubDevices by hubManager.devices.collectAsState()
 	val hubActiveId by hubManager.activeDeviceId.collectAsState()
 	val remoteDeviceName = hubDevices.firstOrNull { it.id == hubActiveId }?.name ?: "remote device"
-	val artistDao = koinInject<ArtistDao>()
-	var credits by remember { mutableStateOf<List<CreditedArtist>>(emptyList()) }
-	LaunchedEffect(song?.id, song?.artistName) {
-		credits = song?.let { creditedArtists(it, artistDao) }.orEmpty()
-	}
+	// song.artists is the server's own OpenSubsonic artists[] — no lookup, no guessing.
+	val credits = song?.artists.orEmpty()
 	Row(
 		modifier = Modifier
 			.padding(horizontal = 16.dp)
@@ -115,7 +110,7 @@ fun NowPlayingInfoRow(
 			}
 			// Every credited artist is its own tap target — "A feat. B" opens B's page when you
 			// tap B, not A's. The joining text ("feat.", "&") is kept exactly as tagged; see
-			// [creditedArtists] for why the split is conservative.
+			// The names come straight from the server, so every one of them has a real id.
 			val artistStyle = MaterialTheme.typography.bodyMedium.copy(
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1

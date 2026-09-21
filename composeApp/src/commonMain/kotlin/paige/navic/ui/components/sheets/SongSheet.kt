@@ -94,8 +94,6 @@ import paige.navic.ui.util.InlineExplicitIcon
 import paige.navic.ui.util.buildSongInfoString
 import paige.navic.ui.util.label
 import paige.navic.ui.util.rememberColorSchemeFromCoverArt
-import paige.navic.util.CreditedArtist
-import paige.navic.util.creditedArtists
 import paige.navic.ui.util.rememberCoverAmbient
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -139,12 +137,9 @@ fun SongSheet(
 	val backStack = LocalNavStack.current
 	// Resolved here rather than by every caller: the sheet already has the song, and "View artist"
 	// is ambiguous on a collaboration wherever it is shown. One artist behaves exactly as before.
-	val artistDao = koinInject<ArtistDao>()
-	var credits by remember { mutableStateOf<List<CreditedArtist>>(emptyList()) }
+	// song.artists is the server's own OpenSubsonic artists[] — no lookup, no guessing.
+	val credits = song.artists
 	var artistChooserShown by rememberSaveable { mutableStateOf(false) }
-	LaunchedEffect(song.id, song.artistName) {
-		credits = creditedArtists(song, artistDao).filter { it.id != null }
-	}
 	var sleepTimerSheetShown by rememberSaveable { mutableStateOf(false) }
 	val sleepTimerManager = koinInject<SleepTimerManager>()
 	val sleepTimerLeft = sleepTimerManager.timeLeft
@@ -576,7 +571,7 @@ fun SongSheet(
 		// surfaces match.
 		//
 		// Main artist first, then the guests — the order they are credited in, which is the order
-		// [creditedArtists] returns them.
+		// song.artists returns them in credited order.
 		ModalBottomSheet(
 			onDismissRequest = { artistChooserShown = false },
 			sheetState = rememberModalBottomSheetState(true),
