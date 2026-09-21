@@ -91,13 +91,13 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Queue
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormRow
-import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.viewmodels.DownloadCenterItem
 import paige.navic.ui.screens.settings.viewmodels.DownloadCenterViewModel
+import paige.navic.ui.components.common.Form
+import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.FormTitle
 
 /**
  * Everything the app is holding offline, split by what it's actually DOING: transferring now,

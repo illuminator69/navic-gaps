@@ -19,9 +19,9 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.RadioManager
-import paige.navic.LocalPlatformContext
-import paige.navic.LocalNavStack
 import paige.navic.ui.navigation.NowPlayingSheetController
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
@@ -31,6 +31,7 @@ import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
+import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import kotlin.time.Duration
 
 @Composable

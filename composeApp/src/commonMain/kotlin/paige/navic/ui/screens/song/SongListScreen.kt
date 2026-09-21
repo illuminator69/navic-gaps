@@ -26,7 +26,8 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalBottomBarScrollManager
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
@@ -42,6 +43,7 @@ import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.screens.song.components.SongListScreenSortButton
 import paige.navic.ui.screens.song.components.songListScreenContent
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
+import paige.navic.di.isLandscape
 import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
 
@@ -135,14 +137,14 @@ fun SongListScreen(
 					},
 					onSetStarred = { viewModel.starSong(it) },
 					onPlayNext = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id }) {
+						if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
 							songToQueue = song
 						} else {
 							player.playNextSingle(song)
 						}
 					},
 					onAddToQueue = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id }) {
+						if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
 							songToQueue = song
 						} else {
 							player.addToQueueSingle(song)

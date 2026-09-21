@@ -2,7 +2,6 @@ package paige.navic
 
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.EaseOutQuart
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -32,6 +31,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -62,7 +63,14 @@ import navic.composeapp.generated.resources.lbbot_fill_lost
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.LocalSharedTransitionScope
+import paige.navic.di.LocalSnackBarState
+import paige.navic.di.PlatformType
 import paige.navic.di.initializeSingletonImageLoader
+import paige.navic.di.rememberPlatformContext
 import paige.navic.domain.manager.BottomBarScrollManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
@@ -72,7 +80,6 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
-import paige.navic.ui.components.dialogs.SideloadingDialog
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -95,12 +102,13 @@ import paige.navic.ui.screens.playlist.PlaylistListScreen
 import paige.navic.ui.screens.queue.QueueScreen
 import paige.navic.ui.screens.radio.RadioListScreen
 import paige.navic.ui.screens.search.SearchScreen
+import paige.navic.ui.screens.settings.AudioEffectsScreen
 import paige.navic.ui.screens.settings.BottomBarScreen
 import paige.navic.ui.screens.settings.FontsScreen
 import paige.navic.ui.screens.playlist.SmartPlaylistEditorScreen
 import paige.navic.ui.screens.settings.NaviConnectScreen
 import paige.navic.ui.screens.settings.SettingsAboutScreen
-import paige.navic.ui.screens.settings.SettingsAcknowledgementsScreen
+import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.settings.DownloadCenterScreen
@@ -119,13 +127,11 @@ import paige.navic.ui.screens.song.SongListScreen
 import paige.navic.ui.screens.starred.StarredScreen
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.PlatformContext
-import paige.navic.di.PlatformType
-import paige.navic.di.rememberPlatformContext
-import paige.navic.ui.util.Material3Transitions
-import paige.navic.util.ui.rememberLibraryTabBackground
-import paige.navic.util.ui.rememberLibraryWashedScheme
-import paige.navic.ui.screens.song.SongDetailSheet
 import paige.navic.ui.components.snackbars.NavicSnackBar
+import paige.navic.ui.screens.song.SongDetailSheet
+import paige.navic.ui.util.Material3Transitions
+import paige.navic.ui.util.rememberLibraryTabBackground
+import paige.navic.ui.util.rememberLibraryWashedScheme
 
 @OptIn(ExperimentalSerializationApi::class)
 private val config = SavedStateConfiguration {
@@ -136,16 +142,6 @@ private val config = SavedStateConfiguration {
 	}
 }
 
-val LocalPlatformContext =
-	staticCompositionLocalOf<PlatformContext> { error("no platform context") }
-val LocalNavStack = staticCompositionLocalOf<NavBackStack<NavKey>> { error("no backstack") }
-val LocalSnackBarState = staticCompositionLocalOf<SnackbarHostState> { error("no snackbar state") }
-val LocalSharedTransitionScope =
-	staticCompositionLocalOf<SharedTransitionScope> { error("no shared transition scope") }
-
-val LocalBottomBarScrollManager = staticCompositionLocalOf<BottomBarScrollManager> {
-	error("No BottomBarScrollManager provided")
-}
 
 // Coil's singleton factory may only be installed once per process. When the
 // playback service keeps the process alive (e.g. while casting) and the UI is
@@ -324,11 +320,6 @@ fun App() {
 						}
 					)
 				}
-				if (!preferenceManager.showedSideloadingWarning
-					&& platformContext.name.lowercase().contains("android")
-				) {
-					SideloadingDialog()
-				}
 				// version check is annoying to do on iOS
 				if (preferenceManager.checkForUpdates && platformContext.platformType == PlatformType.Android) {
 					ChangelogSheet()
@@ -455,14 +446,14 @@ private fun entryProvider(
 		entry<Screen.Settings.Playback>(metadata = detailPane("settings")) {
 			SettingsPlaybackScreen()
 		}
+		entry<Screen.Settings.Effects>(metadata = detailPane("settings")) {
+			AudioEffectsScreen()
+		}
 		entry<Screen.Settings.Developer>(metadata = detailPane("settings")) {
 			SettingsDeveloperScreen()
 		}
 		entry<Screen.Settings.About>(metadata = detailPane("settings")) {
 			SettingsAboutScreen()
-		}
-		entry<Screen.Settings.Acknowledgements>(metadata = detailPane("settings")) {
-			SettingsAcknowledgementsScreen()
 		}
 		entry<Screen.Settings.DataStorage>(metadata = detailPane("settings")) {
 			SettingsDataStorageScreen()

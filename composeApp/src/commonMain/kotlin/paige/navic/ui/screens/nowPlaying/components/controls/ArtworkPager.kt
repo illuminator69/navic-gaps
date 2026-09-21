@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.shared.MediaPlayerViewModel
@@ -33,7 +34,6 @@ import kotlin.time.Duration.Companion.milliseconds
 import paige.navic.domain.models.settings.CoverArtTapAction
 import paige.navic.ui.navigation.Screen
 import androidx.lifecycle.compose.dropUnlessResumed
-import paige.navic.LocalNavStack
 
 @Composable
 fun NowPlayingArtworkPager(

@@ -117,9 +117,9 @@
     <string name="option_lyrics_autoscroll">Автопрокручування тексту пісні</string>
     <string name="option_lyrics_beat_by_beat">Синхронізація тексту за ритмом</string>
     <string name="option_sort_random">Випадково</string>
-    <string name="option_sort_newest">Нещодавно додані</string>
+    <string name="option_sort_newest">Новинки</string>
     <string name="option_sort_rating">За оцінкою</string>
-    <string name="option_sort_frequent">Найчастіше відтворювані</string>
+    <string name="option_sort_frequent">Нещодавні</string>
     <string name="option_sort_recent">Нещодавно відтворені</string>
     <string name="option_sort_downloaded">Завантажені</string>
     <string name="option_sort_alphabetical_by_name">За назвою (А–Я)</string>
@@ -468,4 +468,6 @@
     <string name="sideloading_warning_subtitle">Google планує заблокувати встановлення застосунків зі сторонніх джерел на ВСІХ пристроях, де встановлено Сервіси Google Play!\n</string>
     <string name="sideloading_warning_description">В результаті встановлення застосунків зі сторонніх джерел може бути ПОВНІСТЮ заблоковано, якщо розробник, який підписує застосунок, не розкриє Google та/або публічно свою особу.\n\nЯкщо ви вмієте встановлювати сторонню прошивку (custom ROM) на свій пристрій, САМЕ ЧАС ЦЕ ЗРОБИТИ.\n\nДізнайтеся більше про те, що можна зробити та як висловити свою позицію</string>
     <string name="sideloading_warning_link_mask">keepandroidopen.org</string>
+    <string name="action_scroll_down">Прокрутити вниз</string>
+    <string name="info_update_check">Ця опція перевірятиме наявність оновлень на GitHub.\n\nЦе може бути небажаним, якщо ви встановили Navic через репозиторій додатків, такий як F-Droid або IzzyOnDroid, оскільки перевірка оновлень на GitHub обходить будь-яку перевірку, що здійснюється репозиторієм додатків.\n\nВи впевнені, що хочете увімкнути цю опцію?</string>
 </resources>

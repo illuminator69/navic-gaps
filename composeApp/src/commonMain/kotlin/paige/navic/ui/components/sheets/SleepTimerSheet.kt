@@ -51,7 +51,7 @@ import paige.navic.icons.outlined.Bedtime
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.ui.components.common.OptionCard
-import paige.navic.util.core.label
+import paige.navic.ui.util.label
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 

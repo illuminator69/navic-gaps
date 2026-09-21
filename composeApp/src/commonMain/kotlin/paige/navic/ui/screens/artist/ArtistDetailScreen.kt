@@ -79,9 +79,9 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalBottomBarScrollManager
-import paige.navic.LocalNavStack
-import paige.navic.LocalPlatformContext
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -97,11 +97,11 @@ import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.theme.NavicTheme
-import paige.navic.util.ui.AmbientColorHolder
+import paige.navic.ui.util.AmbientColorHolder
 import paige.navic.di.ForceSystemBars
-import paige.navic.util.ui.coverAmbientGradient
-import paige.navic.util.ui.onAmbientColor
-import paige.navic.util.ui.rememberCoverColorScheme
+import paige.navic.ui.util.coverAmbientGradient
+import paige.navic.ui.util.onAmbientColor
+import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.components.sheets.GapFillSheet
 import paige.navic.ui.components.sheets.MissingAlbumSheet
@@ -114,6 +114,8 @@ import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.di.isLandscape
+import paige.navic.ui.util.rememberColorSchemeFromCoverArt
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)

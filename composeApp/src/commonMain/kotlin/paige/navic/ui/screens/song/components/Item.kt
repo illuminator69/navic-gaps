@@ -35,8 +35,8 @@ import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_downloaded
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.RadioManager
-import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
@@ -53,8 +53,8 @@ import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.util.core.InlineExplicitIcon
-import paige.navic.util.core.buildSongInfoString
+import paige.navic.ui.util.InlineExplicitIcon
+import paige.navic.ui.util.buildSongInfoString
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

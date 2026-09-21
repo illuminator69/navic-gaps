@@ -1,5 +1,6 @@
 package paige.navic.di
 
+import androidx.media3.common.util.UnstableApi
 import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import org.koin.android.ext.koin.androidApplication
@@ -13,6 +14,7 @@ import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
 import paige.navic.domain.manager.AppIconManager
+import paige.navic.domain.manager.AudioGainManager
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.cast.CastBridgeManager
 import paige.navic.domain.manager.ConnectivityManager
@@ -21,9 +23,11 @@ import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
+import paige.navic.exoplayer.AudioGainProcessor
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
 
+@UnstableApi
 actual val platformModule = module {
 	single { PlatformType.Android }
 	single<CacheDatabase> {
@@ -72,6 +76,7 @@ actual val platformModule = module {
 			sessionManager = get(),
 			platformContext = get(),
 			preferenceManager = get(),
+			audioGainManager = get(),
 			savedQueueRepository = get(),
 			snackBarManager = get()
 		)

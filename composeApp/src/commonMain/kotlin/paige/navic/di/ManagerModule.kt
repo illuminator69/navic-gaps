@@ -17,7 +17,7 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
-import paige.navic.util.ui.AmbientColorHolder
+import paige.navic.ui.util.AmbientColorHolder
 
 val managerModule = module {
 	singleOf(::AmbientColorHolder)

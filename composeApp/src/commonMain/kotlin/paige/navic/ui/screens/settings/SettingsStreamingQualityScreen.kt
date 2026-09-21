@@ -57,7 +57,6 @@ import navic.composeapp.generated.resources.title_streaming_quality
 import navic.composeapp.generated.resources.title_wifi
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.StreamingQuality
@@ -68,6 +67,7 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.di.LocalPlatformContext
 
 @Composable
 fun SettingsStreamingQualityScreen() {

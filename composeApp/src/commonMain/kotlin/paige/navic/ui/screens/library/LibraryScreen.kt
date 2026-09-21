@@ -27,7 +27,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalBottomBarScrollManager
+import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.models.DomainAlbumListType
@@ -52,10 +52,10 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
-import paige.navic.util.ui.rememberLibraryWashedScheme
-import paige.navic.util.ui.rememberAppIsDark
-import paige.navic.util.ui.rememberCoverColorScheme
-import paige.navic.util.ui.rememberNowPlayingCoverArtId
+import paige.navic.ui.util.rememberLibraryWashedScheme
+import paige.navic.ui.util.rememberAppIsDark
+import paige.navic.ui.util.rememberCoverColorScheme
+import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import paige.navic.domain.repositories.AlbumRepository

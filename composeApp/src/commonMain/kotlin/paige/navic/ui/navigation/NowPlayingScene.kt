@@ -27,11 +27,14 @@ import org.koin.compose.koinInject
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.NowPlayingSceneStrategy.Companion.bottomSheet
-import paige.navic.util.ui.rememberCoverColorScheme
+import paige.navic.ui.util.rememberCoverColorScheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import paige.navic.ui.theme.NavicTheme
+import paige.navic.di.LocalSheetState
+import paige.navic.ui.util.rememberColorSchemeForCurrentSong
+import paige.navic.ui.util.rememberScreenCornerRadius
 
 /** An [OverlayScene] that renders an [entry] within a [ModalBottomSheet]. */
 @OptIn(ExperimentalMaterial3Api::class)

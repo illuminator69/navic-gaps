@@ -18,7 +18,7 @@ import navic.composeapp.generated.resources.info_external_artist
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.navigation.Screen

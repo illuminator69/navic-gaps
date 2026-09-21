@@ -1,6 +1,5 @@
 import androidx.room3.gradle.RoomExtension
 import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryExtension
-import com.mikepenz.aboutlibraries.plugin.AboutLibrariesExtension
 import io.github.composegears.valkyrie.gradle.ValkyrieExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
@@ -11,7 +10,6 @@ plugins {
 	alias(libs.plugins.kotlin.serialization)
 	alias(libs.plugins.composeMultiplatform)
 	alias(libs.plugins.composeCompiler)
-	alias(libs.plugins.aboutLibraries)
 	alias(libs.plugins.valkyrie)
 	alias(libs.plugins.ksp)
 	alias(libs.plugins.androidx.room3)
@@ -49,18 +47,9 @@ extensions.configure<ValkyrieExtension> {
 	}
 }
 
-extensions.configure<AboutLibrariesExtension> {
-	export {
-		outputFile = file("src/commonMain/composeResources/files/acknowledgements.json")
-	}
-}
-
 tasks {
 	matching { it.name.startsWith("ksp") }.configureEach {
 		dependsOn(":composeApp:generateValkyrieImageVector")
-	}
-	named("copyNonXmlValueResourcesForCommonMain") {
-		dependsOn(":composeApp:exportLibraryDefinitions")
 	}
 	withType<org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile> {
 		dependsOn(":composeApp:generateValkyrieImageVector")

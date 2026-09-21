@@ -38,7 +38,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.screens.artist.truncateText
-import paige.navic.util.ui.onAmbientColor
+import paige.navic.ui.util.onAmbientColor
 
 @Composable
 fun ArtistDetailScreenHeading(

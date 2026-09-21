@@ -41,10 +41,10 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Error
-import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import paige.navic.ui.theme.defaultFont
 import paige.navic.util.Logger
-import paige.navic.util.core.CoverPlaceholder
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
+import paige.navic.util.CoverPlaceholder
 
 @Composable
 fun CoverArt(

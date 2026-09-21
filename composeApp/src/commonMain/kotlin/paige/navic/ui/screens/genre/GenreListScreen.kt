@@ -4,6 +4,7 @@ import paige.navic.di.isLandscape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Scaffold
@@ -21,8 +22,8 @@ import navic.composeapp.generated.resources.title_genres
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalBottomBarScrollManager
-import paige.navic.LocalPlatformContext
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.snackbars.ErrorSnackBar
@@ -88,7 +89,8 @@ fun GenreListScreen(
 				state = viewModel.gridState,
 				verticalArrangement = if ((genresState as? UiState.Success)?.data?.isEmpty() == true)
 					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
+				else Arrangement.spacedBy(12.dp),
+				columns = GridCells.Fixed(2)
 			) {
 				genreListScreenContent(state = genresState)
 			}

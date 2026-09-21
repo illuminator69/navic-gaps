@@ -39,8 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
-import paige.navic.LocalSharedTransitionScope
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.LocalSharedTransitionScope
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.ui.components.common.CoverArt
@@ -57,12 +57,13 @@ fun ArtGrid(
 	horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(12.dp),
 	verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
 	selectedViewMode: ListViewMode = ListViewMode.Grid,
+	columns: GridCells? = null,
 	content: LazyGridScope.() -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val artGridItemSize = preferenceManager.artGridItemSize
-	val columns = if (selectedViewMode == ListViewMode.List) {
+	val gridColumns = columns ?: if (selectedViewMode == ListViewMode.List) {
 		GridCells.Fixed(1)
 	} else if (platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact) {
 		GridCells.Fixed(preferenceManager.gridSize.value)
@@ -72,7 +73,7 @@ fun ArtGrid(
 	LazyVerticalGrid(
 		modifier = modifier.fillMaxSize(),
 		state = state,
-		columns = columns,
+		columns = gridColumns,
 		contentPadding = if (selectedViewMode == ListViewMode.Grid) {
 			contentPadding + PaddingValues(
 				start = 16.dp,

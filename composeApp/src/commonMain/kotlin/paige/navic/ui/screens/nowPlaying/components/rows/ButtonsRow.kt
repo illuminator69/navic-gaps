@@ -49,7 +49,7 @@ import navic.composeapp.generated.resources.info_repeat_off
 import navic.composeapp.generated.resources.info_repeat_one
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.HubManager
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
@@ -62,7 +62,7 @@ import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.outlined.Repeat
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.playPauseIconPainter
+import paige.navic.ui.util.playPauseIconPainter
 
 @Composable
 fun NowPlayingButtonsRow() {

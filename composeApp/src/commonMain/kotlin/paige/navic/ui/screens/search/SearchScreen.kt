@@ -62,13 +62,13 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.ClapAvailability
 import paige.navic.domain.manager.RadioManager
 import paige.navic.ui.components.sheets.MoodSearchSheet
-import paige.navic.LocalBottomBarScrollManager
-import paige.navic.LocalNavStack
-import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
@@ -109,7 +109,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
-import paige.navic.util.core.buildSongInfoString
+import paige.navic.ui.util.buildSongInfoString
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),
@@ -346,7 +346,7 @@ fun SearchScreen(
 
 									LaunchedEffect(dismissState.currentValue) {
 										if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-											if (player.uiState.value.queue.any { it.id == song.id }) {
+											if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
 												songToQueue = song
 											} else {
 												player.addToQueueSingle(song)
@@ -437,14 +437,14 @@ fun SearchScreen(
 												}?.let { now -> { radioManager.startJourney(now.id, song.id) } },
 												song = song,
 												onPlayNext = {
-													if (player.uiState.value.queue.any { it.id == song.id }) {
+													if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
 														songToQueue = song
 													} else {
 														player.playNextSingle(song)
 													}
 												},
 												onAddToQueue = {
-													if (player.uiState.value.queue.any { it.id == song.id }) {
+													if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
 														songToQueue = song
 													} else {
 														player.addToQueueSingle(song)

@@ -57,8 +57,8 @@ import navic.composeapp.generated.resources.option_all
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalBottomBarScrollManager
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.PreferenceManager

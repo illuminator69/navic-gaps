@@ -55,8 +55,8 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalNavStack
-import paige.navic.LocalPlatformContext
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NavbarConfig
@@ -77,7 +77,7 @@ import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Search
-import paige.navic.ui.components.common.animatedTabIconPainter
+import paige.navic.ui.util.animatedTabIconPainter
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel

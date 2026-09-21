@@ -46,7 +46,7 @@ import androidx.compose.runtime.setValue
 import paige.navic.domain.models.DomainSong
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.persistentListOf
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.RadioManager
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.navigation.Screen
@@ -78,7 +78,7 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalPlatformContext
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.HubManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
@@ -88,20 +88,21 @@ import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.queue.components.QueueScreenItem
 import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
-import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
-import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.ui.screens.song.components.songListScreenContent
-import paige.navic.ui.util.draggableItemsIndexed
-import paige.navic.ui.util.rememberDraggableListState
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next
 import navic.composeapp.generated.resources.action_download_queue
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.di.LocalSheetState
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
+import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
+import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.screens.song.components.songListScreenContent
+import paige.navic.ui.util.draggableItemsIndexed
+import paige.navic.ui.util.rememberDraggableListState
 import kotlin.time.DurationUnit
 
 /** A queue slot with a stable id so reorders animate (see [QueueScreen]). */

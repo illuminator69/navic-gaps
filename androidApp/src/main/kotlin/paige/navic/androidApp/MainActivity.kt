@@ -30,7 +30,6 @@ class MainActivity : ComponentActivity() {
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
-		permissionManager.registerLauncher(this)
 		enableEdgeToEdge()
 		handleDeepLink(intent)
 		observeFills()

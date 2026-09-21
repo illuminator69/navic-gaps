@@ -29,7 +29,7 @@ import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.HubDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.util.ui.rememberNowPlayingCoverAmbient
+import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import kotlin.math.roundToInt
 
 /**

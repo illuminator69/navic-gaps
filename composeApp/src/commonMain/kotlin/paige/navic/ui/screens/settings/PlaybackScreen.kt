@@ -50,8 +50,6 @@ import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_streaming_quality
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalNavStack
-import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
@@ -70,6 +68,8 @@ import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.di.PlatformType
 import kotlin.math.roundToInt
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 
 @Composable
 fun SettingsPlaybackScreen() {

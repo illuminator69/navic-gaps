@@ -59,6 +59,8 @@ class PreferenceManager(
 	var scrobblePercentage by preference(.5f)
 	var minDurationToScrobble by preference(30f)
 	var replayGainMode by preference(ReplayGainMode.Off)
+	var rgAmpGain by preference(0f)
+	var ampGain by preference(0f)
 	var gaplessPlayback by preference(true)
 	var audioOffload by preference(false)
 
@@ -132,6 +134,7 @@ class PreferenceManager(
 	var checkForUpdates by preference(false)
 	var explicitContentPlayback by preference(ExplicitContentPlayback.Allowed)
 	var autoFillQueue by preference(false)
+	var shushQueueDuplicateDialog by preference(false)
 
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)
@@ -148,12 +151,6 @@ class PreferenceManager(
     )
 	var miniPlayerStyle by preference(MiniPlayerStyle.Detached)
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
-
-	/**
-	 * If we have informed the user (on Android) about
-	 * Google locking down sideloading.
-	 */
-	var showedSideloadingWarning by preference(false)
 
 	// theme related settings
 	var theme by preference(Theme.Dynamic)

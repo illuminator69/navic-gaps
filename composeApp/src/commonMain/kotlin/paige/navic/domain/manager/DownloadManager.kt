@@ -45,6 +45,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.Logger
 import kotlin.time.Clock
+import paige.navic.di.PlatformType
 import coil3.PlatformContext as CoilPlatformContext
 
 class DownloadManager(

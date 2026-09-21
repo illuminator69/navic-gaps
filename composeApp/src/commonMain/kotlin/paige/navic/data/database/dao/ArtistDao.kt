@@ -32,7 +32,7 @@ interface ArtistDao {
 	 * Navidrome shapes an artist's cover id as `ar-<artist>_<imageHash>` — exactly one underscore —
 	 * so the hash of the image it will actually serve is already here, no fetching required. Every
 	 * artist with no artwork gets the same generic avatar and so the same hash, which is what
-	 * [paige.navic.util.core.CoverPlaceholder] recognises it by. The runner-up comes back too
+	 * [paige.navic.util.CoverPlaceholder] recognises it by. The runner-up comes back too
 	 * because the rule needs it: the top hash counts only if it is a clear outlier.
 	 */
 	@Query("""

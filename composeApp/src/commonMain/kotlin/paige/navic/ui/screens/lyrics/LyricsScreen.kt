@@ -63,7 +63,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.ToolbarPosition
@@ -76,7 +76,7 @@ import paige.navic.icons.outlined.Share
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
-import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.util.KeepScreenOn
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -86,11 +86,11 @@ import paige.navic.ui.screens.lyrics.components.LyricsScreenKaraokeText
 import paige.navic.ui.screens.lyrics.components.LyricsScreenLoadingView
 import paige.navic.ui.screens.lyrics.dialogs.LyricsShareSheet
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
-import paige.navic.util.calculateWordProgress
-import paige.navic.util.ui.LocalSheetState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.compose.foundation.lazy.rememberLazyListState
+import paige.navic.di.LocalSheetState
+import paige.navic.util.calculateWordProgress
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable

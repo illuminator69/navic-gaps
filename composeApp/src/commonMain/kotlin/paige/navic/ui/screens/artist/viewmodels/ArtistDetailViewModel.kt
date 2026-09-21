@@ -40,7 +40,7 @@ import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.util.Logger
-import paige.navic.util.core.albumTitleKey
+import paige.navic.util.albumTitleKey
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import kotlinx.coroutines.flow.StateFlow

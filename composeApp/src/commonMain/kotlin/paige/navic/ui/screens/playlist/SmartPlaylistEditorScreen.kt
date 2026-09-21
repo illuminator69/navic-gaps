@@ -48,20 +48,20 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.koin.compose.koinInject
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.outlined.Close
+import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
-import paige.navic.ui.components.layouts.NestedTopBar
-import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
-import paige.navic.util.ui.rememberLibraryTabBackground
 
 // ---------------------------------------------------------------------------
 // Rule model: a curated subset of Navidrome's criteria fields/operators.

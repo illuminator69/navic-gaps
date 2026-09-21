@@ -31,10 +31,14 @@ import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
 import com.kyant.capsule.ContinuousCapsule
-import paige.navic.LocalNavStack
+import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.sheets.ModalBottomSheet
+import paige.navic.di.LocalSheetState
 import paige.navic.ui.navigation.BottomSheetSceneStrategy.Companion.bottomSheet
-import paige.navic.util.ui.rememberNowPlayingCoverAmbient
+import paige.navic.ui.theme.NavicTheme
+import paige.navic.ui.util.rememberColorSchemeForCurrentSong
+import paige.navic.ui.util.rememberColorSchemeFromCoverArt
+import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /** An [OverlayScene] that renders an [entry] within a [ModalBottomSheet]. */
 @OptIn(ExperimentalMaterial3Api::class)

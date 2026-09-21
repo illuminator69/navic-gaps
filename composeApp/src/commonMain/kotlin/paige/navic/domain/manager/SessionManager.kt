@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import paige.navic.util.core.installSubsonicResponseRepair
+import paige.navic.util.installSubsonicResponseRepair
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.random.Random
 

@@ -42,7 +42,8 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import paige.navic.LocalBottomBarScrollManager
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
@@ -69,11 +70,13 @@ import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreBy
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
-import paige.navic.util.ui.AmbientColorHolder
 import paige.navic.di.ForceSystemBars
-import paige.navic.util.ui.coverAmbientGradient
-import paige.navic.util.ui.onAmbientColor
-import paige.navic.util.ui.rememberCoverColorScheme
+import paige.navic.di.isLandscape
+import paige.navic.ui.util.rememberColorSchemeFromCoverArt
+import paige.navic.ui.util.AmbientColorHolder
+import paige.navic.ui.util.coverAmbientGradient
+import paige.navic.ui.util.onAmbientColor
+import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.util.withoutTop
 import kotlin.time.Duration
 import paige.navic.ui.components.snackbars.ErrorSnackBar

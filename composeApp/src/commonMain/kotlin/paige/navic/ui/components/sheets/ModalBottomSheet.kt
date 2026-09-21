@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.SheetHideMotionSpec
 import paige.navic.ui.util.SheetShowMotionSpec
-import paige.navic.util.ui.CoverAmbient
+import paige.navic.ui.util.CoverAmbient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

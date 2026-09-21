@@ -41,7 +41,7 @@ import paige.navic.ui.components.common.SongRowStatus
 import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.util.DraggableListState
 import paige.navic.ui.util.dragHandle
-import paige.navic.util.ui.segmentedShapes
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
