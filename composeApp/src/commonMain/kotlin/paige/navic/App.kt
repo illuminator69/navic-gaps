@@ -453,7 +453,7 @@ private fun entryProvider(
 		}
 
 		entry<Screen.Statistics>(metadata = navtabMetadata) { key ->
-			StatisticsScreen(key.nested)
+			Washed { StatisticsScreen(key.nested) }
 		}
 
 		// Not overloads of the two above: those take Navidrome ids and load from
