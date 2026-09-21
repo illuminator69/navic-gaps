@@ -76,6 +76,8 @@ import navic.composeapp.generated.resources.action_next_song
 import navic.composeapp.generated.resources.action_pause
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_previous_song
+import navic.composeapp.generated.resources.info_playing_on
+import navic.composeapp.generated.resources.info_paused_on
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -394,9 +396,18 @@ fun MiniPlayer(
 				},
 				supportingContent = {
 					if (isRemoteActive) {
-						// Spotify-style accent cue that playback is on another device.
+						// Spotify-style accent cue that playback is on another device — and
+						// whether it is actually PLAYING there. This read "Playing on <device>"
+						// unconditionally, so pausing the remote device left the pill still
+						// announcing playback: the transport icon flipped to play and the line
+						// under the title contradicted it. It is also the one user-facing string
+						// here that was hardcoded English rather than a resource.
 						MarqueeText(
-							"Playing on $remoteDeviceName",
+							stringResource(
+								if (playerState.isPaused) Res.string.info_paused_on
+								else Res.string.info_playing_on,
+								remoteDeviceName
+							),
 							style = LocalTextStyle.current.copy(
 								color = MaterialTheme.colorScheme.primary
 							)

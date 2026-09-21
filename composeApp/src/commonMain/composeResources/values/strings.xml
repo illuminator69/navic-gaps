@@ -429,6 +429,8 @@
 	<string name="info_unknown_year">Unknown Year</string>
 	<string name="info_unknown_genre">Unknown Genre</string>
 	<string name="info_not_playing">Not playing</string>
+	<string name="info_playing_on">Playing on %1$s</string>
+	<string name="info_paused_on">Paused on %1$s</string>
 	<string name="info_no_playlists">You have no playlists.</string>
 	<string name="info_no_other_playlists">You have no playlists other than this one.</string>
 	<string name="info_track_name">Name</string>

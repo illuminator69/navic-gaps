@@ -768,6 +768,26 @@ class AndroidMediaPlayerViewModel(
 						if (isPlaying) startProgressLoop()
 					}
 
+					/**
+					 * Nothing was watching the one signal `isPaused` is actually derived from.
+					 *
+					 * [updatePlaybackState] reads `isPaused = !controller.playWhenReady`, but it
+					 * was only ever called from the item/timeline/playbackState callbacks — and
+					 * **pausing changes none of those**: the player stays in `STATE_READY`, so
+					 * `onPlaybackStateChanged` does not fire, and `onIsPlayingChanged` only
+					 * started the progress loop. So `_uiState.isPaused` kept whatever value it
+					 * last happened to derive, and the mini-player's transport stayed on the
+					 * pause icon after you paused, until some unrelated event (a track change, a
+					 * rebuffer) refreshed it by accident.
+					 *
+					 * This is also the callback that covers every pause the app does not
+					 * initiate itself: the notification, a headset button, Android Auto, or
+					 * audio-focus loss.
+					 */
+					override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+						updatePlaybackState()
+					}
+
 					// Metadata can change without the item doing so (a live stream, or
 					// a re-resolved item). The widgets key off metadata, so they need
 					// this too.
