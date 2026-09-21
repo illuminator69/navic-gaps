@@ -1,13 +1,13 @@
-# Navic — navi-connect fork
+# navic-gaps — Navic, forked for navi-connect
 
-> ### This is a modified version of **[ssalggnikool/Navic](https://github.com/ssalggnikool/Navic)**
-> **Modified by [illuminator69](https://github.com/illuminator69), starting July 2026, based on
-> upstream `v1.0.0-alpha40`.** All credit for Navic itself belongs to
-> [paige](https://github.com/ssalggnikool) and its contributors. Licensed **GPL-3.0**, same as
-> upstream.
+> ### A modified version of **[ssalggnikool/Navic](https://github.com/ssalggnikool/Navic)**
+> **All credit for Navic itself belongs to [paige](https://github.com/ssalggnikool) and its
+> contributors.** This fork is by [illuminator69](https://github.com/illuminator69), started July
+> 2026 from upstream `v1.0.0-alpha40`, and is licensed **GPL-3.0**, the same as upstream. Upstream's
+> own README is preserved below, unmodified.
 >
-> ⚠️ **The download badges further down are upstream's, not this fork's.** They install the
-> original Navic. Builds of *this* fork are published in
+> ⚠️ **The download badges further down are upstream's, not this fork's.** They install the original
+> Navic. Builds of *this* fork are published in
 > [navi-connect's releases](https://github.com/illuminator69/navi-connect/releases).
 >
 > Bugs in Navic itself belong [upstream](https://github.com/ssalggnikool/Navic/issues); bugs in the
@@ -17,8 +17,9 @@
 ## What this fork adds
 
 It makes Navic a client for **[navi-connect](https://github.com/illuminator69/navi-connect)** — a
-shared playback session across devices — and a front end for
-**[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is missing.
+shared playback session across devices, like Spotify Connect over your own Navidrome — and a front
+end for **[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is
+missing.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/illuminator69/navi-connect/main/docs/screenshots/navic-artist-missing-albums.png" width="45%" alt="Artist page with albums marked 7 missing, 3 missing and Not in your library" />
@@ -36,9 +37,54 @@ shared playback session across devices — and a front end for
   mood-reactive visualizer, and CLAP text→mood search.
 - **Saved Queues / Continue Listening** and a **Download Center**, synced through the hub and shared
   with the desktop client.
+- **A cover-art colour engine of its own** — every browsing and detail page is washed in the
+  artwork's colours, seeded from the dominant colour *family* and cached across scroll.
 
 **Setup:** don't start here — see the
 **[navi-connect setup guide](https://github.com/illuminator69/navi-connect/blob/main/TESTING-SETUP.md)**.
+
+## How this fork tracks upstream
+
+The branch is **`navi-connect`**, not `master`, and it has genuine upstream history: `upstream` is
+wired to ssalggnikool/Navic, so keeping current is one command.
+
+```bash
+git remote add upstream https://github.com/ssalggnikool/Navic.git   # once
+git fetch upstream --tags
+git merge v1.0.0-alphaNN
+```
+
+The fork sat as a squashed snapshot with no shared history until September 2026; it was
+reconstructed onto its real base (`v1.0.0-alpha40`) so that a plain `git merge` resolves per hunk
+instead of declaring every file a conflict. `CLAUDE.md` holds the merge playbook — read §2 before
+merging a release. It is not boilerplate: three of the failure modes it lists compile perfectly and
+crash only at runtime.
+
+Currently merged up to **`v1.0.0-alpha59`**.
+
+## Building
+
+```bash
+./gradlew :androidApp:assembleRelease    # androidApp/build/outputs/apk/release/Navic.apk
+```
+
+`:androidApp` is the application module; `:composeApp` is the shared KMP library. Judge performance
+on a **release** build — debug Compose is dramatically choppier and will mislead you. Release builds
+are also the only thing that catches an unsigned APK; see `CLAUDE.md` §2.
+
+`iosApp/` still exists and `commonMain` must keep compiling for iOS, but iOS is not built, run or
+tested here.
+
+## Documentation
+
+- **`CLAUDE.md`** (this repo) — the fork's own architecture, merge playbook, theming engine and
+  gotchas. The single source of truth for working *in this tree*.
+- **[navi-connect](https://github.com/illuminator69/navi-connect)** — the hub, the wire protocol,
+  the desktop client, and how the whole stack fits together.
+
+## Licence
+
+GPL-3.0, inherited from upstream. See [LICENSE](LICENSE).
 
 ---
 
@@ -99,7 +145,7 @@ You can help translate Navic by contributing on [Weblate](https://hosted.weblate
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to see how you can help out!
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) to see how you can help out!
 
 ## Star History
 
