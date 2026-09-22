@@ -100,6 +100,8 @@ fun ArtGridItem(
 	title: String,
 	subtitle: String? = null,
 	playCount: Int? = null,
+	/** See `CoverArt.isArtist` — an art-less artist has no id to infer from. */
+	isArtist: Boolean? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
 	// transitions being performed when switching between tabs
@@ -133,6 +135,7 @@ fun ArtGridItem(
 			CoverArt(
 				coverArtId = coverArtId,
 				contentDescription = title,
+				isArtist = isArtist,
 				modifier = Modifier
 					.fillMaxWidth()
 					.sharedElement(

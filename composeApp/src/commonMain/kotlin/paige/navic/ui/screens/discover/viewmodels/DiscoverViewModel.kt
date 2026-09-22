@@ -26,12 +26,33 @@ private const val SEED_POOL = 12
 /** Row content is a glance, not a list screen. */
 private const val ROW_LIMIT = 20
 
+/**
+ * A similar artist, with whatever artwork we can actually show.
+ *
+ * lb-bot names artists; it does not carry their pictures. For an artist the
+ * library holds, Navidrome already has one and it is a plain Room lookup — not
+ * fetching it was the difference between this row and every other row in the app
+ * looking like the same product. For one it does not hold there is no cheap
+ * source (lb-bot's `/lb/meta/artist` has a Wikipedia image, but that is a
+ * per-artist round trip behind MusicBrainz), so [coverArtId] is null and the
+ * tile falls back to the app's ordinary no-artwork placeholder — the same one an
+ * untagged library artist gets.
+ */
+data class DiscoverArtist(
+	val mbid: String,
+	val name: String,
+	val owned: Boolean,
+	val indexed: Boolean,
+	val artistId: String,
+	val coverArtId: String?
+)
+
 data class DiscoverUi(
 	val loading: Boolean = true,
 	/** Which rows have a source that can answer at all. */
 	val supported: Set<DiscoverRowId> = emptySet(),
 	val fresh: List<LbFreshRelease> = emptyList(),
-	val similarArtists: List<LbSimilarArtist> = emptyList(),
+	val similarArtists: List<DiscoverArtist> = emptyList(),
 	/** The artist the similar-artists row is seeded from — what its reason line names. */
 	val similarSeed: String = "",
 	val rediscovery: List<PlaylistEntity> = emptyList()
@@ -108,9 +129,10 @@ class DiscoverViewModel(
 			val similar = if (DiscoverRowId.SIMILAR_ARTISTS in supported) {
 				val seed = pickSeedArtist()
 				seedName = seed?.first.orEmpty()
-				if (seed == null) emptyList()
+				val rows = if (seed == null) emptyList()
 				else lbBotManager.similarArtists(seed.second, seed.first, ROW_LIMIT)
 					?.artists.orEmpty()
+				withArtwork(rows)
 			} else emptyList()
 
 			_state.value = DiscoverUi(
@@ -120,6 +142,31 @@ class DiscoverViewModel(
 				similarArtists = similar,
 				similarSeed = seedName,
 				rediscovery = rediscovery
+			)
+		}
+	}
+
+	/**
+	 * Attach Navidrome artwork to the artists the library holds.
+	 *
+	 * One `getArtistsByIds` for the whole row rather than a lookup per tile —
+	 * same reasoning as `_index_indexed_artist_mbids` upstream. An artist lb-bot
+	 * named but the library does not hold keeps a null cover and renders the
+	 * ordinary placeholder.
+	 */
+	private suspend fun withArtwork(rows: List<LbSimilarArtist>): List<DiscoverArtist> {
+		val ownedIds = rows.mapNotNull { it.artistId.ifBlank { null } }
+		val coverById = if (ownedIds.isEmpty()) emptyMap() else runCatching {
+			artistDao.getArtistsByIds(ownedIds).associate { it.artistId to it.coverArtId }
+		}.getOrDefault(emptyMap())
+		return rows.map { r ->
+			DiscoverArtist(
+				mbid = r.mbid,
+				name = r.name,
+				owned = r.owned,
+				indexed = r.indexed,
+				artistId = r.artistId,
+				coverArtId = coverById[r.artistId]
 			)
 		}
 	}

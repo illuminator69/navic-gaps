@@ -183,6 +183,7 @@ fun ArtistListScreenGridItem(
 			onLongClick = onSelect,
 			coverArtId = artist.coverArtId,
 			title = artist.name,
+			isArtist = true,
 			subtitle = pluralStringResource(
 				Res.plurals.count_albums,
 				artist.albumCount,

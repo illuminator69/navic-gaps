@@ -59,7 +59,18 @@ fun CoverArt(
 	crossfadeMs: Int = 500,
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
-	shape: Shape? = null
+	shape: Shape? = null,
+	/**
+	 * Whether this tile shows a person rather than a record.
+	 *
+	 * Normally inferred from the id — Navidrome shapes artist cover ids as
+	 * `ar-…` — but an artist with **no** picture has no id to infer from, and
+	 * the inference then silently falls through to the album shape. That is why
+	 * an art-less artist rendered as a square while every artist beside it was a
+	 * circle. Pass it explicitly wherever the caller knows, which is everywhere
+	 * an artist is being drawn.
+	 */
+	isArtist: Boolean? = null
 ) {
 	val coilPlatformContext = LocalCoilPlatformContext.current
 
@@ -67,10 +78,11 @@ fun CoverArt(
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 
-	val shape = shape ?: if (!coverArtId.orEmpty().startsWith("ar-")) {
-		preferenceManager.coverArtShape.shape
-	} else {
+	val drawsArtist = isArtist ?: coverArtId.orEmpty().startsWith("ar-")
+	val shape = shape ?: if (drawsArtist) {
 		preferenceManager.artistImageShape.shape
+	} else {
+		preferenceManager.coverArtShape.shape
 	}
 
 	val model = remember(coverArtId, preferenceManager.customHeaders) {

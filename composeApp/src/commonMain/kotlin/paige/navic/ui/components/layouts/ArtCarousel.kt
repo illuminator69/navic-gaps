@@ -101,6 +101,8 @@ fun ArtCarouselItem(
 	playCount: Int? = null,
 	duration: Duration? = null,
 	contentDescription: String?,
+	/** See `CoverArt.isArtist` — an art-less artist has no id to infer from. */
+	isArtist: Boolean? = null,
 	onSelect: () -> Unit = {},
 	onClick: () -> Unit = {}
 ) {
@@ -127,6 +129,7 @@ fun ArtCarouselItem(
 			coverArtId = coverArtId,
 			contentDescription = contentDescription,
 			interactionSource = interactionSource,
+			isArtist = isArtist,
 			modifier = Modifier.fillMaxWidth()
 		)
 
