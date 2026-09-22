@@ -516,9 +516,25 @@ class DbRepository(
 		Logger.i("DbRepository", "- Radios Synced: ${entities.size} stations found")
 	}
 
+	/**
+	 * Biography, Last.fm link and similar artists for one artist.
+	 *
+	 * Goes through [SessionManager.fetchArtistInfo2], not the bundled client. The
+	 * client's `getArtistInfo` is the **non-ID3** endpoint and was being handed
+	 * ID3 ids — Navidrome answers, so nothing ever errored; it simply answered
+	 * about the wrong thing. Its `getArtistInfoID3` is not a fix either: it
+	 * issues `getArtistInfo` too.
+	 *
+	 * The ID3 endpoint also returns full `similarArtist[]` entries rather than
+	 * bare ids. Only the ones carrying an `id` are in the library and can be
+	 * stored here; an entry with no id is an artist the library does not have,
+	 * which is a discovery lead rather than noise — but this table holds local
+	 * ids, so it is filtered out at the boundary rather than stored as "".
+	 */
 	suspend fun fetchArtistMetadata(artistId: String): Result<DomainArtist> = runDbOp {
-		val artistInfo = sessionManager.api.getArtistInfo(artistId)
-		val simIds = artistInfo.similarArtists.map { it.id }
+		val artistInfo = sessionManager.fetchArtistInfo2(artistId)
+			?: throw Exception("Artist info unavailable")
+		val simIds = artistInfo.similarArtist.map { it.id }.filter { it.isNotBlank() }
 
 		val currentEntity = artistDao.getArtistById(artistId)
 			?: throw Exception("Artist not found in local DB")

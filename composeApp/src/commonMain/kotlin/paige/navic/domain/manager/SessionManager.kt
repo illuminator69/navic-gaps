@@ -193,6 +193,68 @@ class SessionManager(
 	}
 
 	/**
+	 * Subsonic `getArtistInfo2` — biography, Last.fm link and similar artists, for
+	 * an **ID3** artist id.
+	 *
+	 * Hand-rolled rather than taken from the bundled `dev.zt64.subsonic` client,
+	 * for two reasons that both bite silently:
+	 *
+	 *  - That client's `getArtistInfo` is the *non-ID3* endpoint, and it was being
+	 *    called with ID3 ids. Navidrome answers, so nothing errors — it just
+	 *    answers about the wrong artist, or about nothing.
+	 *  - Its `getArtistInfoID3` is not a fix: it issues `getArtistInfo` too (the
+	 *    endpoint name is hard-coded in `SubsonicApiImpl`), so switching to it
+	 *    changes the call site and nothing else.
+	 *
+	 * The ID3 endpoint also returns full `similarArtist[]` entries rather than
+	 * bare ids, which is what has limited Navic's similar artists to the ones that
+	 * happen to be in the library.
+	 *
+	 * Lenient parse throughout: `biography` is HTML from whichever agent Navidrome
+	 * has configured, and any field may be absent.
+	 */
+	suspend fun fetchArtistInfo2(artistId: String, maxSimilar: Int = 20): ArtistInfo2Dto? {
+		val base = settings.getString("instanceUrl", "").trimEnd('/')
+		val username = settings.getString("username", "")
+		val password = settings.getString("password", "")
+
+		val salt = Random.nextBytes(12)
+			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+		val token = "$password$salt".encodeUtf8().md5().hex()
+
+		val httpClient = HttpClient {
+			install(ContentNegotiation) {
+				json(Json {
+					ignoreUnknownKeys = true
+					isLenient = true
+					coerceInputValues = true
+				})
+			}
+			install(UserAgent) { agent = "Navic" }
+		}
+
+		return try {
+			val envelope: SubsonicArtistInfo2Envelope =
+				httpClient.get("$base/rest/getArtistInfo2.view") {
+					preferenceManager.customHeadersMap().forEach { (key, value) ->
+						header(key, value)
+					}
+					parameter("u", username)
+					parameter("t", token)
+					parameter("s", salt)
+					parameter("v", "1.16.1")
+					parameter("c", "Navic")
+					parameter("f", "json")
+					parameter("id", artistId)
+					parameter("count", maxSimilar)
+				}.body()
+			envelope.response.artistInfo2
+		} finally {
+			httpClient.close()
+		}
+	}
+
+	/**
 	 * OpenSubsonic `getSimilarSongs2` — ids of songs similar to a given
 	 * song/album/artist id. Vanilla Navidrome serves a heuristic mix; with the
 	 * AudioMuse-AI plugin installed the SAME endpoint returns sonic
@@ -512,6 +574,40 @@ data class RawArtist(
 	val userRating: Int? = null,
 	val sortName: String? = null,
 	val musicBrainzId: String? = null
+)
+
+@Serializable
+data class SubsonicArtistInfo2Envelope(
+	@SerialName("subsonic-response") val response: SubsonicArtistInfo2Body = SubsonicArtistInfo2Body()
+)
+
+@Serializable
+data class SubsonicArtistInfo2Body(
+	val status: String = "ok",
+	val artistInfo2: ArtistInfo2Dto? = null
+)
+
+@Serializable
+data class ArtistInfo2Dto(
+	/** HTML, from whichever metadata agent Navidrome has configured. Strip it
+	 *  before rendering — see `paige.navic.ui.util.stripHtml`. */
+	val biography: String = "",
+	val musicBrainzId: String = "",
+	val lastFmUrl: String = "",
+	val smallImageUrl: String = "",
+	val mediumImageUrl: String = "",
+	val largeImageUrl: String = "",
+	/** Full entries, unlike the non-ID3 endpoint's bare ids — an artist with no
+	 *  `id` is one the library does not have, which is useful rather than noise. */
+	val similarArtist: List<SimilarArtistDto> = emptyList()
+)
+
+@Serializable
+data class SimilarArtistDto(
+	val id: String = "",
+	val name: String = "",
+	val albumCount: Int = 0,
+	val musicBrainzId: String = ""
 )
 
 @Serializable
