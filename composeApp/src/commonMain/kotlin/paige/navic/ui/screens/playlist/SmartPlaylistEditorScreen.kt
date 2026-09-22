@@ -59,6 +59,8 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
+import paige.navic.data.database.dao.PlaylistDao
+import paige.navic.domain.manager.createRediscoveryPlaylists
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
@@ -211,6 +213,8 @@ private fun FormTextField(
 fun SmartPlaylistEditorScreen() {
 	val nativeApi = koinInject<NativeApiManager>()
 	val dbRepository = koinInject<DbRepository>()
+	val playlistDao = koinInject<PlaylistDao>()
+	var creatingSet by remember { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 	val scope = rememberCoroutineScope()
 
@@ -412,6 +416,54 @@ fun SmartPlaylistEditorScreen() {
 			) {
 				if (saving) CircularProgressIndicator(Modifier.height(20.dp))
 				else Text("Create smart playlist")
+			}
+
+			// The rediscovery set: four ready-made smart playlists for music
+			// already in the library and rarely or never played. Nothing in this
+			// app surfaces that today — every "discovery" surface points outward
+			// at records you do not own.
+			//
+			// Opt-in, and idempotent by name: minting playlists in someone's
+			// library unasked would be a surprising thing for a player to do, and
+			// pressing this twice leaves one copy of each, not two.
+			Spacer(Modifier.height(16.dp))
+			FormTitle("Rediscovery")
+			Text(
+				"Adds four smart playlists — never played, loved but stale, highly " +
+					"rated and long unplayed, deep cuts. Navidrome keeps them current, " +
+					"so every client sees them.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+			)
+			Button(
+				enabled = !creatingSet,
+				modifier = Modifier.fillMaxWidth().height(52.dp),
+				onClick = {
+					creatingSet = true
+					error = null
+					scope.launch {
+						val existing = playlistDao.getAllPlaylistsByName()
+							.mapNotNull { it.playlist.name }
+							.toSet()
+						val result = createRediscoveryPlaylists(nativeApi, existing)
+						dbRepository.syncPlaylists()
+						creatingSet = false
+						error = when {
+							result.failed.isNotEmpty() ->
+								"Could not create: " + result.failed.joinToString(", ")
+							result.created == 0 ->
+								"All ${result.skipped} rediscovery playlists already exist"
+							else -> null
+						}
+						if (result.failed.isEmpty() && result.created > 0) {
+							backStack.remove(Screen.SmartPlaylistEditor)
+						}
+					}
+				}
+			) {
+				if (creatingSet) CircularProgressIndicator(Modifier.height(20.dp))
+				else Text("Add the rediscovery set")
 			}
 			Spacer(Modifier.height(24.dp))
 		}
