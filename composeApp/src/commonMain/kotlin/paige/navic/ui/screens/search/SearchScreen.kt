@@ -156,6 +156,9 @@ fun SearchScreen(
 	val searchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
 	val isOnline by viewModel.isOnline.collectAsState()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsState()
+	// "Not in your library" — MusicBrainz artists, from lb-bot. Empty when lb-bot
+	// is absent, and the section then does not render at all (§7).
+	val externalArtists by viewModel.externalArtists.collectAsStateWithLifecycle()
 
 	val player = koinInject<MediaPlayerViewModel>()
 	val radioManager = koinInject<RadioManager>()
@@ -538,6 +541,59 @@ fun SearchScreen(
 										)
 									}
 								)
+							}
+							// Last, and never mixed into the library's own artists:
+							// these are artists the library does NOT have, so
+							// putting them anywhere higher would push real
+							// results down. Artists you *do* have are not
+							// filtered out — lb-bot answers with MusicBrainz's
+							// ranking and has no idea what Navidrome holds, and
+							// dropping a row on a name match would hide the
+							// right artist whenever two share a name.
+							if (externalArtists.isNotEmpty()) {
+								item(span = { GridItemSpan(maxLineSpan) }) {
+									Text(
+										"Not in your library",
+										style = MaterialTheme.typography.titleMedium,
+										color = MaterialTheme.colorScheme.primary,
+										modifier = Modifier.padding(
+											horizontal = 20.dp,
+											vertical = 12.dp
+										)
+									)
+								}
+								items(
+									externalArtists.size,
+									span = { GridItemSpan(maxLineSpan) }
+								) { index ->
+									val candidate = externalArtists[index]
+									ListItem(
+										modifier = Modifier.clickable(
+											onClick = dropUnlessResumed {
+												backStack.add(
+													Screen.ExternalArtist(
+														artistMbid = candidate.mbid,
+														name = candidate.name
+													)
+												)
+											}
+										),
+										content = { Text(candidate.name) },
+										// MusicBrainz's own "(UK band)" note — the
+										// only thing that tells two identically
+										// named artists apart.
+										supportingContent = candidate.disambiguation
+											.takeIf { it.isNotBlank() }
+											?.let { { Text(it) } },
+										leadingContent = {
+											Icon(
+												imageVector = Icons.Outlined.NoSearchResults,
+												contentDescription = null,
+												tint = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										}
+									)
+								}
 							}
 						} else {
 							if (searchHistory.isNotEmpty()) {

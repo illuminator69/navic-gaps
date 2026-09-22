@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.LbArtistCandidate
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
@@ -24,6 +26,7 @@ import kotlin.time.Duration.Companion.milliseconds
 class SearchViewModel(
 	private val repository: SearchRepository,
 	private val songRepository: SongRepository,
+	private val lbBotManager: LbBotManager,
 	connectivityManager: ConnectivityManager,
 	downloadManager: DownloadManager
 ) : ViewModel() {
@@ -49,6 +52,18 @@ class SearchViewModel(
 
 	val gridState = LazyGridState()
 
+	/**
+	 * "Not in your library": MusicBrainz artists, so search can reach past the
+	 * library at all. Until `/lb/artist/lookup` was whitelisted on the hub, an
+	 * external artist page was only reachable if the client already held an MBID
+	 * from a Fresh row — which blocked every acquisition path that starts with
+	 * "I want this artist".
+	 *
+	 * Empty forever when lb-bot is absent, and the section does not render (§7).
+	 */
+	val externalArtists: StateFlow<List<LbArtistCandidate>>
+		field = MutableStateFlow<List<LbArtistCandidate>>(emptyList())
+
 	init {
 		viewModelScope.launch {
 			snapshotFlow { searchQuery.text }
@@ -66,8 +81,27 @@ class SearchViewModel(
 								searchState.value = UiState.Error(e)
 							}
 						}
+						lookUpExternalArtists(query)
 					}
 				}
+		}
+	}
+
+	/**
+	 * A live MusicBrainz search behind lb-bot's global 1 req/sec lock, not a
+	 * local index read — so it rides the same 300 ms debounce as the library
+	 * search and skips anything too short to be worth a second of that budget.
+	 */
+	private suspend fun lookUpExternalArtists(query: String) {
+		if (query.trim().length < EXTERNAL_LOOKUP_MIN_LENGTH) {
+			externalArtists.value = emptyList()
+			return
+		}
+		externalArtists.value = try {
+			lbBotManager.artistLookup(query.trim())
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			emptyList()
 		}
 	}
 
@@ -123,3 +157,5 @@ class SearchViewModel(
 		selectedSong.value = null
 	}
 }
+
+private const val EXTERNAL_LOOKUP_MIN_LENGTH = 3
