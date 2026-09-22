@@ -364,13 +364,34 @@ class LbBotManager(
 	 */
 	private val _hubRoutes = MutableStateFlow<List<String>>(emptyList())
 
+	/**
+	 * Whether the hub in front of lb-bot proxies a given route.
+	 *
+	 * An **empty** list is an older hub that does not advertise at all: treat it
+	 * as capable rather than hiding a feature that probably works. Anything else
+	 * is authoritative, because this client ships independently of the hub and
+	 * the hub only picks up an edit when it restarts — so "my app is newer than
+	 * my hub" is a permanent condition, not an edge case, and without asking it
+	 * surfaces as a button that silently 404s.
+	 *
+	 * The named properties below are the call sites that read well as a name; the
+	 * Discover catalogue asks by route string because each of its rows names a
+	 * different one.
+	 */
+	fun advertisesRoute(route: String): Boolean =
+		_hubRoutes.value.isEmpty() || _hubRoutes.value.any { it == route }
+
 	/** False only when the hub answered a route list that doesn't include gap filling. */
 	val supportsGapFilling: Boolean
-		get() = _hubRoutes.value.isEmpty() || _hubRoutes.value.any { it == "POST /lb/gap/auto" }
+		get() = advertisesRoute("POST /lb/gap/auto")
 
 	/** As [supportsGapFilling], for the source picker. */
 	val supportsSourcePicker: Boolean
-		get() = _hubRoutes.value.isEmpty() || _hubRoutes.value.any { it == "GET /lb/album/sources" }
+		get() = advertisesRoute("GET /lb/album/sources")
+
+	/** As [supportsGapFilling], for the Discover screen's "Fans also like" row. */
+	val supportsSimilarArtists: Boolean
+		get() = advertisesRoute("GET /lb/artist/similar")
 
 	/**
 	 * One artist's stored discography. An instant SQLite read upstream keyed by the
@@ -561,6 +582,30 @@ class LbBotManager(
 			if (!artistMbid.isNullOrBlank()) add("artist_mbid" to artistMbid)
 			if (!artistName.isNullOrBlank()) add("artist_name" to artistName)
 			if (!rgid.isNullOrBlank()) add("rgid" to rgid)
+			add("limit" to limit.toString())
+		}).valueOrNull()
+	}
+
+	/**
+	 * "Fans also like" — similar artists, the ones you do **not** own included.
+	 *
+	 * The sibling [similarAlbums] is deliberately a shelf of records you already
+	 * hold; lb-bot filters the unowned candidates out of it on purpose. This route
+	 * marks ownership instead, so the artists you are missing survive — which is
+	 * the only reason the Discover row can exist at all.
+	 *
+	 * Cheap upstream: the merge is cached for 24h on lb-bot's side and never
+	 * touches its MusicBrainz lock, unlike [artistLookup] below.
+	 */
+	suspend fun similarArtists(
+		artistMbid: String?,
+		artistName: String?,
+		limit: Int = 20
+	): LbSimilarArtists? {
+		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return null
+		return getJson<LbSimilarArtists>("/lb/artist/similar", buildList {
+			if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
+			if (!artistName.isNullOrBlank()) add("name" to artistName)
 			add("limit" to limit.toString())
 		}).valueOrNull()
 	}
@@ -2028,6 +2073,37 @@ data class LbSimilarAlbum(
 	val coverUrl: String = "",
 	val because: String = "",
 	val sources: List<String> = emptyList()
+)
+
+/**
+ * "Fans also like". Unlike [LbSimilarAlbums] every candidate survives — lb-bot
+ * marks ownership rather than filtering on it, and the unowned rows are the
+ * point of the Discover row this feeds.
+ */
+@Serializable
+data class LbSimilarArtists(
+	val artists: List<LbSimilarArtist> = emptyList(),
+	/** The artist that justifies the row — what the reason line names. */
+	val because: String = "",
+	val sources: List<String> = emptyList()
+)
+
+/**
+ * One similar artist. [owned] and [indexed] are separate facts on purpose: an
+ * artist can be in the library and never have had their discography walked, and
+ * "what am I missing from them" is only answerable in the second case. Folding
+ * them into one boolean is how a row ends up offering an action it cannot take.
+ */
+@Serializable
+data class LbSimilarArtist(
+	val mbid: String = "",
+	val name: String = "",
+	val score: Double = 0.0,
+	val sources: List<String> = emptyList(),
+	val owned: Boolean = false,
+	/** Navidrome artist id, blank when the library does not hold them. */
+	val artistId: String = "",
+	val indexed: Boolean = false
 )
 
 @Serializable

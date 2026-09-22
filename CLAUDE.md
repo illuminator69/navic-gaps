@@ -38,6 +38,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager`. No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager}.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
 | Native Navidrome API | `domain/manager/NativeApiManager.kt` — smart playlists, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
@@ -393,6 +394,45 @@ Seven rules, each of which is a bug that shipped:
 **Known gap:** the `SideBar` is not themed. It sits outside `NavDisplay`, so it cannot read the
 per-screen cover ambient and stays on the app's base scheme — a light rail against a dark
 artwork-themed page. Cosmetic, tablet-only.
+
+---
+
+### Discover, and the table that is written twice
+
+`ui/screens/discover/DiscoverRows.kt` has a twin in Feishin
+(`renderer/features/discover/discover-rows.ts`). There is no shared build between
+the repos, so the ids are kept in step by hand and are written down in
+`navi-connect/CLAUDE.md` §6. The precedent is `MoodCharacter`, and it is a
+cautionary one: same three presets both sides, matching numbers, different ids,
+and the behaviour has already drifted (Feishin's auto-DJ escalates temperature
+per pass; `RadioManager.topUp` does not). Change a row id here and there.
+
+Three things specific to this tree:
+
+- **One `DiscoverViewModel` owns every row.** `LibraryScreen` paid for this
+  lesson — its own comment records that full list viewmodels for the secondary
+  rows read the whole library three times in parallel — and a screen of N rows is
+  that shape exactly.
+- **`horizontalSection` now takes `because`.** That optional reason line under
+  the header was the one thing it could not do, which is why `SimilarAlbumsRow`
+  was hand-rolled as a third row primitive. New shelves should use
+  `horizontalSection`; `ArtCarousel` already carries its own "get rid of this".
+  Note a LazyGridScope builder lambda is **not** composable, so `stringResource`
+  for a reason line has to be resolved before the grid.
+- **The tab gate is wider than Fresh's.** `rememberVisibleNavigationTabs()` hides
+  Fresh without lb-bot; Discover also carries mood search and the rediscovery
+  set, so it shows when lb-bot *or* AudioMuse is configured.
+  `AudioMuseManager.isConfigured` is a preference read rather than a probe
+  because that function runs on every bar mount — a network call there is one per
+  navigation. And `NavbarConfig.VERSION` is **not** bumped for it (§7).
+
+"station" is already taken here by `Screen.RadioList` — Subsonic internet radio,
+with its own entity, DAO and dialog. The deferred Discover "stations" concept
+(persistent regenerating radios, to live hub-side beside saved queues) needs a
+different word, chosen on purpose. Note also that `RadioManager` is ephemeral by
+construction: `playMix` exits into a saved-queue *snapshot*, a frozen list with a
+`sourceKind`; re-opening replays the same tracks and nothing regenerates. A
+station is a recipe, and nothing in this tree stores a recipe.
 
 ---
 

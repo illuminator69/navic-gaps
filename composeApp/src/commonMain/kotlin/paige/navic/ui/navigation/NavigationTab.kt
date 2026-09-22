@@ -9,6 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
+import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_library
@@ -20,6 +21,7 @@ import navic.composeapp.generated.resources.title_statistics
 import org.jetbrains.compose.resources.StringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
@@ -36,6 +38,7 @@ import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
+import paige.navic.icons.outlined.Route
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Statistics
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
@@ -103,6 +106,15 @@ enum class NavigationTab(
 		iconFilled = Icons.Filled.Album,
 		iconOutlined = Icons.Outlined.Album,
 		label = Res.string.title_fresh
+	),
+	DISCOVER(
+		destination = Screen.Discover(),
+		// No filled variant is generated for this glyph; the SEARCH tab does the
+		// same. A route/path, not a magnifying glass — Discover is somewhere you
+		// go, and Search is already a tab.
+		iconFilled = Icons.Outlined.Route,
+		iconOutlined = Icons.Outlined.Route,
+		label = Res.string.title_discover
 	)
 }
 
@@ -117,6 +129,7 @@ fun NavbarTab.Id.toNavigationTab(): NavigationTab = when (this) {
 	NavbarTab.Id.RADIOS -> NavigationTab.RADIOS
 	NavbarTab.Id.STATISTICS -> NavigationTab.STATISTICS
 	NavbarTab.Id.FRESH -> NavigationTab.FRESH
+	NavbarTab.Id.DISCOVER -> NavigationTab.DISCOVER
 }
 
 /**
@@ -143,9 +156,22 @@ fun rememberVisibleNavigationTabs(): List<NavigationTab> {
 	val lbBotAvailable by lbBot.available.collectAsState()
 	LaunchedEffect(Unit) { lbBot.ensureAvailability() }
 
+	// Discover has a wider gate than Fresh: it also carries AudioMuse mood search
+	// and the rediscovery set, so lb-bot being down does not make it pointless.
+	// `isConfigured` is a preference read rather than a probe on purpose — this
+	// runs on every bar mount, and a network call here would be one per
+	// navigation. A configured-but-unreachable AudioMuse costs an empty row, not
+	// a wrong tab.
+	val audioMuse = koinInject<AudioMuseManager>()
+	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
+
 	return (state.data ?: NavbarConfig.default).tabs
 		.filter { tab ->
-			tab.visible && (tab.id != NavbarTab.Id.FRESH || lbBotAvailable)
+			tab.visible && when (tab.id) {
+				NavbarTab.Id.FRESH -> lbBotAvailable
+				NavbarTab.Id.DISCOVER -> discoverHasSources
+				else -> true
+			}
 		}
 		.map { it.id.toNavigationTab() }
 }

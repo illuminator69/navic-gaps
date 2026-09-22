@@ -30,7 +30,10 @@ data class NavbarConfig(
 				// Visible by default, and safe to be: the bar filters this tab out
 				// entirely when lb-bot isn't reachable, which is the state most
 				// installs are in. So it costs a slot only where it does something.
-				NavbarTab(NavbarTab.Id.FRESH, true)
+				NavbarTab(NavbarTab.Id.FRESH, true),
+				// Same reasoning as FRESH: the bar drops it when nothing feeds it,
+				// so being visible by default costs a slot only where it earns one.
+				NavbarTab(NavbarTab.Id.DISCOVER, true)
 			),
 			version = VERSION
 		)

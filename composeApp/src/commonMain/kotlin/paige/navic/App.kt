@@ -93,6 +93,7 @@ import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
 import paige.navic.ui.screens.external.ExternalAlbumScreen
 import paige.navic.ui.screens.external.ExternalArtistScreen
+import paige.navic.ui.screens.discover.DiscoverScreen
 import paige.navic.ui.screens.fresh.FreshScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
@@ -398,6 +399,10 @@ private fun entryProvider(
 
 		entry<Screen.Fresh>(metadata = navtabMetadata) { key ->
 			Washed { FreshScreen(key.nested) }
+		}
+
+		entry<Screen.Discover>(metadata = navtabMetadata) { key ->
+			Washed { DiscoverScreen(key.nested) }
 		}
 
 		// misc

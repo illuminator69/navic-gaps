@@ -149,6 +149,18 @@ sealed interface Screen : NavKey {
 	data class Fresh(val nested: Boolean = false) : Screen
 
 	/**
+	 * The Discover screen: one place to go, instead of six places to know about.
+	 *
+	 * Fresh, "fans also like", the rediscovery set and mood search were each
+	 * reachable from somewhere different and each invented its own empty state.
+	 * The rows come from [paige.navic.ui.screens.discover.DISCOVER_ROWS], whose
+	 * ids are duplicated in Feishin on purpose. A tab, hence [nested].
+	 */
+	@Immutable
+	@Serializable
+	data class Discover(val nested: Boolean = false) : Screen
+
+	/**
 	 * An artist the library does not have, keyed on their MusicBrainz id.
 	 *
 	 * **Deliberately not an overload of [ArtistDetail].** That one takes a Navidrome

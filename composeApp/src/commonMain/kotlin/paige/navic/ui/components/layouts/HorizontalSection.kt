@@ -34,9 +34,20 @@ import paige.navic.ui.core.UiState
 fun <T> LazyGridScope.horizontalSection(
 	seeAll: Boolean,
 	title: StringResource,
-	destination: NavKey,
+	destination: NavKey?,
 	state: UiState<List<T>>,
 	key: (T) -> Any,
+	/**
+	 * The "why am I seeing this" line, under the header.
+	 *
+	 * The rule this stack follows is that a recommendation names the thing that
+	 * justifies it; an unattributed shelf is indistinguishable from a popularity
+	 * chart. This is the one thing `horizontalSection` could not do, which is why
+	 * `SimilarAlbumsRow` was hand-rolled as a third row primitive rather than
+	 * reusing this one. Null for a section that is a plain list of the user's own
+	 * library and justifies nothing.
+	 */
+	because: String? = null,
 	itemContent: @Composable LazyItemScope.(T) -> Unit,
 ) {
 	val data = state.data.orEmpty()
@@ -44,6 +55,17 @@ fun <T> LazyGridScope.horizontalSection(
 	if (data.isEmpty() && state !is UiState.Loading) return
 
 	header(title, destination = destination, active = seeAll)
+
+	if (because != null) {
+		item(span = { GridItemSpan(maxLineSpan) }) {
+			Text(
+				because,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+			)
+		}
+	}
 
 	item(span = { GridItemSpan(maxLineSpan) }) {
 		LazyRow(
@@ -68,7 +90,7 @@ fun <T> LazyGridScope.horizontalSection(
 fun LazyGridScope.header(
 	title: StringResource,
 	vararg formatArgs: Any,
-	destination: NavKey,
+	destination: NavKey?,
 	active: Boolean
 ) {
 	item(span = { GridItemSpan(1) }) {
@@ -82,7 +104,7 @@ fun LazyGridScope.header(
 				.semantics { heading() }
 		)
 	}
-	if (active) {
+	if (active && destination != null) {
 		item(span = { GridItemSpan(1) }) {
 			val backStack = LocalNavStack.current
 			Text(

@@ -29,6 +29,14 @@ data class NavbarTab(
 		 * this entry existed simply has no row for it, which is what NavbarConfig's
 		 * merge on load exists to fix.
 		 */
-		FRESH
+		FRESH,
+
+		/**
+		 * The Discover screen. Conditional like [FRESH], but on a wider gate: it
+		 * also carries AudioMuse mood search and the rediscovery set, so it is
+		 * shown when *anything* feeds it rather than when lb-bot specifically is
+		 * up (see `rememberVisibleNavigationTabs`).
+		 */
+		DISCOVER
 	}
 }
