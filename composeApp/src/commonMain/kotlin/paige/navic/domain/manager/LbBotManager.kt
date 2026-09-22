@@ -627,6 +627,23 @@ class LbBotManager(
 			.valueOrNull()?.candidates.orEmpty()
 	}
 
+	/**
+	 * MusicBrainz album search — the album half of reaching past the library.
+	 *
+	 * Same 1 req/sec lock as [artistLookup], so the same rules: debounced term
+	 * only, never a keystroke. Note a search box that fires both spends two of
+	 * lb-bot's global seconds per settled query.
+	 *
+	 * Unlike [artistLookup] this answer marks ownership per candidate, by
+	 * release-group id rather than by a name match — so an owned hit is a known
+	 * fact and the row opens the library album instead of a download page.
+	 */
+	suspend fun albumLookup(query: String): List<LbAlbumCandidate> {
+		if (query.isBlank()) return emptyList()
+		return getJson<LbAlbumLookup>("/lb/album/lookup", listOf("q" to query))
+			.valueOrNull()?.candidates.orEmpty()
+	}
+
 	/** Editions of one release-group. Rate-limited MusicBrainz upstream — show a skeleton. */
 	suspend fun albumReleases(rgid: String): LbReleaseDetail? {
 		if (rgid.isBlank()) return null
@@ -729,6 +746,76 @@ class LbBotManager(
 					releaseMbid = res.value.resolved?.releaseMbid.orEmpty()
 				)
 			)
+		}
+	}
+
+	/**
+	 * One gesture to acquire a release the library doesn't have — reviewed, not blind.
+	 *
+	 * The blind version existed once and was removed: it fetched the wrong record for a
+	 * self-titled album, where every candidate folder's name looks plausible, and nothing
+	 * before or after the fact said so. [albumSources] and [MissingAlbumSheet]'s two-step
+	 * picker are what replaced it. So this does the review on the user's behalf and only
+	 * skips the sheet when there is nothing left to decide — lb-bot's top-ranked folder,
+	 * its own "is this the right record" verdict, and coverage complete **against the
+	 * canonical MusicBrainz tracklist rather than a file count**. Anything else comes
+	 * back as [AcquireOutcome.NeedsReview] and the caller opens the sheet.
+	 *
+	 * Two things the caller has to honour:
+	 *
+	 * 1. **One gesture is not an instant result.** [albumSources] is a live slskd
+	 *    fan-out, tens of seconds — and until the download is posted there is no watch
+	 *    and therefore nothing in the ledger to render. Show a spinner on the control
+	 *    itself or the row looks inert and gets tapped again.
+	 * 2. **Quality is a ranking term upstream, not a filter**, so the top-ranked folder
+	 *    can legitimately be MP3 when the preference is FLAC. When the preference is
+	 *    lb-bot's own default ("") there is nothing to check here — it lives on the
+	 *    server. When this client has been set to a *lossless* one, a lossy top pick is
+	 *    exactly the surprise the source row exists to prevent, so it goes to the sheet.
+	 *
+	 * Registers the watch itself, like every other path that starts a fill: it outlives
+	 * whatever composable fired it.
+	 */
+	suspend fun acquire(
+		rgid: String,
+		artist: String = "",
+		album: String = ""
+	): AcquireOutcome {
+		if (rgid.isBlank()) return AcquireOutcome.NeedsReview(AcquireReason.UNAVAILABLE)
+		val sources = when (val res = albumSources(rgid)) {
+			is LbResult.Failed -> return AcquireOutcome.NeedsReview(AcquireReason.UNAVAILABLE)
+			is LbResult.Ok -> res.value.sources
+		}
+		val top = sources.firstOrNull()
+			?: return AcquireOutcome.NeedsReview(AcquireReason.NO_SOURCES)
+		if (!top.albumMatchOk) {
+			return AcquireOutcome.NeedsReview(AcquireReason.UNCERTAIN_MATCH)
+		}
+		if (!top.coverageFull || top.coverageDetail.totalTracks <= 0) {
+			return AcquireOutcome.NeedsReview(AcquireReason.INCOMPLETE)
+		}
+		val quality = preferredQuality
+		val wantsLossless = quality == "flac-any" || quality == "flac-16-44"
+		if (wantsLossless && !LOSSLESS_FORMATS.matches(top.format.trim())) {
+			return AcquireOutcome.NeedsReview(AcquireReason.WRONG_FORMAT)
+		}
+		return when (val res = download(rgid, quality, top)) {
+			is LbResult.Failed -> AcquireOutcome.NeedsReview(AcquireReason.UNAVAILABLE)
+			is LbResult.Ok -> {
+				if (!res.value.ok || res.value.releaseMbid.isBlank()) {
+					AcquireOutcome.NeedsReview(AcquireReason.UNAVAILABLE)
+				} else {
+					startAlbumFill(
+						rgid = rgid,
+						releaseMbid = res.value.releaseMbid,
+						quality = quality,
+						artist = artist,
+						album = album,
+						source = top
+					)
+					AcquireOutcome.Started(format = top.format, peer = top.peer)
+				}
+			}
 		}
 	}
 
@@ -1928,6 +2015,73 @@ data class LbFreshRelease(
 @Serializable
 data class LbArtistLookup(
 	val candidates: List<LbArtistCandidate> = emptyList()
+)
+
+/**
+ * What a one-tap acquire did.
+ *
+ * [NeedsReview] is not a failure — it is the source picker doing its job. Every
+ * [AcquireReason] is a question only the user can answer.
+ */
+sealed interface AcquireOutcome {
+	data class Started(val format: String, val peer: String) : AcquireOutcome
+	data class NeedsReview(val reason: AcquireReason) : AcquireOutcome
+}
+
+enum class AcquireReason {
+	/** Nobody is sharing it. */
+	NO_SOURCES,
+
+	/** lb-bot is not confident the best folder is this record. */
+	UNCERTAIN_MATCH,
+
+	/** The best folder does not cover the canonical tracklist. */
+	INCOMPLETE,
+
+	/** This client asks for lossless and the best folder is not. */
+	WRONG_FORMAT,
+
+	/** lb-bot would not answer, or refused the request. */
+	UNAVAILABLE
+}
+
+/** Formats a lossless preference is actually satisfied by. */
+private val LOSSLESS_FORMATS = Regex("""^(flac|alac|wav|aiff|ape|wv)$""", RegexOption.IGNORE_CASE)
+
+@Serializable
+data class LbAlbumLookup(
+	val candidates: List<LbAlbumCandidate> = emptyList()
+)
+
+/**
+ * One MusicBrainz album search hit, with the one thing [LbArtistCandidate]
+ * cannot answer: whether the library already holds it.
+ *
+ * That is what makes these safe to put in a search box. [releaseOwned] is marked
+ * by release-group id, which is exact, so an owned row is rendered as a library
+ * row and opens [releaseAlbumId]. Rendering them unmarked is the "the tile said
+ * the library holds it and the tap opened the download page" bug that the Fresh
+ * tab and the similar-albums shelf have each paid for once.
+ *
+ * [releaseAlbumId] can be blank on an owned row: lb-bot flips its index row to
+ * `present` at placement and cannot know the Navidrome ids until the backfill
+ * resolves them. Owned with nowhere to send the tap is a real state, and it is
+ * what "Added — waiting for library" means.
+ */
+@Serializable
+data class LbAlbumCandidate(
+	val rgid: String = "",
+	val title: String = "",
+	val artist: String = "",
+	@SerialName("primary_type") val primaryType: String = "",
+	val year: String = "",
+	val score: Int = 0,
+	val releaseOwned: Boolean = false,
+	val releaseAlbumId: String = "",
+	/** Cover Art Archive front. lb-bot's own /api/cover is Navidrome art keyed by
+	 *  a Navidrome album id, so it has nothing to serve for a release the library
+	 *  lacks. */
+	val coverUrl: String = ""
 )
 
 /**

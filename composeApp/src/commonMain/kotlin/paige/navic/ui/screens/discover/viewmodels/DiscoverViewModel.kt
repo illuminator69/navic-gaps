@@ -16,6 +16,7 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.LbSimilarArtist
 import paige.navic.domain.manager.RediscoveryPlaylists
+import paige.navic.ui.screens.discover.LISTENBRAINZ_PLAYLIST_PREFIX
 import paige.navic.ui.screens.discover.DISCOVER_ROWS
 import paige.navic.ui.screens.discover.DiscoverCapability
 import paige.navic.ui.screens.discover.DiscoverRowId
@@ -55,7 +56,9 @@ data class DiscoverUi(
 	val similarArtists: List<DiscoverArtist> = emptyList(),
 	/** The artist the similar-artists row is seeded from — what its reason line names. */
 	val similarSeed: String = "",
-	val rediscovery: List<PlaylistEntity> = emptyList()
+	val rediscovery: List<PlaylistEntity> = emptyList(),
+	/** ListenBrainz's Daily/Weekly playlists, written by the Navidrome plugin. */
+	val listenBrainz: List<PlaylistEntity> = emptyList()
 )
 
 /**
@@ -92,13 +95,17 @@ class DiscoverViewModel(
 		viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true)
 
-			// Rediscovery is Navidrome-only and works offline off Room, so it is
-			// read before anything is gated on connectivity.
-			val rediscovery = runCatching {
-				playlistDao.getAllPlaylistsByName()
-					.map { it.playlist }
-					.filter { (it.name ?: "").startsWith(RediscoveryPlaylists.PREFIX) }
+			// Both playlist rows are Navidrome-only and work offline off Room, so
+			// they are read before anything is gated on connectivity — and off ONE
+			// DAO call, because two reads of the whole playlist table to answer two
+			// filters is the mistake LibraryScreen already paid for.
+			val playlists = runCatching {
+				playlistDao.getAllPlaylistsByName().map { it.playlist }
 			}.getOrDefault(emptyList())
+			val rediscovery = playlists
+				.filter { (it.name ?: "").startsWith(RediscoveryPlaylists.PREFIX) }
+			val listenBrainz = playlists
+				.filter { (it.name ?: "").startsWith(LISTENBRAINZ_PLAYLIST_PREFIX) }
 
 			val lbBotUp = isOnline.value && lbBotManager.ensureAvailability()
 			val clapUsable = if (isOnline.value) {
@@ -141,7 +148,8 @@ class DiscoverViewModel(
 				fresh = fresh,
 				similarArtists = similar,
 				similarSeed = seedName,
-				rediscovery = rediscovery
+				rediscovery = rediscovery,
+				listenBrainz = listenBrainz
 			)
 		}
 	}

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.LbAlbumCandidate
 import paige.navic.domain.manager.LbArtistCandidate
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.DomainSong
@@ -64,6 +65,16 @@ class SearchViewModel(
 	val externalArtists: StateFlow<List<LbArtistCandidate>>
 		field = MutableStateFlow<List<LbArtistCandidate>>(emptyList())
 
+	/**
+	 * The album half of the same reach. Unlike [externalArtists] these rows carry
+	 * ownership, marked by release-group id rather than guessed from a name, so an
+	 * owned hit opens the library album instead of a download page.
+	 *
+	 * Empty forever when lb-bot is absent, and the section does not render (§7).
+	 */
+	val externalAlbums: StateFlow<List<LbAlbumCandidate>>
+		field = MutableStateFlow<List<LbAlbumCandidate>>(emptyList())
+
 	init {
 		viewModelScope.launch {
 			snapshotFlow { searchQuery.text }
@@ -82,6 +93,7 @@ class SearchViewModel(
 							}
 						}
 						lookUpExternalArtists(query)
+						lookUpExternalAlbums(query)
 					}
 				}
 		}
@@ -99,6 +111,26 @@ class SearchViewModel(
 		}
 		externalArtists.value = try {
 			lbBotManager.artistLookup(query.trim())
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			emptyList()
+		}
+	}
+
+	/**
+	 * The album lookup, on the same terms — and deliberately issued from the same
+	 * debounce site as [lookUpExternalArtists] rather than from one of its own.
+	 * Both spend lb-bot's single global MusicBrainz second, so two independent
+	 * debounces would be two budgets queued behind each other and behind any
+	 * running discography scan.
+	 */
+	private suspend fun lookUpExternalAlbums(query: String) {
+		if (query.trim().length < EXTERNAL_LOOKUP_MIN_LENGTH) {
+			externalAlbums.value = emptyList()
+			return
+		}
+		externalAlbums.value = try {
+			lbBotManager.albumLookup(query.trim())
 		} catch (e: Exception) {
 			if (e is CancellationException) throw e
 			emptyList()

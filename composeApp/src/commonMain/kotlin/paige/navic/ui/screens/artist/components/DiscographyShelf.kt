@@ -50,6 +50,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.ui.components.common.AcquireButton
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -72,6 +73,9 @@ import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
 @Composable
 fun DiscographyShelf(
 	ui: DiscographyUi,
+	/** Whose discography this is. Carried only so a one-tap acquire can name the
+	 *  ledger row: lb-bot's index rows know the release, never the artist. */
+	artistName: String,
 	canIndex: Boolean,
 	onIndex: () -> Unit,
 	onOpenEntry: (DiscographyEntry) -> Unit,
@@ -95,6 +99,7 @@ fun DiscographyShelf(
 		ArtCarousel(sectionTitle(section.type), section.entries.toImmutableList()) { entry ->
 			DiscographyTile(
 				entry = entry,
+				artistName = artistName,
 				onClick = { onOpenEntry(entry) },
 				onLongClick = { onSelectEntry(entry) }
 			)
@@ -215,6 +220,7 @@ private fun sectionTitle(type: String): String = when (type) {
 @Composable
 private fun DiscographyTile(
 	entry: DiscographyEntry,
+	artistName: String,
 	onClick: () -> Unit,
 	onLongClick: () -> Unit
 ) {
@@ -261,6 +267,24 @@ private fun DiscographyTile(
 					shape = RectangleShape,
 					onClick = onClick
 				)
+				// One tap to fetch a genuinely absent record. Only on this branch:
+				// an owned tile opens the album and a pendingSync tile is a fill
+				// that already landed, and offering to fetch either is the trap
+				// this shelf's three branches exist to keep apart.
+				//
+				// A gap row is deliberately excluded too: an album the library
+				// holds 9 of 12 tracks of goes through the Fill-gaps workspace,
+				// which is a different pipeline from acquiring a release outright.
+				val rgid = entry.release?.rgid.orEmpty()
+				if (rgid.isNotBlank() && entry.gapGroupId == null) {
+					AcquireButton(
+						rgid = rgid,
+						artist = artistName,
+						album = entry.release?.title.orEmpty(),
+						onReview = onClick,
+						modifier = Modifier.align(Alignment.TopEnd)
+					)
+				}
 			}
 			if (entry.gapGroupId != null && present != null && total != null && total > 0) {
 				Text(

@@ -19,9 +19,23 @@ package paige.navic.ui.screens.discover
 enum class DiscoverRowId(val wireId: String) {
 	FRESH("fresh"),
 	SIMILAR_ARTISTS("similar-artists"),
+	LISTENBRAINZ("listenbrainz"),
 	REDISCOVERY("rediscovery"),
 	MOOD("mood");
 }
+
+/**
+ * The prefix ListenBrainz's own playlists arrive under.
+ *
+ * Unlike [paige.navic.domain.manager.RediscoveryPlaylists.PREFIX] this app does
+ * **not** mint these — the `listenbrainz-daily-playlist` Navidrome plugin does —
+ * so the prefix is an observation rather than a contract this side can enforce.
+ * Confirmed against the live server on 2026-09-23: "ListenBrainz Daily Jams",
+ * "ListenBrainz Weekly Jams", "ListenBrainz Weekly Exploration". A rename
+ * upstream makes the row go quiet rather than wrong, which is the right failure.
+ * Also written down in `navi-connect/CLAUDE.md` §6 beside the row ids.
+ */
+const val LISTENBRAINZ_PLAYLIST_PREFIX = "ListenBrainz "
 
 /**
  * What a row needs before it has anything to say.
@@ -48,7 +62,8 @@ data class DiscoverRow(
 
 /**
  * Render order. Leverage first: what is new, then who you are missing, then what
- * you already own and forgot, then a way to ask a question of your own.
+ * was picked for you, then what you already own and forgot, then a way to ask a
+ * question of your own.
  *
  * A "stations" row is deliberately absent rather than disabled. Persistent named
  * stations were scoped and deferred to a hub-side implementation next to saved
@@ -60,6 +75,9 @@ data class DiscoverRow(
 val DISCOVER_ROWS: List<DiscoverRow> = listOf(
 	DiscoverRow(DiscoverRowId.FRESH, DiscoverCapability.LbBot("GET /lb/fresh-releases")),
 	DiscoverRow(DiscoverRowId.SIMILAR_ARTISTS, DiscoverCapability.LbBot("GET /lb/artist/similar")),
+	// Navidrome only: the plugin writes these as ordinary server-side playlists,
+	// so the row is a name filter costing no route, no probe and no lb-bot.
+	DiscoverRow(DiscoverRowId.LISTENBRAINZ, DiscoverCapability.Library),
 	DiscoverRow(DiscoverRowId.REDISCOVERY, DiscoverCapability.Library),
 	DiscoverRow(DiscoverRowId.MOOD, DiscoverCapability.Clap)
 )

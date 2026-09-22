@@ -503,6 +503,7 @@ fun ArtistDetailScreen(
 							// skipped entirely for an artist with no similar artists.
 							DiscographyShelf(
 								ui = discography,
+								artistName = state.artist.name,
 								canIndex = !state.artist.musicBrainzId.isNullOrBlank(),
 								onIndex = { viewModel.indexArtist() },
 								onOpenEntry = { entry ->

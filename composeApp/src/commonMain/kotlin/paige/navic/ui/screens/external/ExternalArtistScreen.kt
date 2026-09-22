@@ -61,6 +61,7 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 			)
 			DiscographyShelf(
 				ui = discography,
+				artistName = artistName,
 				// There is always an MBID here — it is the route key.
 				canIndex = artistMbid.isNotBlank(),
 				onIndex = { viewModel.indexArtist() },

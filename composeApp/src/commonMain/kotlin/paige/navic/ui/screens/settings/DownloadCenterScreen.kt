@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +27,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +65,11 @@ import navic.composeapp.generated.resources.lbbot_fill_placing
 import navic.composeapp.generated.resources.lbbot_fill_queued
 import navic.composeapp.generated.resources.lbbot_fill_searching
 import navic.composeapp.generated.resources.lbbot_fill_verified
+import navic.composeapp.generated.resources.lbbot_fills_none_match
+import navic.composeapp.generated.resources.lbbot_filter_all
+import navic.composeapp.generated.resources.lbbot_filter_done
+import navic.composeapp.generated.resources.lbbot_filter_failed
+import navic.composeapp.generated.resources.lbbot_filter_running
 import navic.composeapp.generated.resources.section_lbbot_fills
 import navic.composeapp.generated.resources.banner_downloads_waiting
 import navic.composeapp.generated.resources.section_download_settings
@@ -81,6 +91,7 @@ import navic.composeapp.generated.resources.section_downloads_completed
 import navic.composeapp.generated.resources.section_downloads_failed
 import navic.composeapp.generated.resources.section_downloads_queued
 import navic.composeapp.generated.resources.title_download_center
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -111,6 +122,7 @@ fun DownloadCenterScreen() {
 	val settings by viewModel.settings.collectAsStateWithLifecycle()
 	val constrained by viewModel.constrained.collectAsStateWithLifecycle()
 	val fills by viewModel.fills.collectAsStateWithLifecycle()
+	var fillFilter by remember { mutableStateOf(FillFilter.ALL) }
 
 	Scaffold(
 		topBar = {
@@ -161,8 +173,68 @@ fun DownloadCenterScreen() {
 						title = stringResource(Res.string.section_lbbot_fills),
 						count = fills.size
 					)
+					// Predicates over what the ledger already carries — `settled` and
+					// `outcome` — so no new vocabulary and nothing extra polled.
+					//
+					// Deliberately not a persisted preference: "show me what didn't
+					// land" is a question you have for the next thirty seconds, and a
+					// filter that survives a restart is a Download Center that looks
+					// empty for a reason the user has long forgotten choosing.
+					val shown = fills.filter { fill ->
+						when (fillFilter) {
+							FillFilter.ALL -> true
+							FillFilter.RUNNING -> !fill.settled
+							// Everything that ended in something other than success,
+							// cancellations and "stopped tracking this one" included:
+							// the question is "what didn't I get", not "what errored".
+							FillFilter.FAILED ->
+								fill.settled && fill.outcome != LbBotManager.OUTCOME_DONE
+							FillFilter.DONE ->
+								fill.settled && fill.outcome == LbBotManager.OUTCOME_DONE
+						}
+					}
+					Row(
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
+						modifier = Modifier
+							.horizontalScroll(rememberScrollState())
+							.padding(vertical = 8.dp)
+					) {
+						FillFilter.entries.forEach { option ->
+							val count = fills.count { fill ->
+								when (option) {
+									FillFilter.ALL -> true
+									FillFilter.RUNNING -> !fill.settled
+									FillFilter.FAILED ->
+										fill.settled && fill.outcome != LbBotManager.OUTCOME_DONE
+									FillFilter.DONE ->
+										fill.settled && fill.outcome == LbBotManager.OUTCOME_DONE
+								}
+							}
+							FilterChip(
+								selected = fillFilter == option,
+								onClick = { fillFilter = option },
+								enabled = count > 0 || option == FillFilter.ALL,
+								label = {
+									Text("${stringResource(option.label)} ($count)")
+								}
+							)
+						}
+					}
+					if (shown.isEmpty()) {
+						// A filter that hides everything must say it was the filter,
+						// not that there is nothing here.
+						Text(
+							stringResource(
+								Res.string.lbbot_fills_none_match,
+								stringResource(fillFilter.label)
+							),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(vertical = 8.dp)
+						)
+					}
 					Form {
-						fills.forEach { fill ->
+						shown.forEach { fill ->
 							FillRow(
 								fill = fill,
 								onRetry = { viewModel.retryFill(fill.key) },
@@ -626,6 +698,14 @@ private fun sourceLabel(source: String): String = when (source) {
 	DownloadSource.LIBRARY -> stringResource(Res.string.download_source_library)
 	DownloadSource.QUEUE -> stringResource(Res.string.download_source_queue)
 	else -> source.replaceFirstChar { it.uppercase() }
+}
+
+/** Which fills the list is showing. Order is render order. */
+private enum class FillFilter(val label: StringResource) {
+	ALL(Res.string.lbbot_filter_all),
+	RUNNING(Res.string.lbbot_filter_running),
+	FAILED(Res.string.lbbot_filter_failed),
+	DONE(Res.string.lbbot_filter_done)
 }
 
 /** Bytes as MB/GB — the same rounding the storage settings row uses. */

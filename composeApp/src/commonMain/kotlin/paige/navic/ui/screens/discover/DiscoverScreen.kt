@@ -2,6 +2,7 @@ package paige.navic.ui.screens.discover
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,12 +17,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.because_discover_fresh
+import navic.composeapp.generated.resources.because_discover_listenbrainz
 import navic.composeapp.generated.resources.because_discover_mood
 import navic.composeapp.generated.resources.because_discover_rediscovery
 import navic.composeapp.generated.resources.because_discover_similar_artists
@@ -31,6 +34,7 @@ import navic.composeapp.generated.resources.label_in_library
 import navic.composeapp.generated.resources.label_not_in_library
 import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_discover_fresh
+import navic.composeapp.generated.resources.title_discover_listenbrainz
 import navic.composeapp.generated.resources.title_discover_mood
 import navic.composeapp.generated.resources.title_discover_rediscovery
 import navic.composeapp.generated.resources.title_discover_similar_artists
@@ -42,6 +46,7 @@ import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.ui.components.common.AcquireButton
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.domain.manager.RediscoveryPlaylists
 import paige.navic.ui.components.layouts.ArtCarouselItem
@@ -90,6 +95,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 	} else {
 		stringResource(Res.string.because_discover_similar_artists_generic)
 	}
+	val becauseListenBrainz = stringResource(Res.string.because_discover_listenbrainz)
 	val becauseRediscovery = stringResource(Res.string.because_discover_rediscovery)
 	val becauseMood = stringResource(Res.string.because_discover_mood)
 	val titleMood = stringResource(Res.string.title_discover_mood)
@@ -129,8 +135,13 @@ fun DiscoverScreen(nested: Boolean = false) {
 				// blank page. It is what a server with no lb-bot, no AudioMuse
 				// and no rediscovery set looks like — a configuration answer,
 				// not a fault.
+				//
+				// NOTE this list is by hand and the compiler will not flag an
+				// omission: a new row left out of it prints the "nothing to
+				// discover" paragraph directly above its own populated content.
 				val anyContent = state.fresh.isNotEmpty() ||
 					state.similarArtists.isNotEmpty() ||
+					state.listenBrainz.isNotEmpty() ||
 					state.rediscovery.isNotEmpty() ||
 					DiscoverRowId.MOOD in state.supported
 				if (!state.loading && !anyContent) {
@@ -162,6 +173,33 @@ fun DiscoverScreen(nested: Boolean = false) {
 									.ifBlank { LbBotManager.caaCoverUrl(release.releaseGroupMbid) },
 								owned = release.releaseOwned,
 								modifier = Modifier.animateItem().width(150.dp),
+								// One tap to fetch it, but never blind: the
+								// control reviews lb-bot's ranked sources first
+								// and opens the picker whenever anything is left
+								// to decide.
+								action = if (release.releaseOwned) null else {
+									{
+										AcquireButton(
+											rgid = release.releaseGroupMbid,
+											artist = release.artist,
+											album = release.releaseName,
+											onReview = {
+												backStack.add(
+													Screen.ExternalAlbum(
+														rgid = release.releaseGroupMbid,
+														artistMbid = release.artistMbids
+															.firstOrNull() ?: "",
+														artistName = release.artist,
+														title = release.releaseName,
+														artistId = if (release.artistOwned) {
+															release.artistId
+														} else ""
+													)
+												)
+											}
+										)
+									}
+								},
 								onClick = {
 									// An owned release opens the library album
 									// directly: `releaseAlbumId` exists so a row
@@ -231,6 +269,31 @@ fun DiscoverScreen(nested: Boolean = false) {
 							)
 						}
 
+						DiscoverRowId.LISTENBRAINZ -> horizontalSection(
+							seeAll = false,
+							title = Res.string.title_discover_listenbrainz,
+							destination = null,
+							state = UiState.Success(state.listenBrainz),
+							key = { it.playlistId },
+							because = becauseListenBrainz
+						) { playlist ->
+							ArtCarouselItem(
+								coverArtId = playlist.coverArtId,
+								// "Daily Jams", not "ListenBrainz Daily Jams":
+								// the row header already says where they come
+								// from, and repeating it costs the tile its title.
+								title = (playlist.name ?: "")
+									.removePrefix(LISTENBRAINZ_PLAYLIST_PREFIX),
+								subtitle = playlist.comment.orEmpty(),
+								contentDescription = null,
+								onClick = {
+									backStack.add(
+										Screen.CollectionDetail(playlist.playlistId, "discover")
+									)
+								}
+							)
+						}
+
 						DiscoverRowId.REDISCOVERY -> horizontalSection(
 							seeAll = false,
 							title = Res.string.title_discover_rediscovery,
@@ -294,15 +357,24 @@ private fun DiscoverAlbumTile(
 	coverUrl: String,
 	owned: Boolean,
 	modifier: Modifier = Modifier,
-	onClick: () -> Unit
+	onClick: () -> Unit,
+	action: @Composable (() -> Unit)? = null
 ) {
 	Column(modifier.fillMaxWidth()) {
-		RemoteCoverArt(
-			url = coverUrl,
-			contentDescription = title,
-			onClick = onClick,
-			modifier = Modifier.fillMaxWidth()
-		)
+		Box {
+			RemoteCoverArt(
+				url = coverUrl,
+				contentDescription = title,
+				onClick = onClick,
+				modifier = Modifier.fillMaxWidth()
+			)
+			// Over the artwork rather than under the captions: a row of tiles is
+			// mostly artwork, and a control below the text pushes every tile in
+			// the row taller for the sake of the unowned ones.
+			action?.let {
+				Box(Modifier.align(Alignment.TopEnd)) { it() }
+			}
+		}
 		Text(
 			title,
 			style = MaterialTheme.typography.bodyMedium,

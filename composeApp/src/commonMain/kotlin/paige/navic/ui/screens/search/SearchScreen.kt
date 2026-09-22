@@ -48,8 +48,11 @@ import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_remove_from_history
 import navic.composeapp.generated.resources.action_search_history
 import navic.composeapp.generated.resources.info_explicit
+import navic.composeapp.generated.resources.label_in_library
+import navic.composeapp.generated.resources.lbbot_fill_placed
 import navic.composeapp.generated.resources.info_no_search_results
 import navic.composeapp.generated.resources.info_not_available_offline
+import navic.composeapp.generated.resources.search_albums_on_musicbrainz
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_all
 import navic.composeapp.generated.resources.title_artists
@@ -92,6 +95,7 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.common.SmallRatingRow
 import paige.navic.ui.components.common.SwipeToDismissBox
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -161,6 +165,11 @@ fun SearchScreen(
 	// "Not in your library" — MusicBrainz artists, from lb-bot. Empty when lb-bot
 	// is absent, and the section then does not render at all (§7).
 	val externalArtists by viewModel.externalArtists.collectAsStateWithLifecycle()
+	val externalAlbums by viewModel.externalAlbums.collectAsStateWithLifecycle()
+	// Resolved here rather than in the rows: a LazyGridScope builder lambda is
+	// not composable, so a `stringResource` inside one does not compile.
+	val inLibraryLabel = stringResource(Res.string.label_in_library)
+	val awaitingLibraryLabel = stringResource(Res.string.lbbot_fill_placed)
 
 	val player = koinInject<MediaPlayerViewModel>()
 	val radioManager = koinInject<RadioManager>()
@@ -596,6 +605,95 @@ fun SearchScreen(
 												imageVector = Icons.Outlined.NoSearchResults,
 												contentDescription = null,
 												tint = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										}
+									)
+								}
+							}
+							// The album half. Headed differently from the artists
+							// above on purpose: lb-bot marks these by release-group
+							// id, which is exact, so "do you own it" is answered
+							// rather than guessed — and an owned row is kept,
+							// badged and opened as the library album. Filtering it
+							// out instead would lose the album the library holds
+							// under a spelling Navidrome's own search missed.
+							if (externalAlbums.isNotEmpty()) {
+								item(span = { GridItemSpan(maxLineSpan) }) {
+									Text(
+										stringResource(Res.string.search_albums_on_musicbrainz),
+										style = MaterialTheme.typography.titleMedium,
+										color = MaterialTheme.colorScheme.primary,
+										modifier = Modifier.padding(
+											horizontal = 20.dp,
+											vertical = 12.dp
+										)
+									)
+								}
+								items(
+									externalAlbums.size,
+									span = { GridItemSpan(maxLineSpan) }
+								) { index ->
+									val candidate = externalAlbums[index]
+									ListItem(
+										colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
+										modifier = Modifier.clickable(
+											onClick = dropUnlessResumed {
+												// An owned release-group opens the
+												// LIBRARY album. Routing it through
+												// the external page would lean on
+												// that page's redirect, which cannot
+												// fire for an album lb-bot filled
+												// itself until the backfill resolves
+												// its Navidrome ids — leaving the
+												// user on a download page for a
+												// record already on disk.
+												backStack.add(
+													if (candidate.releaseAlbumId.isNotBlank()) {
+														Screen.CollectionDetail(
+															candidate.releaseAlbumId,
+															"search"
+														)
+													} else {
+														Screen.ExternalAlbum(
+															rgid = candidate.rgid,
+															artistName = candidate.artist,
+															title = candidate.title
+														)
+													}
+												)
+											}
+										),
+										content = { Text(candidate.title) },
+										supportingContent = {
+											Text(
+												listOfNotNull(
+													candidate.artist.takeIf { it.isNotBlank() },
+													candidate.year.takeIf { it.isNotBlank() },
+													// Owned, but lb-bot has not
+													// resolved the Navidrome id yet —
+													// a real state after a fill it
+													// performed itself. Say so rather
+													// than offering to fetch it again.
+													when {
+														!candidate.releaseOwned -> null
+														candidate.releaseAlbumId.isNotBlank() ->
+															inLibraryLabel
+														else -> awaitingLibraryLabel
+													}
+												).joinToString(" · ")
+											)
+										},
+										leadingContent = {
+											// The Archive's art, for the owned rows
+											// too: the candidate carries a
+											// release-group id and a Navidrome album
+											// id, but no Navidrome *cover* id, and
+											// guessing one is how a tile ends up
+											// showing the wrong record.
+											RemoteCoverArt(
+												url = candidate.coverUrl
+													.takeIf { it.isNotBlank() },
+												modifier = Modifier.size(40.dp)
 											)
 										}
 									)
