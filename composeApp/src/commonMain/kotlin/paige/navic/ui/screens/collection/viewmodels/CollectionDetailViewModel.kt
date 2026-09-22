@@ -155,15 +155,26 @@ class CollectionDetailViewModel(
 	 * Fire both lb-bot reads once the album is on screen. Strictly after the page
 	 * has its own data, and never on the critical render path.
 	 *
-	 * The release-group id comes from `getAlbumInfo2.musicBrainzId`, which is what
-	 * lb-bot's meta route is keyed by; the album's own tag MBID is the *release*,
-	 * passed along only to save lb-bot resolving the canonical one.
+	 * **`getAlbumInfo2.musicBrainzId` is the RELEASE, not the release-group.** It
+	 * was being passed straight to `/lb/meta/album`, which is keyed by the
+	 * release-group — so every owned album asked lb-bot about an id that does not
+	 * name a release-group, got an empty answer, and rendered the Navidrome notes
+	 * with no article, no attribution and no way out. Verified on Obscured by
+	 * Clouds: Navidrome says `d077cc98…` (release), lb-bot holds a six-paragraph
+	 * article under `a6f0826e…` (release-group). Nothing errored; the answer was
+	 * just always empty, which is indistinguishable from "nobody wrote about this".
+	 *
+	 * So the release-group is resolved from lb-bot's own discography index, which
+	 * already maps release-groups to the Navidrome album ids they landed as. The
+	 * release MBID still rides along as `release_mbid` — that is what it is, and
+	 * it saves lb-bot resolving the canonical release itself.
 	 */
-	fun loadLbBotExtras(album: DomainAlbum, rgid: String?) {
+	fun loadLbBotExtras(album: DomainAlbum, releaseMbid: String?) {
 		viewModelScope.launch {
 			if (!lbBotManager.ensureAvailability()) return@launch
+			val rgid = releaseGroupIdFor(album)
 			if (!rgid.isNullOrBlank()) {
-				_meta.value = lbBotManager.albumMeta(rgid, album.musicBrainzId)
+				_meta.value = lbBotManager.albumMeta(rgid, releaseMbid)
 			}
 			// Similarity is computed artist-to-artist, so this needs the artist,
 			// not the album; `rgid` only excludes the record on screen.
@@ -178,6 +189,29 @@ class CollectionDetailViewModel(
 				rgid = rgid
 			)
 		}
+	}
+
+	/**
+	 * This album's MusicBrainz **release-group** id, from lb-bot's discography index.
+	 *
+	 * Matched on `navidrome_album_ids` first, which lb-bot backfills precisely so a
+	 * client can go from a Navidrome album to the release-group it satisfies. Title
+	 * is the fallback for a row the backfill has not reached — scoped to this one
+	 * artist's discography, so it cannot collide with another artist's same-titled
+	 * record.
+	 *
+	 * Null when the artist is not indexed, which is the ordinary fail-soft case: no
+	 * About section rather than a wrong one.
+	 */
+	private suspend fun releaseGroupIdFor(album: DomainAlbum): String? {
+		val releases = lbBotManager.discography(album.artistId, null)?.releases.orEmpty()
+		if (releases.isEmpty()) return null
+		releases.firstOrNull { collectionId in it.navidromeAlbumIds }
+			?.rgid?.ifBlank { null }
+			?.let { return it }
+		val wanted = album.name?.trim()?.lowercase() ?: return null
+		return releases.firstOrNull { it.title.trim().lowercase() == wanted }
+			?.rgid?.ifBlank { null }
 	}
 
 	fun refreshCollection(fullRefresh: Boolean) {
