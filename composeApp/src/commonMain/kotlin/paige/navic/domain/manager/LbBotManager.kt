@@ -2070,6 +2070,13 @@ data class LbSimilarAlbum(
 	val artistId: String = "",
 	val year: String = "",
 	val status: String = "",
+	/**
+	 * The Navidrome album id. Every row on this shelf is a record the library
+	 * already holds, so this is normally present and is what a tap should open —
+	 * routing on the rgid alone sends an owned album to its own download page.
+	 * Blank only when Navidrome has not scanned it yet.
+	 */
+	val albumId: String = "",
 	val coverUrl: String = "",
 	val because: String = "",
 	val sources: List<String> = emptyList()

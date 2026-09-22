@@ -84,21 +84,28 @@ private fun SimilarAlbumTile(album: LbSimilarAlbum) {
 		RemoteCoverArt(
 			url = album.coverUrl,
 			contentDescription = album.title,
-			// The external album screen is the only destination reachable from a
-			// release-group id alone — lb-bot picks these rows out of its
-			// discography index, which is keyed by release-group. That screen
-			// already redirects to the library album when it can resolve one.
+			// Straight to the library album. Every row here is a record the
+			// library already holds, so the external screen was always the wrong
+			// destination — it was used only because the row carried no Navidrome
+			// album id, and its redirect cannot fire when lb-bot's index row has
+			// no id either. The result was a fully-downloaded album opening its
+			// own download page. lb-bot sends `albumId` now; the external screen
+			// stays as the fallback for the row it genuinely cannot resolve.
 			onClick = dropUnlessResumed {
 				backStack.add(
-					Screen.ExternalAlbum(
-						rgid = album.rgid,
-						artistName = album.artist,
-						title = album.title,
-						// Known to be in the library — lb-bot only picks these
-						// rows from artists it found there — so "view artist"
-						// lands on the real artist page, not the external one.
-						artistId = album.artistId
-					)
+					if (album.albumId.isNotBlank()) {
+						Screen.CollectionDetail(album.albumId, "similar")
+					} else {
+						Screen.ExternalAlbum(
+							rgid = album.rgid,
+							artistName = album.artist,
+							title = album.title,
+							// Known to be in the library — lb-bot only picks
+							// these rows from artists it found there — so "view
+							// artist" lands on the real artist page.
+							artistId = album.artistId
+						)
+					}
 				)
 			},
 			modifier = Modifier.fillMaxWidth()
