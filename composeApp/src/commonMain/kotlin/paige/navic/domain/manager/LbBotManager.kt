@@ -342,11 +342,19 @@ class LbBotManager(
 	/**
 	 * Probe at most once per [AVAILABILITY_TTL_MS], so a hub that comes back is
 	 * noticed without every screen paying for it. Safe to call from any composable
-	 * on every composition.
+	 * on every composition, and from any loader that is about to use the layer.
+	 *
+	 * Returns the answer, because every caller that is deciding whether to make a
+	 * request needs it, and the ones that read [available] separately were calling
+	 * [probeAvailable] instead — paying an unconditional `/lb/status` round trip
+	 * each time and defeating this cache entirely. An artist page open cost two of
+	 * them, serially, before either real request left.
 	 */
-	suspend fun ensureAvailability() {
-		if (_availableAt != 0L && nowMs() - _availableAt < AVAILABILITY_TTL_MS) return
-		probeAvailable()
+	suspend fun ensureAvailability(): Boolean {
+		if (_availableAt != 0L && nowMs() - _availableAt < AVAILABILITY_TTL_MS) {
+			return _available.value
+		}
+		return probeAvailable()
 	}
 
 	/**
@@ -1969,7 +1977,16 @@ data class LbMetaRelation(
 	/** Years, when MusicBrainz dates the relation. */
 	val begin: String = "",
 	val end: String = "",
-	val ended: Boolean = false
+	val ended: Boolean = false,
+	/**
+	 * The instruments and roles MusicBrainz states for this relation — "guitar",
+	 * "lead vocals". lb-bot goes to real trouble for these: MusicBrainz returns
+	 * one relation row per instrument AND per stint, and lb-bot collapses them to
+	 * one row per person while merging the attributes. The field was missing here,
+	 * and `ignoreUnknownKeys` meant it was dropped in silence — which is why the
+	 * members list was a bare row of names.
+	 */
+	val attributes: List<String> = emptyList()
 )
 
 @Serializable

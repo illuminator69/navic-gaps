@@ -44,7 +44,7 @@ class ExternalArtistViewModel(
 	fun load() {
 		if (artistMbid.isBlank()) return
 		viewModelScope.launch {
-			if (!lbBotManager.probeAvailable()) {
+			if (!lbBotManager.ensureAvailability()) {
 				_discography.value = DiscographyUi(available = false)
 				return@launch
 			}

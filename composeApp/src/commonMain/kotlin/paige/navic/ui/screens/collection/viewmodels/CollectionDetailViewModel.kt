@@ -161,7 +161,7 @@ class CollectionDetailViewModel(
 	 */
 	fun loadLbBotExtras(album: DomainAlbum, rgid: String?) {
 		viewModelScope.launch {
-			if (!lbBotManager.probeAvailable()) return@launch
+			if (!lbBotManager.ensureAvailability()) return@launch
 			if (!rgid.isNullOrBlank()) {
 				_meta.value = lbBotManager.albumMeta(rgid, album.musicBrainzId)
 			}

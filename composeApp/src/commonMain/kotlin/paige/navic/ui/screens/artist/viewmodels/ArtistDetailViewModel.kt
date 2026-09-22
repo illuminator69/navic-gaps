@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -365,7 +366,13 @@ class ArtistDetailViewModel(
 	fun loadMeta() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
-			if (!isOnline.value || !lbBotManager.probeAvailable()) return@launch
+			// `first { it }` rather than reading `isOnline.value` once: this fires
+			// on page open, and opening a page while offline used to mean the About
+			// never appeared for as long as you stayed on it, even once the network
+			// came back. Suspending here costs nothing — the whole call is off the
+			// critical path by design — and the coroutine dies with the ViewModel.
+			if (!isOnline.value) isOnline.first { it }
+			if (!lbBotManager.ensureAvailability()) return@launch
 			_meta.value = lbBotManager.artistMeta(
 				state.artist.musicBrainzId,
 				state.artist.name
@@ -384,7 +391,7 @@ class ArtistDetailViewModel(
 	fun loadDiscography() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
-			if (!isOnline.value || !lbBotManager.probeAvailable()) {
+			if (!isOnline.value || !lbBotManager.ensureAvailability()) {
 				_discography.value = DiscographyUi(available = false)
 				return@launch
 			}
