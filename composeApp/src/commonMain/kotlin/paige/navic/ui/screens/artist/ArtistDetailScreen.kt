@@ -563,6 +563,7 @@ fun ArtistDetailScreen(
 							) { artist ->
 								ArtCarouselItem(
 									coverArtId = artist.coverArtId,
+									isArtist = true,
 									title = artist.name,
 									subtitle = pluralStringResource(
 										Res.plurals.count_albums,

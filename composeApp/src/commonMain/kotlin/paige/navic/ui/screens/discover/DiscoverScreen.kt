@@ -43,6 +43,8 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.common.RemoteCoverArt
+import paige.navic.domain.manager.RediscoveryPlaylists
+import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -92,6 +94,8 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val becauseMood = stringResource(Res.string.because_discover_mood)
 	val titleMood = stringResource(Res.string.title_discover_mood)
 	val emptyText = stringResource(Res.string.info_discover_empty)
+	val inLibrary = stringResource(Res.string.label_in_library)
+	val notInLibrary = stringResource(Res.string.label_not_in_library)
 
 	Scaffold(
 		topBar = {
@@ -199,16 +203,18 @@ fun DiscoverScreen(nested: Boolean = false) {
 							key = { it.mbid.ifBlank { it.name } },
 							because = becauseSimilar
 						) { artist ->
-							DiscoverTextTile(
+							// The app's ordinary artist tile, so this row looks
+							// like every other carousel rather than like a list
+							// of bare names. An owned artist carries Navidrome's
+							// picture; an unowned one has none to carry and gets
+							// the same placeholder an untagged library artist
+							// does.
+							ArtCarouselItem(
+								coverArtId = artist.coverArtId,
+								isArtist = true,
 								title = artist.name,
-								subtitle = stringResource(
-									if (artist.owned) {
-										Res.string.label_in_library
-									} else {
-										Res.string.label_not_in_library
-									}
-								),
-								modifier = Modifier.animateItem().width(150.dp),
+								subtitle = if (artist.owned) inLibrary else notInLibrary,
+								contentDescription = null,
 								onClick = {
 									// Owned goes to the real artist page; unowned
 									// to the virtual `mb:` one, which renders
@@ -233,18 +239,17 @@ fun DiscoverScreen(nested: Boolean = false) {
 							key = { it.playlistId },
 							because = becauseRediscovery
 						) { playlist ->
-							DiscoverTextTile(
+							ArtCarouselItem(
+								coverArtId = playlist.coverArtId,
 								title = (playlist.name ?: "")
-									.removePrefix(
-										paige.navic.domain.manager.RediscoveryPlaylists.PREFIX
-									),
+									.removePrefix(RediscoveryPlaylists.PREFIX),
 								// The definition's own one-line description,
 								// written into the Navidrome playlist comment
 								// when it was created and never surfaced
 								// anywhere until now. A ready-made reason line,
 								// per playlist.
 								subtitle = playlist.comment.orEmpty(),
-								modifier = Modifier.animateItem().width(150.dp),
+								contentDescription = null,
 								onClick = {
 									backStack.add(
 										Screen.CollectionDetail(playlist.playlistId, "discover")
@@ -318,40 +323,6 @@ private fun DiscoverAlbumTile(
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				maxLines = 1
-			)
-		}
-	}
-}
-
-/** A tile with no artwork behind it — an artist lb-bot named, or a smart
- *  playlist. No fabricated placeholder art: an absent cover is an absence. */
-@Composable
-private fun DiscoverTextTile(
-	title: String,
-	subtitle: String,
-	modifier: Modifier = Modifier,
-	onClick: () -> Unit
-) {
-	Column(
-		modifier
-			.fillMaxWidth()
-			.clickable(onClick = onClick)
-			.padding(vertical = 8.dp)
-	) {
-		Text(
-			title,
-			style = MaterialTheme.typography.bodyMedium,
-			maxLines = 2,
-			overflow = TextOverflow.Ellipsis
-		)
-		if (subtitle.isNotBlank()) {
-			Text(
-				subtitle,
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.padding(top = 2.dp)
 			)
 		}
 	}

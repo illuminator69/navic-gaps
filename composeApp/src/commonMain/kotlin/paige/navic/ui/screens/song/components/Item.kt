@@ -10,6 +10,8 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import paige.navic.ui.components.common.SongRowDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -129,6 +131,7 @@ fun SongListScreenItem(
 	) {
 		Box {
 			ListItem(
+				colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 				onClick = onClick,
 				onLongClick = onSelect,
 				verticalAlignment = Alignment.CenterVertically,

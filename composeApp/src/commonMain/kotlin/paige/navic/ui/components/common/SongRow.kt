@@ -70,7 +70,15 @@ fun SongRow(
 	onAddToQueue: () -> Unit,
 	rating: Int,
 	onSetRating: (Int) -> Unit,
-	containerColor: Color = MaterialTheme.colorScheme.surface,
+	/**
+	 * Null means "the shared translucent one". It used to default to an opaque
+	 * `surface`, which on a washed page paints a flat slab over the gradient —
+	 * the rows read as uncoloured cards while the page behind them follows the
+	 * artwork. [SongRowDefaults.containerColor] has existed for exactly this and
+	 * was passed by the album page alone; every other list took the opaque
+	 * default. Resolved below, because it depends on `isCurrentTrack`.
+	 */
+	containerColor: Color? = null,
 	width: Dp = 400.dp
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -98,7 +106,9 @@ fun SongRow(
 				onClick = onClick,
 				onLongClick = onLongClick
 			),
-		colors = ListItemDefaults.colors(containerColor = containerColor),
+		colors = ListItemDefaults.colors(
+			containerColor = containerColor ?: SongRowDefaults.containerColor(isCurrentTrack)
+		),
 		headlineContent = {
 			Text(
 				text = buildAnnotatedString {

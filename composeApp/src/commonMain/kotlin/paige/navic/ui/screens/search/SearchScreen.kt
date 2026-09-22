@@ -21,6 +21,8 @@ import androidx.compose.foundation.text.input.insert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import paige.navic.ui.components.common.SongRowDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -255,6 +257,7 @@ fun SearchScreen(
 							if (clapState.usable) {
 								item(span = { GridItemSpan(maxLineSpan) }) {
 									ListItem(
+										colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 										modifier = Modifier
 											.background(MaterialTheme.colorScheme.surfaceContainer),
 										onClick = {
@@ -282,6 +285,7 @@ fun SearchScreen(
 								// AudioMuse don't get a permanently dead row.
 								item(span = { GridItemSpan(maxLineSpan) }) {
 									ListItem(
+										colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 										modifier = Modifier
 											.background(MaterialTheme.colorScheme.surfaceContainer),
 										// Tapping re-probes: these failures are transient (a hub
@@ -391,6 +395,7 @@ fun SearchScreen(
 										}
 									) {
 										ListItem(
+											colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 											modifier = Modifier
 												.background(MaterialTheme.colorScheme.surfaceContainer),
 											onClick = {
@@ -568,6 +573,7 @@ fun SearchScreen(
 								) { index ->
 									val candidate = externalArtists[index]
 									ListItem(
+										colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 										modifier = Modifier.clickable(
 											onClick = dropUnlessResumed {
 												backStack.add(
@@ -613,6 +619,7 @@ fun SearchScreen(
 									span = { GridItemSpan(maxLineSpan) }) { index ->
 									val historyItem = searchHistory[index]
 									ListItem(
+										colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
 										modifier = Modifier.clickable {
 											query.clearText()
 											query.edit { insert(0, historyItem) }
