@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
@@ -37,8 +39,12 @@ import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
-import paige.navic.ui.screens.artist.truncateText
 import paige.navic.ui.util.onAmbientColor
+import paige.navic.ui.util.teaserText
+
+/** Three lines of prose in the photo header. The old value was 200 characters
+ *  of raw HTML, which is a different thing entirely. */
+private const val TEASER_LIMIT = 220
 
 @Composable
 fun ArtistDetailScreenHeading(
@@ -48,7 +54,10 @@ fun ArtistDetailScreenHeading(
 	lastfm: String?,
 	innerPadding: PaddingValues,
 	scrolled: Boolean,
-	ambientColor: Color
+	ambientColor: Color,
+	/** Opens the full About section. Null when there is nothing more to show, in
+	 *  which case the teaser falls back to the Last.fm link as the only route out. */
+	onAboutClick: (() -> Unit)? = null
 ) {
 	val layoutDirection = LocalLayoutDirection.current
 	val progress by animateFloatAsState(if (scrolled) 0f else 1f)
@@ -89,10 +98,18 @@ fun ArtistDetailScreenHeading(
 				verticalArrangement = Arrangement.spacedBy(8.dp)
 			) {
 				subtitle?.let { subtitle ->
+					// HTML is stripped and the cut lands on a word boundary. Both matter:
+					// the old `take(200)` rendered a *short* Last.fm bio as the literal
+					// `<a href="https://www.last.fm/...">` markup, because nothing here
+					// ever stripped it, and cut a long one mid-word.
+					val teaser = teaserText(subtitle, TEASER_LIMIT)
+					val truncated = teaser.endsWith("…")
 					Text(
 						text = buildAnnotatedString {
-							append(truncateText(subtitle, 200))
-							if (subtitle.length > 200 && lastfm != null) {
+							append(teaser)
+							// The full text in an About section beats a link that leaves the
+							// app; Last.fm is only offered when there is no About to open.
+							if (truncated && onAboutClick == null && lastfm != null) {
 								append(" ")
 								withLink(LinkAnnotation.Url(lastfm)) {
 									append(stringResource(Res.string.action_more))
@@ -101,7 +118,14 @@ fun ArtistDetailScreenHeading(
 						},
 						style = MaterialTheme.typography.bodySmall,
 						color = onAmbientColor(ambientColor, MaterialTheme.colorScheme),
-						modifier = Modifier.widthIn(max = 500.dp)
+						maxLines = 3,
+						overflow = TextOverflow.Ellipsis,
+						modifier = Modifier
+							.widthIn(max = 500.dp)
+							.then(
+								if (onAboutClick != null) Modifier.clickable(onClick = onAboutClick)
+								else Modifier
+							)
 					)
 				}
 				MarqueeText(

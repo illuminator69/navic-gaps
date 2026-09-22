@@ -64,7 +64,10 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadin
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRowDropdown
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
+import paige.navic.ui.components.sheets.AboutSheet
+import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
+import paige.navic.ui.screens.collection.components.collectionDetailScreenSimilarAlbumsRow
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -104,6 +107,12 @@ fun CollectionDetailScreen(
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
 	val albumInfoState by viewModel.albumInfoState.collectAsState()
+	// lb-bot's editorial About and the similar-albums shelf. Both null until they
+	// answer and null forever when lb-bot is absent, in which case neither renders
+	// — §7: the surface is invisible, never an error.
+	val meta by viewModel.meta.collectAsStateWithLifecycle()
+	val similar by viewModel.similar.collectAsStateWithLifecycle()
+	val aboutOpen by viewModel.aboutOpen.collectAsStateWithLifecycle()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
 	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
@@ -267,6 +276,18 @@ fun CollectionDetailScreen(
 					)
 				}
 
+				// The first album description this app has ever shown. What the
+				// page carried before is the ID3 `comment` tag by way of
+				// nothing at all: `getAlbumInfo2.notes` has been loaded on every
+				// album page since forever and read by no one. It is the
+				// fallback here, and lb-bot's Wikipedia text is the preferred
+				// source because it comes with an attribution and an article.
+				collectionDetailScreenAboutRow(
+					meta = meta,
+					fallbackNotes = (albumInfoState as? UiState.Success)?.data?.notes,
+					onOpen = { viewModel.openAbout() }
+				)
+
 				if (sortedAlbum != null) {
 					sortedAlbum.let { album ->
 						discGroups.forEach { group ->
@@ -418,6 +439,10 @@ fun CollectionDetailScreen(
 
 				item { CollectionDetailScreenFooterRow(collection) }
 
+				// Deliberately above "More by this artist": that row is more of
+				// the same record's artist, this one is the reason to look up.
+				collectionDetailScreenSimilarAlbumsRow(similar)
+
 				(collection as? DomainAlbum)?.artistName?.let { artistName ->
 					collectionDetailScreenMoreByArtistRow(
 						artistName = artistName,
@@ -444,6 +469,16 @@ fun CollectionDetailScreen(
 		}
 	}
 
+	}
+
+	if (aboutOpen) {
+		meta?.let { about ->
+			AboutSheet(
+				title = collection?.name ?: "",
+				meta = about,
+				onDismissRequest = { viewModel.dismissAbout() }
+			)
+		}
 	}
 
 	ErrorSnackBar(

@@ -107,6 +107,7 @@ import paige.navic.ui.screens.artist.components.DiscographyShelf
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
+import paige.navic.ui.components.sheets.AboutSheet
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
@@ -143,6 +144,11 @@ fun ArtistDetailScreen(
 	val backStack = LocalNavStack.current
 	val layoutDirection = LocalLayoutDirection.current
 	val artistState by viewModel.artistState.collectAsStateWithLifecycle()
+	// lb-bot's editorial About. Null while it is in flight and null forever when
+	// lb-bot is absent — the header then reads exactly as it did before, which is
+	// the §7 rule: the surface is invisible, never an error.
+	val meta by viewModel.meta.collectAsStateWithLifecycle()
+	val aboutOpen by viewModel.aboutOpen.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsState()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
@@ -285,15 +291,35 @@ fun ArtistDetailScreen(
 						verticalArrangement = Arrangement.spacedBy(12.dp),
 						horizontalAlignment = Alignment.CenterHorizontally
 					) {
+						// Prefer lb-bot's text over Navidrome's Last.fm summary, and
+						// prefer the Wikidata one-liner over either in the header slot:
+						// it is one true sentence written to be one sentence, rather
+						// than the first N characters of something longer.
+						val aboutMeta = meta?.takeIf {
+							it.summary.isNotBlank() || it.wikidataDescription.isNotBlank() ||
+								it.credits.isNotEmpty() || it.links.isNotEmpty()
+						}
 						ArtistDetailScreenHeading(
 							artistName = state.artist.name,
 							coverArtId = state.artist.coverArtId,
-							subtitle = state.artist.biography,
+							subtitle = aboutMeta?.wikidataDescription?.ifBlank { null }
+								?: aboutMeta?.summary?.ifBlank { null }
+								?: state.artist.biography,
 							lastfm = state.artist.lastFmUrl,
 							innerPadding = contentPadding,
 							scrolled = scrolled,
-							ambientColor = ambientTop
+							ambientColor = ambientTop,
+							onAboutClick = aboutMeta?.let { { viewModel.openAbout() } }
 						)
+						if (aboutOpen) {
+							aboutMeta?.let { about ->
+								AboutSheet(
+									title = state.artist.name,
+									meta = about,
+									onDismissRequest = { viewModel.dismissAbout() }
+								)
+							}
+						}
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },
 							onDownload = {
@@ -621,10 +647,3 @@ fun ArtistDetailScreen(
 	}
 }
 
-fun truncateText(text: String, limit: Int): String {
-	return if (text.length > limit) {
-		text.take(limit) + "..."
-	} else {
-		text
-	}
-}

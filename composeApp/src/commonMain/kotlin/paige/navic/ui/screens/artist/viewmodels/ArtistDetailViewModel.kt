@@ -36,6 +36,7 @@ import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbMeta
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.NativeApiManager
@@ -172,6 +173,21 @@ class ArtistDetailViewModel(
 
 	val scrollState = ScrollState(initial = 0)
 
+	/**
+	 * lb-bot's editorial "About": the full Wikipedia article with its CC BY-SA
+	 * attribution, the Wikidata one-liner, band members and side projects.
+	 *
+	 * Null until it answers, and null forever when it cannot — no hub, no
+	 * LBBOT_URL, or simply nobody having written about this artist. The section
+	 * then does not render, which is the §7 rule: absent, never an error.
+	 */
+	private val _meta = MutableStateFlow<LbMeta?>(null)
+	val meta = _meta.asStateFlow()
+
+	/** Whether the About sheet is open. */
+	private val _aboutOpen = MutableStateFlow(false)
+	val aboutOpen = _aboutOpen.asStateFlow()
+
 	private val _discography = MutableStateFlow(DiscographyUi())
 	val discography = _discography.asStateFlow()
 
@@ -247,6 +263,7 @@ class ArtistDetailViewModel(
 				// discography shelf is an enhancement, and an artist page must render
 				// identically whether or not lb-bot is there.
 				loadDiscography()
+				loadMeta()
 				loadAppearsOn(domainAlbums)
 
 				repository.fetchArtistMetadata(artistId)
@@ -333,6 +350,35 @@ class ArtistDetailViewModel(
 		// Re-read the state: the metadata fetch may have replaced it while Room answered.
 		val latest = (artistState.value as? UiState.Success)?.data ?: return
 		artistState.value = UiState.Success(latest.copy(albums = albums))
+	}
+
+	/**
+	 * Fetch the editorial metadata. Fired once per page open beside the
+	 * discography, never on the critical render path: the header and the album
+	 * grid must look exactly as they do today while this is in flight, and
+	 * exactly as they do today forever if it never answers.
+	 *
+	 * The MBID is sent when Navidrome carries one. Without it lb-bot falls back to
+	 * a MusicBrainz name search and takes the top hit, which for a generically
+	 * named artist is a coin toss — so the name is the fallback, not the default.
+	 */
+	fun loadMeta() {
+		val state = (artistState.value as? UiState.Success)?.data ?: return
+		viewModelScope.launch {
+			if (!isOnline.value || !lbBotManager.probeAvailable()) return@launch
+			_meta.value = lbBotManager.artistMeta(
+				state.artist.musicBrainzId,
+				state.artist.name
+			)
+		}
+	}
+
+	fun openAbout() {
+		_aboutOpen.value = true
+	}
+
+	fun dismissAbout() {
+		_aboutOpen.value = false
 	}
 
 	fun loadDiscography() {

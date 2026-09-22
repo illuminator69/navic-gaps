@@ -495,6 +495,85 @@ class LbBotManager(
 			listOf("days" to days.toString(), "limit" to limit.toString())
 		).valueOrNull()
 
+	/**
+	 * Editorial "About" for an artist: the real, full-length, attributed text this app
+	 * has never shown. What the artist header carries today is Navidrome's Last.fm
+	 * summary put through a naive 200-character `take()` — with no HTML stripping, so a
+	 * short bio renders the literal `<a href="https://www.last.fm/...">` on screen.
+	 *
+	 * Prefer [mbid]; passing only [name] costs lb-bot a MusicBrainz search and takes its
+	 * top hit, which for a generically-named artist is a coin toss. Both are accepted
+	 * because Navidrome does not always carry an MBID.
+	 *
+	 * Fail-soft: no hub, no LBBOT_URL, or simply nobody having written about this artist
+	 * all answer null, and the section does not render. Never an error — §7.
+	 */
+	suspend fun artistMeta(mbid: String?, name: String?): LbMeta? {
+		if (mbid.isNullOrBlank() && name.isNullOrBlank()) return null
+		return getJson<LbMeta>(
+			"/lb/meta/artist",
+			if (!mbid.isNullOrBlank()) listOf("mbid" to mbid)
+			else listOf("name" to (name ?: ""))
+		).valueOrNull()
+	}
+
+	/**
+	 * The same for a release-group, plus release credits (producer, engineer, writer).
+	 *
+	 * [releaseMbid] is an optimisation, not a requirement: it saves lb-bot resolving the
+	 * canonical release, which costs two rate-limited MusicBrainz seconds on a cold call.
+	 */
+	suspend fun albumMeta(rgid: String, releaseMbid: String? = null): LbMeta? {
+		if (rgid.isBlank()) return null
+		return getJson<LbMeta>("/lb/meta/album", buildList {
+			add("rgid" to rgid)
+			if (!releaseMbid.isNullOrBlank()) add("release_mbid" to releaseMbid)
+		}).valueOrNull()
+	}
+
+	/**
+	 * "Similar albums" for an album page — one record per similar artist, all drawn
+	 * from **your own library**, so it is a rediscovery shelf and not a shopping list.
+	 *
+	 * Shipped in lb-bot and whitelisted on the hub since the Fresh work landed, and
+	 * consumed by no client until now: it was step 5 of the client-integration design.
+	 *
+	 * It keys on the *artist*, not the album — similarity is artist-to-artist
+	 * (ListenBrainz, cross-checked with Last.fm) and rolled up to one album each.
+	 * [rgid] only excludes the album on screen, and lb-bot backfills the slot.
+	 */
+	suspend fun similarAlbums(
+		artistMbid: String?,
+		artistName: String?,
+		rgid: String? = null,
+		limit: Int = 6
+	): LbSimilarAlbums? {
+		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return null
+		return getJson<LbSimilarAlbums>("/lb/album/similar", buildList {
+			if (!artistMbid.isNullOrBlank()) add("artist_mbid" to artistMbid)
+			if (!artistName.isNullOrBlank()) add("artist_name" to artistName)
+			if (!rgid.isNullOrBlank()) add("rgid" to rgid)
+			add("limit" to limit.toString())
+		}).valueOrNull()
+	}
+
+	/**
+	 * MusicBrainz artist search — the "Not in your library" half of search.
+	 *
+	 * Until `/lb/artist/lookup` was whitelisted on the hub, a client could only
+	 * reach an external artist page if it already held an MBID from a Fresh row,
+	 * which blocked every acquisition path that starts with "I want this artist".
+	 *
+	 * A live MusicBrainz search behind lb-bot's global 1 req/sec lock, not a local
+	 * index read: call it debounced, and not on every keystroke. Empty list when we
+	 * could not ask, so the section simply does not render.
+	 */
+	suspend fun artistLookup(query: String): List<LbArtistCandidate> {
+		if (query.isBlank()) return emptyList()
+		return getJson<LbArtistLookup>("/lb/artist/lookup", listOf("q" to query))
+			.valueOrNull()?.candidates.orEmpty()
+	}
+
 	/** Editions of one release-group. Rate-limited MusicBrainz upstream — show a skeleton. */
 	suspend fun albumReleases(rgid: String): LbReleaseDetail? {
 		if (rgid.isBlank()) return null
@@ -1791,6 +1870,147 @@ data class LbFreshRelease(
 	 *  index's `navidromeAlbumIds`, which an album lb-bot filled itself does not
 	 *  have — placement flips the row to `present` and cannot write them. */
 	val releaseAlbumId: String = ""
+)
+
+@Serializable
+data class LbArtistLookup(
+	val candidates: List<LbArtistCandidate> = emptyList()
+)
+
+/**
+ * One MusicBrainz artist search hit — an artist that may or may not be in the
+ * library, which is the point.
+ *
+ * [disambiguation] is MusicBrainz's own "(UK band)" note and is the only thing
+ * that tells two identically-named artists apart. Show it.
+ */
+@Serializable
+data class LbArtistCandidate(
+	val mbid: String = "",
+	val name: String = "",
+	val disambiguation: String = "",
+	val type: String = "",
+	val country: String = "",
+	val area: String = "",
+	val score: Int = 0
+)
+
+/**
+ * Editorial metadata for an artist or an album, as lb-bot resolves it:
+ * MusicBrainz url-relations -> Wikidata -> Wikipedia.
+ *
+ * Field names mirror the wire verbatim, the same rule [LbFreshRelease] follows.
+ *
+ * All text is **plain** — lb-bot asks Wikipedia for `explaintext` extracts — so
+ * unlike the Last.fm bio this replaces there is no markup to strip and nothing
+ * that can render as a literal `<a href=...>` on screen.
+ *
+ * [found] false is a legitimate "nobody has written about this", not an error.
+ */
+@Serializable
+data class LbMeta(
+	val found: Boolean = false,
+	/** The lead paragraph; equal to `paragraphs.first()` when there is any text. */
+	val summary: String = "",
+	/** Body text, already capped upstream to fit the hub's 4 MB ceiling. */
+	val paragraphs: List<String> = emptyList(),
+	/**
+	 * Wikidata's one-liner ("English rock band formed in Abingdon in 1985"). Often
+	 * present when there is no article at all, which is exactly what the photo
+	 * header wants — a short true sentence instead of 200 truncated characters.
+	 */
+	val wikidataDescription: String = "",
+	/**
+	 * **Render whenever any text is shown.** Wikipedia is CC BY-SA and the credit is
+	 * a licence condition, not a nicety — and its URL is also simply a better "read
+	 * more" than the Last.fm one it replaces.
+	 */
+	val source: LbMetaSource? = null,
+	/** Wikipedia's page image, when it has one. Never a cover. */
+	val imageUrl: String = "",
+	val links: List<LbMetaLink> = emptyList(),
+	/** Artists only. */
+	val relations: LbMetaRelations = LbMetaRelations(),
+	/** Albums only: producer/engineer/writer, roles collapsed per person. */
+	val credits: List<LbMetaCredit> = emptyList()
+)
+
+@Serializable
+data class LbMetaSource(
+	val name: String = "",
+	val url: String = "",
+	val license: String = "",
+	val title: String = ""
+)
+
+@Serializable
+data class LbMetaLink(
+	/** MusicBrainz url-relation type, e.g. `official homepage`. */
+	val type: String = "",
+	val label: String = "",
+	val url: String = ""
+)
+
+@Serializable
+data class LbMetaRelations(
+	/** Band members, or the bands a person is a member of. */
+	val members: List<LbMetaRelation> = emptyList(),
+	/** Collaborations, subgroups, side projects. */
+	val related: List<LbMetaRelation> = emptyList()
+)
+
+@Serializable
+data class LbMetaRelation(
+	val mbid: String = "",
+	val name: String = "",
+	val type: String = "",
+	/** MusicBrainz states a relation from one side only; this says which. */
+	val direction: String = "",
+	/** Years, when MusicBrainz dates the relation. */
+	val begin: String = "",
+	val end: String = "",
+	val ended: Boolean = false
+)
+
+@Serializable
+data class LbMetaCredit(
+	val mbid: String = "",
+	val name: String = "",
+	/** MusicBrainz's own relation-type names: "producer", "engineer", ... */
+	val roles: List<String> = emptyList()
+)
+
+/**
+ * The "Similar albums" shelf. [because] names the artist that justifies every
+ * row — the attribution rule this stack follows everywhere, and the difference
+ * between a recommendation and an unsourced popularity claim. Render it.
+ */
+@Serializable
+data class LbSimilarAlbums(
+	val albums: List<LbSimilarAlbum> = emptyList(),
+	val because: String = "",
+	/** Which services proposed the artists: ListenBrainz, and Last.fm when keyed. */
+	val sources: List<String> = emptyList()
+)
+
+/**
+ * One row of that shelf: an album the library **already holds**, by a similar
+ * artist. Identified by release-group only, because lb-bot picks it out of its
+ * discography index — so routing goes through the external album screen, which
+ * already redirects to the library album when it can resolve one.
+ */
+@Serializable
+data class LbSimilarAlbum(
+	val rgid: String = "",
+	val title: String = "",
+	val artist: String = "",
+	/** Navidrome artist id of the similar artist, who is in the library. */
+	val artistId: String = "",
+	val year: String = "",
+	val status: String = "",
+	val coverUrl: String = "",
+	val because: String = "",
+	val sources: List<String> = emptyList()
 )
 
 @Serializable

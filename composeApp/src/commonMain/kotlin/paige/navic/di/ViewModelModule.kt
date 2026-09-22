@@ -132,6 +132,7 @@ val viewModelModule = module {
 			downloadManager = get(),
 			sessionManager = get(),
 			snackBarManager = get(),
+			lbBotManager = get(),
 			connectivityManager = get()
 		)
 	}
