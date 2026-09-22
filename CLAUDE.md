@@ -145,13 +145,35 @@ that before suspecting the merge.
 ## 3. Building, signing, driving
 
 ```bash
-./gradlew :androidApp:assembleRelease     # ~6 min cold → androidApp/build/outputs/apk/release/Navic.apk
+./gradlew :androidApp:assembleRelease     # ~2 min → androidApp/build/outputs/apk/release/Navic.apk
 ./gradlew :androidApp:assembleDebug       # for correctness work
 ```
 
 There is no `:composeApp:compileDebugKotlinAndroid` task. Gradle provisions its own JDK 21
 toolchain — don't set `JAVA_HOME`. **Judge smoothness on release only**; debug Compose is
 dramatically choppier and will mislead you.
+
+### RAM: this box cannot run two 8 GB daemons
+
+`gradle.properties` used to ship `-Xmx8g -Xms8g` on **both** `org.gradle.jvmargs` and
+`kotlin.daemon.jvmargs`. `-Xms` is *pre-allocated*, so the two daemons reserved 16 GB between them
+before compiling a line — on a 15.3 GB workstation. That took the whole machine down on
+2026-09-22, mid-build.
+
+They are `-Xmx4g` and `-Xmx3g` now, with **no `-Xms`**. Do not reintroduce `-Xms`, and do not raise
+the ceilings without the RAM to back them. The capped config is also *faster* — a full
+`assembleRelease` including R8 runs in ~2 min rather than ~6, because the machine stops swapping.
+
+While working here:
+
+- **Stop the daemons when you are done**: `./gradlew --stop`. They are 4 GB and 3 GB of resident
+  memory doing nothing, and a session that builds repeatedly leaves both alive between builds.
+- **Don't run a build and the emulator at once**, and don't run two builds at once.
+- `free -m` before a build if anything else heavy is running. Under ~5 GB available, stop the
+  daemons first.
+- If you need to cap harder without touching the tracked file:
+  `./gradlew --no-daemon -Dorg.gradle.jvmargs="-Xmx5g" -Pkotlin.compiler.execution.strategy=in-process …`
+  — one JVM, nothing resident afterwards.
 
 ### The signing trap
 
@@ -211,7 +233,8 @@ adb shell run-as paige.navic.debug ls cache/       # debug builds only: Coil cac
   done literally nothing.
 - `uiautomator dump` gives real bounds. Tap coordinates guessed off a screenshot land on the wrong
   tab as soon as the nav bar's pill resizes.
-- Shut down afterwards: `adb emu kill`, then `./gradlew --stop`.
+- Shut down afterwards: `adb emu kill`, then `./gradlew --stop` — the daemons hold 7 GB
+  between them and the emulator is another 3 GB; leaving both up is how the box ran out.
 
 ---
 
