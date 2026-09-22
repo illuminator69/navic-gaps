@@ -24,9 +24,18 @@ private const val TEASER_LIMIT = 260
  * `comment` tag, which is not one and is usually absent; `getAlbumInfo2.notes`
  * has been loaded on every album page since forever and read by nothing.
  *
- * So two sources, in order: lb-bot's Wikipedia text, which comes with an
- * attribution and a real article behind it, and `notes` as the fallback. The
- * fallback is put through [teaserText] rather than shown raw — Last.fm's notes
+ * Two sources, and `notes` comes FIRST on an album the library owns. Not because
+ * it is better text — often it is not — but because it arrives with the album
+ * detail this page already waits for, while lb-bot's lands a second or more
+ * later behind a MusicBrainz hop. Preferring lb-bot meant the teaser you had
+ * started reading was replaced by a different one. The same rule as the artist
+ * header: the slot belongs to whatever the page already blocks on, and lb-bot
+ * fills it only when there is nothing there at all.
+ *
+ * Since the Apple Music agent joined Navidrome's chain, `notes` is real editorial
+ * prose rather than the empty field it used to be.
+ *
+ * Either way the text is put through [teaserText] rather than shown raw: notes
  * are HTML and would otherwise render their markup on screen, which is exactly
  * the bug the artist header had.
  *
@@ -39,10 +48,16 @@ fun LazyListScope.collectionDetailScreenAboutRow(
 ) {
 	val fromMeta = meta?.summary?.ifBlank { null }
 		?: meta?.wikidataDescription?.ifBlank { null }
-	val text = fromMeta ?: fallbackNotes?.ifBlank { null } ?: return
-	// Only lb-bot's answer has a sheet worth opening: the `notes` fallback is one
-	// paragraph with nowhere further to go.
-	val expandable = fromMeta != null && meta != null
+	val notes = fallbackNotes?.ifBlank { null }
+	val text = notes ?: fromMeta ?: return
+	// The sheet is worth opening when it holds more than these three lines:
+	// lb-bot has an article, credits or links, or the teaser itself is cut off
+	// and the rest of it is in there. Note this can flip false→true when lb-bot
+	// answers, which only ever ADDS an affordance — the text above does not move.
+	val expandable = fromMeta != null ||
+		meta?.credits?.isNotEmpty() == true ||
+		meta?.links?.isNotEmpty() == true ||
+		teaserText(text, TEASER_LIMIT).endsWith("\u2026")
 	item {
 		Column(
 			modifier = Modifier

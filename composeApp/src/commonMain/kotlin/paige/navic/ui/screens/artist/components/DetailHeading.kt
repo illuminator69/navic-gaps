@@ -28,11 +28,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
@@ -43,8 +46,13 @@ import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.teaserText
 
 /** Three lines of prose in the photo header. The old value was 200 characters
- *  of raw HTML, which is a different thing entirely. */
-private const val TEASER_LIMIT = 220
+ *  of raw HTML, which is a different thing entirely.
+ *
+ *  Not private: the screen decides whether an About sheet is worth offering,
+ *  and "is this bio truncated" has to be the same question there as here — two
+ *  copies of the limit is two chances for the affordance and the truncation to
+ *  disagree. */
+const val ARTIST_TEASER_LIMIT = 220
 
 @Composable
 fun ArtistDetailScreenHeading(
@@ -102,17 +110,33 @@ fun ArtistDetailScreenHeading(
 					// the old `take(200)` rendered a *short* Last.fm bio as the literal
 					// `<a href="https://www.last.fm/...">` markup, because nothing here
 					// ever stripped it, and cut a long one mid-word.
-					val teaser = teaserText(subtitle, TEASER_LIMIT)
+					val teaser = teaserText(subtitle, ARTIST_TEASER_LIMIT)
 					val truncated = teaser.endsWith("…")
 					Text(
 						text = buildAnnotatedString {
 							append(teaser)
-							// The full text in an About section beats a link that leaves the
-							// app; Last.fm is only offered when there is no About to open.
-							if (truncated && onAboutClick == null && lastfm != null) {
+							// A truncated teaser always offers a way to the rest, and
+							// WHICH way is decided by the bio alone — never by whether
+							// lb-bot has answered yet. Deciding it on `meta` is what
+							// made the link appear and then silently disappear a second
+							// later, which is the defect this whole pass removes.
+							//
+							// An in-app About beats a link that leaves the app, and a
+							// truncated bio always has an About worth opening: the rest
+							// of itself. Last.fm is the fallback for the case where
+							// there is no sheet at all.
+							if (truncated) {
 								append(" ")
-								withLink(LinkAnnotation.Url(lastfm)) {
-									append(stringResource(Res.string.action_more))
+								val more = stringResource(Res.string.action_more)
+								if (onAboutClick != null) {
+									withStyle(
+										SpanStyle(
+											color = MaterialTheme.colorScheme.primary,
+											fontWeight = FontWeight.Medium
+										)
+									) { append(more) }
+								} else if (lastfm != null) {
+									withLink(LinkAnnotation.Url(lastfm)) { append(more) }
 								}
 							}
 						},
@@ -123,8 +147,15 @@ fun ArtistDetailScreenHeading(
 						modifier = Modifier
 							.widthIn(max = 500.dp)
 							.then(
-								if (onAboutClick != null) Modifier.clickable(onClick = onAboutClick)
-								else Modifier
+								if (onAboutClick != null) {
+									Modifier.clickable(
+										onClickLabel = stringResource(Res.string.action_more),
+										role = Role.Button,
+										onClick = onAboutClick
+									)
+								} else {
+									Modifier
+								}
 							)
 					)
 				}

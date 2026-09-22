@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import paige.navic.domain.manager.LbMeta
+import paige.navic.domain.manager.LbMetaRelation
+import paige.navic.ui.util.rememberCoverAmbient
+import paige.navic.ui.util.stripHtml
 
 /**
  * The full "About" text for an artist or an album.
@@ -39,10 +42,28 @@ import paige.navic.domain.manager.LbMeta
 @Composable
 fun AboutSheet(
 	title: String,
-	meta: LbMeta,
-	onDismissRequest: () -> Unit
+	meta: LbMeta?,
+	onDismissRequest: () -> Unit,
+	/**
+	 * The host page's own description — Navidrome's artist biography, or an
+	 * album's `getAlbumInfo2.notes`. It is the sheet's body whenever lb-bot has
+	 * no prose, which is what makes the teaser and the sheet agree: tapping three
+	 * truncated lines has to open the rest of *those* lines, not a different text
+	 * about the same artist. HTML, so it goes through [stripHtml].
+	 */
+	fallbackBio: String? = null,
+	/**
+	 * Themes the sheet from the page's artwork. Every other sheet in the app
+	 * passes an ambient; this one did not, so it opened in the flat M3 container
+	 * colour on top of a page fully washed in the cover's palette.
+	 */
+	coverArtId: String? = null
 ) {
-	ModalBottomSheet(onDismissRequest = onDismissRequest, sheetTitle = title) {
+	ModalBottomSheet(
+		onDismissRequest = onDismissRequest,
+		sheetTitle = title,
+		ambient = rememberCoverAmbient(coverArtId)
+	) {
 		Column(
 			modifier = Modifier
 				.verticalScroll(rememberScrollState())
@@ -56,9 +77,11 @@ fun AboutSheet(
 				fontWeight = FontWeight.Bold
 			)
 			// Wikidata's one-liner is often present when there is no article at
-			// all, which is exactly when it earns its place. Suppressed when
-			// there is prose, where it only restates the first sentence.
-			if (meta.paragraphs.isEmpty() && meta.summary.isBlank() &&
+			// all, which is exactly when it earns its place. It lives HERE rather
+			// than in the header: in the header it replaced a 220-character
+			// teaser with one sentence the moment lb-bot answered, collapsing the
+			// block and jerking every button below it upwards.
+			if (meta != null && meta.paragraphs.isEmpty() && meta.summary.isBlank() &&
 				meta.wikidataDescription.isNotBlank()
 			) {
 				Text(
@@ -67,11 +90,20 @@ fun AboutSheet(
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
-			val paragraphs = meta.paragraphs.ifEmpty { listOfNotNull(meta.summary.ifBlank { null }) }
+			val metaParagraphs = meta?.paragraphs?.ifEmpty {
+				listOfNotNull(meta.summary.ifBlank { null })
+			}.orEmpty()
+			// lb-bot's prose when there is any, the page's own text otherwise. The
+			// fallback is what the teaser showed, so the sheet continues it rather
+			// than replacing it with something else.
+			val paragraphs = metaParagraphs.ifEmpty {
+				listOfNotNull(fallbackBio?.let { stripHtml(it) }?.ifBlank { null })
+			}
 			paragraphs.forEach { paragraph ->
 				Text(paragraph, style = MaterialTheme.typography.bodyMedium)
 			}
-			meta.source?.takeIf { it.url.isNotBlank() && paragraphs.isNotEmpty() }?.let { source ->
+			// Attribution belongs to lb-bot's text only — never to Navidrome's.
+			meta?.source?.takeIf { it.url.isNotBlank() && metaParagraphs.isNotEmpty() }?.let { source ->
 				Text(
 					text = buildAnnotatedString {
 						append("From ${source.name} (${source.license}) — ")
@@ -84,9 +116,9 @@ fun AboutSheet(
 			// Band members / side projects, and the credits on an album. A flat
 			// list rather than a table: MusicBrainz's role vocabulary is long
 			// and uneven, and grouping by role yields a dozen one-line sections.
-			MetaRelationBlock("Members", meta.relations.members.map { it.name })
-			MetaRelationBlock("Related", meta.relations.related.map { it.name })
-			if (meta.credits.isNotEmpty()) {
+			MetaRelationBlock("Members", meta?.relations?.members.orEmpty())
+			MetaRelationBlock("Related", meta?.relations?.related.orEmpty())
+			if (meta != null && meta.credits.isNotEmpty()) {
 				SheetLabel("Credits")
 				Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 					meta.credits.forEach { credit ->
@@ -97,7 +129,7 @@ fun AboutSheet(
 					}
 				}
 			}
-			if (meta.links.isNotEmpty()) {
+			if (meta != null && meta.links.isNotEmpty()) {
 				SheetLabel("Links")
 				FlowRow(
 					modifier = Modifier.fillMaxWidth(),
@@ -118,8 +150,39 @@ fun AboutSheet(
 }
 
 @Composable
-private fun MetaRelationBlock(label: String, names: List<String>) {
-	if (names.isEmpty()) return
+private fun MetaRelationBlock(label: String, rows: List<LbMetaRelation>) {
+	if (rows.isEmpty()) return
 	SheetLabel(label)
-	Text(names.joinToString(", "), style = MaterialTheme.typography.bodySmall)
+	Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+		rows.forEach { row ->
+			Text(
+				buildString {
+					append(row.name)
+					// `attributes` is the instruments and roles MusicBrainz states,
+					// already merged per person by lb-bot across its
+					// one-row-per-instrument-per-stint shape. The client used to
+					// drop the field entirely, which left this a row of bare names.
+					val detail = relationDetail(row)
+					if (detail.isNotBlank()) append(" — ").append(detail)
+				},
+				style = MaterialTheme.typography.bodySmall
+			)
+		}
+	}
+}
+
+/** "guitar, lead vocals (1985–1991)"; an open stint gets no end year. */
+private fun relationDetail(row: LbMetaRelation): String {
+	val roles = row.attributes.joinToString(", ")
+	val years = when {
+		row.begin.isNotBlank() -> row.begin + "\u2013" + if (row.ended) row.end else ""
+		row.ended && row.end.isNotBlank() -> "until " + row.end
+		else -> ""
+	}
+	return when {
+		roles.isNotBlank() && years.isNotBlank() -> "$roles ($years)"
+		roles.isNotBlank() -> roles
+		years.isNotBlank() -> "($years)"
+		else -> ""
+	}
 }

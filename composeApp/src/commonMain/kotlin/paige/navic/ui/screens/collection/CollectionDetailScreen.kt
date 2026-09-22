@@ -472,13 +472,15 @@ fun CollectionDetailScreen(
 	}
 
 	if (aboutOpen) {
-		meta?.let { about ->
-			AboutSheet(
-				title = collection?.name ?: "",
-				meta = about,
-				onDismissRequest = { viewModel.dismissAbout() }
-			)
-		}
+		AboutSheet(
+			title = collection?.name ?: "",
+			meta = meta,
+			onDismissRequest = { viewModel.dismissAbout() },
+			// So the teaser opens the rest of ITSELF when lb-bot has nothing —
+			// the row now prefers `notes`, so that is what was on screen.
+			fallbackBio = (albumInfoState as? UiState.Success)?.data?.notes,
+			coverArtId = collection?.coverArtId
+		)
 	}
 
 	ErrorSnackBar(

@@ -108,6 +108,8 @@ import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.components.sheets.AboutSheet
+import paige.navic.ui.util.teaserText
+import paige.navic.ui.screens.artist.components.ARTIST_TEASER_LIMIT
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
@@ -291,34 +293,57 @@ fun ArtistDetailScreen(
 						verticalArrangement = Arrangement.spacedBy(12.dp),
 						horizontalAlignment = Alignment.CenterHorizontally
 					) {
-						// Prefer lb-bot's text over Navidrome's Last.fm summary, and
-						// prefer the Wikidata one-liner over either in the header slot:
-						// it is one true sentence written to be one sentence, rather
-						// than the first N characters of something longer.
-						val aboutMeta = meta?.takeIf {
+						// The header's text is NAVIDROME's, and it does not move once
+						// painted. It used to prefer lb-bot's Wikidata one-liner,
+						// which meant a ~220-character teaser collapsed to a single
+						// sentence a second or more later — the block shrank and
+						// every button below it jumped up. lb-bot fills this slot
+						// only when Navidrome has nothing at all, which is a late
+						// arrival into an EMPTY slot and moves no text anyone had
+						// started reading. The one-liner now lives in the sheet.
+						val headerBio = state.artist.biography?.ifBlank { null }
+							?: meta?.summary?.ifBlank { null }
+							?: meta?.wikidataDescription?.ifBlank { null }
+						// Is there a sheet worth opening? Partly known at t=0 — a
+						// truncated bio always has more of itself to show — and
+						// partly only once meta lands, which can only ever ADD the
+						// affordance where there was none. The "more" link's own
+						// gate stays on the t=0 half so it cannot appear and then
+						// vanish; see DetailHeading.
+						val aboutHasMore = meta?.let {
 							it.summary.isNotBlank() || it.wikidataDescription.isNotBlank() ||
-								it.credits.isNotEmpty() || it.links.isNotEmpty()
-						}
+								it.credits.isNotEmpty() || it.links.isNotEmpty() ||
+								it.relations.members.isNotEmpty() ||
+								it.relations.related.isNotEmpty()
+						} == true
+						val canOpenAbout = aboutHasMore ||
+							(headerBio != null &&
+								teaserText(headerBio, ARTIST_TEASER_LIMIT).endsWith("\u2026"))
 						ArtistDetailScreenHeading(
 							artistName = state.artist.name,
 							coverArtId = state.artist.coverArtId,
-							subtitle = aboutMeta?.wikidataDescription?.ifBlank { null }
-								?: aboutMeta?.summary?.ifBlank { null }
-								?: state.artist.biography,
+							subtitle = headerBio,
 							lastfm = state.artist.lastFmUrl,
 							innerPadding = contentPadding,
 							scrolled = scrolled,
 							ambientColor = ambientTop,
-							onAboutClick = aboutMeta?.let { { viewModel.openAbout() } }
+							onAboutClick = if (canOpenAbout) {
+								{ viewModel.openAbout() }
+							} else {
+								null
+							}
 						)
 						if (aboutOpen) {
-							aboutMeta?.let { about ->
-								AboutSheet(
-									title = state.artist.name,
-									meta = about,
-									onDismissRequest = { viewModel.dismissAbout() }
-								)
-							}
+							AboutSheet(
+								title = state.artist.name,
+								meta = meta,
+								onDismissRequest = { viewModel.dismissAbout() },
+								// So a truncated teaser opens the REST OF ITSELF
+								// when lb-bot has nothing, rather than an empty
+								// sheet or a different text about the same artist.
+								fallbackBio = state.artist.biography,
+								coverArtId = state.artist.coverArtId
+							)
 						}
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },
