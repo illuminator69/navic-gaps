@@ -22,13 +22,12 @@ import navic.composeapp.generated.resources.acquire_started
 import navic.composeapp.generated.resources.acquire_unavailable
 import navic.composeapp.generated.resources.acquire_uncertain
 import navic.composeapp.generated.resources.acquire_wrong_format
-import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.di.LocalSnackBarState
 import paige.navic.domain.manager.AcquireOutcome
 import paige.navic.domain.manager.AcquireReason
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Download
 
@@ -56,10 +55,13 @@ fun AcquireButton(
 	album: String = ""
 ) {
 	val lbBot = koinInject<LbBotManager>()
-	// The app's one snackbar host, so the outcome is said in the same place every
-	// other background result in this app is said — and so no call site has to
-	// thread a message callback through a row it does not otherwise own.
-	val snackBarState = LocalSnackBarState.current
+	// Emitted through SnackBarManager rather than shown from this composable's own
+	// scope. `onReview` navigates, which takes this button out of the composition
+	// and cancels a `rememberCoroutineScope` mid-`showSnackbar` — so the message
+	// explaining WHY the picker opened flashed and vanished, which is the one part
+	// of the review path the user actually needs. App collects these in a
+	// LaunchedEffect(Unit) that outlives any screen.
+	val snackBars = koinInject<SnackBarManager>()
 	val scope = rememberCoroutineScope()
 	var busy by remember { mutableStateOf(false) }
 	val label = stringResource(Res.string.acquire_get_album)
@@ -73,19 +75,17 @@ fun AcquireButton(
 				busy = false
 				when (outcome) {
 					is AcquireOutcome.NeedsReview -> {
+						snackBars.notify(reasonRes(outcome.reason))
 						onReview()
-						snackBarState.showSnackbar(getString(reasonRes(outcome.reason)))
 					}
 					// Name the format. Quality is a *ranking* term upstream rather
 					// than a filter, so "what am I actually getting" is a real
 					// question, and the source row is normally where it is answered.
-					is AcquireOutcome.Started -> snackBarState.showSnackbar(
-						getString(
-							Res.string.acquire_started,
-							album.ifBlank { label },
-							outcome.format.ifBlank { "?" },
-							outcome.peer
-						)
+					is AcquireOutcome.Started -> snackBars.notify(
+						Res.string.acquire_started,
+						album.ifBlank { label },
+						outcome.format.ifBlank { "?" },
+						outcome.peer
 					)
 				}
 			}
