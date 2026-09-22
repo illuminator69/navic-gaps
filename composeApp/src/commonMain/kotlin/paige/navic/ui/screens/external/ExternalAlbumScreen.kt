@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,11 +39,18 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.ui.components.common.CoverAmbientBackground
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
+import paige.navic.ui.theme.NavicTheme
+import paige.navic.di.ForceSystemBars
+import paige.navic.ui.util.coverAmbientGradient
+import paige.navic.ui.util.onAmbientColor
+import paige.navic.ui.util.rememberAppIsDark
+import paige.navic.ui.util.rememberCoverColorScheme
 
 /**
  * A release the library does not have: its tracklist, and the way to get it.
@@ -87,7 +95,47 @@ fun ExternalAlbumScreen(
 	val heading = state.detail?.title?.ifBlank { null } ?: title
 	val artist = state.detail?.artist?.ifBlank { null } ?: artistName
 
+	// This page and its artist sibling were the only content-bearing destinations
+	// in the whole graph with no cover theming at all — reached straight from
+	// fully-washed surfaces (the similar-albums row, the discography shelf, the
+	// Fresh grid), so arriving here was an abrupt drop to the flat app scheme.
+	//
+	// It follows the DETAIL-screen pattern rather than `Washed`: `BrowsingAmbient`
+	// takes no argument and seeds from the NOW-PLAYING cover, which would have
+	// tinted this page by whatever song happens to be playing instead of by the
+	// record on screen.
+	//
+	// Seeded from the Cover Art Archive URL, because an unowned release has no
+	// Navidrome cover id — that is what `paletteUrl` exists for. If the art does
+	// not resolve, `themed` stays false and the page is the app's own surface: an
+	// unresolved cover is an absence, not a colour, and must never be fabricated.
+	val appIsDark = rememberAppIsDark()
+	val coverColors = rememberCoverColorScheme(
+		coverArtId = null,
+		isDark = appIsDark,
+		paletteUrl = LbBotManager.caaCoverUrl(rgid).ifBlank { null }
+	)
+	val (washTop, _) = coverAmbientGradient(coverColors.seed, coverColors.isDark)
+	val ambientTop = if (coverColors.themed) washTop else MaterialTheme.colorScheme.surface
+	ForceSystemBars(coverColors.isDark)
+	NavicTheme(coverColors.scheme, contentColor = onAmbientColor(ambientTop, coverColors.scheme)) {
+	Box(Modifier.fillMaxSize()) {
+	if (coverColors.themed) {
+		// `coverArtId = null`, so this is the gradient wash WITHOUT the blurred
+		// artwork layer behind it: `BlendBackground` draws through Coil from a
+		// Navidrome cover id, and this release has none. The colour is still
+		// genuinely the sleeve's — it is quantised from the same CAA image the
+		// header shows — which is the part that matters. Teaching the blur layer
+		// to take a URL as well is a separate change.
+		CoverAmbientBackground(
+			coverArtId = null,
+			seed = coverColors.seed,
+			isDark = coverColors.isDark,
+			modifier = Modifier.fillMaxSize()
+		)
+	}
 	Scaffold(
+		containerColor = if (coverColors.themed) Color.Transparent else ambientTop,
 		topBar = { NestedTopBar({ Text(heading, maxLines = 1, overflow = TextOverflow.Ellipsis) }) }
 	) { innerPadding ->
 		Column(
@@ -185,6 +233,8 @@ fun ExternalAlbumScreen(
 			}
 		}
 	}
+	}  // Box
+	}  // NavicTheme
 
 	if (pickerOpen) {
 		MissingAlbumSheet(

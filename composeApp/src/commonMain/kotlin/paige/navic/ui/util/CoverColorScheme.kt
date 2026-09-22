@@ -232,7 +232,25 @@ fun rememberCoverColorScheme(
 	// When false, the scheme keeps the passed [isDark] (app) brightness instead of following
 	// the artwork's luminance. Used by the library home, whose page brightness should stay put
 	// (only the accent hues adapt to the now-playing song) rather than flipping per cover.
-	followArtworkBrightness: Boolean = true
+	followArtworkBrightness: Boolean = true,
+	/**
+	 * An ABSOLUTE image URL to quantise instead of a Navidrome cover id.
+	 *
+	 * The external artist/album pages show art that has no Navidrome cover id at
+	 * all — it comes straight from the Cover Art Archive
+	 * ([paige.navic.domain.manager.LbBotManager.caaCoverUrl]). Passing that URL
+	 * as `coverArtId` does not work and fails *silently in the expensive
+	 * direction*: it would be run through `getCoverArtUrl`, producing
+	 * `…/rest/getCoverArt?id=https%3A%2F%2Fcoverartarchive.org%2F…`, which
+	 * Navidrome cannot resolve — three retried fetches and `resolved = false`
+	 * for the life of the composable.
+	 *
+	 * When set, this is the fetch URL and also the cache key, which is safe
+	 * because [paletteCache] is keyed by a plain string either way. The
+	 * placeholder check is skipped: it identifies Navidrome's generic artist
+	 * glyph by cover id and means nothing for a foreign URL.
+	 */
+	paletteUrl: String? = null
 ): CoverColors {
 	val themingOn = coverThemingEnabled()
 	val sessionManager = koinInject<SessionManager>()
@@ -241,13 +259,22 @@ fun rememberCoverColorScheme(
 	// answers "this artist is grey" for all ~26 of them at once. `CoverArt` has always refused to
 	// DRAW it; refusing to THEME off it is the same rule, and it has to be here rather than at the
 	// call sites because the artist page, `ArtistSheet` and the now-playing chrome all feed ids in.
-	val hasArt = themingOn && coverArtId != null && !CoverPlaceholder.isPlaceholder(coverArtId)
+	val hasArt = themingOn && (
+		paletteUrl != null ||
+			(coverArtId != null && !CoverPlaceholder.isPlaceholder(coverArtId))
+		)
+	// What identifies this artwork in the caches. A foreign URL is its own key.
+	val paletteKey = paletteUrl ?: coverArtId
 	// 128px, asked for as a PARAMETER: `getCoverArtUrl` already carries the user's cover-art
 	// quality, so appending `&size=128` gave `…&size=4096&size=128` and Subsonic honoured the
 	// FIRST — every palette extraction pulled and quantised a 4096px JPEG over a bare Ktor client
 	// with a 60s timeout, which is what made the unresolved state below a routine sight.
-	val coverUri = remember(coverArtId, hasArt) {
-		coverArtId?.takeIf { hasArt }?.let { sessionManager.getCoverArtUrl(it, size = PALETTE_PX) }
+	val coverUri = remember(coverArtId, paletteUrl, hasArt) {
+		when {
+			!hasArt -> null
+			paletteUrl != null -> paletteUrl
+			else -> coverArtId?.let { sessionManager.getCoverArtUrl(it, size = PALETTE_PX) }
+		}
 	}
 	val networkLoader = rememberNetworkLoader(paletteHttpClient)
 	// ONE extraction per cover, and every colour below is read off that one palette — so a cover
@@ -258,10 +285,10 @@ fun rememberCoverColorScheme(
 	//
 	// NOT keyed on the cover id: the previous palette stays put until the new one is ready, so
 	// changing songs eases from the old colour instead of flashing through the neutral default.
-	var palette by remember { mutableStateOf(coverArtId?.let { paletteCache[it] }) }
+	var palette by remember { mutableStateOf(paletteKey?.let { paletteCache[it] }) }
 
-	LaunchedEffect(coverUri, coverArtId) {
-		val id = coverArtId ?: return@LaunchedEffect
+	LaunchedEffect(coverUri, paletteKey) {
+		val id = paletteKey ?: return@LaunchedEffect
 		val uri = coverUri ?: return@LaunchedEffect
 		paletteCache[id]?.let {
 			palette = it
@@ -518,9 +545,16 @@ fun onAmbientColor(background: Color, scheme: ColorScheme): Color {
 fun rememberCoverAmbient(
 	coverArtId: String?,
 	isDark: Boolean = rememberAppIsDark(),
-	initialSeed: Color? = null
+	initialSeed: Color? = null,
+	/** See [rememberCoverColorScheme]: an absolute URL for art with no Navidrome id. */
+	paletteUrl: String? = null
 ): CoverAmbient {
-	val cover = rememberCoverColorScheme(coverArtId, isDark = isDark, initialSeed = initialSeed)
+	val cover = rememberCoverColorScheme(
+		coverArtId,
+		isDark = isDark,
+		initialSeed = initialSeed,
+		paletteUrl = paletteUrl
+	)
 	// Brightness follows the artwork (cover.isDark), not the app theme passed in.
 	// Theming off: the sheet is the app's plain surface. `cover.seed` is that surface already, but
 	// the gradient would still ease it toward white/black and tint the sheet for no reason.
