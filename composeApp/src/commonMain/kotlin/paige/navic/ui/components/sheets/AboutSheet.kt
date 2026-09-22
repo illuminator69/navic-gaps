@@ -93,14 +93,33 @@ fun AboutSheet(
 			val metaParagraphs = meta?.paragraphs?.ifEmpty {
 				listOfNotNull(meta.summary.ifBlank { null })
 			}.orEmpty()
-			// lb-bot's prose when there is any, the page's own text otherwise. The
-			// fallback is what the teaser showed, so the sheet continues it rather
-			// than replacing it with something else.
-			val paragraphs = metaParagraphs.ifEmpty {
-				listOfNotNull(fallbackBio?.let { stripHtml(it) }?.ifBlank { null })
-			}
+			// THE TEASER'S OWN TEXT LEADS. The page header shows Navidrome's
+			// biography (or an album's notes), and tapping three truncated lines
+			// has to open the rest of *those* lines. This used to prefer lb-bot's
+			// prose whenever there was any, which was fine while Navidrome
+			// answered nothing — but the Apple Music agent now fills that slot on
+			// most artists, so both existed and the sheet silently swapped the
+			// text: the header said one thing and the sheet it opened said
+			// another about the same artist.
+			val ownText = listOfNotNull(fallbackBio?.let { stripHtml(it) }?.ifBlank { null })
+			val paragraphs = ownText.ifEmpty { metaParagraphs }
 			paragraphs.forEach { paragraph ->
 				Text(paragraph, style = MaterialTheme.typography.bodyMedium)
+			}
+			// lb-bot's prose is not thrown away when the page had its own — it is
+			// usually the longer and better text. It just goes BELOW, labelled and
+			// attributed, as an additional source rather than a replacement. This
+			// is the same demotion the rest of the stack applies to /lb/meta/*:
+			// supplementary sections under the description, never the description.
+			val extraProse = if (ownText.isEmpty()) emptyList() else metaParagraphs
+			if (extraProse.isNotEmpty()) {
+				SheetLabel(meta?.source?.name?.takeIf { it.isNotBlank() }
+					?.let { "More from $it" } ?: "More")
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					extraProse.forEach { paragraph ->
+						Text(paragraph, style = MaterialTheme.typography.bodyMedium)
+					}
+				}
 			}
 			// Attribution belongs to lb-bot's text only — never to Navidrome's.
 			meta?.source?.takeIf { it.url.isNotBlank() && metaParagraphs.isNotEmpty() }?.let { source ->
