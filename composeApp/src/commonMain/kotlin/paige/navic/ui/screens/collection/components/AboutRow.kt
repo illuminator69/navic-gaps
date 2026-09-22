@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_more
+import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbMeta
 import paige.navic.ui.util.teaserText
 
@@ -79,6 +82,19 @@ fun LazyListScope.collectionDetailScreenAboutRow(
 				maxLines = 3,
 				overflow = TextOverflow.Ellipsis
 			)
+			// Its own line, never appended to the teaser: that Text is
+			// `maxLines = 3` + Ellipsis and the teaser already fills it, so an
+			// appended affordance is laid out and then clipped — present in the
+			// string and invisible on the device. Same trap as the artist header.
+			if (expandable) {
+				Text(
+					stringResource(Res.string.action_more),
+					style = MaterialTheme.typography.bodySmall,
+					fontWeight = FontWeight(600),
+					color = MaterialTheme.colorScheme.primary,
+					modifier = Modifier.padding(top = 2.dp)
+				)
+			}
 		}
 	}
 }

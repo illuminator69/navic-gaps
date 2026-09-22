@@ -30,12 +30,10 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
@@ -111,53 +109,53 @@ fun ArtistDetailScreenHeading(
 					// `<a href="https://www.last.fm/...">` markup, because nothing here
 					// ever stripped it, and cut a long one mid-word.
 					val teaser = teaserText(subtitle, ARTIST_TEASER_LIMIT)
-					val truncated = teaser.endsWith("…")
-					Text(
-						text = buildAnnotatedString {
-							append(teaser)
-							// A truncated teaser always offers a way to the rest, and
-							// WHICH way is decided by the bio alone — never by whether
-							// lb-bot has answered yet. Deciding it on `meta` is what
-							// made the link appear and then silently disappear a second
-							// later, which is the defect this whole pass removes.
-							//
-							// An in-app About beats a link that leaves the app, and a
-							// truncated bio always has an About worth opening: the rest
-							// of itself. Last.fm is the fallback for the case where
-							// there is no sheet at all.
-							if (truncated) {
-								append(" ")
-								val more = stringResource(Res.string.action_more)
-								if (onAboutClick != null) {
-									withStyle(
-										SpanStyle(
-											color = MaterialTheme.colorScheme.primary,
-											fontWeight = FontWeight.Medium
-										)
-									) { append(more) }
-								} else if (lastfm != null) {
-									withLink(LinkAnnotation.Url(lastfm)) { append(more) }
-								}
-							}
-						},
-						style = MaterialTheme.typography.bodySmall,
-						color = onAmbientColor(ambientColor, MaterialTheme.colorScheme),
-						maxLines = 3,
-						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier
-							.widthIn(max = 500.dp)
-							.then(
-								if (onAboutClick != null) {
-									Modifier.clickable(
-										onClickLabel = stringResource(Res.string.action_more),
+					val truncated = teaser.endsWith("\u2026")
+					Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+						Text(
+							text = teaser,
+							style = MaterialTheme.typography.bodySmall,
+							color = onAmbientColor(ambientColor, MaterialTheme.colorScheme),
+							maxLines = 3,
+							overflow = TextOverflow.Ellipsis,
+							modifier = Modifier.widthIn(max = 500.dp)
+						)
+						// The affordance is its OWN line, not appended to the teaser.
+						// Appending it put it inside a `maxLines = 3` + Ellipsis Text that
+						// the 220-character teaser already fills, so it was laid out and
+						// then clipped — present in the string, invisible on the phone.
+						// Measured on a device; it is exactly the kind of thing that reads
+						// as correct in the source.
+						//
+						// WHICH way out it offers is decided by the bio alone, never by
+						// whether lb-bot has answered — deciding that on `meta` is what
+						// made the link appear and then silently vanish a second later.
+						// An in-app About beats a link that leaves the app, and a truncated
+						// bio always has one worth opening: the rest of itself. Last.fm is
+						// the fallback for when there is no sheet at all.
+						if (truncated) {
+							val more = stringResource(Res.string.action_more)
+							if (onAboutClick != null) {
+								Text(
+									text = more,
+									style = MaterialTheme.typography.bodySmall,
+									fontWeight = FontWeight.Medium,
+									color = MaterialTheme.colorScheme.primary,
+									modifier = Modifier.clickable(
+										onClickLabel = more,
 										role = Role.Button,
 										onClick = onAboutClick
 									)
-								} else {
-									Modifier
-								}
-							)
-					)
+								)
+							} else if (lastfm != null) {
+								Text(
+									text = buildAnnotatedString {
+										withLink(LinkAnnotation.Url(lastfm)) { append(more) }
+									},
+									style = MaterialTheme.typography.bodySmall
+								)
+							}
+						}
+					}
 				}
 				MarqueeText(
 					text = artistName,

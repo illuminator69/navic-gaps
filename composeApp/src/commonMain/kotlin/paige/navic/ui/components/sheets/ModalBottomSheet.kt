@@ -85,6 +85,16 @@ fun ModalBottomSheet(
 					Column(
 						modifier = Modifier
 							.fillMaxWidth()
+							// `weight(fill = false)` bounds this wrapper to the space the
+							// sheet actually has. Without it a plain Column measures its
+							// children with INFINITE max height, so any content using
+							// `verticalScroll` gets a viewport as tall as its own content
+							// — nothing to scroll — and the overflow is simply clipped at
+							// the screen edge. `AboutSheet` is exactly that shape, and it
+							// silently lost the ability to scroll the moment it started
+							// passing an ambient. The non-ambient branch below never had
+							// the problem because the sheet's own column bounds it.
+							.weight(1f, fill = false)
 							.background(
 								Brush.verticalGradient(
 									listOf(ambient.top, ambient.top, ambient.bottom)
