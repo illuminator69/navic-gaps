@@ -41,7 +41,8 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
-| Native Navidrome API | `domain/manager/NativeApiManager.kt` — smart playlists, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
+| Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
+| Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
 
 Two Room databases. **`CacheDatabase` is at 22** and is `fallbackToDestructiveMigration(true)` — it
@@ -490,6 +491,19 @@ true of invented *album art*, and not of an icon naming the kind.
   returns the right record first and no parodies at all), and **validate the answer against what
   was asked** rather than trusting the order. Declining is a correct outcome; opening the wrong
   album reads as the feature being broken rather than as a near miss.
+- **An artist credit that cannot be opened is a dead end, and the MBID was there all along.**
+  `ExternalAlbumScreen`'s artist control is gated on having an artist id *or* an artist MBID.
+  Reached from Fresh or a discography shelf one of those is set; reached from a **Deezer browse
+  row** neither is, because Deezer carries no MBIDs — so the control hid itself and took the only
+  route to `indexArtist()` (the discography scan) with it. The fix was upstream of the UI:
+  `/lb/album/releases` already fetched the release-group with `inc=artist-credits` to build the
+  display name and was **dropping the MBID out of the same payload**. It returns `artistMbid` now.
+  `ExternalAlbumViewModel.resolveArtistTarget` picks the destination — caller's `artistId`, then
+  **Room by name** (trying both the browse row's plain artist and lb-bot's full MusicBrainz credit,
+  since either may be how the library filed them), then the MBID, then nothing — and returns an
+  `ArtistTarget` rather than an id, because a bare string can express only the middle case. An
+  owned artist must open *their* page: the external one renders every album they own as
+  "Added — syncing".
 - **lb-bot's ownership badge is not "is this in my library".** `releaseOwned` is marked from its
   release-group index, which only covers artists whose discography it has *scanned* — so a record
   the user owns by an unscanned artist comes back `owned: false` with no rgid, and every step after
