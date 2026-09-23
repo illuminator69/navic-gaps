@@ -10,6 +10,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_discover
+import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_library
@@ -23,6 +24,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
 import paige.navic.icons.Icons
@@ -107,6 +109,15 @@ enum class NavigationTab(
 		iconOutlined = Icons.Outlined.Album,
 		label = Res.string.title_fresh
 	),
+	MIXES(
+		destination = Screen.MixList(),
+		// The autoplay/queue glyph, not a radio dial: "station" and "radio" are both
+		// already taken in this app's vocabulary (see Mix's own docs), and reusing
+		// the Radio icon would undo the naming care the model went to.
+		iconFilled = Icons.Outlined.PlaylistPlay,
+		iconOutlined = Icons.Outlined.PlaylistPlay,
+		label = Res.string.title_discover_mixes
+	),
 	DISCOVER(
 		destination = Screen.Discover(),
 		// No filled variant is generated for this glyph; the SEARCH tab does the
@@ -130,6 +141,7 @@ fun NavbarTab.Id.toNavigationTab(): NavigationTab = when (this) {
 	NavbarTab.Id.STATISTICS -> NavigationTab.STATISTICS
 	NavbarTab.Id.FRESH -> NavigationTab.FRESH
 	NavbarTab.Id.DISCOVER -> NavigationTab.DISCOVER
+	NavbarTab.Id.MIXES -> NavigationTab.MIXES
 }
 
 /**
@@ -163,13 +175,28 @@ fun rememberVisibleNavigationTabs(): List<NavigationTab> {
 	// navigation. A configured-but-unreachable AudioMuse costs an empty row, not
 	// a wrong tab.
 	val audioMuse = koinInject<AudioMuseManager>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
+
+	// Mixes are hub state: with no hub at all there is nowhere for a recipe to live,
+	// so the tab could only ever lead to an empty list.
+	//
+	// Gated on the hub being CONFIGURED, not on the socket being up right now. The
+	// live flag flips on every reconnect, and this function runs on every bar mount —
+	// which is the exact shape of the bug the lb-bot gate above is written to avoid,
+	// where the tab blinks out for the length of a round trip. A configured hub that
+	// is momentarily down costs a list that repopulates a second later; the recipes
+	// themselves still regenerate locally, since the engine is local. (Feishin gates
+	// its equivalent on the live connection — that client reconnects differently, and
+	// the divergence is deliberate rather than drift.)
+	val hubConfigured = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
 
 	return (state.data ?: NavbarConfig.default).tabs
 		.filter { tab ->
 			tab.visible && when (tab.id) {
 				NavbarTab.Id.FRESH -> lbBotAvailable
 				NavbarTab.Id.DISCOVER -> discoverHasSources
+				NavbarTab.Id.MIXES -> hubConfigured
 				else -> true
 			}
 		}

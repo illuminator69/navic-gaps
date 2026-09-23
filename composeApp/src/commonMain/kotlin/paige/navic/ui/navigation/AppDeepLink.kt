@@ -32,4 +32,29 @@ object AppDeepLink {
 	fun consume() {
 		_pending.value = null
 	}
+
+	/**
+	 * Text shared into the app from elsewhere — a streaming URL from another app's
+	 * share sheet.
+	 *
+	 * Text rather than a [Screen], because unlike [requestAlbum] this cannot name a
+	 * destination: where it goes depends on what lb-bot makes of the URL, which is a
+	 * round trip away. So the platform entry point hands over the raw string and the
+	 * composition does the resolving — which keeps `MainActivity` free of both
+	 * navigation3 and lb-bot, exactly as this object exists to do.
+	 *
+	 * Its own flow rather than sharing [pending] so the two drains stay independent:
+	 * an album tile tapped on the widget while a shared link is still resolving must
+	 * not cancel it, and vice versa.
+	 */
+	private val _sharedText = MutableStateFlow<String?>(null)
+	val sharedText: StateFlow<String?> = _sharedText.asStateFlow()
+
+	fun requestSharedText(text: String) {
+		if (text.isNotBlank()) _sharedText.value = text.trim()
+	}
+
+	fun consumeSharedText() {
+		_sharedText.value = null
+	}
 }

@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +42,9 @@ import com.kyant.capsule.ContinuousRoundedRectangle
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,7 +52,10 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.NativeApiManager
+import paige.navic.domain.manager.PlaylistDownloadManager
+import paige.navic.domain.manager.PlaylistDownloadPolicy
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
@@ -172,6 +178,115 @@ private fun buildRules(
 	limit?.let { put("limit", it) }
 }
 
+/**
+ * What [buildRules] wrote, read back into the editor's own state.
+ *
+ * The inverse did not exist, which is why a smart playlist could be created and
+ * never changed: Navidrome holds the only copy of the criteria (nothing local has
+ * a column for them), so editing one means parsing what the server returns.
+ *
+ * Deliberately lenient. Navidrome's criteria language is larger than this editor —
+ * nested groups, operators with no row here — and a rule this build cannot
+ * represent is **dropped from the form while the rest is kept**, rather than the
+ * whole edit being refused. That is a real loss, so the caller warns when
+ * [ParsedRules.lossy] is set; saving then rewrites only what was shown.
+ */
+private data class ParsedRules(
+	val matchAll: Boolean,
+	val rules: List<RuleState>,
+	val sort: Pair<String, String>,
+	val descending: Boolean,
+	val limit: String,
+	val lossy: Boolean
+)
+
+private fun parseRules(json: JsonObject): ParsedRules {
+	val all = json["all"] as? JsonArray
+	val any = json["any"] as? JsonArray
+	val matchAll = any == null
+	val clauses = (all ?: any) ?: JsonArray(emptyList())
+
+	var lossy = false
+	val parsed = mutableListOf<RuleState>()
+	clauses.forEach { clause ->
+		val obj = clause as? JsonObject
+		if (obj == null || obj.size != 1) {
+			lossy = true
+			return@forEach
+		}
+		val (opKey, payload) = obj.entries.first()
+		val fields = payload as? JsonObject
+		if (fields == null || fields.size != 1) {
+			// A nested `all`/`any` group, which this editor has no row for.
+			lossy = true
+			return@forEach
+		}
+		val (fieldKey, rawValue) = fields.entries.first()
+		val field = FIELDS.firstOrNull { it.key == fieldKey }
+		val operator = field?.let { f -> operatorsFor(f.type).firstOrNull { it.key == opKey } }
+		if (field == null || operator == null) {
+			lossy = true
+			return@forEach
+		}
+		parsed += RuleState().apply {
+			this.field = field
+			this.operator = operator
+			val primitive = rawValue as? JsonPrimitive
+			if (field.type == FieldType.BOOL) {
+				boolValue = primitive?.content?.equals("true", ignoreCase = true) ?: true
+			} else {
+				value = primitive?.content.orEmpty()
+			}
+		}
+	}
+
+	val sortKey = (json["sort"] as? JsonPrimitive)?.content.orEmpty()
+	return ParsedRules(
+		matchAll = matchAll,
+		// Never an empty form: a playlist whose every rule was unrepresentable would
+		// otherwise open with no rows and read as "this has no rules".
+		rules = parsed.ifEmpty { listOf(RuleState()) },
+		sort = SORT_OPTIONS.firstOrNull { it.first == sortKey } ?: SORT_OPTIONS[0],
+		descending = (json["order"] as? JsonPrimitive)?.content == "desc",
+		limit = (json["limit"] as? JsonPrimitive)?.content.orEmpty(),
+		lossy = lossy
+	)
+}
+
+/**
+ * Turn the editor's Offline switch into a download policy.
+ *
+ * Permanent rather than rolling: the switch is a boolean, and "keep this offline"
+ * with a silent cap on how much would be the wrong answer to it. Anything more
+ * specific is what the auto-download dialog is for, and this deliberately does not
+ * overwrite a policy already set there — only the off→on and on→off transitions
+ * act, so opening the editor on a playlist with a rolling policy and saving does
+ * not quietly flatten it to permanent.
+ *
+ * A blank id is the one case with nothing to do: Navidrome answered the create
+ * without one, so there is no playlist to attach a policy to yet.
+ */
+private fun applyOfflinePolicy(
+	manager: PlaylistDownloadManager,
+	playlistId: String?,
+	playlistName: String,
+	offline: Boolean
+) {
+	val id = playlistId?.takeIf { it.isNotBlank() } ?: return
+	val existing = manager.policies.value[id]
+	when {
+		offline && existing == null -> manager.setPolicy(
+			PlaylistDownloadPolicy(
+				playlistId = id,
+				playlistName = playlistName,
+				mode = PlaylistDownloadPolicy.MODE_PERMANENT
+			)
+		)
+
+		!offline && existing != null -> manager.removePolicy(id, deleteDownloads = true)
+	}
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -179,7 +294,7 @@ private fun buildRules(
  * [surfaceContainerHigh][MaterialTheme.colorScheme] fill, rounded to match [FormRow].
  */
 @Composable
-private fun FormTextField(
+internal fun FormTextField(
 	value: String,
 	onValueChange: (String) -> Unit,
 	placeholder: String,
@@ -210,14 +325,17 @@ private fun FormTextField(
  * auto-updated and every Subsonic client sees it as a normal playlist.
  */
 @Composable
-fun SmartPlaylistEditorScreen() {
+fun SmartPlaylistEditorScreen(playlistId: String? = null) {
 	val nativeApi = koinInject<NativeApiManager>()
 	val dbRepository = koinInject<DbRepository>()
 	val playlistDao = koinInject<PlaylistDao>()
+	val playlistDownloadManager = koinInject<PlaylistDownloadManager>()
+	val albumMode = koinInject<AlbumModeSmartPlaylists>()
 	var creatingSet by remember { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 	val scope = rememberCoroutineScope()
 
+	val editing = !playlistId.isNullOrBlank()
 	var name by remember { mutableStateOf("") }
 	var matchAll by remember { mutableStateOf(true) }
 	val rules = remember { mutableStateListOf(RuleState()) }
@@ -227,8 +345,69 @@ fun SmartPlaylistEditorScreen() {
 	var isPublic by remember { mutableStateOf(false) }
 	var saving by remember { mutableStateOf(false) }
 	var error by remember { mutableStateOf<String?>(null) }
+	// Keep the playlist offline. Reachable here at last because
+	// `createSmartPlaylist` returns the new id — before that, the editor had no way
+	// to name the playlist it had just made, so the policy had to be set afterwards
+	// from a different screen entirely.
+	var offline by remember { mutableStateOf(false) }
+	var loading by remember { mutableStateOf(editing) }
+	var lossy by remember { mutableStateOf(false) }
+	// Whether the rules collect whole albums. Navidrome's criteria are track-scoped
+	// and there is no album mode to ask it for, so this is a client-side expansion
+	// and therefore a SNAPSHOT — see `AlbumModeSmartPlaylists`. Said plainly below
+	// rather than left for the user to discover on the second week.
+	var matchAlbums by remember { mutableStateOf(false) }
 
-	Scaffold(topBar = { NestedTopBar({ Text("New smart playlist") }) }) { innerPadding ->
+	// Load an existing playlist's rules. Navidrome holds the only copy — nothing
+	// local has a column for them — so this is a network read, and a failure leaves
+	// the form empty rather than silently offering to overwrite real criteria with
+	// a blank rule.
+	LaunchedEffect(playlistId) {
+		val id = playlistId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+		offline = playlistDownloadManager.policies.value.containsKey(id)
+		name = playlistDao.getPlaylistById(id)?.playlist?.name.orEmpty()
+		// An album-mode playlist is an ORDINARY playlist on the server — the
+		// expansion is a snapshot and Navidrome refuses membership edits on a smart
+		// one — so its recipe is only here. Checked first for that reason: asking
+		// the server would correctly answer "no rules" and read as an error.
+		val localRules = albumMode.rulesFor(id)
+		if (localRules != null) {
+			matchAlbums = true
+			val parsed = parseRules(localRules)
+			matchAll = parsed.matchAll
+			rules.clear()
+			rules.addAll(parsed.rules)
+			sort = parsed.sort
+			descending = parsed.descending
+			limitText = parsed.limit
+			lossy = parsed.lossy
+			loading = false
+			return@LaunchedEffect
+		}
+		nativeApi.fetchPlaylistRules(id)
+			.onSuccess { stored ->
+				if (stored == null) {
+					error = "This playlist has no rules to edit."
+				} else {
+					val parsed = parseRules(stored)
+					matchAll = parsed.matchAll
+					rules.clear()
+					rules.addAll(parsed.rules)
+					sort = parsed.sort
+					descending = parsed.descending
+					limitText = parsed.limit
+					lossy = parsed.lossy
+				}
+			}
+			.onFailure { error = it.message ?: "Couldn't read this playlist's rules." }
+		loading = false
+	}
+
+	Scaffold(
+		topBar = {
+			NestedTopBar({ Text(if (editing) "Edit smart playlist" else "New smart playlist") })
+		}
+	) { innerPadding ->
 		Column(
 			modifier = Modifier
 				.padding(top = innerPadding.calculateTopPadding())
@@ -254,6 +433,41 @@ fun SmartPlaylistEditorScreen() {
 					label = { if (it) "All rules" else "Any rule" },
 					selection = matchAll,
 					onSelect = { matchAll = it }
+				)
+				// Offered on creation only. Switching an existing playlist between the
+				// two would mean converting a live smart playlist into a snapshot or
+				// back, and those are two different records on the server — so an
+				// edit states which kind it is instead of offering to change it.
+				if (editing) {
+					FormRow {
+						Text("Collect", modifier = Modifier.weight(1f))
+						Text(
+							if (matchAlbums) "Whole albums" else "Tracks",
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant
+						)
+					}
+				} else {
+					SettingSelectionRow(
+						title = { Text("Collect") },
+						items = persistentListOf(false, true),
+						label = { if (it) "Whole albums" else "Tracks" },
+						selection = matchAlbums,
+						onSelect = { matchAlbums = it }
+					)
+				}
+			}
+
+			if (matchAlbums) {
+				Text(
+					"Navidrome's rules match tracks, so Whole albums is worked out " +
+						"here: the rules are evaluated on the server, then every " +
+						"matching track's full album is included. That makes it a " +
+						"snapshot rather than a live smart playlist — it will not " +
+						"update itself, and there is a Refresh in its menu.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
 				)
 			}
 
@@ -374,6 +588,23 @@ fun SmartPlaylistEditorScreen() {
 					value = isPublic,
 					onSetValue = { isPublic = it }
 				)
+				SettingSwitchRow(
+					title = { Text("Offline") },
+					subtitle = { Text("Keep this playlist downloaded on this device") },
+					value = offline,
+					onSetValue = { offline = it }
+				)
+			}
+
+			if (lossy) {
+				Text(
+					"Some of this playlist's rules are more complex than this editor " +
+						"can show, and are not listed above. Saving will replace them " +
+						"with what is shown.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+					modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+				)
 			}
 
 			error?.let {
@@ -385,37 +616,80 @@ fun SmartPlaylistEditorScreen() {
 			}
 
 			Button(
-				enabled = !saving && name.isNotBlank() &&
+				enabled = !saving && !loading && name.isNotBlank() &&
 					rules.all { it.field.type == FieldType.BOOL || it.value.isNotBlank() },
 				modifier = Modifier.fillMaxWidth().height(52.dp),
 				onClick = {
 					saving = true
 					error = null
 					scope.launch {
-						val result = nativeApi.createSmartPlaylist(
-							name = name.trim(),
-							comment = "Created with Navic",
-							isPublic = isPublic,
-							rules = buildRules(
-								matchAll = matchAll,
-								rules = rules,
-								sort = sort.first,
-								descending = descending,
-								limit = limitText.toIntOrNull()
-							)
+						val criteria = buildRules(
+							matchAll = matchAll,
+							rules = rules,
+							sort = sort.first,
+							descending = descending,
+							limit = limitText.toIntOrNull()
 						)
+						val result: Result<String> = when {
+							// Album mode is not a smart playlist at all: the server
+							// evaluates the rules, this expands the result to whole
+							// albums, and what is stored is a plain playlist. Both
+							// creating and re-saving run the same build, since
+							// re-saving edited rules means re-running them.
+							matchAlbums -> albumMode.build(
+								name = name.trim(),
+								comment = "Created with Navic",
+								isPublic = isPublic,
+								rules = criteria,
+								existingId = playlistId
+							)
+
+							// An edit is a full PUT: Navidrome replaces the record
+							// rather than patching it, so the name and visibility ride
+							// along or they are blanked.
+							editing -> nativeApi.updateSmartPlaylist(
+								playlistId = playlistId!!,
+								name = name.trim(),
+								comment = "Created with Navic",
+								isPublic = isPublic,
+								rules = criteria
+							).map { playlistId }
+
+							else -> nativeApi.createSmartPlaylist(
+								name = name.trim(),
+								comment = "Created with Navic",
+								isPublic = isPublic,
+								rules = criteria
+							)
+						}
 						saving = false
 						result
-							.onSuccess {
+							.onSuccess { savedId ->
+								applyOfflinePolicy(
+									manager = playlistDownloadManager,
+									playlistId = savedId,
+									playlistName = name.trim(),
+									offline = offline
+								)
 								dbRepository.syncPlaylists()
-								backStack.remove(Screen.SmartPlaylistEditor)
+								backStack.removeLastOrNull()
 							}
-							.onFailure { error = it.message ?: "Failed to create playlist" }
+							.onFailure {
+								error = it.message
+									?: if (editing) "Failed to save playlist"
+									else "Failed to create playlist"
+							}
 					}
 				}
 			) {
 				if (saving) CircularProgressIndicator(Modifier.height(20.dp))
-				else Text("Create smart playlist")
+				else Text(
+					when {
+						editing -> "Save changes"
+						matchAlbums -> "Create album playlist"
+						else -> "Create smart playlist"
+					}
+				)
 			}
 
 			// The rediscovery set: four ready-made smart playlists for music
@@ -457,7 +731,11 @@ fun SmartPlaylistEditorScreen() {
 							else -> null
 						}
 						if (result.failed.isEmpty() && result.created > 0) {
-							backStack.remove(Screen.SmartPlaylistEditor)
+							// `removeLastOrNull`, not `remove(Screen.SmartPlaylistEditor)`:
+							// the key is a data class carrying an id now, so an
+							// equality-based remove would miss whichever instance
+							// is actually on the stack.
+							backStack.removeLastOrNull()
 						}
 					}
 				}

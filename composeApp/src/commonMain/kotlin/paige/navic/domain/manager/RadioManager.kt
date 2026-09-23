@@ -17,6 +17,9 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.SavedQueueSource
+import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.Mix
 import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
@@ -107,6 +110,180 @@ class RadioManager(
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start radio for $seedId", e)
 			}
+		}
+	}
+
+	// ---- "Mixed for You": regenerating a stored recipe ------------------------ //
+
+	/**
+	 * Regenerate [mix] and play it.
+	 *
+	 * **This is the whole point of a mix**, and the thing a saved queue cannot do:
+	 * the recipe is re-run against the engine *now*, so a second play gives a
+	 * different tracklist. A snapshot would pass every test this has except that one.
+	 *
+	 * Each kind routes to machinery that already existed and is already fail-soft —
+	 * this adds a dispatcher, not a generator. A kind this build does not recognise
+	 * plays nothing and says so in the log rather than silently falling back to
+	 * something else, because "it played the wrong mix" is worse than "it did not
+	 * play"; [MixKind.fromWire] lets the UI refuse the tap before it gets here.
+	 *
+	 * Returns false when nothing could be built, so the caller can say so instead of
+	 * leaving a tap with no effect.
+	 */
+	suspend fun regenerate(mix: Mix): Boolean {
+		val queue = generate(mix)
+		if (queue.isEmpty()) return false
+
+		// Saved to history as a RADIO-kind queue under the mix's own name, so the
+		// Continue Listening card says which mix it was. The recipe stays the durable
+		// thing; this snapshot is just where playback resumes from.
+		playMix(queue, SavedQueueSource.RADIO, mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO) })
+		hubManager.actTouchMix(mix.id)
+		return true
+	}
+
+	/**
+	 * Run the recipe and return the tracklist, **without** playing it or touching
+	 * `lastPlayedAt`.
+	 *
+	 * Split out of [regenerate] so a mix can be looked at before it is committed to.
+	 * That matters more here than it would for a playlist: a mix has no fixed
+	 * contents, so "what is in this" has no answer until the engine has been run,
+	 * and the only way to find out used to be to let it replace what you were
+	 * listening to.
+	 *
+	 * Deliberately does not `touchMix`: previewing is not playing, and
+	 * `lastPlayedAt` is what the list sorts a mix's recency by.
+	 */
+	suspend fun generate(mix: Mix): List<DomainSong> {
+		val count = mix.count.coerceIn(5, 200)
+		val songs = try {
+			when (mix.kind) {
+				// Tier 1. The seed is a song/album/artist id and `fetchSimilar`
+				// already prefers AudioMuse when the plugin is there, so this is one
+				// branch rather than two.
+				MixKind.SIMILAR -> resolveIds(fetchSimilar(mix.seedId, count))
+
+				// Tier 2, seedless: built from listening habits.
+				MixKind.FINGERPRINT ->
+					resolveIds(audioMuseManager.fetchSonicFingerprintIds(count))
+
+				// Tier 2, seedless, steered by the stored character rather than by the
+				// live Mood Flow centroid — a recipe has to mean the same thing on a
+				// cold start as it does mid-session, and the centroid is in-memory and
+				// per-session by construction. Alchemy needs at least one ADD, so a
+				// top-played track cold-starts it.
+				MixKind.ADAPTIVE -> {
+					val character = moodCharacterNamed(mix.moodCharacter)
+					val add = songDao.getTopSongs(1).firstOrNull()?.map { it.songId }.orEmpty()
+					if (add.isEmpty()) emptyList() else resolveIds(
+						audioMuseManager.fetchAlchemyMixIds(
+							add,
+							emptyList(),
+							count,
+							temperature = character.temperature,
+							subtractDistance = character.subtractDistance
+						)
+					)
+				}
+
+				// Local, and deliberately so: a genre mix wants breadth across the
+				// library rather than a similarity neighbourhood, and it keeps working
+				// with no AudioMuse and no network.
+				MixKind.GENRE -> songDao.getRandomSongsByGenre(mix.seedId, count)
+					.map { it.toDomainModel() }
+					.shuffled()
+
+				MixKind.ARTIST -> songDao.getSongsByArtistId(mix.seedId)
+					.map { it.toDomainModel() }
+					.shuffled()
+					.take(count)
+
+				else -> {
+					Logger.w("RadioManager", "mix ${mix.id}: unknown kind '${mix.kind}'")
+					return emptyList()
+				}
+			}.distinctBy { it.id }
+		} catch (e: Exception) {
+			Logger.e("RadioManager", "failed to regenerate mix ${mix.id}", e)
+			return emptyList()
+		}
+
+		// The server answered nothing, or answered ids this library does not hold.
+		// Fall back to a local draw rather than to silence — the same rule autoplay
+		// top-up follows — but only for a recipe that has something local to draw on.
+		val queue = songs.ifEmpty {
+			if (MixKind.needsSeed(mix.kind)) {
+				localRadioSongs(songDao.getSongById(mix.seedId)?.toDomainModel(), count, emptySet())
+			} else {
+				localRadioSongs(null, count, emptySet())
+			}
+		}
+		if (queue.isEmpty()) Logger.i("RadioManager", "mix ${mix.id}: nothing to play")
+		return queue
+	}
+
+	/** Play a tracklist a preview already built, without running the engine twice. */
+	fun playGenerated(mix: Mix, songs: List<DomainSong>) {
+		if (songs.isEmpty()) return
+		playMix(songs, SavedQueueSource.RADIO, mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO) })
+		hubManager.actTouchMix(mix.id)
+	}
+
+	/** Songs for a list of server ids, in the server's order, dropping what we lack. */
+	private suspend fun resolveIds(ids: List<String>): List<DomainSong> {
+		if (ids.isEmpty()) return emptyList()
+		val byId = songDao.getSongsByIds(ids).associateBy { it.songId }
+		return ids.mapNotNull { byId[it]?.toDomainModel() }
+	}
+
+	/**
+	 * The stored character by name, falling back to the user's current preference.
+	 *
+	 * Serialized by name rather than by ordinal on purpose: the presets are shared
+	 * with Feishin by hand (see `MoodCharacter`), and an ordinal would silently
+	 * re-point every stored recipe the day either side reorders the enum.
+	 */
+	private fun moodCharacterNamed(name: String): MoodCharacter =
+		MoodCharacter.entries.firstOrNull { it.name == name } ?: preferenceManager.moodCharacter
+
+	/**
+	 * The recipe implied by the autoplay mode that is switched on right now, or null
+	 * when it is [AutoplayMode.Off].
+	 *
+	 * This is what makes "save what I'm listening to as a mix" a one-tap action
+	 * instead of a form: the settings that drive the top-up already *are* a recipe,
+	 * and until now they were simply thrown away at the end of the session.
+	 */
+	fun currentRecipe(seed: DomainSong?): Mix? {
+		val seedSong = seed
+		return when (_autoplayMode.value) {
+			AutoplayMode.Off -> null
+			AutoplayMode.Similar -> seedSong?.let {
+				Mix(
+					id = "",
+					name = "${it.title} mix",
+					kind = MixKind.SIMILAR,
+					seedId = it.id,
+					seedName = it.title,
+					// The seed's own sleeve, so the saved recipe has a face. The two
+					// seedless modes get none on purpose: there is no thing they are
+					// built around, and `MixArtwork` draws them from the kind instead.
+					coverArtId = it.coverArtId.orEmpty()
+				)
+			}
+			AutoplayMode.Fingerprint -> Mix(
+				id = "",
+				name = AutoplayMode.Fingerprint.label,
+				kind = MixKind.FINGERPRINT
+			)
+			AutoplayMode.Adaptive -> Mix(
+				id = "",
+				name = preferenceManager.moodCharacter.label,
+				kind = MixKind.ADAPTIVE,
+				moodCharacter = preferenceManager.moodCharacter.name
+			)
 		}
 	}
 

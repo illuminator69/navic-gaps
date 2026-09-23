@@ -93,6 +93,58 @@ class DownloadCenterViewModel(
 
 	fun dismissFill(key: String) = lbBotManager.dismiss(key)
 
+	/**
+	 * Keep wanting a release nobody was sharing.
+	 *
+	 * The ONLY action offered on a `no_source` failure, and the reason the row is
+	 * not simply a dead end: a plain retry re-runs an identical ranked search against
+	 * identical peers and fails identically, which is exactly why lb-bot marks it
+	 * `retryable: false`. The retry that can work is a slow periodic one, and the
+	 * wishlist is where it is registered.
+	 *
+	 * Dismisses the ledger row on success, because leaving both would show one
+	 * release in two lists saying opposite things about whether it is still wanted.
+	 */
+	fun addToWishlist(entry: paige.navic.domain.manager.LbFillEntry) {
+		viewModelScope.launch {
+			// Marked before the call, so a second tap during the round trip cannot
+			// send a second add; cleared again if the add did not take, so the
+			// button comes back rather than leaving the row with no affordance.
+			_wishlisted.value = _wishlisted.value + entry.key
+			if (lbBotManager.wishlistAdd(entry.rgid, entry.artist, entry.album) != null) {
+				lbBotManager.dismiss(entry.key)
+			} else {
+				_wishlisted.value = _wishlisted.value - entry.key
+			}
+		}
+	}
+
+	/**
+	 * Keys wishlisted in this session, so the button can go quiet immediately.
+	 *
+	 * Session-scoped on purpose: the durable record is lb-bot's list, this is only
+	 * what stops a second tap in the second between the POST and the row vanishing.
+	 */
+	private val _wishlisted = MutableStateFlow<Set<String>>(emptySet())
+	val wishlisted = _wishlisted.asStateFlow()
+
+	/** False when lb-bot is absent or the hub is too old to carry the wishlist routes. */
+	val wishlistSupported: Boolean
+		get() = lbBotManager.supportsWishlist
+
+	/**
+	 * Resolve a pasted streaming URL to something in MusicBrainz's vocabulary.
+	 *
+	 * Null for "we could not ask"; a resolution with `kind == "unknown"` for "that is
+	 * not a link we understand". The two are different answers and the caller shows
+	 * them differently.
+	 */
+	suspend fun resolveLink(url: String) = lbBotManager.resolveLink(url)
+
+	/** As [wishlistSupported], for the paste box. */
+	val resolveLinkSupported: Boolean
+		get() = lbBotManager.supportsResolveLink
+
 	private val _state = MutableStateFlow(DownloadCenterState())
 	val state = _state.asStateFlow()
 

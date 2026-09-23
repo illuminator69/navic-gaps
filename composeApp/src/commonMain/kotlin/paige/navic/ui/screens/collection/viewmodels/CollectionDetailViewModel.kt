@@ -74,7 +74,6 @@ class CollectionDetailViewModel(
 	val selectedSongIsStarred: StateFlow<Boolean>
 		field = MutableStateFlow(false)
 
-	private val _selectedSongRating = MutableStateFlow(0)
 	val selectedSongRating: StateFlow<Int>
 		field = MutableStateFlow(0)
 
@@ -238,7 +237,7 @@ class CollectionDetailViewModel(
 		viewModelScope.launch {
 			selectedSong.value = song
 			selectedSongIsStarred.value = songRepository.isSongStarred(song)
-			_selectedSongRating.value = songRepository.getSongRating(song)
+			selectedSongRating.value = songRepository.getSongRating(song)
 		}
 	}
 
@@ -301,12 +300,26 @@ class CollectionDetailViewModel(
 		}
 	}
 
+	/**
+	 * Rate the song whose sheet is open.
+	 *
+	 * The flow is written BEFORE the suspend call, as `ArtistDetailViewModel` does:
+	 * `rateSong` writes Room and then queues the Subsonic `setRating` through
+	 * `SyncManager`, so setting it afterwards leaves the stars on the old value for
+	 * the length of a database write.
+	 *
+	 * `refreshCollection` is what the row underneath needs. `SongRow` draws its
+	 * `SmallRatingRow` from the `DomainSong` in `collectionState`, a snapshot taken
+	 * when the list loaded — so without a re-read the sheet moves and the row it came
+	 * from does not. `starSelectedSong` has always done this; this one did not.
+	 */
 	fun rateSelectedSong(rating: Int) {
 		viewModelScope.launch {
 			val selection = selectedSong.value ?: return@launch
+			selectedSongRating.value = rating
 			runCatching {
 				songRepository.rateSong(selection, rating)
-				_selectedSongRating.value = rating
+				refreshCollection(false)
 			}
 		}
 	}

@@ -89,8 +89,9 @@ class MainActivity : ComponentActivity() {
 	}
 
 	/**
-	 * Reached when a Quick Picks tile is tapped while the activity is already running — the tile
-	 * intents carry `FLAG_ACTIVITY_SINGLE_TOP`, so the task is reused rather than recreated.
+	 * Reached when a Quick Picks tile is tapped, or a link is shared in, while the activity is
+	 * already running — the tile intents carry `FLAG_ACTIVITY_SINGLE_TOP`, so the task is reused
+	 * rather than recreated, and a share into a live task arrives the same way.
 	 */
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
@@ -99,7 +100,23 @@ class MainActivity : ComponentActivity() {
 	}
 
 	private fun handleDeepLink(intent: Intent?) {
-		val uri: Uri = intent?.data ?: return
+		if (intent == null) return
+		// A link shared in from another app. Handled here and not in one of the two
+		// `activity-alias` entries: those exist only to swap the launcher icon, one of
+		// them is `enabled="false"`, and a filter on them would therefore be either
+		// dead or a duplicate share target in the system sheet.
+		//
+		// Both `EXTRA_TEXT` and the intent's own data are checked because apps
+		// disagree about which they use — a browser's "Share link" sends text, while
+		// "Open with" sends a URI.
+		if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
+			val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
+				?: intent.data?.toString()
+			shared?.takeIf { it.isNotBlank() }?.let(AppDeepLink::requestSharedText)
+			return
+		}
+
+		val uri: Uri = intent.data ?: return
 		if (uri.scheme != DEEP_LINK_SCHEME) return
 		when (uri.host) {
 			DEEP_LINK_ALBUM -> uri.lastPathSegment

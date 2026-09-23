@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,7 +30,9 @@ import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.HubDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PreviewManager
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
+import paige.navic.shared.MediaPlayerViewModel
 import kotlin.math.roundToInt
 
 /**
@@ -43,6 +46,7 @@ import kotlin.math.roundToInt
 @Composable
 fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 	val hubManager = koinInject<HubManager>()
+	val mediaPlayer = koinInject<MediaPlayerViewModel>()
 	val castBridgeStatus = koinInject<CastBridgeStatus>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val connected by hubManager.connected.collectAsState()
@@ -66,6 +70,20 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 
 	val visibleDevices = devices.filter { it.online && it.id !in hiddenIds }
 	val extraDevices = devices.filter { !it.online || it.id in hiddenIds }
+
+	// A preview's audio comes from the preview sidecar, not from Navidrome, and a
+	// Chromecast fetches the stream URL ITSELF. So a cast can only work when the hub
+	// is minting publicly reachable preview URLs (`PREVIEW_PUBLIC_URL` set, which is
+	// what `previewCastable` reports). With it unset the URL is a LAN address and the
+	// transfer commits, the speaker fetches nothing, and every device shows a playing
+	// bar over silence — the exact failure the `transferable` rule above exists to
+	// prevent, so it is decided here rather than discovered at the speaker.
+	val previewManager = koinInject<PreviewManager>()
+	val previewStatus by previewManager.status.collectAsState()
+	LaunchedEffect(previewManager.routeSignature) { previewManager.ensureAvailability() }
+	val queueHasPreview = mediaPlayer.uiState.collectAsState().value.queue
+		.any { PreviewManager.isPreviewId(it.id) }
+	val blockPreviewCast = queueHasPreview && !previewStatus.previewCastable
 
 	val renderDevice: @Composable (HubDevice) -> Unit = { device ->
 		val isHidden = device.id in hiddenIds
@@ -111,7 +129,8 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 			) {
 				// Shown but not offered: the speaker is real and will come back, so hiding it
 				// would be a lie of omission — but handing it the session right now cannot work.
-				if (device.transferable && device.id != activeDeviceId) {
+				val castBlocked = blockPreviewCast && device.platform == "chromecast"
+				if (device.transferable && device.id != activeDeviceId && !castBlocked) {
 					Button(
 						onClick = {
 							hubManager.transfer(device.id)
@@ -120,6 +139,16 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 					) {
 						Text(if (device.id == myDeviceId) "Play here" else "Transfer")
 					}
+				}
+				// Refused WITH A REASON, not silently dropped: "can't cast a preview"
+				// is actionable (remove it from the queue, or set PREVIEW_PUBLIC_URL)
+				// and an absent button is not.
+				if (castBlocked && device.transferable && device.id != activeDeviceId) {
+					Text(
+						"Can't cast a preview",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error
+					)
 				}
 				TextButton(onClick = { toggleHidden(device.id, !isHidden) }) {
 					Text(if (isHidden) "Unhide" else "Hide")

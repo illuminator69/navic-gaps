@@ -60,6 +60,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_link_unresolved
 import navic.composeapp.generated.resources.lbbot_fill_landed
 import navic.composeapp.generated.resources.lbbot_fill_lost
 import org.jetbrains.compose.resources.getString
@@ -125,7 +126,9 @@ import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
 import paige.navic.ui.screens.settings.SettingsPlaybackScreen
 import paige.navic.ui.screens.settings.SettingsScreen
 import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
+import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
+import paige.navic.ui.screens.wishlist.WishlistScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
 import paige.navic.ui.screens.song.SongDetailScreen
@@ -269,6 +272,44 @@ fun App() {
 		AppDeepLink.consume()
 	}
 
+	// A streaming URL shared in from another app. Resolved here rather than in
+	// MainActivity because only lb-bot can say what the link IS, and the platform
+	// entry point deliberately knows about neither lb-bot nor navigation3.
+	//
+	// Held until signed in for the same reason the album deep link is: a share into a
+	// cold start composes this before the session restores, and pushing a release page
+	// over the login screen strands it.
+	val sharedText by AppDeepLink.sharedText.collectAsStateWithLifecycle()
+	val linkUnresolved = stringResource(Res.string.info_link_unresolved)
+	LaunchedEffect(sharedText, isLoggedIn) {
+		val url = sharedText ?: return@LaunchedEffect
+		if (!isLoggedIn) return@LaunchedEffect
+		// Consumed BEFORE the round trip, not after: resolution takes seconds, and a
+		// recomposition in the meantime would otherwise re-enter this effect and
+		// resolve the same link a second time.
+		AppDeepLink.consumeSharedText()
+		val answer = lbBot.resolveLink(url)
+		if (answer == null || !answer.resolved) {
+			// lb-bot's own sentence when it has one — it names the provider and what
+			// it could not read, which is worth more than a generic line. A null
+			// answer means we could not ask at all and has nothing to say, and an
+			// older lb-bot sends no `reason`; both fall back.
+			snackBarState.showSnackbar(answer?.reason?.ifBlank { null } ?: linkUnresolved)
+			return@LaunchedEffect
+		}
+		backStack.add(
+			if (answer.rgid.isNotBlank()) {
+				Screen.ExternalAlbum(
+					rgid = answer.rgid,
+					artistName = answer.artist,
+					title = answer.title
+				)
+			} else {
+				Screen.ExternalArtist(answer.mbid, answer.artist)
+			}
+		)
+	}
+
 	SharedTransitionLayout {
 		CompositionLocalProvider(
 			LocalPlatformContext provides platformContext,
@@ -405,6 +446,10 @@ private fun entryProvider(
 			Washed { DiscoverScreen(key.nested) }
 		}
 
+		entry<Screen.MixList>(metadata = navtabMetadata) { key ->
+			Washed { MixListScreen(key.nested) }
+		}
+
 		// misc
 		entry<Screen.Login> {
 			LoginScreen()
@@ -452,6 +497,9 @@ private fun entryProvider(
 		}
 		entry<Screen.SavedQueues> {
 			SavedQueuesScreen()
+		}
+		entry<Screen.Wishlist> {
+			WishlistScreen()
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)
@@ -533,8 +581,8 @@ private fun entryProvider(
 		entry<Screen.Settings.NaviConnect>(metadata = detailPane("settings")) {
 			NaviConnectScreen()
 		}
-		entry<Screen.SmartPlaylistEditor> {
-			SmartPlaylistEditorScreen()
+		entry<Screen.SmartPlaylistEditor> { key ->
+			SmartPlaylistEditorScreen(playlistId = key.playlistId)
 		}
 	}
 }

@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_edit_rules
+import navic.composeapp.generated.resources.action_refresh_rules
+import navic.composeapp.generated.resources.auto_download_ellipsis
 import navic.composeapp.generated.resources.action_add_to_playlist
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_cancel_download
@@ -60,6 +63,9 @@ import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
+import paige.navic.icons.outlined.Offline
+import paige.navic.icons.outlined.Refresh
+import paige.navic.icons.outlined.Sort
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
@@ -95,6 +101,15 @@ fun CollectionSheet(
 	rating: Int? = null,
 	onSetRating: ((Int) -> Unit)? = null,
 	onAutoDownload: (() -> Unit)? = null,
+	// Only a SMART playlist has rules, and only Navidrome knows which is which —
+	// `PlaylistEntity` has no `isSmart` column and the Subsonic sync that fills it
+	// cannot see one. So the caller probes and passes null when there is nothing
+	// to edit, exactly like every other optional action here.
+	onEditRules: (() -> Unit)? = null,
+	// Album-mode playlists only. Those are a SNAPSHOT — Navidrome's rules are
+	// track-scoped, so collecting whole albums is worked out client-side — and
+	// re-running the recipe is the only thing that brings them up to date.
+	onRefreshRules: (() -> Unit)? = null,
 	// lb-bot knows this album is missing tracks. Passed only from the artist
 	// discography shelf, where the gap is known; null everywhere else, so the row
 	// hides itself exactly like every other optional action here.
@@ -406,11 +421,42 @@ fun CollectionSheet(
 
 			if (onAutoDownload != null) {
 				ListItem(
-					content = { Text("Auto-download…") },
-					leadingContent = { Icon(Icons.Outlined.Download, null) },
+					content = { Text(stringResource(Res.string.auto_download_ellipsis)) },
+					// Deliberately not `Download`, which is what the plain "Download"
+					// row two entries up already uses — two rows a few pixels apart
+					// under the same glyph read as one duplicated item.
+					leadingContent = { Icon(Icons.Outlined.Offline, null) },
 					onClick = {
 						platformContext.clickSound()
 						onAutoDownload()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onEditRules != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_edit_rules)) },
+					leadingContent = { Icon(Icons.Outlined.Sort, null) },
+					onClick = {
+						platformContext.clickSound()
+						onEditRules()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onRefreshRules != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_refresh_rules)) },
+					leadingContent = { Icon(Icons.Outlined.Refresh, null) },
+					onClick = {
+						platformContext.clickSound()
+						onRefreshRules()
 						onDismissRequest()
 					},
 					colors = colors,

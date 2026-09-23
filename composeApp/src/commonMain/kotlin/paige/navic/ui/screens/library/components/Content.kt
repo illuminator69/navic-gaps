@@ -131,6 +131,21 @@ fun LibraryScreenContent(
 	// a different colour on each pass. The grid gets disposed items; this composable does not.
 	val heroContentColor = MaterialTheme.colorScheme.onSurface
 
+	// The four quick-access buttons, resolved OUT here for the same reason the hero
+	// colour is: a `LazyGridScope` builder lambda is not composable, so the gates
+	// below cannot be read inside it.
+	//
+	// Discover, Mixed for You and Fresh moved here from the bottom bar, replacing
+	// Recently added / Starred / Frequently played — all three of which a Library
+	// sort or a smart playlist already answers, while these three had nowhere else
+	// to live. Random stays: nothing else offers it.
+	//
+	// Gated exactly as `rememberVisibleNavigationTabs()` gates the tabs, because a
+	// dead button sitting on the home page is worse than a dead tab — and then
+	// padded back out of the old four, so the two-column grid never has a hole and
+	// the screen never loses its quick access to the library.
+	val overviewButtons = rememberOverviewButtons()
+
 	LazyVerticalGrid(
 		modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
 		columns = GridCells.Fixed(2),
@@ -174,30 +189,18 @@ fun LibraryScreenContent(
 			)
 		}
 
-		libraryScreenOverviewButton(
-			icon = Icons.Outlined.LibraryAdd,
-			label = Res.string.option_sort_newest,
-			destination = Screen.AlbumList(true, DomainAlbumListType.Newest),
-			start = true
-		)
-		libraryScreenOverviewButton(
-			icon = Icons.Outlined.Shuffle,
-			label = Res.string.option_sort_random,
-			destination = Screen.AlbumList(true, DomainAlbumListType.Random),
-			start = false
-		)
-		libraryScreenOverviewButton(
-			icon = Icons.Outlined.Star,
-			label = Res.string.option_sort_starred,
-			destination = Screen.Starred(),
-			start = true
-		)
-		libraryScreenOverviewButton(
-			icon = Icons.Outlined.History,
-			label = Res.string.option_sort_frequent,
-			destination = Screen.AlbumList(true, DomainAlbumListType.Frequent),
-			start = false
-		)
+		overviewButtons.forEachIndexed { index, button ->
+			libraryScreenOverviewButton(
+				icon = button.icon,
+				label = button.label,
+				destination = button.destination,
+				// `start` is the 2-column grid's left/right edge padding, so it
+				// alternates with position rather than being a property of the
+				// button — which is what breaks the moment the list stops being
+				// four fixed entries.
+				start = index % 2 == 0
+			)
+		}
 
 		// Continue listening: jump straight back into a recent queue (radio, album, Mood Flow…),
 		// resumed at where it left off. Sits above the album rows since it's the fastest way to

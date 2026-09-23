@@ -61,7 +61,8 @@ class DownloadManager(
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
 	private val connectivityManager: ConnectivityManager,
-	private val notificationManager: NotificationManager
+	private val notificationManager: NotificationManager,
+	private val foregroundController: DownloadForegroundController
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val client = sessionManager.api.httpClient
@@ -102,6 +103,13 @@ class DownloadManager(
 	private var totalSongsToDownload = 0
 	private var completedSongsDownloaded = 0
 
+	/**
+	 * The one place the queue's size changes, so the one place the foreground
+	 * service is started and stopped.
+	 *
+	 * Always called under [downloadProgressMutex], which is what makes a pair of
+	 * idempotent start/stop calls safe here: the counters cannot move underneath.
+	 */
 	private suspend fun updateDownloadNotification() {
 		if (totalSongsToDownload == 0) return
 
@@ -109,7 +117,15 @@ class DownloadManager(
 			notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
 			totalSongsToDownload = 0
 			completedSongsDownloaded = 0
+			// The queue drained. Nothing left to protect, and a service outliving
+			// its work is a permanent notification over an idle process.
+			foregroundController.stop()
 		} else {
+			// Something is in flight. Without this the process is merely *cached*
+			// the moment the last Activity stops, and Android 12+ freezes its
+			// threads — which is the whole "downloads fail when you leave the app"
+			// failure. Idempotent, so calling it per claimed job is fine.
+			foregroundController.start()
 			val progress = completedSongsDownloaded.toFloat() / totalSongsToDownload.toFloat()
 			val titleStr = getString(Res.string.info_status_downloading)
 			val msgStr = "$completedSongsDownloaded / $totalSongsToDownload"
@@ -191,7 +207,7 @@ class DownloadManager(
 					download.copy(
 						status = DownloadStatus.FAILED,
 						progress = 0f,
-						error = "Interrupted",
+						error = INTERRUPTED_ERROR,
 						updatedAt = now()
 					)
 				)
@@ -452,6 +468,50 @@ class DownloadManager(
 		}
 	}
 
+	/**
+	 * Stop everything in flight because the OS withdrew the foreground budget —
+	 * Android 15 allows a `dataSync` service roughly six hours in any 24.
+	 *
+	 * Distinct from [cancelAllActiveDownloads], which is the user saying "stop":
+	 * that one DELETES the rows, because a cancelled download is not wanted. These
+	 * are still wanted, so the rows survive with a retryable failure whose text says
+	 * paused rather than [INTERRUPTED_ERROR]. The distinction is the only thing that
+	 * stops a six-hour library download reading, on the next launch, as if it broke.
+	 *
+	 * A `PAUSED` status would be tidier and is deliberately not added: it would
+	 * touch every exhaustive `when` over [DownloadStatus] in the UI for a state
+	 * reachable only after six hours of continuous transferring.
+	 */
+	suspend fun parkActiveDownloads() {
+		val jobsToPark = activeDownloadsMutex.withLock {
+			val copy = activeDownloads.toMap()
+			activeDownloads.clear()
+			copy
+		}
+		downloadProgressMutex.withLock {
+			totalSongsToDownload = 0
+			completedSongsDownloaded = 0
+			notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+		}
+		jobsToPark.forEach { (songId, job) ->
+			job.cancel()
+			val existing = downloadDao.getDownloadById(songId) ?: return@forEach
+			if (existing.status == DownloadStatus.DOWNLOADING ||
+				existing.status == DownloadStatus.QUEUED
+			) {
+				downloadDao.insertDownload(
+					existing.copy(
+						status = DownloadStatus.FAILED,
+						progress = 0f,
+						error = PAUSED_ERROR,
+						updatedAt = now()
+					)
+				)
+			}
+		}
+		Logger.i("DownloadManager", "parked ${jobsToPark.size} downloads")
+	}
+
 	fun cancelAllActiveDownloads() {
 		libraryDownloadJob?.cancel()
 		libraryDownloadJob = null
@@ -463,6 +523,10 @@ class DownloadManager(
 				totalSongsToDownload = 0
 				completedSongsDownloaded = 0
 				notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+				// `updateDownloadNotification` is not reached on this path — the
+				// counters are zeroed directly — so the service has to be stopped
+				// here or it survives a cancel-everything with nothing to do.
+				foregroundController.stop()
 			}
 
 			val jobsToCancel = activeDownloadsMutex.withLock {
@@ -742,6 +806,18 @@ class DownloadManager(
 	companion object {
 		/** Hard ceiling on the user-configurable max-concurrency setting. */
 		const val MAX_CONCURRENCY = 10
+
+		/**
+		 * A row that had no coroutine behind it when the app next started — a real
+		 * process death mid-transfer. Named rather than written twice, because the
+		 * Download Center is the only place a user ever learns which of the two
+		 * happened and the words are the whole signal.
+		 */
+		const val INTERRUPTED_ERROR = "Interrupted"
+
+		/** The OS withdrew the foreground budget. Still wanted; retry resumes. */
+		const val PAUSED_ERROR = "Paused — tap retry to carry on"
+
 
 		/**
 		 * How many times an auto-managed (playlist policy) download may be re-attempted before it's

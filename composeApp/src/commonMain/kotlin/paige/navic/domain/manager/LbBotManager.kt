@@ -96,23 +96,11 @@ class LbBotManager(
 	}
 
 	/**
-	 * `ws://host:4790` -> `http://host:4790`. Same scheme swap AudioMuseManager does,
-	 * plus one difference: the hub toggle is honoured. AudioMuse can tolerate ignoring
-	 * it because a direct route exists; here the hub is the only route, so a user who
-	 * switched the hub off should see no lb-bot traffic at all.
+	 * `ws://host:4790` -> `http://host:4790`, honouring the hub toggle. Shared with
+	 * [PreviewManager] — see `HubEndpoint.kt` for why it is not shared with
+	 * AudioMuseManager, which deliberately ignores the toggle.
 	 */
-	private fun hubBase(): String? {
-		if (!preferenceManager.hubEnabled) return null
-		val raw = preferenceManager.hubUrl.trim()
-		if (raw.isBlank() || preferenceManager.hubToken.isBlank()) return null
-		val http = when {
-			raw.startsWith("wss://") -> "https://" + raw.removePrefix("wss://")
-			raw.startsWith("ws://") -> "http://" + raw.removePrefix("ws://")
-			raw.startsWith("http://") || raw.startsWith("https://") -> raw
-			else -> "http://$raw"
-		}
-		return http.trimEnd('/').removeSuffix("/connect").trimEnd('/')
-	}
+	private fun hubBase(): String? = hubHttpBase(preferenceManager)
 
 	/**
 	 * Changes whenever the route configuration does, so a `LaunchedEffect` keyed on it
@@ -120,8 +108,7 @@ class LbBotManager(
 	 * Preferences here are plain delegated properties with no Flow behind them.
 	 */
 	val routeSignature: String
-		get() = "${preferenceManager.hubEnabled}|${preferenceManager.hubUrl}|" +
-			"${preferenceManager.hubToken.isNotBlank()}"
+		get() = hubRouteSignature(preferenceManager)
 
 	/**
 	 * Bumped whenever something lands in the library. Screens re-read on a change —
@@ -609,6 +596,132 @@ class LbBotManager(
 			add("limit" to limit.toString())
 		}).valueOrNull()
 	}
+
+	/**
+	 * Deezer's own similarity, as a **third** source beside ListenBrainz's.
+	 *
+	 * Same answer shape as [similarArtists] and marked with the same ownership
+	 * vocabulary (`owned` / `artistId` / `indexed`), so the two merge without the
+	 * caller translating anything. Worth having because the two sources disagree
+	 * usefully: ListenBrainz knows what is listened to together, Deezer knows what
+	 * an editorial catalogue files together, and an artist missing from one is
+	 * routinely present in the other.
+	 *
+	 * Short-cached upstream (60 s), because ownership is part of the answer and a
+	 * landed fill falsifies it.
+	 */
+	suspend fun relatedArtists(
+		artistMbid: String?,
+		artistName: String?,
+		limit: Int = 20
+	): LbSimilarArtists? {
+		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return null
+		return getJson<LbSimilarArtists>("/lb/artist/related", buildList {
+			if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
+			if (!artistName.isNullOrBlank()) add("name" to artistName)
+			add("limit" to limit.toString())
+		}).valueOrNull()
+	}
+
+	/**
+	 * Deezer's charts — what is being played everywhere, ownership-marked.
+	 *
+	 * [genre] is one of [deezerGenres]'s ids; `"0"` is the global chart. There is
+	 * deliberately no country parameter: Deezer's open API has none, and the chart
+	 * is geolocated by **lb-bot's own egress address**, so which country's chart
+	 * this is depends on where the server runs and no client can change it.
+	 */
+	suspend fun deezerChart(limit: Int = 20, genre: String = "0"): LbBrowseFeed? =
+		getJson<LbBrowseFeed>(
+			"/lb/deezer/chart",
+			listOf("limit" to limit.toString(), "genre" to genre)
+		).valueOrNull()
+
+	/** Deezer's editorial selections — what a human picked, ownership-marked. */
+	suspend fun deezerEditorial(limit: Int = 20, genre: String = "0"): LbBrowseFeed? =
+		getJson<LbBrowseFeed>(
+			"/lb/deezer/editorial",
+			listOf("limit" to limit.toString(), "genre" to genre)
+		).valueOrNull()
+
+	/**
+	 * The genres the two rows above can be narrowed to.
+	 *
+	 * From lb-bot rather than a constant here, because the ids are Deezer's and
+	 * there are two clients that would otherwise each hold their own copy — the
+	 * `MoodCharacter` mistake, which has already drifted once.
+	 */
+	suspend fun deezerGenres(): LbDeezerGenres? =
+		getJson<LbDeezerGenres>("/lb/deezer/genres", emptyList()).valueOrNull()
+
+	/**
+	 * Whether this hub can answer the genre list.
+	 *
+	 * An older hub does not advertise the route, and the picker hides itself — the
+	 * two rows then behave exactly as they did before, on Deezer's global chart.
+	 */
+	val supportsDeezerGenres: Boolean
+		get() = advertisesRoute("GET /lb/deezer/genres")
+
+	/**
+	 * A pasted streaming URL, resolved to MusicBrainz ids.
+	 *
+	 * The point of the route is that "I found this on Spotify" becomes "I own this",
+	 * with no intermediate searching by hand. Resolution quality varies by provider
+	 * and lb-bot says so rather than pretending — a MusicBrainz URL resolves exactly
+	 * and a scraped page title resolves by search — which is why [LbLinkResolution]
+	 * carries `confidence` and why the UI shows what it thinks the link is before
+	 * acting on it.
+	 *
+	 * Null for anything we could not ask, and `kind == "unknown"` for a URL lb-bot
+	 * could not make sense of. The two read differently to the user on purpose: one
+	 * is "we could not ask", the other "that is not a link we understand".
+	 */
+	suspend fun resolveLink(url: String): LbLinkResolution? {
+		if (url.isBlank()) return null
+		return postJson<_, LbLinkResolution>("/lb/resolve-link", LbResolveLinkRequest(url))
+			.valueOrNull()
+	}
+
+	// ----- wishlist ---------------------------------------------------------- //
+
+	/**
+	 * Releases the user still wants but nobody was sharing.
+	 *
+	 * This is the one place `retryable: false` stops being a dead end.
+	 * A `no_source` failure deliberately never auto-retries — re-running the same
+	 * ranked search against the same peers is the same failure, immediately — so
+	 * the correct home for that retry is a persisted list plus lb-bot's own slow
+	 * periodic re-search, measured in hours. A landing arrives through the existing
+	 * `library` frame, exactly like any other fill.
+	 */
+	suspend fun wishlist(): List<LbWishlistItem> =
+		getJson<LbWishlist>("/lb/wishlist", emptyList()).valueOrNull()?.wishlist.orEmpty()
+
+	/**
+	 * Add, and take the updated list straight off the answer.
+	 *
+	 * Both write routes echo the whole wishlist back, so a caller that re-read it
+	 * would be spending a second round trip on something it was already handed. Null
+	 * means the write failed and the caller should leave its list alone — which is
+	 * not the same as an empty list, and is why this is nullable rather than an
+	 * empty default.
+	 */
+	suspend fun wishlistAdd(rgid: String, artist: String, title: String): List<LbWishlistItem>? =
+		postJson<_, LbWishlist>("/lb/wishlist", LbWishlistAddRequest(rgid, artist, title))
+			.valueOrNull()?.wishlist
+
+	suspend fun wishlistRemove(rgid: String): List<LbWishlistItem>? =
+		postJson<_, LbWishlist>("/lb/wishlist/remove", LbWishlistRemoveRequest(rgid))
+			.valueOrNull()?.wishlist
+
+	/** As [supportsGapFilling], for the wishlist surfaces. */
+	val supportsWishlist: Boolean
+		get() = advertisesRoute("GET /lb/wishlist")
+
+	/** As [supportsGapFilling], for the paste-a-link entry points. */
+	val supportsResolveLink: Boolean
+		get() = advertisesRoute("POST /lb/resolve-link")
 
 	/**
 	 * MusicBrainz artist search — the "Not in your library" half of search.
@@ -2241,6 +2354,152 @@ data class LbSimilarAlbum(
  * marks ownership rather than filtering on it, and the unowned rows are the
  * point of the Discover row this feeds.
  */
+/**
+ * A browse row: albums and artists together, each marked for ownership.
+ *
+ * One type for both Deezer routes because they answer the same question in two
+ * voices — what is being played everywhere, and what an editor picked — and a row
+ * of either is rendered by the same tiles. The two lists are independent: a chart
+ * answer may be all albums, all artists, or both.
+ *
+ * **Ownership marking is conservative here, and that is load-bearing.** Deezer has
+ * no MusicBrainz ids, so lb-bot resolves by name; a row it could not resolve comes
+ * back `owned: false` with no id rather than with a guess. So an unowned badge may
+ * be wrong (you might own it under a different spelling) but an owned badge and an
+ * id are never fabricated — which is the direction that matters, because the id is
+ * what a tap navigates to.
+ */
+@Serializable
+data class LbBrowseFeed(
+	val albums: List<LbBrowseAlbum> = emptyList(),
+	val artists: List<LbSimilarArtist> = emptyList(),
+	/** Which editorial selection this is, on the editorial route only. */
+	val section: String = "",
+	/** The genre lb-bot actually served, which may not be the one asked for. */
+	val genre: String = "",
+	val sources: List<String> = emptyList()
+)
+
+/**
+ * A release in a browse row. Same ownership vocabulary as [LbAlbumCandidate].
+ *
+ * **[rgid] is routinely blank, and that is a real state rather than a failure**: it
+ * means lb-bot's discography index has never seen this record, so there was nothing
+ * local to resolve Deezer's name against. lb-bot deliberately does not fan out a
+ * MusicBrainz search per row — that would spend the scanner's whole budget on a
+ * shelf nobody tapped — and designates the *tap* as where that one search happens.
+ * See `DiscoverViewModel.resolveBrowseAlbum`.
+ *
+ * Note there is no `year`, no `artistMbid` and no artist-level ownership here.
+ * Deezer's chart rows carry none of it, and a field that is always absent is worse
+ * than no field: it reads as something the caller may rely on.
+ */
+@Serializable
+data class LbBrowseAlbum(
+	val rgid: String = "",
+	val title: String = "",
+	val artist: String = "",
+	/** Deezer's own id — the only stable identity an unresolved row has. */
+	val deezerId: String = "",
+	/** The Archive's front when [rgid] resolved, else Deezer's own cover. */
+	val coverUrl: String = "",
+	val releaseOwned: Boolean = false,
+	val releaseAlbumId: String = ""
+)
+
+/** One of Deezer's browse genres. `id` is what [LbBotManager.deezerChart] takes. */
+@Serializable
+data class LbDeezerGenre(
+	val id: String = "",
+	val name: String = "",
+	val imageUrl: String = ""
+)
+
+@Serializable
+data class LbDeezerGenres(
+	val genres: List<LbDeezerGenre> = emptyList()
+)
+
+@Serializable
+private data class LbResolveLinkRequest(val url: String)
+
+/**
+ * What a pasted link turned out to be.
+ *
+ * [confidence] is on the wire because the resolution paths differ by an order of
+ * magnitude in reliability: a MusicBrainz URL is exact and needs no network call,
+ * a Spotify or Deezer id is looked up through that provider's own API, and an
+ * Apple / YT-Music / Tidal / Qobuz URL is resolved by searching MusicBrainz for an
+ * artist and title scraped out of the URL or its page title. The UI shows what it
+ * thinks the link is and lets the user confirm rather than acting on a guess.
+ */
+@Serializable
+data class LbLinkResolution(
+	/** `artist`, `album`, `track`, or `unknown`. */
+	val kind: String = "unknown",
+	val mbid: String = "",
+	val rgid: String = "",
+	val artist: String = "",
+	val title: String = "",
+	val provider: String = "",
+	val confidence: Double = 0.0,
+	/**
+	 * Why it did not resolve, in lb-bot's own words.
+	 *
+	 * Additive and outside the frozen contract, so it is blank on a hub or lb-bot
+	 * that predates it — which is exactly why every caller falls back to its own
+	 * generic line rather than showing an empty message. When it is there it is the
+	 * difference between "that didn't work" and "Couldn't read the Tidal page".
+	 */
+	val reason: String = ""
+) {
+	val resolved: Boolean get() = kind != "unknown" && (mbid.isNotBlank() || rgid.isNotBlank())
+}
+
+/**
+ * The wishlist envelope.
+ *
+ * The list key is `wishlist`, not `items` — and the add and remove routes answer
+ * with the **whole updated list** alongside their `ok`, which is why neither needs
+ * a follow-up read.
+ */
+@Serializable
+data class LbWishlist(
+	val wishlist: List<LbWishlistItem> = emptyList(),
+	val total: Int = 0,
+	/** How often lb-bot re-searches the list, in seconds. Hours, by design. */
+	val intervalSeconds: Double = 0.0,
+	/** The minimum gap before the same row is tried again. */
+	val cooldownSeconds: Double = 0.0,
+	val ok: Boolean = false
+)
+
+/** One release on the wishlist, plus whatever lb-bot knows about looking for it. */
+@Serializable
+data class LbWishlistItem(
+	val rgid: String = "",
+	val artist: String = "",
+	val title: String = "",
+	val addedAt: Double = 0.0,
+	/** Unix seconds of lb-bot's last re-search of THIS row, 0 if never. */
+	val lastTriedAt: Double = 0.0,
+	val attempts: Int = 0,
+	/** Why the last attempt failed, in lb-bot's own words. Blank before the first. */
+	val lastReason: String = ""
+) {
+	val coverUrl: String get() = LbBotManager.caaCoverUrl(rgid)
+}
+
+@Serializable
+private data class LbWishlistAddRequest(
+	val rgid: String,
+	val artist: String,
+	val title: String
+)
+
+@Serializable
+private data class LbWishlistRemoveRequest(val rgid: String)
+
 @Serializable
 data class LbSimilarArtists(
 	val artists: List<LbSimilarArtist> = emptyList(),
@@ -2261,6 +2520,15 @@ data class LbSimilarArtist(
 	val name: String = "",
 	val score: Double = 0.0,
 	val sources: List<String> = emptyList(),
+	/**
+	 * A picture, when the source had one.
+	 *
+	 * Populated by the Deezer-backed routes and blank from the ListenBrainz/Last.fm
+	 * merge, which names artists without picturing them. It is the only artwork an
+	 * artist the library does not hold can have, so it is what keeps an unowned tile
+	 * from being a bare placeholder beside an owned one.
+	 */
+	val imageUrl: String = "",
 	val owned: Boolean = false,
 	/** Navidrome artist id, blank when the library does not hold them. */
 	val artistId: String = "",
@@ -2270,6 +2538,15 @@ data class LbSimilarArtist(
 @Serializable
 data class LbReleaseDetail(
 	val artist: String = "",
+	/**
+	 * The lead credited artist's MusicBrainz id, or blank on an older lb-bot.
+	 *
+	 * The only way an album reached from a **Deezer** row can offer its artist's
+	 * page: Deezer carries no MBIDs, so nothing in that navigation knows one until
+	 * this route answers. Blank is an ordinary state and the caller falls back to
+	 * the library, then to nothing.
+	 */
+	val artistMbid: String = "",
 	val title: String = "",
 	val coverUrl: String = "",
 	/** The release-group's own primary type and year. Carried so a caller can

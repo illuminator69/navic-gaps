@@ -40,7 +40,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
-| Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager}.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
+| Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
 | Native Navidrome API | `domain/manager/NativeApiManager.kt` — smart playlists, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
 
@@ -426,19 +426,134 @@ Three things specific to this tree:
   because that function runs on every bar mount — a network call there is one per
   navigation. And `NavbarConfig.VERSION` is **not** bumped for it (§7).
 
-"station" is already taken here by `Screen.RadioList` — Subsonic internet radio,
-with its own entity, DAO and dialog. The deferred Discover "stations" concept
-(persistent regenerating radios, to live hub-side beside saved queues) needs a
-different word, chosen on purpose. Note also that `RadioManager` is ephemeral by
-construction: `playMix` exits into a saved-queue *snapshot*, a frozen list with a
-`sourceKind`; re-opening replays the same tracks and nothing regenerates. A
-station is a recipe, and nothing in this tree stores a recipe.
+**"Mixed for You" — and why it is not called a station or a radio.** The word was
+already spent twice here: `Screen.RadioList` is Subsonic internet radio, with its
+own entity, DAO and dialog, and `SavedQueueSource.RADIO` / `RadioManager.startRadio`
+is the *ephemeral* similarity mix. Navidrome's "Instant Mix" is ephemeral too, which
+is exactly what these are not. So the user-facing string is **"Mixed for You"** and
+the noun in code is `mix`.
+
+Earlier revisions of this section ended "a station is a recipe, and nothing in this
+tree stores a recipe". **That is no longer true** — it was the statement of the gap,
+and Track C closed it on 2026-09-23. A mix *is* a stored recipe
+(`{kind, seedId, moodCharacter, count}`), held hub-side beside saved queues and
+regenerated locally on every play: `domain/models/Mix.kt` (`Mix` + `MixKind`), the
+`mixes` state and four `act` helpers in `HubManager`, `RadioManager.regenerate(mix)`
+/ `currentRecipe(seed)`, `ui/screens/mixes/*`, `Screen.MixList` and
+`NavbarTab.Id.MIXES`.
+
+The distinction the old paragraph drew still holds and is the whole point:
+`playMix` exits into a saved-queue *snapshot*, a frozen list that replays; a mix
+stores the recipe and rebuilds the list each time. A saved queue stores a **result**,
+a mix stores a **recipe**. That is also why `HubManager.mixes` is a plain read-only
+mirror with no local table, no tombstones and no union merge, while
+`SavedQueueRepository` has all three: a saved queue is captured automatically and
+constantly on every client, a mix is written by hand on one device and never
+published concurrently, so last-write-wins is the entire conflict story.
+
+**Two things the first cut of this got wrong, both found by driving it.**
+
+*Nothing could make three of the five kinds.* The only create path was "save what's
+playing", whose recipe comes from `RadioManager.currentRecipe` — i.e. from whichever
+autoplay mode happens to be on — so `MixKind.GENRE` and `MixKind.ARTIST` were
+**unreachable from this client entirely**. `regenerate` could play them, `MixFormat`
+could label them and the hub validated them; they could only arrive from Feishin.
+`ui/screens/mixes/MixFormSheet.kt` is the general path: name, kind, and a seed
+picker that fits the kind — the playing track for `similar`, a searchable artist or
+genre list out of Room for the two that resolve against it, a `MoodCharacter` for
+`adaptive`, nothing for `fingerprint`. A sheet rather than a `FormDialog` because
+two of the five need a searchable list and `FormDialog` is 300dp wide.
+
+*Every mix rendered as bare text.* `Mix.coverArtId` was on the model and in the hub
+record (`_sanitize_mix` has always copied it through) and **nothing ever wrote it**,
+so both renderers always took `CoverArt`'s art-less branch. `actSaveMix` carries it
+now — no hub change — stamped from the **seed**, which is a fixed part of the recipe
+and so stays true on a second play, unlike the last regenerated queue's cover.
+`ui/screens/mixes/MixArtwork.kt` is the single renderer both surfaces draw through;
+with no stamped cover it draws a kind glyph over a gradient keyed on `mix.id`.
+**That is a deliberate divergence from Feishin**, whose `mixes-row.tsx` declines to
+generate anything on the grounds that it "would be a lie about what is inside" —
+true of invented *album art*, and not of an icon naming the kind.
 
 ---
 
 ## 7. Conventions and gotchas
 
 - **Navic files use tabs.** Multi-line edit matches are fragile; prefer matching single bare lines.
+- **Never take `albumLookup().firstOrNull()`.** That is a MusicBrainz *text score*, passed through
+  by lb-bot, and a free-text `"<artist> <title>"` scores a release-group whose TITLE contains both
+  words above the one where the artist match is a separate field. Measured 2026-09-23: `Daft Punk
+  Discovery` returns "Daft Punk's Discovery but it's in the SM64 Soundfont" by Pignickel **first**
+  and the real `Discovery` third, so a browse tile for an album the user owns opened a parody's
+  download page. Two things fix it and both are needed: send a **fielded** query
+  (`artist:"…" AND releasegroup:"…"` — `q` reaches MusicBrainz verbatim, and the same search then
+  returns the right record first and no parodies at all), and **validate the answer against what
+  was asked** rather than trusting the order. Declining is a correct outcome; opening the wrong
+  album reads as the feature being broken rather than as a near miss.
+- **lb-bot's ownership badge is not "is this in my library".** `releaseOwned` is marked from its
+  release-group index, which only covers artists whose discography it has *scanned* — so a record
+  the user owns by an unscanned artist comes back `owned: false` with no rgid, and every step after
+  that answers the wrong question. Room holds the whole library and answers it exactly, offline and
+  for free, so **check Room before the network** on any "do I already have this" path.
+  `DiscoverViewModel.localAlbumFor` is that check. Match on the title with the edition suffix
+  dropped: Deezer ships "Discovery (Remastered)" where MusicBrainz and the library both say
+  "Discovery", and the parenthetical defeats a `LIKE` and a fielded search alike.
+- **`estimateContentLength` belongs only on a request that asked for a transcode.** It makes the
+  server *compute* a Content-Length as `requested bitrate / 8 * duration`, because a transcode's
+  real size is unknown until it exists. On a request for the original file — which is the DEFAULT,
+  since `StreamingQuality.Lossless` is `bitrate = 0, container = null` — it can only be wrong, and
+  wrong in the direction that truncates: a declared length shorter than the bytes actually sent
+  makes ExoPlayer stop there and treat it as the end of the track. **That failure is silent.** No
+  exception, nothing in logcat, the player just advances — so it reads as "the song cut off partway
+  through and the logs show nothing", with the fraction varying per file because it is the ratio of
+  the assumed bitrate to the real one.
+- **A row's identity is its ID, never the `DomainSong`.** `CollectionDetailScreen` keyed its open
+  sheet on `selection == song`, a data-class equality over every field. The list re-emits fresh
+  instances whenever the collection is re-read, so rating or starring from inside the sheet changed
+  a field, broke the equality and **closed the sheet under the finger of the person who just used
+  it**. Compare `selection?.id == song.id`.
+- **`ORDER BY RANDOM()` cannot back a `@Relation` query.** Room walks the parent cursor twice for
+  `AlbumWithSongs` — once to collect ids, once to assemble — and SQLite re-evaluates `RANDOM()` on
+  the second walk, so the passes see different albums and assembling one the first never saw throws
+  `NoSuchElementException: Key <albumId> is missing in the map`. `@Transaction` does **not** fix it
+  and was already there for this symptom: the problem is a query that does not answer the same
+  thing twice, not a concurrent writer. Draw the ids first (`getRandomAlbumIds`) and fetch by them,
+  or read a deterministic order and `shuffled()` in Kotlin where the list is unbounded.
+- **Discover's rows load CONCURRENTLY, and at most three at a time.** Every row used to be awaited
+  in sequence — eight round trips, several of them seconds each, which is where a ~25 s first open
+  came from. The cap is not arbitrary: the hub's proxy shares **four** in-flight slots across every
+  lb-bot route, so fanning them all out queues behind itself and starves everything else the app
+  asks for meanwhile. The similar-artists row's own two calls stay sequential inside their helper
+  for the same reason.
+- **A download needs a foreground service, and `setOngoing(true)` is not one.** `DownloadManager`'s
+  scope is a process-scoped `SupervisorJob` on a Koin singleton and **nothing in this tree cancels
+  it** — no `ProcessLifecycleOwner`, no lifecycle observer, no `onStop`. So "downloads stop when you
+  leave the app" was never a cancellation bug: with no FGS the process drops to *cached* when the
+  last Activity stops and Android 12+'s freezer suspends its threads, after which
+  `reconcileInterruptedDownloads` parks the rows `FAILED / "Interrupted"` on next launch. That
+  string is the fingerprint. `DownloadService` (`dataSync` + `FOREGROUND_SERVICE_DATA_SYNC`, declared
+  in **`androidApp`**'s manifest because `composeApp` is a KMP library module with no manifest of its
+  own) is started and stopped from `updateDownloadNotification`, the one place the queue's size
+  changes. Android 15 gives `dataSync` ~6 h per 24, and `onTimeout` parks the remainder as
+  `PAUSED_ERROR` rather than `INTERRUPTED_ERROR` — a budget expiry is not a breakage, and those two
+  strings are the only way a user tells them apart. **WorkManager is deliberately not introduced:**
+  it is not a dependency anywhere, and `downloadSemaphore` plus `awaitDownloadConstraints` already
+  do what `Constraints` would.
+- **Navidrome smart playlists are track-scoped, and there is no album mode to ask for.** So
+  `AlbumModeSmartPlaylists` builds one by having the *server* evaluate the rules and expanding the
+  result locally — create a smart playlist, read its tracks, expand each to its whole album, write a
+  **regular** playlist, delete the scratch one. Regular because Navidrome refuses membership edits
+  on a smart playlist, so a snapshot cannot live in one; and the recipe is therefore kept **locally**,
+  since the record left on the server has no `rules` field to hold it. It is a snapshot, the editor
+  says so, and the sheet offers Refresh. Nothing here re-implements Navidrome's matcher — a local
+  evaluator would have to reproduce sixteen criteria types and would drift the first time either
+  side changed.
+- **A playlist's cover cannot be changed, and no API for it exists.** `updatePlaylist` in the
+  bundled `dev.zt64.subsonic` client is `(id, name, comment, public, songIdsToAdd,
+  songIndicesToRemove)` — the Subsonic spec has never had an image parameter and there is no
+  `uploadCoverArt`. Navidrome's native API exposes no image write either; it derives a playlist's
+  cover from its member tracks' art, which is all `DomainPlaylist.coverArtId` ever holds. Written
+  down so the next round does not re-derive it.
 - **Collect `MediaPlayerViewModel.steadyState`, not `uiState`.** `uiState` re-stamps `progress`
   every 200 ms (250 ms remote), so collecting it recomposes the reader ~5×/sec for the whole of
   playback. Take the narrow `progress` flow only where the playhead is actually drawn. Upstream's
@@ -459,6 +574,21 @@ station is a recipe, and nothing in this tree stores a recipe.
   has never heard of while keeping the user's own order and visibility. Upstream bumps because a
   bump is its only way to introduce a tab; copying that discards every existing install's
   arrangement to gain one row. It sits at 7 against upstream's 8, deliberately.
+- **...and changing a tab's DEFAULT visibility needs a third mechanism.** `merged()` preserves a
+  stored tab's `visible` flag — that is the whole point of it — so flipping a default reaches new
+  installs only, and a version bump would discard the arrangement `merged()` exists to protect.
+  Fresh / Discover / Mixed for You became the library home's top buttons
+  (`rememberOverviewButtons` in `ui/screens/library/components/OverviewButton.kt`) and had to come
+  off the bar on installs that already had them, so `NavbarConfig.withHomeButtonTabsHidden` runs
+  **once**, guarded by its own `navbarHomeButtonTabsMigrated` preference in `NavtabsViewModel`.
+  Order untouched, every other tab untouched, and a user who puts one back is not overruled on the
+  next launch. The ids stay in `NavbarTab.Id` and in `NavbarConfig.default.tabs` — deleting them
+  would make `merged()`'s live filter strip them from every stored config permanently.
+- **The home page's top buttons are gated exactly like the tabs.** They are pushed onto the
+  library's own stack, so each destination carries `nested = true` or it renders `RootTopBar` with
+  no back arrow. The list is padded back out of Recently added / Starred / Frequently played until
+  it is four long, because an odd count leaves a hole in the two-column grid and a home page with
+  no library shortcuts has lost something it used to do.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way

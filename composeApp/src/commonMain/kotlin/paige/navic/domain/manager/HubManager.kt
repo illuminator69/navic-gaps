@@ -15,6 +15,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +46,7 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.Mix
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.shared.RemotePlaybackRouter
@@ -319,6 +323,9 @@ class HubManager(
 		connectJob?.cancel()
 		wsSession = null
 		_connected.value = false
+		// Recipes live only on the hub; holding a stale list would offer the user a
+		// mix whose play, rename and delete would all silently go nowhere.
+		_mixes.value = emptyList()
 	}
 
 	/** Controller action: hand playback to another device (state preserved). */
@@ -344,18 +351,7 @@ class HubManager(
 			put("action", "enqueue")
 			put("at", if (playNext) "next" else "end")
 			putJsonArray("tracks") {
-				songs.forEach { song ->
-					addJsonObject {
-						put("id", song.id)
-						put("title", song.title)
-						put("artist", song.artistName)
-						song.albumTitle?.let { put("album", it) }
-						put("durationMs", song.duration.inWholeMilliseconds)
-						song.coverArtId?.let { put("imageUrl", sessionManager.getCoverArtUrl(it)) }
-						put("streamUrl", sessionManager.api.getStreamUrl(song.id))
-						put("mime", song.mimeType)
-					}
-				}
+				songs.forEach { song -> add(trackJson(song)) }
 			}
 		})
 	}
@@ -394,18 +390,7 @@ class HubManager(
 			put("sourceKind", sourceKind)
 			sourceName?.let { put("sourceName", it) }
 			putJsonArray("tracks") {
-				songs.forEach { song ->
-					addJsonObject {
-						put("id", song.id)
-						put("title", song.title)
-						put("artist", song.artistName)
-						song.albumTitle?.let { put("album", it) }
-						put("durationMs", song.duration.inWholeMilliseconds)
-						song.coverArtId?.let { put("imageUrl", sessionManager.getCoverArtUrl(it)) }
-						put("streamUrl", sessionManager.api.getStreamUrl(song.id))
-						put("mime", song.mimeType)
-					}
-				}
+				songs.forEach { song -> add(trackJson(song)) }
 			}
 		})
 	}
@@ -737,6 +722,127 @@ class HubManager(
 	private fun sendAsync(obj: JsonObject) = enqueue(obj)
 
 	// ------------------------------------------------------------------ //
+	// "Mixed for You" — hub-owned recipes, regenerated locally.
+	// ------------------------------------------------------------------ //
+
+	private val _mixes = MutableStateFlow<List<Mix>>(emptyList())
+
+	/**
+	 * Every stored recipe, newest-updated first, exactly as the hub holds them.
+	 *
+	 * Read-only and hub-authoritative: unlike saved queues there is no local table,
+	 * no offline accumulation and **no tombstones**. A saved queue can be published
+	 * concurrently by several devices, which is why that one union-merges; a mix is
+	 * created and edited from one screen at a time, so last-write-wins is the whole
+	 * conflict story. The asymmetry is deliberate — it is written down here rather
+	 * than left to be rediscovered from the absence of the merge code.
+	 *
+	 * Empty while disconnected, which is the correct answer: a recipe you cannot
+	 * play (the hub is also where it lives) should not be offered.
+	 */
+	val mixes: StateFlow<List<Mix>> = _mixes.asStateFlow()
+
+	private val _mixErrors = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+	/**
+	 * The hub refused a mix write, in its own words.
+	 *
+	 * A [SharedFlow] rather than state: this is an event about an action the user
+	 * just took, and a `StateFlow` would replay the last refusal to the next screen
+	 * that happened to collect it.
+	 */
+	val mixErrors: SharedFlow<String> = _mixErrors.asSharedFlow()
+
+	/**
+	 * Create a mix, or update one in place when [id] names an existing recipe.
+	 *
+	 * Minting is the hub's job — it owns the `mx_` id space — so a create simply
+	 * omits the field, exactly as `saveMix` specifies.
+	 *
+	 * [coverArtId] is the seed's artwork, stamped once at save time. The hub has
+	 * always stored the field (`_sanitize_mix` copies it through, and it is in the
+	 * record `PROTOCOL.md` §17.1 specifies) — nothing here ever wrote it, which is
+	 * why every mix rendered as bare text. It is deliberately the SEED's cover and
+	 * not the last regenerated queue's: the seed is a fixed part of the recipe, so
+	 * it stays true on a second play, whereas the tracklist does not.
+	 */
+	fun actSaveMix(
+		name: String,
+		kind: String,
+		id: String? = null,
+		seedId: String = "",
+		seedName: String = "",
+		moodCharacter: String = "",
+		count: Int = 50,
+		coverArtId: String = ""
+	) {
+		sendAsync(buildJsonObject {
+			put("t", "act"); put("action", "saveMix")
+			id?.takeIf { it.isNotBlank() }?.let { put("id", it) }
+			put("name", name)
+			put("kind", kind)
+			if (seedId.isNotBlank()) put("seedId", seedId)
+			if (seedName.isNotBlank()) put("seedName", seedName)
+			if (moodCharacter.isNotBlank()) put("moodCharacter", moodCharacter)
+			if (coverArtId.isNotBlank()) put("coverArtId", coverArtId)
+			put("count", count)
+		})
+	}
+
+	fun actRenameMix(id: String, name: String) {
+		sendAsync(buildJsonObject {
+			put("t", "act"); put("action", "renameMix"); put("id", id); put("name", name)
+		})
+	}
+
+	fun actDeleteMix(id: String) {
+		sendAsync(buildJsonObject {
+			put("t", "act"); put("action", "deleteMix"); put("id", id)
+		})
+	}
+
+	/**
+	 * Bump `lastPlayedAt` and nothing else.
+	 *
+	 * Its own action rather than a `saveMix` with the same fields, because a save
+	 * also moves `updatedAt` — which is the cap's eviction key. Playing a mix would
+	 * otherwise protect it from eviction as strongly as editing it, and thirty plays
+	 * of one mix would quietly evict twenty-nine recipes nobody touched.
+	 */
+	fun actTouchMix(id: String) {
+		sendAsync(buildJsonObject {
+			put("t", "act"); put("action", "touchMix"); put("id", id)
+		})
+	}
+
+	/**
+	 * Adopt the hub's authoritative recipe list.
+	 *
+	 * A record whose `kind` this build does not know is kept, not dropped: it came
+	 * from a newer client, and discarding it here would make this device's next
+	 * broadcast look like a deletion to everyone else. The list screen decides what
+	 * to do with one it cannot regenerate.
+	 */
+	private fun applyMixes(records: List<JsonObject>) {
+		_mixes.value = records.mapNotNull { rec ->
+			val id = rec["id"]?.jsonPrimitive?.contentOrNullSafe() ?: return@mapNotNull null
+			Mix(
+				id = id,
+				name = rec["name"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				kind = rec["kind"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				seedId = rec["seedId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				seedName = rec["seedName"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				moodCharacter = rec["moodCharacter"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				count = rec["count"]?.jsonPrimitive?.intOrNull ?: 50,
+				coverArtId = rec["coverArtId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				createdAt = rec["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+				updatedAt = rec["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+				lastPlayedAt = rec["lastPlayedAt"]?.jsonPrimitive?.longOrNull ?: 0L
+			)
+		}
+	}
+
+	// ------------------------------------------------------------------ //
 	// Saved-queue history (Continue Listening) — hub-owned + shared.
 	// ------------------------------------------------------------------ //
 
@@ -766,6 +872,35 @@ class HubManager(
 			put("t", "act"); put("action", "deleteSavedQueues")
 			putJsonArray("ids") { ids.forEach { add(it) } }
 		})
+	}
+
+	/**
+	 * One queue track as the hub's wire object.
+	 *
+	 * Four call sites publish tracks — enqueue, load-on-the-active-device, the
+	 * play-routing path and the ordinary publish — and they built this object four
+	 * times identically until a preview needed one field to differ. The `streamUrl`
+	 * rule below is exactly the sort that gets applied to three of four copies.
+	 *
+	 * `streamUrl` and `mime` are what let a URL-based receiver (the Chromecast
+	 * bridge) play without speaking Subsonic. For a preview they are the ONLY way it
+	 * can play at all: an `ext:` track is not in anyone's library, so a Subsonic
+	 * stream URL built from its id addresses a song this server has never heard of.
+	 * Its own signed URL rides in `filePath` (see [PreviewManager]).
+	 */
+	private fun trackJson(song: DomainSong): JsonObject = buildJsonObject {
+		put("id", song.id)
+		put("title", song.title)
+		put("artist", song.artistName)
+		song.albumTitle?.let { put("album", it) }
+		put("durationMs", song.duration.inWholeMilliseconds)
+		song.coverArtId?.let { put("imageUrl", sessionManager.getCoverArtUrl(it)) }
+		put(
+			"streamUrl",
+			if (PreviewManager.isPreviewId(song.id)) song.filePath.orEmpty()
+			else sessionManager.api.getStreamUrl(song.id)
+		)
+		put("mime", song.mimeType)
 	}
 
 	private fun intToRepeat(mode: Int): String = when (mode) {
@@ -871,19 +1006,12 @@ class HubManager(
 						put("songCount", row.songCount)
 						put("createdAt", row.createdAt)
 						put("updatedAt", row.updatedAt)
+						// The full track object, not the five fields this used to send:
+						// `streamUrl` and `mime` are the only way a preview survives a
+						// round trip through the shared history, and the hub's
+						// SQ_TRACK_FIELDS whitelist already carries both.
 						putJsonArray("songs") {
-							songs.forEach { song ->
-								addJsonObject {
-									put("id", song.id)
-									put("title", song.title)
-									put("artist", song.artistName)
-									song.albumTitle?.let { put("album", it) }
-									put("durationMs", song.duration.inWholeMilliseconds)
-									song.coverArtId?.let {
-										put("imageUrl", sessionManager.getCoverArtUrl(it))
-									}
-								}
-							}
+							songs.forEach { song -> add(trackJson(song)) }
 						}
 					}
 				}
@@ -958,6 +1086,13 @@ class HubManager(
 				} catch (e: Exception) {
 					Logger.e("HubManager", "saved-queue adopt failed", e)
 				}
+				// Isolated for the same reason, and absent on an older hub — which
+				// costs an empty Mixed for You list, not a failed handshake.
+				try {
+					applyMixes(msg["mixes"]?.asObjectList() ?: emptyList())
+				} catch (e: Exception) {
+					Logger.e("HubManager", "mix adopt failed", e)
+				}
 				// Hub is authoritative: adopt its session rather than re-publishing ours.
 				adoptIfNoLiveReceiver()
 				Logger.i("HubManager", "connected to hub as $id")
@@ -992,6 +1127,12 @@ class HubManager(
 				Logger.e("HubManager", "saved-queue broadcast adopt failed", e)
 			}
 
+			"mixes" -> try {
+				applyMixes(msg["mixes"]?.asObjectList() ?: emptyList())
+			} catch (e: Exception) {
+				Logger.e("HubManager", "mix broadcast adopt failed", e)
+			}
+
 			"do" -> handleDo(msg)
 
 			// lb-bot placed an album somewhere in the library — possibly at another
@@ -1005,6 +1146,17 @@ class HubManager(
 				val code = msg["code"]?.jsonPrimitive?.content
 				val message = msg["message"]?.jsonPrimitive?.content
 				Logger.e("HubManager", "hub error: $code $message")
+				// A refused mix is not a connection problem, and must not be written
+				// into `_connectionError` — that flow is rendered by the device
+				// picker and the navi-connect settings screen, where "a mix needs a
+				// name and a known kind" reads as the hub being broken. The hub
+				// answers these rather than dropping them precisely because the
+				// client has already shown the user a mix it believes it saved, so
+				// they go to the screen that made the claim.
+				if (code == "bad_mix" || code == "unknown_mix") {
+					_mixErrors.tryEmit(message ?: "That mix could not be saved")
+					return
+				}
 				_connectionError.value = when (code) {
 					// Both mean "the transfer you just asked for did not happen" — say which,
 					// because the two have different fixes (turn the speaker on vs. try again).
@@ -1287,6 +1439,10 @@ class HubManager(
 	/** Minimal DomainSong for a hub track that isn't in the local library. */
 	private fun remoteTrackToDomainSong(track: JsonObject): DomainSong {
 		val id = track["id"]?.jsonPrimitive?.content ?: ""
+		// A preview is not "a library track we happen not to have synced yet" — it is
+		// external by construction and can never resolve locally, so two fields below
+		// read from the wire rather than being derived from the id.
+		val isPreview = PreviewManager.isPreviewId(id)
 		return DomainSong(
 			id = id,
 			title = track["title"]?.jsonPrimitive?.content ?: "",
@@ -1317,17 +1473,30 @@ class HubManager(
 			fileSize = 0,
 			fileExtension = "",
 			mimeType = track["mime"]?.jsonPrimitive?.contentOrNullSafe() ?: "",
-			filePath = null,
+			// A preview's signed stream URL, which is the one field that cannot be
+			// re-derived on this device: there is no library row to look it up in and
+			// no Subsonic id to build one from. `filePath` is where the player reads an
+			// arbitrary URL from; for an ordinary track it stays null, as before.
+			filePath = if (isPreview) {
+				track["streamUrl"]?.jsonPrimitive?.contentOrNullSafe()
+			} else null,
 			starredAt = null,
-			// Navidrome serves the cover by song id, so this lets art load.
-			coverArtId = id,
+			// Navidrome serves the cover by song id, so this lets art load — except for
+			// a preview, whose id names nothing on this server. There the publisher's
+			// `imageUrl` is the ONLY source, and it is safe to trust precisely because
+			// it is a public third-party URL (Cover Art Archive) rather than another
+			// device's authed Navidrome address. That distinction is why the general
+			// rule "never adopt a RemoteTrack imageUrl" does not apply here.
+			coverArtId = if (isPreview) {
+				track["imageUrl"]?.jsonPrimitive?.contentOrNullSafe()
+			} else id,
 			musicBrainzId = null,
 			explicitStatus = DomainExplicitStatus.Unknown,
 			// Hub placeholders carry no per-artist breakdown: the wire format sends one
 			// credit string, and resolveQueue swaps these for the library's own rows.
 			artists = emptyList(),
 			albumArtists = emptyList(),
-			isExternal = false
+			isExternal = isPreview
 		)
 	}
 
@@ -1373,13 +1542,17 @@ class HubManager(
 		mimeType = "",
 		filePath = null,
 		starredAt = null,
-		// Navidrome serves the cover by song id, so this lets art load.
-		coverArtId = track.id,
+		// Navidrome serves the cover by song id, so this lets art load — except for a
+		// preview, whose id names nothing on this server, and whose publisher-supplied
+		// `imageUrl` is a public third-party URL rather than another device's authed
+		// Navidrome address. This is the mirror, so there is no stream URL to carry:
+		// the remote device is the one playing.
+		coverArtId = if (PreviewManager.isPreviewId(track.id)) track.imageUrl else track.id,
 		musicBrainzId = null,
 		explicitStatus = DomainExplicitStatus.Unknown,
 		artists = emptyList(),
 		albumArtists = emptyList(),
-		isExternal = false
+		isExternal = PreviewManager.isPreviewId(track.id)
 	)
 
 	// ------------------------------------------------------------------ //
@@ -1477,20 +1650,7 @@ class HubManager(
 			put("sourceKind", state.savedQueueKind)
 			savedQueueNameFor(state)?.let { put("sourceName", it) }
 			putJsonArray("tracks") {
-				state.queue.forEach { song ->
-					addJsonObject {
-						put("id", song.id)
-						put("title", song.title)
-						put("artist", song.artistName)
-						song.albumTitle?.let { put("album", it) }
-						put("durationMs", song.duration.inWholeMilliseconds)
-						song.coverArtId?.let { put("imageUrl", sessionManager.getCoverArtUrl(it)) }
-						// streamUrl/mime let URL-based receivers (Chromecast
-						// bridge) play without speaking Subsonic.
-						put("streamUrl", sessionManager.api.getStreamUrl(song.id))
-						put("mime", song.mimeType)
-					}
-				}
+				state.queue.forEach { song -> add(trackJson(song)) }
 			}
 		})
 		// The session plays it remotely — silence the local player.
@@ -1543,20 +1703,7 @@ class HubManager(
 			put("sourceKind", state.savedQueueKind)
 			savedQueueNameFor(state)?.let { put("sourceName", it) }
 			putJsonArray("tracks") {
-				state.queue.forEach { song ->
-					addJsonObject {
-						put("id", song.id)
-						put("title", song.title)
-						put("artist", song.artistName)
-						song.albumTitle?.let { put("album", it) }
-						put("durationMs", song.duration.inWholeMilliseconds)
-						song.coverArtId?.let { put("imageUrl", sessionManager.getCoverArtUrl(it)) }
-						// streamUrl/mime let URL-based receivers (Chromecast
-						// bridge) play without speaking Subsonic.
-						put("streamUrl", sessionManager.api.getStreamUrl(song.id))
-						put("mime", song.mimeType)
-					}
-				}
+				state.queue.forEach { song -> add(trackJson(song)) }
 			}
 		})
 	}

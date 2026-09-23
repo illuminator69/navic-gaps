@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.external
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_find_sources
+import navic.composeapp.generated.resources.action_preview_track
+import navic.composeapp.generated.resources.preview_none_found
 import navic.composeapp.generated.resources.action_view_artist
 import navic.composeapp.generated.resources.info_external_album_index_failed
 import navic.composeapp.generated.resources.title_missing_album
@@ -42,8 +47,11 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.components.common.CoverAmbientBackground
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.icons.Icons
+import paige.navic.icons.filled.Play
 import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.external.viewmodels.ArtistTarget
 import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.ForceSystemBars
@@ -76,10 +84,13 @@ fun ExternalAlbumScreen(
 ) {
 	val viewModel = koinViewModel<ExternalAlbumViewModel>(
 		key = rgid,
-		parameters = { parametersOf(rgid, artistMbid, artistName) }
+		parameters = { parametersOf(rgid, artistMbid, artistName, artistId) }
 	)
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	val previewsAvailable by viewModel.previewsAvailable.collectAsStateWithLifecycle()
+	val previewBusy by viewModel.previewBusy.collectAsStateWithLifecycle()
+	val previewMissing by viewModel.previewMissing.collectAsStateWithLifecycle()
 	var pickerOpen by remember(rgid) { mutableStateOf(false) }
 
 	// The library turns out to hold this release-group after all — only lb-bot's
@@ -94,6 +105,22 @@ fun ExternalAlbumScreen(
 
 	val heading = state.detail?.title?.ifBlank { null } ?: title
 	val artist = state.detail?.artist?.ifBlank { null } ?: artistName
+
+	// Resolved in the viewmodel — library first, MusicBrainz second, nothing third
+	// — so both affordances below agree and neither has to re-derive it. Null means
+	// the artist genuinely cannot be identified, which is the one case where the
+	// name must stay plain text.
+	val openArtist: (() -> Unit)? = when (val target = state.artistTarget) {
+		is ArtistTarget.Library -> {
+			{ backStack.add(Screen.ArtistDetail(target.artistId)) }
+		}
+
+		is ArtistTarget.External -> {
+			{ backStack.add(Screen.ExternalArtist(target.artistMbid, target.name.ifBlank { artist })) }
+		}
+
+		null -> null
+	}
 
 	// This page and its artist sibling were the only content-bearing destinations
 	// in the whole graph with no cover theming at all — reached straight from
@@ -152,32 +179,48 @@ fun ExternalAlbumScreen(
 				)
 				Column(Modifier.padding(start = 14.dp)) {
 					Text(heading, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-					Text(
-						listOf(artist, stringResource(Res.string.title_missing_album))
-							.filter { it.isNotBlank() }
-							.joinToString(" • "),
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant
-					)
+					Row(verticalAlignment = Alignment.CenterVertically) {
+						// The name itself is the control, not just the button below:
+						// a credit rendered next to an album is the thing a person
+						// reaches for, and this page knew who the artist was long
+						// before it could open them.
+						if (artist.isNotBlank()) {
+							Text(
+								artist,
+								style = MaterialTheme.typography.bodySmall,
+								color = if (openArtist != null) {
+									MaterialTheme.colorScheme.primary
+								} else {
+									MaterialTheme.colorScheme.onSurfaceVariant
+								},
+								modifier = if (openArtist != null) {
+									Modifier.clickable(onClick = openArtist)
+								} else {
+									Modifier
+								}
+							)
+							Text(
+								" • ",
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Text(
+							stringResource(Res.string.title_missing_album),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant
+						)
+					}
 				}
 			}
 
-			// The real artist page when whatever opened this knew the library has
-			// the artist, the external one otherwise. This always opened the
-			// external page, where an owned artist's every album reads "Added —
-			// syncing" — the worse of the two answers, and the caller already knew
-			// better.
-			if (artistId.isNotBlank() || artistMbid.isNotBlank()) {
+			// The same destination as the name above, kept as a button because that
+			// is the discoverable affordance — a coloured name is only obvious once
+			// you have already guessed. Hidden together with it when nothing
+			// identifies the artist, rather than offering a control that refuses.
+			openArtist?.let { open ->
 				Button(
-					onClick = {
-						backStack.add(
-							if (artistId.isNotBlank()) {
-								Screen.ArtistDetail(artistId)
-							} else {
-								Screen.ExternalArtist(artistMbid, artist)
-							}
-						)
-					},
+					onClick = open,
 					modifier = Modifier.padding(top = 12.dp)
 				) { Text(stringResource(Res.string.action_view_artist)) }
 			}
@@ -215,19 +258,58 @@ fun ExternalAlbumScreen(
 				// No `present` counting anywhere: presenceKnown is false here by
 				// definition, so every row is just the canonical tracklist.
 				state.tracklist?.tracks.orEmpty().forEach { track ->
-					Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+					Row(
+						Modifier.fillMaxWidth().padding(vertical = 6.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
 						Text(
 							track.position.toString(),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(width = 28.dp, height = 20.dp)
 						)
-						Text(
-							track.title,
-							style = MaterialTheme.typography.bodyMedium,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis
-						)
+						Column(Modifier.weight(1f)) {
+							Text(
+								track.title,
+								style = MaterialTheme.typography.bodyMedium,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis
+							)
+							// "Not found" stays on the row that asked, because an
+							// empty resolve is an answer ABOUT THAT TRACK, not a
+							// failure of the page. A snackbar would have scrolled
+							// away by the time the next row is tried.
+							if (previewMissing == track.position) {
+								Text(
+									stringResource(Res.string.preview_none_found),
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+						}
+						// Offered only when the sidecar is actually there. Absent
+						// previews render nothing at all, the same rule the rest of
+						// the lb-bot layer follows.
+						if (previewsAvailable) {
+							if (previewBusy == track.position) {
+								CircularProgressIndicator(
+									Modifier.size(18.dp),
+									strokeWidth = 2.dp
+								)
+							} else {
+								IconButton(
+									onClick = { viewModel.preview(track.position, track.title) },
+									enabled = previewBusy == null
+								) {
+									Icon(
+										Icons.Filled.Play,
+										contentDescription =
+											stringResource(Res.string.action_preview_track),
+										modifier = Modifier.size(20.dp)
+									)
+								}
+							}
+						}
 					}
 				}
 			}

@@ -140,11 +140,32 @@ class SessionManager(
 	 * reads the first, so the palette extractor silently downloaded a 4096px image for every
 	 * cover it quantised.
 	 */
-	fun getCoverArtUrl(coverArtId: String, size: Int? = null) = api.getCoverArtUrl(
-		coverArtId,
-		auth = true,
-		size = "${size ?: preferenceManager.coverArtQuality.value}"
-	)
+	/**
+	 * A cover's URL from its Navidrome id — **or the URL itself, unchanged, when the
+	 * "id" already is one.**
+	 *
+	 * That passthrough is what makes an external track's artwork work everywhere at
+	 * once. A preview (`ext:`) has no Navidrome cover id and carries an absolute
+	 * image URL in `coverArtId` instead; signing it as a Subsonic request would
+	 * produce a URL to this server for a cover it has never heard of. Every cover
+	 * surface funnels through here — `CoverArt`, the media-notification artwork, the
+	 * palette fetch behind the colour engine — so one rule covers all of them and
+	 * none of them needs to know previews exist.
+	 *
+	 * [size] is deliberately dropped for an absolute URL: it is a Subsonic parameter,
+	 * and appending it to somebody else's URL is the `&size=4096&size=128` bug the
+	 * colour engine already paid for once.
+	 */
+	fun getCoverArtUrl(coverArtId: String, size: Int? = null): String =
+		if (coverArtId.startsWith("http://") || coverArtId.startsWith("https://")) {
+			coverArtId
+		} else {
+			api.getCoverArtUrl(
+				coverArtId,
+				auth = true,
+				size = "${size ?: preferenceManager.coverArtQuality.value}"
+			)
+		}
 
 	/**
 	 * ALBUM artists via Subsonic `getArtists` (the canonical album-artist list,

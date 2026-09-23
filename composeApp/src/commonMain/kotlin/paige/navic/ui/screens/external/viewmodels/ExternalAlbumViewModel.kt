@@ -3,12 +3,18 @@ package paige.navic.ui.screens.external.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.LbTracklist
+import paige.navic.domain.manager.PreviewManager
+import paige.navic.domain.manager.toDomainSong
+import paige.navic.domain.models.SavedQueueSource
+import paige.navic.shared.MediaPlayerViewModel
 import kotlinx.coroutines.flow.firstOrNull
 
 data class ExternalAlbumUi(
@@ -23,8 +29,27 @@ data class ExternalAlbumUi(
 	val ownedAlbumId: String? = null,
 	/** The single-release index add could not be done: no MusicBrainz artist, an
 	 *  older hub that does not proxy the route, or MusicBrainz not answering. */
-	val indexAddFailed: Boolean = false
+	val indexAddFailed: Boolean = false,
+	/** Where this album's artist opens, once it is known. Null = nowhere to go. */
+	val artistTarget: ArtistTarget? = null
 )
+
+/**
+ * Where the artist credit on this page should lead.
+ *
+ * Three outcomes rather than an id, for the same reason `BrowseTarget` has three:
+ * the artist may be one the library holds, one only MusicBrainz knows, or one
+ * nothing here can identify — and a bare string could express only the middle
+ * case. This page reached that middle case *or nothing*, which is why an album
+ * arrived at from a Deezer row showed its artist's name and refused to open it.
+ */
+sealed interface ArtistTarget {
+	/** The library's own artist page. */
+	data class Library(val artistId: String) : ArtistTarget
+
+	/** The `mb:` page — and the only route to "scan this artist's discography". */
+	data class External(val artistMbid: String, val name: String) : ArtistTarget
+}
 
 /**
  * A release the library does not have, keyed on its MusicBrainz release-group id.
@@ -44,7 +69,11 @@ class ExternalAlbumViewModel(
 	private val rgid: String,
 	private val artistMbid: String,
 	private val artistName: String,
-	private val lbBotManager: LbBotManager
+	private val artistId: String,
+	private val artistDao: ArtistDao,
+	private val lbBotManager: LbBotManager,
+	private val previewManager: PreviewManager,
+	private val mediaPlayer: MediaPlayerViewModel
 ) : ViewModel() {
 	private val _state = MutableStateFlow(ExternalAlbumUi())
 	val state = _state.asStateFlow()
@@ -54,6 +83,80 @@ class ExternalAlbumViewModel(
 	private var indexAddTried = false
 
 	init { load() }
+
+	// ---- previews ------------------------------------------------------------ //
+
+	private val _previewsAvailable = MutableStateFlow(false)
+
+	/** Whether to offer a listen at all. False hides the control entirely. */
+	val previewsAvailable: StateFlow<Boolean> = _previewsAvailable.asStateFlow()
+
+	private val _previewBusy = MutableStateFlow<Int?>(null)
+
+	/** The track position currently being resolved, so one row can spin. */
+	val previewBusy: StateFlow<Int?> = _previewBusy.asStateFlow()
+
+	private val _previewMissing = MutableStateFlow<Int?>(null)
+
+	/**
+	 * A position whose resolve came back empty.
+	 *
+	 * "No preview found" is a legitimate answer, not an error, so it is remembered
+	 * per row and shown there rather than raised as a failure — the same rule lb-bot's
+	 * `strict=False` metadata chain follows.
+	 */
+	val previewMissing: StateFlow<Int?> = _previewMissing.asStateFlow()
+
+	/**
+	 * Hear one track of a release the library does not have.
+	 *
+	 * The point is deciding whether to spend an acquisition on it. So this plays
+	 * ONE track, not the record: a full preview queue would be a way of listening to
+	 * an album without owning it, which is a different product and not this one.
+	 *
+	 * Resolution is by artist and title because that is all a MusicBrainz tracklist
+	 * gives; `durationMs` is deliberately not sent, since lb-bot's tracklist does not
+	 * carry it and inventing a length would make the sidecar reject good matches.
+	 */
+	fun preview(position: Int, title: String) {
+		if (_previewBusy.value != null) return
+		val artist = _state.value.detail?.artist.orEmpty().ifBlank { artistName }
+		val album = _state.value.detail?.title.orEmpty()
+		_previewBusy.value = position
+		_previewMissing.value = null
+		viewModelScope.launch {
+			try {
+				val track = previewManager.resolve(artist = artist, title = title, album = album)
+				if (track == null) {
+					_previewMissing.value = position
+					return@launch
+				}
+				// Replaces the queue rather than appending: this is a listen, not a
+				// session, and quietly parking an external track at the end of
+				// somebody's real queue is how it ends up playing an hour later with
+				// no explanation.
+				mediaPlayer.loadRemoteQueue(
+					listOf(track.toDomainSong()),
+					index = 0,
+					positionMs = 0L,
+					play = true,
+					savedQueueKind = SavedQueueSource.MANUAL,
+					savedQueueName = title
+				)
+			} finally {
+				_previewBusy.value = null
+			}
+		}
+	}
+
+	// After the preview properties, not beside `init { load() }` above: an init block
+	// placed higher runs before they are constructed and would read them as null.
+	// RadioManager carries the same note for the same reason.
+	init {
+		viewModelScope.launch {
+			_previewsAvailable.value = previewManager.ensureAvailability()
+		}
+	}
 
 	fun load() {
 		if (rgid.isBlank()) return
@@ -67,8 +170,58 @@ class ExternalAlbumViewModel(
 			val releaseMbid = detail?.releases?.firstOrNull()?.releaseMbid.orEmpty()
 			val tracks = if (releaseMbid.isBlank()) null else lbBotManager.tracklist(releaseMbid)
 			_state.value = _state.value.copy(loading = false, detail = detail, tracklist = tracks)
+			resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
 			refreshIndexRow()
 		}
+	}
+
+	/**
+	 * Decide where the artist credit leads, best answer first.
+	 *
+	 * The library comes before MusicBrainz, and Room comes before lb-bot, for the
+	 * reason the album side of this page already learned: lb-bot's ownership marking
+	 * is only as complete as its discography index, while Room holds the whole
+	 * library and can answer exactly, offline, for free. An artist the user owns must
+	 * open *their* page — the external one shows every album as "Added — syncing".
+	 *
+	 * [detailMbid] is what makes this reachable at all from a Deezer row. Deezer
+	 * carries no MBIDs, so such a row arrives with neither an artist id nor an
+	 * artist MBID, and until `/lb/album/releases` started returning one there was
+	 * simply nothing to open — the control hid itself and the discography scan
+	 * behind it was unreachable.
+	 */
+	private suspend fun resolveArtistTarget(detailMbid: String, detailName: String) {
+		// 1. The caller already knew the library has them.
+		if (artistId.isNotBlank()) {
+			_state.value = _state.value.copy(artistTarget = ArtistTarget.Library(artistId))
+			return
+		}
+
+		// 2. Ask Room. Both spellings: the page's own parameter is the browse row's
+		//    artist ("Daft Punk") while lb-bot's is the full MusicBrainz credit
+		//    ("Daft Punk feat. …"), and either may be the one the library filed.
+		val names = listOf(artistName, detailName).map { it.trim() }.filter { it.isNotBlank() }
+		if (names.isNotEmpty()) {
+			val local = runCatching { artistDao.getArtistsByNames(names) }.getOrNull().orEmpty()
+			// In the order asked, so the browse row's plainer name wins a tie.
+			val match = names.firstNotNullOfOrNull { wanted ->
+				local.firstOrNull { it.name.equals(wanted, ignoreCase = true) }
+			}
+			if (match != null) {
+				_state.value = _state.value.copy(artistTarget = ArtistTarget.Library(match.artistId))
+				return
+			}
+		}
+
+		// 3. MusicBrainz — the page's own parameter, else what lb-bot just answered.
+		val mbid = artistMbid.ifBlank { detailMbid }
+		if (mbid.isNotBlank()) {
+			_state.value = _state.value.copy(
+				artistTarget = ArtistTarget.External(mbid, names.firstOrNull().orEmpty())
+			)
+		}
+		// 4. Nothing identifies them. The credit stays plain text rather than
+		//    becoming a control that goes nowhere.
 	}
 
 	private suspend fun refreshIndexRow() {

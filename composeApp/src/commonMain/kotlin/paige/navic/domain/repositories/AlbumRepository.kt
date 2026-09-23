@@ -40,8 +40,18 @@ class AlbumRepository(
 				.toSet()
 		} else null
 
-		return albumDao
-			.getAlbumsByQuery(listType.toSqlQuery())
+		// Same trap as `getAlbumsLimited`: `ORDER BY RANDOM()` is re-evaluated on
+		// each execution and `AlbumWithSongs` executes the parent query twice.
+		// Shuffled here rather than drawn by id, because this path is unbounded and
+		// an `IN (...)` over the whole library would exceed SQLite's bind-variable
+		// ceiling — the list is read in full either way.
+		val rows = if (listType == DomainAlbumListType.Random) {
+			albumDao.getAlbumsByQuery(DomainAlbumListType.AlphabeticalByName.toSqlQuery()).shuffled()
+		} else {
+			albumDao.getAlbumsByQuery(listType.toSqlQuery())
+		}
+
+		return rows
 			.map { it.toDomainModel() }
 			.filter { album ->
 				filters.all { filter ->
@@ -88,6 +98,17 @@ class AlbumRepository(
 		listType: DomainAlbumListType,
 		limit: Int
 	): ImmutableList<DomainAlbum> = withContext(Dispatchers.IO) {
+		// Random is not a sort, it is a *draw*, and it cannot go through the raw
+		// query: `ORDER BY RANDOM()` answers differently on each execution, and
+		// `AlbumWithSongs` makes Room execute the parent query twice. The second
+		// pass then meets an album the first never collected songs for, which is
+		// the `NoSuchElementException: Key <albumId> is missing in the map` the
+		// Quick Picks widget logs. Draw the ids once, then fetch deterministically.
+		if (listType == DomainAlbumListType.Random) {
+			val ids = albumDao.getRandomAlbumIds(limit)
+			val byId = albumDao.getAlbumsByIds(ids).associateBy { it.album.albumId }
+			return@withContext ids.mapNotNull { byId[it]?.toDomainModel() }.toImmutableList()
+		}
 		albumDao.getAlbumsByQuery(listType.toSqlQuery(limit))
 			.map { it.toDomainModel() }
 			.toImmutableList()

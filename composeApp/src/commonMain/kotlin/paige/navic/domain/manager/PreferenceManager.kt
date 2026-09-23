@@ -235,4 +235,13 @@ class PreferenceManager(
 	}
 
 	var offlineMode by preference(OfflineMode.Auto)
+
+	/**
+	 * Which Deezer genre the two Discover browse rows are narrowed to.
+	 *
+	 * A Deezer genre id as a string, `"0"` being the global chart. Stored as an
+	 * opaque id rather than an index: the list comes from lb-bot and Deezer has
+	 * changed it before, so a position would quietly re-point to another genre.
+	 */
+	var deezerGenre by preference("0")
 }

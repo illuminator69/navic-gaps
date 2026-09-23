@@ -17,8 +17,11 @@ package paige.navic.ui.screens.discover
  * Feishin's copy is `renderer/features/discover/discover-rows.ts`.
  */
 enum class DiscoverRowId(val wireId: String) {
+	MIXES("mixes"),
 	FRESH("fresh"),
 	SIMILAR_ARTISTS("similar-artists"),
+	CHARTS("charts"),
+	EDITORIAL("editorial"),
 	LISTENBRAINZ("listenbrainz"),
 	REDISCOVERY("rediscovery"),
 	MOOD("mood");
@@ -61,20 +64,32 @@ data class DiscoverRow(
 )
 
 /**
- * Render order. Leverage first: what is new, then who you are missing, then what
- * was picked for you, then what you already own and forgot, then a way to ask a
- * question of your own.
+ * Render order. The user's own thing first, then what is new, then who you are
+ * missing, then what the world and an editor are playing, then what was picked for
+ * you, then what you already own and forgot, then a way to ask a question of your
+ * own.
  *
- * A "stations" row is deliberately absent rather than disabled. Persistent named
- * stations were scoped and deferred to a hub-side implementation next to saved
- * queues, and a placeholder here would be a row that can never render. Note also
- * that "station" is already taken in this app's vocabulary by
- * [paige.navic.ui.navigation.Screen.RadioList], which is Subsonic internet
- * radio — whoever builds it should pick a different word deliberately.
+ * [DiscoverRowId.MIXES] leads because it is the only row whose contents the user
+ * made. It is capability [DiscoverCapability.Library] rather than an lb-bot route
+ * because a mix is hub state and the hub always answers for it — the row is empty
+ * with no hub, which `horizontalSection` renders as nothing at all.
+ *
+ * The deferred "stations" row this file used to describe is what MIXES became.
+ * "Station" stayed unusable — [paige.navic.ui.navigation.Screen.RadioList] is
+ * Subsonic internet radio and `SavedQueueSource.RADIO` is the ephemeral similarity
+ * mix — so the word chosen was "mix", user-facing "Mixed for You". See
+ * [paige.navic.domain.models.Mix].
  */
 val DISCOVER_ROWS: List<DiscoverRow> = listOf(
+	DiscoverRow(DiscoverRowId.MIXES, DiscoverCapability.Library),
 	DiscoverRow(DiscoverRowId.FRESH, DiscoverCapability.LbBot("GET /lb/fresh-releases")),
 	DiscoverRow(DiscoverRowId.SIMILAR_ARTISTS, DiscoverCapability.LbBot("GET /lb/artist/similar")),
+	// Deezer, free and unauthenticated upstream. Two rows rather than one because
+	// they answer different questions — a chart is what everyone is playing, an
+	// editorial selection is what somebody chose — and merging them would leave
+	// neither able to say which it was.
+	DiscoverRow(DiscoverRowId.CHARTS, DiscoverCapability.LbBot("GET /lb/deezer/chart")),
+	DiscoverRow(DiscoverRowId.EDITORIAL, DiscoverCapability.LbBot("GET /lb/deezer/editorial")),
 	// Navidrome only: the plugin writes these as ordinary server-side playlists,
 	// so the row is a name filter costing no route, no probe and no lb-bot.
 	DiscoverRow(DiscoverRowId.LISTENBRAINZ, DiscoverCapability.Library),

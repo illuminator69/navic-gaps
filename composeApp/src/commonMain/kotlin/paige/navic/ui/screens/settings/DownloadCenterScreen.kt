@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -22,12 +25,15 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +56,11 @@ import navic.composeapp.generated.resources.action_retry_all
 import navic.composeapp.generated.resources.lbbot_fail_format
 import navic.composeapp.generated.resources.lbbot_fail_musicbrainz
 import navic.composeapp.generated.resources.lbbot_fail_no_source
+import navic.composeapp.generated.resources.action_add_to_wishlist
+import navic.composeapp.generated.resources.action_open_link
+import navic.composeapp.generated.resources.info_link_unresolved
+import navic.composeapp.generated.resources.option_paste_link
+import navic.composeapp.generated.resources.title_wishlist
 import navic.composeapp.generated.resources.lbbot_fail_placement
 import navic.composeapp.generated.resources.lbbot_fail_transfer
 import navic.composeapp.generated.resources.lbbot_fill_attempts
@@ -98,12 +109,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFillEntry
+import kotlinx.coroutines.launch
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
+import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Queue
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import paige.navic.di.LocalNavStack
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.DownloadCenterItem
 import paige.navic.ui.screens.settings.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.components.common.Form
@@ -122,7 +139,10 @@ fun DownloadCenterScreen() {
 	val settings by viewModel.settings.collectAsStateWithLifecycle()
 	val constrained by viewModel.constrained.collectAsStateWithLifecycle()
 	val fills by viewModel.fills.collectAsStateWithLifecycle()
+	val wishlisted by viewModel.wishlisted.collectAsStateWithLifecycle()
+	val wishlistSupported = viewModel.wishlistSupported
 	var fillFilter by remember { mutableStateOf(FillFilter.ALL) }
+	val backStack = LocalNavStack.current
 
 	Scaffold(
 		topBar = {
@@ -168,6 +188,28 @@ fun DownloadCenterScreen() {
 				// lb-bot is acquiring from Soulseek, not files being cached for offline
 				// playback. Empty whenever lb-bot is unconfigured, since nothing can then
 				// ever have been started — which is also how the section stays hidden.
+				// Both lead OUT of this screen, and both sit above the fills for the
+				// same reason the constraints banner does: they are the answers to
+				// "this didn't work" and "I found it somewhere else", and a user who
+				// has scrolled past twenty rows to find them has already given up.
+				if (wishlistSupported || viewModel.resolveLinkSupported) {
+					Form {
+						if (viewModel.resolveLinkSupported) {
+							PasteLinkRow(viewModel, backStack)
+						}
+						if (wishlistSupported) {
+							FormRow(onClick = { backStack.add(Screen.Wishlist) }) {
+								Text(stringResource(Res.string.title_wishlist))
+								Icon(
+									Icons.Outlined.ChevronForward,
+									contentDescription = null,
+									modifier = Modifier.size(20.dp)
+								)
+							}
+						}
+					}
+				}
+
 				if (fills.isNotEmpty()) {
 					SectionHeader(
 						title = stringResource(Res.string.section_lbbot_fills),
@@ -241,7 +283,20 @@ fun DownloadCenterScreen() {
 								onAnotherSource = { viewModel.retryAnotherSource(fill.key) },
 								onCancel = { viewModel.cancelFill(fill.key) },
 								onAllowMp3 = { viewModel.allowMp3AndRetry(fill) },
-								onDismiss = { viewModel.dismissFill(fill.key) }
+								onDismiss = { viewModel.dismissFill(fill.key) },
+								// Exactly one failure kind, deliberately. Wishlisting a
+								// format rejection or a transfer failure would register a
+								// slow re-search for something the fast search already
+								// found — the wishlist is for "nobody has it", nothing else.
+								// A blank rgid has nothing to register.
+								onWishlist = if (
+									wishlistSupported &&
+									fill.failureKind == "no_source" &&
+									fill.rgid.isNotBlank() &&
+									fill.key !in wishlisted
+								) {
+									{ viewModel.addToWishlist(fill) }
+								} else null
 							)
 						}
 					}
@@ -536,7 +591,9 @@ private fun FillRow(
 	onAnotherSource: () -> Unit,
 	onCancel: () -> Unit,
 	onAllowMp3: () -> Unit,
-	onDismiss: () -> Unit
+	onDismiss: () -> Unit,
+	/** Null when lb-bot has no wishlist, or when this failure is not the kind a wishlist helps. */
+	onWishlist: (() -> Unit)? = null
 ) {
 	FormRow {
 		RemoteCoverArt(
@@ -581,8 +638,10 @@ private fun FillRow(
 				)
 			}
 			// No Retry below and no MP3 button either — say why rather than leaving
-			// a row whose only affordance is Dismiss.
-			if (failed && !fill.canRetry && !fill.mp3WouldHelp) {
+			// a row whose only affordance is Dismiss. Suppressed once a wishlist is
+			// on offer: the row then HAS an answer, and "nothing more can be tried"
+			// sitting above a button that tries something is simply wrong.
+			if (failed && !fill.canRetry && !fill.mp3WouldHelp && onWishlist == null) {
 				Text(
 					text = stringResource(Res.string.lbbot_fill_no_retry),
 					style = MaterialTheme.typography.bodySmall,
@@ -636,6 +695,13 @@ private fun FillRow(
 							Text(stringResource(Res.string.action_try_another_source))
 						}
 					}
+					// Nobody had it. The only honest option left is to keep wanting
+					// it and let lb-bot look again on its own slow schedule.
+					onWishlist?.let { wishlist ->
+						TextButton(onClick = wishlist) {
+							Text(stringResource(Res.string.action_add_to_wishlist))
+						}
+					}
 				}
 				IconButton(onClick = onDismiss) {
 					Icon(
@@ -645,6 +711,88 @@ private fun FillRow(
 					)
 				}
 			}
+		}
+	}
+}
+
+/**
+ * Paste a link from somewhere else and get it here.
+ *
+ * The whole point is that "I found this on Spotify" stops being a manual search.
+ * It **resolves before it acts** and shows what it thinks the link is, because
+ * resolution quality genuinely varies: a MusicBrainz URL is exact, a Spotify or
+ * Deezer id is a provider lookup, and an Apple / YT-Music / Tidal / Qobuz URL is a
+ * MusicBrainz search over an artist and title scraped out of the URL. Acting
+ * straight on the last of those would start downloading the wrong record often
+ * enough to matter.
+ *
+ * Android's share sheet is the other, better entry point — see `MainActivity`'s
+ * `ACTION_SEND` filter. This one exists so the feature is discoverable without
+ * already knowing it is there.
+ */
+@Composable
+private fun PasteLinkRow(
+	viewModel: DownloadCenterViewModel,
+	backStack: NavBackStack<NavKey>
+) {
+	val scope = rememberCoroutineScope()
+	val urlState = rememberTextFieldState()
+	val genericFailure = stringResource(Res.string.info_link_unresolved)
+	var busy by remember { mutableStateOf(false) }
+	var unresolved by remember { mutableStateOf<String?>(null) }
+
+	FormRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Column(Modifier.weight(1f)) {
+			TextField(
+				state = urlState,
+				label = { Text(stringResource(Res.string.option_paste_link)) },
+				lineLimits = TextFieldLineLimits.SingleLine,
+				modifier = Modifier.fillMaxWidth()
+			)
+			unresolved?.let { why ->
+				Text(
+					why,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error
+				)
+			}
+		}
+		if (busy) {
+			CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+		} else {
+			TextButton(
+				enabled = urlState.text.isNotBlank(),
+				onClick = {
+					busy = true
+					unresolved = null
+					scope.launch {
+						val answer = viewModel.resolveLink(urlState.text.toString().trim())
+						busy = false
+						if (answer == null || !answer.resolved) {
+							// lb-bot names the provider and what it could not read
+							// when it can; the generic line covers a null answer and
+							// an lb-bot predating the field.
+							unresolved = answer?.reason?.ifBlank { null } ?: genericFailure
+							return@launch
+						}
+						urlState.clearText()
+						// A track resolves to the release it is on, because a track is
+						// not a thing this stack can acquire on its own — the whole
+						// acquisition pipeline is release-shaped.
+						if (answer.rgid.isNotBlank()) {
+							backStack.add(
+								Screen.ExternalAlbum(
+									rgid = answer.rgid,
+									artistName = answer.artist,
+									title = answer.title
+								)
+							)
+						} else {
+							backStack.add(Screen.ExternalArtist(answer.mbid, answer.artist))
+						}
+					}
+				}
+			) { Text(stringResource(Res.string.action_open_link)) }
 		}
 	}
 }

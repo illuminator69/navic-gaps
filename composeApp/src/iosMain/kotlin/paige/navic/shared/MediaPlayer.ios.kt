@@ -9,6 +9,7 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.IOSScrobbleManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
@@ -641,16 +642,31 @@ class IOSMediaPlayerViewModel(
 		} else {
 			if (isCellular) preferenceManager.streamingQualityCellular.containerIos else preferenceManager.streamingQualityWifi.containerIos
 		}
-		return sessionManager.api.getStreamUrl(
+		val format = container?.takeIf { it.isNotBlank() }
+		val url = sessionManager.api.getStreamUrl(
 			id = id,
 			maxBitRate = bitrate,
-			format = container?.takeIf { it.isNotBlank() }
-		) + "&estimateContentLength=true"
+			format = format
+		)
+		// Only for a real transcode — same rule, and the same reason, as the Android
+		// side: asking the server to COMPUTE a Content-Length for a file it is
+		// sending verbatim can only produce a wrong one, and a short one truncates
+		// the track silently. See `MediaPlayer.android.kt`.
+		if (bitrate <= 0 && format == null) return url
+		return url + "&estimateContentLength=true"
 	}
 
 	private fun getSongUrl(song: DomainSong): NSURL? {
 		return when {
 			song.id.startsWith("radio_") && !song.filePath.isNullOrEmpty() -> {
+				NSURL.URLWithString(song.filePath)
+			}
+
+			// A preview carries its own signed URL in `filePath`; see the matching
+			// branch in `MediaPlayer.android.kt`. Kept in step so `commonMain`'s
+			// model means the same thing on both platforms — iOS is compiled, not
+			// run or verified, like every other fork feature here.
+			PreviewManager.isPreviewId(song.id) && !song.filePath.isNullOrEmpty() -> {
 				NSURL.URLWithString(song.filePath)
 			}
 

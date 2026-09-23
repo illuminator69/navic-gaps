@@ -97,6 +97,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.EqualiserManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
@@ -988,9 +989,27 @@ class AndroidMediaPlayerViewModel(
 		} else {
 			if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
 		}
-		return sessionManager.api.getStreamUrl(id, bitrate, container?.takeIf { it.isNotBlank() })
-			.toUri()
-			.buildUpon()
+		val format = container?.takeIf { it.isNotBlank() }
+		val url = sessionManager.api.getStreamUrl(id, bitrate, format).toUri()
+
+		// `estimateContentLength` asks the server to declare a Content-Length it
+		// has to COMPUTE, as `requested bitrate / 8 * duration`, because a
+		// transcode's real size is unknown until it has been produced. It exists so
+		// seeking works on a transcoded stream, and it is only meaningful when we
+		// asked for a transcode.
+		//
+		// Sent on a request for the ORIGINAL file — which is the default, since
+		// `StreamingQuality.Lossless` is `bitrate = 0, container = null` — it can
+		// only ever be wrong, and wrong in the direction that truncates: a declared
+		// length shorter than the bytes actually sent makes ExoPlayer stop at that
+		// offset and treat it as the end of the track. That is silent. There is no
+		// error, nothing is logged, and the player simply advances — which is
+		// exactly what "the song abruptly cut off partway through, and the logs show
+		// nothing" looks like, with the fraction varying per file because it is the
+		// ratio of the assumed bitrate to the real one.
+		if (bitrate <= 0 && format == null) return url
+
+		return url.buildUpon()
 			.appendQueryParameter("estimateContentLength", "true")
 			.build()
 	}
@@ -2191,6 +2210,16 @@ class AndroidMediaPlayerViewModel(
 
 		val uri = when {
 			id.startsWith("radio_") && !filePath.isNullOrEmpty() -> {
+				filePath.toUri()
+			}
+
+			// A preview: not in the library, not downloadable, and its bytes come
+			// from the preview sidecar rather than from Navidrome. `filePath` is
+			// the arbitrary-URL escape hatch the `radio_` branch above already
+			// established, and the signed URL the hub minted is the only address
+			// that works — `getStreamUrl(id)` would build a Subsonic request for
+			// an id this server has never heard of.
+			PreviewManager.isPreviewId(id) && !filePath.isNullOrEmpty() -> {
 				filePath.toUri()
 			}
 

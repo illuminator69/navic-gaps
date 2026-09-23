@@ -280,7 +280,7 @@ fun PlaylistListScreen(
 		PlaylistCreateDialog(
 			onDismissRequest = { createDialogShown = false },
 			onRefresh = { viewModel.refreshPlaylists(true) },
-			onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor) }
+			onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor()) }
 		)
 	}
 }

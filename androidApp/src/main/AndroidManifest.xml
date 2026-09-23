@@ -19,6 +19,11 @@
 		android:name="android.permission.FOREGROUND_SERVICE"
 		tools:ignore="ForegroundServicesPolicy" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+	<!-- Needed so a download survives the app being backgrounded. Without a
+	     foreground service the process drops to CACHED when the last Activity stops
+	     and Android 12+ freezes its threads mid-transfer, which is what made
+	     downloading a large playlist require keeping the app on screen. -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
 	<!-- Download and library-sync progress notifications (upstream), and lb-bot fill
 	     outcomes (see FillNotifier). Playback's own notification rides on the media
@@ -50,7 +55,21 @@
 		<activity
 			android:name=".MainActivity"
 			android:exported="true"
-			android:theme="@style/Theme.Navic" />
+			android:theme="@style/Theme.Navic">
+			<!-- Paste-a-link, via the system share sheet: a streaming URL shared from
+			     a browser or another music app is resolved to MusicBrainz ids by
+			     lb-bot and opened as the release it names.
+
+			     ON THE ACTIVITY, NOT ON EITHER activity-alias BELOW. Those two exist
+			     solely to swap the launcher icon and one of them is always disabled,
+			     so a filter there would be dead half the time and a duplicate entry
+			     in the share sheet the other half. -->
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="text/plain" />
+			</intent-filter>
+		</activity>
 
 		<!-- app icon activities -->
 		<activity-alias
@@ -101,6 +120,16 @@
 				<action android:name="android.media.browse.MediaBrowserService" />
 			</intent-filter>
 		</service>
+
+		<!-- Downloads. Declared here rather than in :composeApp, which is a KMP
+		     library module and has no manifest of its own — same reason
+		     PlaybackService above is declared here while its class lives there.
+		     Not exported: it is started only by DownloadForegroundController. -->
+		<service
+			android:name="paige.navic.shared.DownloadService"
+			android:enabled="true"
+			android:exported="false"
+			android:foregroundServiceType="dataSync" />
 
 		<!-- miniplayer receiver -->
 		<receiver

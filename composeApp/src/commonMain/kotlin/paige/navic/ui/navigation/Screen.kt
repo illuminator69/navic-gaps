@@ -104,7 +104,12 @@ sealed interface Screen : NavKey {
 	data object PlaybackSpeed : Screen
 
 	@Serializable
-	data object SmartPlaylistEditor : Screen
+	/**
+	 * The smart-playlist rule editor. A `data class` rather than a `data object`
+	 * since it gained an edit mode: with no id it creates, with one it loads that
+	 * playlist's criteria from Navidrome and rewrites them in place.
+	 */
+	data class SmartPlaylistEditor(val playlistId: String? = null) : Screen
 	@Immutable
 	@Serializable
 	data class CollectionDetail(
@@ -133,6 +138,30 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data object SavedQueues : Screen
+
+	/**
+	 * "Mixed for You": the list of stored recipes.
+	 *
+	 * Deliberately not an overload of [SavedQueues], even though the two screens
+	 * look alike. A saved queue is a result and a mix is a recipe; one screen
+	 * serving both would have to answer "how many tracks" for a thing that has no
+	 * tracks until it is played. See [paige.navic.domain.models.Mix].
+	 */
+	@Immutable
+	@Serializable
+	data class MixList(val nested: Boolean = false) : Screen
+
+	/**
+	 * Releases lb-bot could not find a source for and is still looking for.
+	 *
+	 * Its own destination rather than a fourth list inside the Download Center: the
+	 * Download Center answers "what is happening now", and a wishlist entry is
+	 * explicitly the opposite — something that is not happening, on a timescale of
+	 * hours.
+	 */
+	@Immutable
+	@Serializable
+	data object Wishlist : Screen
 	@Immutable
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen

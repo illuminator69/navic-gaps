@@ -8,6 +8,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
@@ -85,6 +86,19 @@ class NativeApiManager(
 		return response
 	}
 
+	private suspend fun authedPut(path: String, body: JsonObject): HttpResponse {
+		val activeToken = token ?: login()
+		suspend fun send(bearer: String) = client.put("${base()}$path") {
+			contentType(ContentType.Application.Json)
+			header("X-ND-Authorization", "Bearer $bearer")
+			preferenceManager.customHeadersMap().forEach { (key, value) -> header(key, value) }
+			setBody(body.toString())
+		}
+
+		val response = send(activeToken)
+		return if (response.status == HttpStatusCode.Unauthorized) send(login()) else response
+	}
+
 	private suspend fun authedGet(path: String, params: Map<String, String>): HttpResponse {
 		val activeToken = token ?: login()
 		suspend fun send(bearer: String) = client.get("${base()}$path") {
@@ -140,9 +154,80 @@ class NativeApiManager(
 		comment: String,
 		isPublic: Boolean,
 		rules: JsonObject
-	): Result<Unit> {
+	): Result<String> {
 		return try {
 			val response = authedPost("/api/playlist", buildJsonObject {
+				put("name", name)
+				put("comment", comment)
+				put("public", isPublic)
+				put("rules", rules)
+			})
+			if (response.status.value in 200..299) {
+				// The created playlist's id, which this used to throw away by
+				// answering `Unit`. Two callers need it: the editor's Offline switch,
+				// which has to attach a download policy to the playlist it just made,
+				// and album-matching mode, which has to read the playlist back. An
+				// absent id is not a failure — the playlist exists — so it degrades
+				// to blank rather than to an error.
+				val id = runCatching {
+					response.body<kotlinx.serialization.json.JsonElement>()
+						.jsonObject["id"]?.jsonPrimitive?.content
+				}.getOrNull().orEmpty()
+				Result.success(id)
+			} else {
+				val text = try {
+					response.body<String>()
+				} catch (_: Exception) {
+					""
+				}
+				Result.failure(IllegalStateException("HTTP ${response.status.value} $text"))
+			}
+		} catch (e: Exception) {
+			Logger.e("NativeApiManager", "createSmartPlaylist failed", e)
+			Result.failure(e)
+		}
+	}
+
+	/**
+	 * The `rules` criteria of a playlist, or null when it has none.
+	 *
+	 * Null means "not a smart playlist" and is a perfectly ordinary answer — a
+	 * hand-made playlist has no rules — so it must not be conflated with a failure.
+	 * Nothing stores rules locally: `PlaylistEntity` has no such column, and the
+	 * Subsonic sync that populates it cannot see them, so this route is the only
+	 * way to find out what a smart playlist is actually built from.
+	 */
+	suspend fun fetchPlaylistRules(playlistId: String): Result<JsonObject?> {
+		if (playlistId.isBlank()) return Result.success(null)
+		return try {
+			val response = authedGet("/api/playlist/$playlistId", emptyMap())
+			if (response.status.value !in 200..299) {
+				return Result.failure(IllegalStateException("HTTP ${response.status.value}"))
+			}
+			val body = response.body<kotlinx.serialization.json.JsonElement>().jsonObject
+			Result.success(body["rules"]?.let { it as? JsonObject })
+		} catch (e: Exception) {
+			Logger.w("NativeApiManager", "fetchPlaylistRules failed: ${e.message}")
+			Result.failure(e)
+		}
+	}
+
+	/**
+	 * Rewrite an existing smart playlist's name, comment, visibility and rules.
+	 *
+	 * A full `PUT`, because Navidrome's native API replaces the record rather than
+	 * patching it — sending only `rules` would blank the name.
+	 */
+	suspend fun updateSmartPlaylist(
+		playlistId: String,
+		name: String,
+		comment: String,
+		isPublic: Boolean,
+		rules: JsonObject
+	): Result<Unit> {
+		return try {
+			val response = authedPut("/api/playlist/$playlistId", buildJsonObject {
+				put("id", playlistId)
 				put("name", name)
 				put("comment", comment)
 				put("public", isPublic)
@@ -159,7 +244,7 @@ class NativeApiManager(
 				Result.failure(IllegalStateException("HTTP ${response.status.value} $text"))
 			}
 		} catch (e: Exception) {
-			Logger.e("NativeApiManager", "createSmartPlaylist failed", e)
+			Logger.e("NativeApiManager", "updateSmartPlaylist failed", e)
 			Result.failure(e)
 		}
 	}

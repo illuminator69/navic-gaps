@@ -26,9 +26,7 @@ import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
-import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
-import paige.navic.ui.screens.playlist.dialogs.PlaylistDownloadDialog
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreVert
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -54,10 +52,19 @@ fun CollectionDetailScreenTopBar(
 	onSetRating: ((Int) -> Unit)?,
 	starred: Boolean?,
 	onSetStarred: ((Boolean) -> Unit)? = null,
-	refreshCollection: () -> Unit
+	refreshCollection: () -> Unit,
+	/**
+	 * Opens the auto-download settings. Owned by [CollectionDetailScreen] now
+	 * rather than by a flag in here, because the heading row's download button
+	 * offers the same thing and two composables cannot share a local.
+	 */
+	onAutoDownload: (() -> Unit)? = null,
+	/** Opens the rule editor. Null unless this really is a smart playlist. */
+	onEditRules: (() -> Unit)? = null,
+	/** Re-runs an album-mode playlist's stored recipe. Null for anything else. */
+	onRefreshRules: (() -> Unit)? = null
 ) {
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
-	var autoDownloadDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 
 	NestedTopBar(
@@ -110,9 +117,9 @@ fun CollectionDetailScreenTopBar(
 						onSetRating = onSetRating,
 						starred = starred,
 						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null,
-						onAutoDownload = if (collection is DomainPlaylist) {
-							{ autoDownloadDialogShown = true }
-						} else null
+						onAutoDownload = onAutoDownload,
+						onEditRules = onEditRules,
+						onRefreshRules = onRefreshRules
 					)
 				}
 			}
@@ -123,14 +130,6 @@ fun CollectionDetailScreenTopBar(
 		PlaylistUpdateDialog(
 			songs = collection?.songs.orEmpty().toPersistentList(),
 			onDismissRequest = { playlistDialogShown = false }
-		)
-	}
-
-	if (autoDownloadDialogShown && collection != null) {
-		PlaylistDownloadDialog(
-			playlistId = collection.id,
-			playlistName = collection.displayName,
-			onDismissRequest = { autoDownloadDialogShown = false }
 		)
 	}
 }

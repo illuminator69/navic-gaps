@@ -37,6 +37,17 @@ data class NavbarTab(
 		 * shown when *anything* feeds it rather than when lb-bot specifically is
 		 * up (see `rememberVisibleNavigationTabs`).
 		 */
-		DISCOVER
+		DISCOVER,
+
+		/**
+		 * "Mixed for You" — the stored regenerating recipes.
+		 *
+		 * Conditional on the hub rather than on lb-bot or AudioMuse, because the
+		 * recipes themselves live hub-side: with no hub there is nowhere for a mix
+		 * to exist, so the tab leads to a list that can only ever be empty.
+		 * Appended, and [paige.navic.domain.models.settings.NavbarConfig.VERSION] is
+		 * NOT bumped for it — `merged()` is what introduces a tab here.
+		 */
+		MIXES
 	}
 }

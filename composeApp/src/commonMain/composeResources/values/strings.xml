@@ -714,6 +714,12 @@
 	<string name="because_discover_listenbrainz">Built for you from what you listen to, and refreshed by ListenBrainz</string>
 	<string name="because_discover_rediscovery">Already in your library, and you have not played it in a long time</string>
 	<string name="because_discover_mood">Describe a mood and search your own library by how it sounds</string>
+	<string name="mood_prompt_1">rainy sunday morning</string>
+	<string name="mood_prompt_2">driving at night</string>
+	<string name="mood_prompt_3">slow and heavy</string>
+	<string name="mood_prompt_4">bright and jangly</string>
+	<string name="mood_prompt_5">something to cook to</string>
+	<string name="mood_prompt_6">melancholy but warm</string>
 	<string name="info_discover_empty">Nothing to discover yet. Discover is fed by lb-bot and AudioMuse through your hub, plus the rediscovery playlist set — none of them is configured, so there is nothing here to show.</string>
 	<string name="label_not_in_library">Not in your library</string>
 	<string name="search_albums_on_musicbrainz">Albums on MusicBrainz</string>
@@ -788,6 +794,90 @@
 	<string name="info_sync_hours_ago">%1$d h ago</string>
 	<string name="info_sync_date_format">%1$d %2$s</string>
 	<string name="info_bitrate_default_zero">Leaving this empty defaults to 0. Letting the server pick.</string>
+
+	<!-- navi-connect Track C: previews, Mixed for You, Deezer rows, paste-a-link, wishlist. -->
+	<string name="title_discover_charts">Charts</string>
+	<string name="title_discover_editorial">Picked by editors</string>
+	<string name="because_discover_charts">What is being played everywhere right now</string>
+	<string name="because_discover_editorial">Selections Deezer's editors put together</string>
+	<string name="title_discover_mixes">Mixed for You</string>
+	<string name="because_discover_mixes">Your own mixes, rebuilt fresh every time you play one</string>
+
+	<string name="mix_kind_similar">Similar songs</string>
+	<string name="mix_kind_fingerprint">Sonic Fingerprint</string>
+	<string name="mix_kind_adaptive">Mood Flow</string>
+	<string name="mix_kind_genre">Genre</string>
+	<string name="mix_kind_artist">Artist</string>
+	<string name="mix_kind_unknown">Made on another device</string>
+	<string name="mix_seeded_by">%1$s from %2$s</string>
+	<string name="mix_save_current">Save what's playing as a mix</string>
+	<string name="mix_regenerate_failed">Couldn't build this mix right now.</string>
+	<string name="mix_unknown_kind">This mix was made by a newer version and can't be rebuilt here.</string>
+	<string name="mix_not_connected">Mixes live on the hub, and it isn't connected.</string>
+	<string name="title_rename_mix">Rename mix</string>
+	<string name="title_delete_mix">Delete this mix?</string>
+	<string name="title_save_mix">Save as a mix</string>
+	<string name="option_mix_name">Mix name</string>
+	<string name="title_auto_download">Auto-download</string>
+	<string name="auto_download_ellipsis">Auto-download…</string>
+	<string name="auto_download_mode">Keep offline</string>
+	<string name="auto_download_mode_off">Off</string>
+	<string name="auto_download_mode_permanent">Everything</string>
+	<string name="auto_download_mode_rolling">Rolling</string>
+	<string name="auto_download_rolling_limit">Keep first N songs</string>
+	<string name="auto_download_budget">Max size in GB (optional)</string>
+	<string name="auto_download_quality">Quality</string>
+	<string name="auto_download_quality_original">Original</string>
+	<string name="auto_download_format">Format</string>
+	<string name="auto_download_format_original">Original</string>
+	<string name="auto_download_delete_files">Delete downloaded files</string>
+	<string name="auto_download_delete_files_hint">Remove what is already on this device</string>
+	<string name="auto_download_scope">Download</string>
+	<string name="download_now">Download now</string>
+	<string name="action_edit_rules">Edit rules…</string>
+	<string name="action_refresh_rules">Refresh from rules</string>
+	<string name="notice_refreshing_playlist">Rebuilding from the rules…</string>
+	<string name="notice_refreshed_playlist">Rebuilt from the rules</string>
+	<string name="notice_refresh_failed_playlist">Couldn't rebuild that playlist</string>
+	<string name="mix_new">New mix</string>
+	<string name="mix_preview">Preview</string>
+	<string name="mix_preview_empty">This recipe produced nothing right now. It may need AudioMuse, or more of your library.</string>
+	<string name="mix_preview_regenerates">Built fresh just now — playing it builds it again, so this is a sample rather than a tracklist.</string>
+	<string name="mix_tracks_count">%1$d tracks</string>
+	<string name="title_new_mix">New mix</string>
+	<string name="mix_how_built">How it is built</string>
+	<string name="mix_seed">Built around</string>
+	<string name="mix_length">Length</string>
+	<string name="mix_length_tracks">%1$d tracks</string>
+	<string name="mix_mood_character">Character</string>
+	<string name="mix_seed_playing">Seeded from "%1$s" by %2$s.</string>
+	<string name="mix_seed_needs_playing">Play something first — this kind of mix is built around a track.</string>
+	<string name="mix_seed_fingerprint">Built from your listening history, so it needs no seed — and it changes on its own over time.</string>
+	<string name="mix_seed_adaptive">Steered by a character rather than a seed. AudioMuse picks the tracks.</string>
+	<string name="mix_seed_search_artist">Search artists</string>
+	<string name="mix_seed_search_genre">Search genres</string>
+	<string name="mix_seed_none_found">Nothing in your library matches that.</string>
+	<string name="mix_seed_pick">Pick what this is built around.</string>
+	<string name="info_no_mixes">No mixes yet</string>
+	<string name="info_no_mixes_hint">A mix stores the recipe, not the tracklist — play one and it is built again from scratch. Start autoplay and save it from here.</string>
+
+	<string name="browse_unresolved">Couldn't match that to a release on MusicBrainz.</string>
+
+	<string name="action_preview_track">Preview this track</string>
+	<string name="preview_none_found">No preview found</string>
+
+	<string name="option_paste_link">Paste a link</string>
+	<string name="action_open_link">Open</string>
+	<string name="info_link_unresolved">Couldn't work out what that link is.</string>
+
+	<string name="title_wishlist">Wishlist</string>
+	<string name="action_add_to_wishlist">Add to wishlist</string>
+	<string name="action_remove_from_wishlist">Remove from wishlist</string>
+	<string name="info_wishlist_empty">Nothing on your wishlist</string>
+	<string name="info_wishlist_empty_hint">When nobody is sharing an album you asked for, add it here and lb-bot keeps looking.</string>
+	<string name="info_wishlist_unsupported">The wishlist needs lb-bot, through your hub.</string>
+	<string name="wishlist_attempts">Looked %1$d times so far</string>
+	<string name="wishlist_never_searched">Not looked for yet</string>
 
 	<string name="action_allow">Allow</string>
 </resources>

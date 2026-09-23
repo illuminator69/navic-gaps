@@ -27,13 +27,16 @@ data class NavbarConfig(
 				NavbarTab(NavbarTab.Id.SONGS, false),
 				NavbarTab(NavbarTab.Id.RADIOS, false),
 				NavbarTab(NavbarTab.Id.STATISTICS, false),
-				// Visible by default, and safe to be: the bar filters this tab out
-				// entirely when lb-bot isn't reachable, which is the state most
-				// installs are in. So it costs a slot only where it does something.
-				NavbarTab(NavbarTab.Id.FRESH, true),
-				// Same reasoning as FRESH: the bar drops it when nothing feeds it,
-				// so being visible by default costs a slot only where it earns one.
-				NavbarTab(NavbarTab.Id.DISCOVER, true)
+				// All three hidden by default now: they are the library home's top
+				// buttons instead (`rememberOverviewButtons`), which is where they
+				// stopped competing with Library/Albums/Playlists/Artists for a
+				// five-slot bar. The ids stay defined and stay listed in the reorder
+				// dialog, so any of them can be put back — removing them would make
+				// `merged()`'s live filter strip them from every stored config
+				// permanently.
+				NavbarTab(NavbarTab.Id.FRESH, false),
+				NavbarTab(NavbarTab.Id.DISCOVER, false),
+				NavbarTab(NavbarTab.Id.MIXES, false)
 			),
 			version = VERSION
 		)
@@ -60,5 +63,33 @@ data class NavbarConfig(
 			return if (missing.isEmpty() && live.size == stored.tabs.size) stored
 			else stored.copy(tabs = live + missing)
 		}
+
+		/** Tabs the home-buttons move takes off the bar, once, on an existing install. */
+		val HOME_BUTTON_TABS = setOf(
+			NavbarTab.Id.FRESH,
+			NavbarTab.Id.DISCOVER,
+			NavbarTab.Id.MIXES
+		)
+
+		/**
+		 * Hide the three tabs that became library-home buttons — once, on a config
+		 * written before that change.
+		 *
+		 * Flipping the defaults above is not enough on its own, because `merged()`
+		 * deliberately preserves a stored tab's visibility: an install that already
+		 * has Fresh and Discover on the bar would keep them there forever and never
+		 * see the change. The alternative is bumping [VERSION], which discards the
+		 * user's whole arrangement to move three flags — exactly what `merged()`
+		 * exists to avoid.
+		 *
+		 * So this is a targeted migration: order untouched, every other tab's
+		 * visibility untouched, and guarded by its own preference so a user who puts
+		 * one of them back is not overruled on the next launch.
+		 */
+		fun withHomeButtonTabsHidden(stored: NavbarConfig): NavbarConfig = stored.copy(
+			tabs = stored.tabs.map { tab ->
+				if (tab.id in HOME_BUTTON_TABS && tab.visible) tab.copy(visible = false) else tab
+			}
+		)
 	}
 }

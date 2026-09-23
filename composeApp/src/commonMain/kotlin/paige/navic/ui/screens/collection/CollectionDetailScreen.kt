@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +35,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.notice_refreshed_playlist
+import navic.composeapp.generated.resources.notice_refresh_failed_playlist
+import navic.composeapp.generated.resources.notice_refreshing_playlist
+import kotlinx.coroutines.launch
+import paige.navic.domain.manager.SnackBarManager
+import paige.navic.util.Logger
+import androidx.compose.runtime.rememberCoroutineScope
 import navic.composeapp.generated.resources.info_no_songs
 import navic.composeapp.generated.resources.title_disc_number
 import org.jetbrains.compose.resources.stringResource
@@ -45,7 +53,13 @@ import paige.navic.di.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.AlbumModeSmartPlaylists
+import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.displayName
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.playlist.dialogs.PlaylistDownloadDialog
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ThemeMode
@@ -198,6 +212,60 @@ fun CollectionDetailScreen(
 	val animatedSeed = animateColorAsState(coverColors.seed, animationSpec = tween(450))
 		// Status-bar icons follow the (cover-driven) page brightness.
 		ForceSystemBars(coverColors.isDark)
+
+	// Auto-download is offered from two places now — the overflow menu and the
+	// download button beside Play — so the flag lives here rather than inside either
+	// of them. Playlists only: an album has no policy to set.
+	var autoDownloadShown by rememberSaveable { mutableStateOf(false) }
+	val autoDownload: (() -> Unit)? = if (collection is DomainPlaylist) {
+		{ autoDownloadShown = true }
+	} else null
+
+	// Whether this playlist is a SMART one, which nothing local can answer: the
+	// Subsonic sync that fills `PlaylistEntity` cannot see criteria and there is no
+	// `isSmart` column, so Navidrome's native API is the only source. One small GET
+	// per playlist page, and it fails soft — an unreachable native API hides the
+	// row rather than offering an edit that cannot load.
+	val nativeApi = koinInject<NativeApiManager>()
+	val albumMode = koinInject<AlbumModeSmartPlaylists>()
+	val snackBarManager = koinInject<SnackBarManager>()
+	val scope = rememberCoroutineScope()
+	val backStack = LocalNavStack.current
+	var hasRules by remember(collection?.id) { mutableStateOf(false) }
+	// An album-mode playlist is an ordinary playlist on the server, so Navidrome
+	// correctly answers that it has no rules — its recipe is stored locally. Checked
+	// first, and without a network call.
+	val albumModeHere = collection is DomainPlaylist && albumMode.isAlbumMode(collection.id)
+	LaunchedEffect(collection?.id, collection is DomainPlaylist, albumModeHere) {
+		val playlist = collection as? DomainPlaylist ?: return@LaunchedEffect
+		hasRules = albumModeHere ||
+			nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
+	}
+	val editRules: (() -> Unit)? = if (collection is DomainPlaylist && hasRules) {
+		{ backStack.add(Screen.SmartPlaylistEditor(collection.id)) }
+	} else null
+	// Only an album-mode playlist can be refreshed: a real smart playlist is kept
+	// current by Navidrome and has nothing to re-run.
+	val refreshRules: (() -> Unit)? = if (albumModeHere && collection is DomainPlaylist) {
+		{
+			scope.launch {
+				snackBarManager.notify(Res.string.notice_refreshing_playlist)
+				albumMode.refresh(
+					playlistId = collection.id,
+					name = collection.displayName,
+					isPublic = false
+				).onSuccess {
+					viewModel.refreshCollection(true)
+					snackBarManager.notify(Res.string.notice_refreshed_playlist)
+				}.onFailure { e ->
+					Logger.e("CollectionDetailScreen", "album-mode refresh failed", e)
+					snackBarManager.notify(Res.string.notice_refresh_failed_playlist)
+				}
+			}
+			Unit
+		}
+	} else null
+
 	NavicTheme(coverColors.scheme, contentColor = onAmbient) {
 	Scaffold(
 		containerColor = stableTop,
@@ -220,7 +288,10 @@ fun CollectionDetailScreen(
 				onSetStarred = if (collection !is DomainPlaylist) {
 					{ viewModel.starAlbum(it) }
 				} else null,
-				refreshCollection = { viewModel.refreshCollection(false) }
+				refreshCollection = { viewModel.refreshCollection(false) },
+				onAutoDownload = autoDownload,
+				onEditRules = editRules,
+				onRefreshRules = refreshRules
 			)
 		},
 		bottomBar = {
@@ -272,7 +343,8 @@ fun CollectionDetailScreen(
 
 				item {
 					CollectionDetailScreenHeadingRowButtons(
-						collection = collection
+						collection = collection,
+						onAutoDownload = autoDownload
 					)
 				}
 
@@ -349,12 +421,18 @@ fun CollectionDetailScreen(
 										onAddToQueue = {
 											player.addToQueueSingle(song)
 										},
-										isStarred = if (selection == song) selectedSongIsStarred else song.starredAt != null,
+										isStarred = if (selection?.id == song.id) selectedSongIsStarred else song.starredAt != null,
 										download = download,
 										isOffline = !isOnline
 									)
+									// Keyed on the ID, never on the DomainSong itself. `selection` is
+									// the snapshot taken when the row was long-pressed, and the list
+									// re-emits fresh instances whenever the collection is re-read — so a
+									// data-class equality check goes false the moment a rating or a star
+									// changes, and the sheet closes under the finger of the person who
+									// just used it.
 									CollectionDetailScreenSongRowDropdown(
-										expanded = selection == song,
+										expanded = selection?.id == song.id,
 										onDismissRequest = { viewModel.clearSelection() },
 										onRemoveStar = { viewModel.unstarSelectedSong() },
 										onAddStar = { viewModel.starSelectedSong() },
@@ -401,12 +479,12 @@ fun CollectionDetailScreen(
 								onAddToQueue = {
 									player.addToQueueSingle(song)
 								},
-								isStarred = if (selection == song) selectedSongIsStarred else song.starredAt != null,
+								isStarred = if (selection?.id == song.id) selectedSongIsStarred else song.starredAt != null,
 								download = download,
 								isOffline = !isOnline
 							)
 							CollectionDetailScreenSongRowDropdown(
-								expanded = selection == song,
+								expanded = selection?.id == song.id,
 								onDismissRequest = { viewModel.clearSelection() },
 								onRemoveStar = { viewModel.unstarSelectedSong() },
 								onAddStar = { viewModel.starSelectedSong() },
@@ -494,4 +572,12 @@ fun CollectionDetailScreen(
 		expiry = shareExpiry,
 		onExpiryChange = { shareExpiry = it }
 	)
+
+	if (autoDownloadShown && collection != null) {
+		PlaylistDownloadDialog(
+			playlistId = collection.id,
+			playlistName = collection.displayName,
+			onDismissRequest = { autoDownloadShown = false }
+		)
+	}
 }

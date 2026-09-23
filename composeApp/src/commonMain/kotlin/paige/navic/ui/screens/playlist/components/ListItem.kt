@@ -21,6 +21,8 @@ import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
 import org.jetbrains.compose.resources.pluralStringResource
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import org.koin.compose.koinInject
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalNavStack
@@ -30,8 +32,12 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.domain.manager.AlbumModeSmartPlaylists
+import paige.navic.domain.manager.NativeApiManager
+import paige.navic.domain.models.displayName
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.playlist.dialogs.PlaylistDownloadDialog
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.util.appendBulletPoint
 
@@ -54,6 +60,8 @@ fun PlaylistListScreenListItem(
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val downloadManager = koinInject<DownloadManager>()
+	val nativeApi = koinInject<NativeApiManager>()
+	val albumMode = koinInject<AlbumModeSmartPlaylists>()
 	val downloadStatus by downloadManager
 		.getCollectionDownloadStatus(playlist.songs.map { it.id })
 		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
@@ -92,6 +100,17 @@ fun PlaylistListScreenListItem(
 			},
 			onLongClick = onSelect
 		)
+		// One probe per opened sheet, not per row. Fails soft: an unreachable native
+		// API hides the edit row rather than offering an edit that cannot load.
+		var hasRules by remember(playlist.id) { mutableStateOf(false) }
+		var autoDownloadShown by remember { mutableStateOf(false) }
+		LaunchedEffect(playlist.id) {
+			// An album-mode playlist is an ordinary playlist on the server, so
+			// Navidrome rightly answers that it has no rules — its recipe is stored
+			// locally. Checked first, and it costs no network call.
+			hasRules = albumMode.isAlbumMode(playlist.id) ||
+				nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
+		}
 		if (selected) {
 			CollectionSheet(
 				onDismissRequest = onDeselect,
@@ -118,7 +137,16 @@ fun PlaylistListScreenListItem(
 						downloadManager.deleteDownloadedCollection(playlist)
 						snackBarManager.notify(Res.string.notice_deleted_download)
 					}
-				}
+				},
+				// Reachable from the list at last: this sheet never passed it, so
+				// auto-download could only be set from inside the playlist.
+				onAutoDownload = { autoDownloadShown = true },
+				// Only a smart playlist has rules, and only Navidrome knows which is
+				// which. Probed once when the sheet opens rather than per row — a
+				// list of forty playlists must not be forty native-API calls.
+				onEditRules = if (hasRules) {
+					{ backStack.add(Screen.SmartPlaylistEditor(playlist.id)) }
+				} else null
 			)
 		}
 
@@ -126,6 +154,14 @@ fun PlaylistListScreenListItem(
 			PlaylistUpdateDialog(
 				songs = playlist.songs.toPersistentList(),
 				onDismissRequest = { playlistDialogShown = false }
+			)
+		}
+
+		if (autoDownloadShown) {
+			PlaylistDownloadDialog(
+				playlistId = playlist.id,
+				playlistName = playlist.displayName,
+				onDismissRequest = { autoDownloadShown = false }
 			)
 		}
 	}
