@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.discover
 
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -119,7 +121,18 @@ import paige.navic.ui.screens.mixes.mixKindLabel
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DiscoverScreen(nested: Boolean = false) {
-	val viewModel = koinViewModel<DiscoverViewModel>()
+	// A root tab keeps its ViewModel across tab switches, which clear the back stack — the
+	// lifetime it had before the ViewModel-store decorator was restored (CLAUDE.md §2 rule 14).
+	// Its `init` loads over the network, so without this every visit to the tab re-fetched.
+	// Nested (a home-page button, Discover's "See all") it dies with its entry, like
+	// upstream's list screens.
+	val viewModel = koinViewModel<DiscoverViewModel>(
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
+	)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current

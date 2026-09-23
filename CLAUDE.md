@@ -143,8 +143,27 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     — every artist page ever opened stayed alive and re-read on every library bump. It was found by
     an audit, not a symptom. After a merge touching `App.kt`, grep for
     `rememberViewModelStoreNavEntryDecorator`. With it in place a ViewModel dies when its entry is
-    popped, so anything that must outlive its screen needs `PersistentViewModelStoreOwner` (the
-    list screens) or a process-scoped manager — never a ViewModel on a popped entry.
+    popped — and **a tab switch clears the whole back stack** (`BottomBar` / `SideBar`), so every
+    root tab loses its ViewModel on every switch unless it opts out through
+    `koinViewModel(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())`. The
+    decorator and the opt-outs are ONE change upstream (`bbda3447`); restoring one without the
+    other is how this fork briefly re-fetched Discover and Fresh over the network on every tab
+    visit. The opt-out sites, all of which must survive a merge:
+
+    | Site | Opts out | Source |
+    |---|---|---|
+    | `AlbumListScreen`, `ArtistListScreen`, `GenreListScreen`, `PlaylistListScreen`, `RadioListScreen`, `SearchScreen` | when `!nested` | upstream |
+    | `SongListScreen` | when `!nested` (on the fork's `artistId` key) | upstream |
+    | `StarredScreen`, `LibraryScreen` (its upstream ViewModels) | always | upstream |
+    | `LyricsScreen` | always, keyed on the song | upstream |
+    | `FreshScreen`, `DiscoverScreen`, `MixListScreen` | when `!nested` | fork — their `init` loads over the network |
+    | `LibraryScreen`'s `SavedQueuesViewModel` | always | fork |
+
+    Grep `PersistentViewModelStoreOwner` against both parents after a merge; a fork-only root tab
+    added later needs its own row here. Anything else that must outlive its screen belongs in a
+    process-scoped manager, never in a ViewModel on a popped entry — e.g. `DownloadCenterViewModel`
+    (a settings detail pane, not a tab) runs its retry / cancel POSTs in `viewModelScope`, so
+    backing out mid-request can now cancel one.
 
 ⚠️ `dev.zt64.subsonic:subsonic-client` resolves at `1.0.0-SNAPSHOT` from a GitHub raw maven repo. A
 snapshot is not reproducible: if a build suddenly fails on a symbol that used to exist, suspect

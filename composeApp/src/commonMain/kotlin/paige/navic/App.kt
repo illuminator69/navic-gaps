@@ -352,9 +352,11 @@ fun App() {
 							// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
 							// lived in the activity's store for the life of the process — every
 							// artist page ever opened stayed alive and re-read on every library
-							// bump. With it, a ViewModel dies when its entry leaves the back stack;
-							// the list screens that must outlive that already opt out through
-							// `PersistentViewModelStoreOwner`. navigation3 keys each store by the
+							// bump. With it, a ViewModel dies when its entry leaves the back stack —
+							// and a tab switch clears the back stack, so every root tab and the
+							// lyrics opt out through `PersistentViewModelStoreOwner` (the list of
+							// sites is CLAUDE.md §2 rule 14; the decorator and the opt-outs are one
+							// change and must not be merged apart). navigation3 keys each store by the
 							// entry's content key, so an entry that is merely covered (a sheet over
 							// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
 							// CLAUDE.md §2 — both decorators, in this order.

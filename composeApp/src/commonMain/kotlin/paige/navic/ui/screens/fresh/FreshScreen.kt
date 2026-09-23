@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.fresh
 
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -92,7 +94,18 @@ private val WINDOWS = listOf(7, 30, 90)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreshScreen(nested: Boolean = false) {
-	val viewModel = koinViewModel<FreshViewModel>()
+	// A root tab keeps its ViewModel across tab switches, which clear the back stack — the
+	// lifetime it had before the ViewModel-store decorator was restored (CLAUDE.md §2 rule 14).
+	// Its `init` loads over the network, so without this every visit to the tab re-fetched.
+	// Nested (a home-page button, Discover's "See all") it dies with its entry, like
+	// upstream's list screens.
+	val viewModel = koinViewModel<FreshViewModel>(
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
+	)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()

@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.mixes
 
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -97,7 +99,18 @@ import paige.navic.ui.screens.mixes.viewmodels.MixMessage
  */
 @Composable
 fun MixListScreen(nested: Boolean = false) {
-	val viewModel = koinViewModel<MixListViewModel>()
+	// A root tab keeps its ViewModel across tab switches, which clear the back stack — the
+	// lifetime it had before the ViewModel-store decorator was restored (CLAUDE.md §2 rule 14).
+	// Its `init` loads over the network, so without this every visit to the tab re-fetched.
+	// Nested (a home-page button, Discover's "See all") it dies with its entry, like
+	// upstream's list screens.
+	val viewModel = koinViewModel<MixListViewModel>(
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
+	)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val mixes by viewModel.mixes.collectAsStateWithLifecycle()

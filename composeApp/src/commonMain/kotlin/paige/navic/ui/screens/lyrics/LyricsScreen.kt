@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.lyrics
 
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -100,9 +101,12 @@ fun LyricsScreen(
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	val backStack = LocalNavStack.current
+	// Upstream's opt-out (alpha59): the lyrics outlive the sheet, so reopening them for the
+	// same song is not a refetch. Keyed on the song, so a new track still gets its own.
 	val viewModel = koinViewModel<LyricsScreenViewModel>(
 		key = song?.id,
-		parameters = { parametersOf(song) }
+		parameters = { parametersOf(song) },
+		viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>()
 	)
 	val player = koinInject<MediaPlayerViewModel>()
 	// The lyrics view genuinely follows the playhead (line highlighting + autoscroll), so it takes

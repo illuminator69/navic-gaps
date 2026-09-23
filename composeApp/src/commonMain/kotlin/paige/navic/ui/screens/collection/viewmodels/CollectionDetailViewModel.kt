@@ -218,7 +218,8 @@ class CollectionDetailViewModel(
 	 * Null means the mirror does not know this artist at all, and only then does the caller
 	 * fall back to the network. A mirrored artist with no matching row answers `(null, mbid)`:
 	 * the network would read the very same index and say the same thing. The artist MBID is
-	 * lb-bot's own when it has one — never the `nd:` fallback key.
+	 * lb-bot's own when it has one — never the `nd:` fallback key — and only ever this album's
+	 * own artist's, never a collaborator's.
 	 */
 	private suspend fun mirroredRelease(album: DomainAlbum): Pair<String?, String?>? {
 		if (!lbBotManager.isConfigured) return null
@@ -226,7 +227,14 @@ class CollectionDetailViewModel(
 			val byId = lbIndexSync.releasesForAlbum(collectionId, album.artistId)
 				.firstOrNull { it.release.rgid.isNotBlank() }
 			if (byId != null) {
-				return@runCatching byId.release.rgid to byId.artist?.mbid?.ifBlank { null }
+				// The MBID only when the row is filed under THIS album's artist. A collaboration
+				// can be claimed by the other credited artist's row alone, and sending that
+				// artist's MBID would make "similar" mean similar to the collaborator; null keeps
+				// the old behaviour (lb-bot resolves the artist from the name).
+				val mbid = byId.artist
+					?.takeIf { it.ndArtistId == album.artistId }
+					?.mbid?.ifBlank { null }
+				return@runCatching byId.release.rgid to mbid
 			}
 			val artist = lbIndexSync.findArtist(album.artistId) ?: return@runCatching null
 			val artistMbid = artist.artist.mbid.ifBlank { null }

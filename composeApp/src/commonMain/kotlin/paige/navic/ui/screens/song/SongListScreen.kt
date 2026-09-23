@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.song
 
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.RowScope
@@ -58,9 +60,17 @@ fun SongListScreen(
 	artistName: String? = null,
 	listType: DomainSongListType
 ) {
+	// Upstream's opt-out (alpha59), on the fork's key: as a root tab the list survives a tab
+	// switch (which clears the back stack); nested — an artist's "see all", a genre — it dies
+	// with its entry.
 	val viewModel = koinViewModel<SongListViewModel>(
 		key = artistId,
-		parameters = { parametersOf(listType, artistId) }
+		parameters = { parametersOf(listType, artistId) },
+		viewModelStoreOwner = if (nested) {
+			LocalViewModelStoreOwner.current!!
+		} else {
+			koinInject<PersistentViewModelStoreOwner>()
+		}
 	)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()

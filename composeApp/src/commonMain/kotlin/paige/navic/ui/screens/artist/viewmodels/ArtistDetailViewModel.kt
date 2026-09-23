@@ -44,6 +44,7 @@ import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.manager.EVENT_ARTIST_SCANNED
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
@@ -275,8 +276,12 @@ class ArtistDetailViewModel(
 	 * Whether a library bump can change anything on THIS page ("filter library bumps by
 	 * `ndArtistId`", navi-connect index-mirror plan §4).
 	 *
-	 * - It names an artist (`ndArtistId` — lb-bot's `artistScanned`, which carries the id the
-	 *   scan was started with): exactly this one or not at all.
+	 * - An `artistScanned` event (it carries the `ndArtistId` the scan was started with): this
+	 *   artist's or not at all. Only that event is decided by the artist id alone. An
+	 *   `albumIndexed` also carries one — lb-bot sets it from the album's first track — but that
+	 *   names whoever Navidrome filed the album under, and a collaboration filed under the other
+	 *   artist is still a tile on THIS page; so for every other event a matching id is a yes and
+	 *   a different one falls through to the checks below.
 	 * - It names a release-group or albums: this page's if any of them is on it — an album tile,
 	 *   a cross-artist album [buildSections] resolved, an album id or rgid on one of lb-bot's
 	 *   rows — or if Room files one of the albums under this artist (a landing this page had no
@@ -285,8 +290,9 @@ class ArtistDetailViewModel(
 	 *   compared against what is shown, and nothing more unless the album list really moved.
 	 */
 	private suspend fun concerns(bump: LbLibraryEvent): Boolean {
-		if (bump.ndArtistId.isNotBlank()) return bump.ndArtistId == artistId
-		if (bump.rgid.isBlank() && bump.ndAlbumIds.isEmpty()) return true
+		if (bump.event == EVENT_ARTIST_SCANNED) return bump.ndArtistId == artistId
+		if (bump.ndArtistId == artistId) return true
+		if (bump.rgid.isBlank() && bump.ndAlbumIds.isEmpty()) return bump.ndArtistId.isBlank()
 		val releases = lbData?.releases.orEmpty()
 		if (bump.rgid.isNotBlank() && releases.any { it.rgid == bump.rgid }) return true
 		val onPage = (artistState.value as? UiState.Success)?.data?.albums.orEmpty()
@@ -429,15 +435,6 @@ class ArtistDetailViewModel(
 	// lb-bot discography
 	// ------------------------------------------------------------------ //
 
-	/**
-	 * Build the discography shelf: everything Navidrome has by this artist, plus
-	 * everything lb-bot's MusicBrainz index says exists and the library doesn't.
-	 *
-	 * Navidrome comes first and is never dropped. lb-bot's list is its own view of
-	 * the artist, and an album whose Navidrome record its matcher couldn't claim has
-	 * no row at all — so building the shelf out of lb-bot's list would silently hide
-	 * albums the user owns.
-	 */
 	/** Re-read this artist's albums from Room; true when the list actually changed. */
 	private suspend fun reloadAlbumsFromRoom(): Boolean {
 		val current = (artistState.value as? UiState.Success)?.data ?: return false
@@ -687,14 +684,6 @@ class ArtistDetailViewModel(
 	}
 
 	/**
-	 * Pure list-crunching, so it runs on [Dispatchers.Default].
-	 *
-	 * `viewModelScope` dispatches on `Main.immediate`, so without this the whole matching pass —
-	 * two maps over every lb-bot release, a pass over every owned album, then a groupBy and a sort
-	 * per section — ran on the UI thread, landing precisely as the discography painted. A prolific
-	 * artist with a large lb-bot index is where that was felt.
-	 */
-	/**
 	 * Navidrome album ids resolved out of Room that are NOT on this artist's album list.
 	 *
 	 * A collaboration record filed under the other credited artist, in practice. Kept so
@@ -702,6 +691,22 @@ class ArtistDetailViewModel(
 	 */
 	private val resolvedStrayAlbumIds = mutableSetOf<String>()
 
+	/**
+	 * Build the discography shelf: everything Navidrome has by this artist, plus
+	 * everything lb-bot's MusicBrainz index says exists and the library doesn't.
+	 *
+	 * Navidrome comes first and is never dropped. lb-bot's list is its own view of
+	 * the artist, and an album whose Navidrome record its matcher couldn't claim has
+	 * no row at all — so building the shelf out of lb-bot's list would silently hide
+	 * albums the user owns.
+	 *
+	 * Pure list-crunching, so it runs on [Dispatchers.Default].
+	 *
+	 * `viewModelScope` dispatches on `Main.immediate`, so without this the whole matching pass —
+	 * two maps over every lb-bot release, a pass over every owned album, then a groupBy and a sort
+	 * per section — ran on the UI thread, landing precisely as the discography painted. A prolific
+	 * artist with a large lb-bot index is where that was felt.
+	 */
 	private suspend fun buildSections(
 		albums: List<DomainAlbum>,
 		releases: List<LbRelease>

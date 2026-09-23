@@ -1056,17 +1056,16 @@ class HubManager(
 
 	/**
 	 * `welcome.lb`, or an `lb` frame: `{available: bool, routes: [...]}`, the same answer
-	 * `/lb/status` gives. Returns whether this advert moved lb-bot from unavailable to available
-	 * (false when it carried no usable `available` at all, which touches nothing).
+	 * `/lb/status` gives. Returns the `available` it applied, or null when the advert carried no
+	 * usable one — which touches nothing.
 	 */
-	private fun applyLbAdvert(lb: JsonObject): Boolean {
-		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return false
+	private fun applyLbAdvert(lb: JsonObject): Boolean? {
+		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return null
 		val routes = (lb["routes"] as? JsonArray)
 			?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 			?: emptyList()
-		val wasAvailable = lbBotManager.available.value
 		lbBotManager.applyHubAdvert(available, routes)
-		return available && !wasAvailable
+		return available
 	}
 
 	private suspend fun handleFrame(msg: JsonObject) {
@@ -1198,9 +1197,12 @@ class HubManager(
 			// stays connected would otherwise never hear lb-bot come up or go away. Coming UP is
 			// also when the mirror has most likely fallen behind (no `index` frame could reach us
 			// while lb-bot was down), so it pulls, and as a fresh start: a backoff measured against
-			// an lb-bot that was down is no reason to wait now. Old hubs never send this frame.
+			// an lb-bot that was down is no reason to wait now. On EVERY frame saying available —
+			// the hub only sends one when its verdict flips, so each is a coming-up; comparing
+			// against this client's cached `available` would miss the flip whenever a probe or a
+			// welcome had already moved the cache. Old hubs never send this frame.
 			"lb" -> try {
-				if (applyLbAdvert(msg)) lbIndexSync.requestSync("lb available", freshStart = true)
+				if (applyLbAdvert(msg) == true) lbIndexSync.requestSync("lb available", freshStart = true)
 			} catch (e: Exception) {
 				Logger.e("HubManager", "lb frame ignored", e)
 			}

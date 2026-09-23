@@ -153,7 +153,11 @@ fun LibraryScreen() {
 	// Stale-library signal: when a full sync last failed at the top level (server unreachable), tell
 	// the user the grid below is the cached copy instead of implying it's empty/broken.
 	// Same hub-routed edits the Saved Queues screen uses, so the card menu here can't drift from it.
-	val savedQueuesViewModel = koinViewModel<SavedQueuesViewModel>()
+	val savedQueuesViewModel = koinViewModel<SavedQueuesViewModel>(
+		// Fork-only, on the home tab: kept for the process like the upstream ViewModels above,
+		// as it was before the ViewModel-store decorator was restored.
+		viewModelStoreOwner = persistentViewModelStoreOwner
+	)
 	val savedQueueActions = rememberSavedQueueActions(savedQueuesViewModel, player)
 	var previewQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
 
