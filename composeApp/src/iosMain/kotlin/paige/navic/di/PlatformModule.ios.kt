@@ -11,6 +11,7 @@ import paige.navic.data.database.MIGRATION_CACHE_15_16
 import paige.navic.data.database.MIGRATION_CACHE_16_17
 import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
+import paige.navic.data.database.MIGRATION_CACHE_22_23
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.AppIconManager
@@ -44,7 +45,9 @@ actual val platformModule = module {
 				MIGRATION_CACHE_15_16,
 				MIGRATION_CACHE_16_17,
 				MIGRATION_CACHE_17_18,
-				MIGRATION_CACHE_18_19
+				MIGRATION_CACHE_18_19,
+				// Additive (the lb-bot index mirror). Without it the 23 bump wipes the library.
+				MIGRATION_CACHE_22_23
 			)
 			.fallbackToDestructiveMigration(true)
 			.build()

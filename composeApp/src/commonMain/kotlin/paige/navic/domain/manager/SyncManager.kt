@@ -48,7 +48,8 @@ class SyncManager(
 	private val connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
-	private val lbBotManager: LbBotManager
+	private val lbBotManager: LbBotManager,
+	private val lbIndexSync: LbIndexSync
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var syncJob: Job? = null
@@ -236,6 +237,10 @@ class SyncManager(
 
 		syncJob = scope.launch {
 			while (isActive) {
+				// The lb-bot index mirror's backstop pull (the hub's `welcome` and `index` frames
+				// are the fast paths). Fire-and-forget onto its own single worker, BEFORE the
+				// library cycle, so a long full pull never delays it and it never holds syncMutex.
+				lbIndexSync.requestSync("periodic")
 				runSyncCycle()
 				delay(15.minutes)
 			}

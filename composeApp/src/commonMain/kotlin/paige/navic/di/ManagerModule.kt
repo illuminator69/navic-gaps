@@ -9,6 +9,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.EqualiserManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.manager.PlaylistDownloadManager
@@ -25,7 +26,7 @@ val managerModule = module {
 	singleOf(::AmbientColorHolder)
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
-		SyncManager(get(), get(), get(), get(), get(), get(), get()).apply {
+		SyncManager(get(), get(), get(), get(), get(), get(), get(), get()).apply {
 			startPeriodicSync()
 		}
 	}
@@ -43,8 +44,11 @@ val managerModule = module {
 	single(createdAtStart = true) {
 		LbBotManager(get()).apply { resumeWatches() }
 	}
+	// The lb-bot index mirror's sync worker. Constructed by HubManager and SyncManager (both
+	// createdAtStart), which own its three triggers: welcome, the `index` frame, the 15-min cycle.
+	singleOf(::LbIndexSync)
 	single(createdAtStart = true) {
-		HubManager(get(), get(), get(), get(), get(), get()).apply { start() }
+		HubManager(get(), get(), get(), get(), get(), get(), get()).apply { start() }
 	}
 	// createdAtStart, and never lazily: a cast session is precisely the case where no screen is
 	// open and no local player is running, so nothing else would ever construct this.

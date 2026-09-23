@@ -9,6 +9,7 @@ import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.GenreDao
+import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.RadioDao
@@ -19,6 +20,10 @@ import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.entities.ArtistEntity
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.GenreEntity
+import paige.navic.data.database.entities.LbIndexArtistEntity
+import paige.navic.data.database.entities.LbIndexMetaEntity
+import paige.navic.data.database.entities.LbIndexReleaseEntity
+import paige.navic.data.database.entities.LbResponseCacheEntity
 import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.database.entities.PlaylistEntity
 import paige.navic.data.database.entities.PlaylistSongCrossRef
@@ -40,7 +45,15 @@ import kotlinx.coroutines.launch
 	// cache is rebuilt destructively on a version change by design — upstream writes no
 	// migrations for it — and saved queues are an offline cache that syncSavedQueues reconciles
 	// from the hub on reconnect.
-	version = 22,
+	//
+	// 23: the lb-bot index mirror (lb_index_artist / lb_index_release / lb_index_meta) and the
+	// lb_response_cache table. "Destructive by design" stops being free here: the mirror's first
+	// pull is ~10 pages of ~2 MB from lb-bot, and a wipe also throws away the whole cached library
+	// for a change that only ADDS tables. So 22 -> 23 is a real, purely additive migration
+	// (MIGRATION_CACHE_22_23, registered in BOTH PlatformModule.android.kt and .ios.kt), and the
+	// destructive fallback stays only for versions with no path. If upstream bumps this database,
+	// renumber above both parents (the alpha59 "two 21s" rule) and keep this migration.
+	version = 23,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,
@@ -52,7 +65,11 @@ import kotlinx.coroutines.launch
 		LyricEntity::class,
 		SyncActionEntity::class,
 		DownloadEntity::class,
-		SavedQueueEntity::class
+		SavedQueueEntity::class,
+		LbIndexArtistEntity::class,
+		LbIndexReleaseEntity::class,
+		LbIndexMetaEntity::class,
+		LbResponseCacheEntity::class
 	]
 )
 @ColumnTypeConverters(Converters::class)
@@ -68,6 +85,7 @@ abstract class CacheDatabase : RoomDatabase() {
 	abstract fun lyricDao(): LyricDao
 	abstract fun syncActionDao(): SyncActionDao
 	abstract fun savedQueueDao(): SavedQueueDao
+	abstract fun lbIndexDao(): LbIndexDao
 }
 
 @Suppress("KotlinNoActualForExpect")

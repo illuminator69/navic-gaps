@@ -33,6 +33,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -127,7 +128,8 @@ class HubManager(
 	private val songDao: SongDao,
 	private val mediaPlayer: MediaPlayerViewModel,
 	private val savedQueueRepository: SavedQueueRepository,
-	private val lbBotManager: LbBotManager
+	private val lbBotManager: LbBotManager,
+	private val lbIndexSync: LbIndexSync
 ) : RemotePlaybackRouter {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	private val client = HttpClient {
@@ -1052,6 +1054,15 @@ class HubManager(
 	// Inbound frames
 	// ------------------------------------------------------------------ //
 
+	/** `welcome.lb`: `{available: bool, routes: [...]}`, the same answer `/lb/status` gives. */
+	private fun applyLbAdvert(lb: JsonObject) {
+		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return
+		val routes = (lb["routes"] as? JsonArray)
+			?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+			?: emptyList()
+		lbBotManager.applyHubAdvert(available, routes)
+	}
+
 	private suspend fun handleFrame(msg: JsonObject) {
 		when (msg["t"]?.jsonPrimitive?.content) {
 			"welcome" -> {
@@ -1101,6 +1112,19 @@ class HubManager(
 				}
 				// Hub is authoritative: adopt its session rather than re-publishing ours.
 				adoptIfNoLiveReceiver()
+				// lb-bot's availability and route list ride on the welcome (navi-connect
+				// contract §1a), so the first lb-bot read after a connect needn't pay a
+				// `/lb/status` probe first. Absent on an older hub, which keeps the probe path
+				// untouched; isolated because a malformed advert must not fail the handshake.
+				try {
+					(msg["lb"] as? JsonObject)?.let { applyLbAdvert(it) }
+				} catch (e: Exception) {
+					Logger.e("HubManager", "lb advert ignored", e)
+				}
+				// Pull the lb-bot index mirror on EVERY welcome. `lbIndex` is only a hint and is
+				// not trusted to skip the pull: an up-to-date pull costs ~100 bytes, and an
+				// `index` frame missed while this socket was down would make the hint stale.
+				lbIndexSync.requestSync("welcome")
 				Logger.i("HubManager", "connected to hub as $id")
 			}
 
@@ -1152,6 +1176,13 @@ class HubManager(
 			// in the library changed, so nothing is refetched — one ledger row is updated,
 			// through the same function the poll uses (PROTOCOL §15.1).
 			"fill" -> lbBotManager.onFillFrame(msg)
+
+			// lb-bot's index moved (`{seq, epoch}`). Not a library event either: nothing in
+			// Navidrome changed, so nothing is refetched and no library cache is touched — the
+			// mirror pulls the change feed from its own cursor. The frame's seq/epoch are not
+			// needed for that; the pull answers both authoritatively.
+			// The frame is also proof lb-bot is up, whatever a cached availability says.
+			"index" -> lbIndexSync.requestSync("index frame", lbAlive = true)
 
 			"error" -> {
 				val code = msg["code"]?.jsonPrimitive?.content

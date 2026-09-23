@@ -363,6 +363,45 @@ class LbBotManager(
 	}
 
 	/**
+	 * The hub's `welcome.lb` — `{available, routes}` (navi-connect contract §1a), the same two
+	 * answers [probeAvailable] gets from `/lb/status`, delivered on the socket instead.
+	 *
+	 * Written into exactly the state the probe writes, stamped as fresh, so the first
+	 * [ensureAvailability] after a connect answers from memory rather than paying a `/lb/status`
+	 * round trip before the artist page's first real request. `routes` is the probe's list
+	 * verbatim, so [advertisesRoute] behaves identically whichever path filled it.
+	 *
+	 * Only called when the frame carries `lb`. An older hub sends no such field, nothing here is
+	 * touched, and the probe path works exactly as before — a missing advert must never be read as
+	 * "unavailable".
+	 */
+	fun applyHubAdvert(available: Boolean, routes: List<String>) {
+		_hubRoutes.value = routes
+		_available.value = available
+		_availableAt = nowMs()
+	}
+
+	/**
+	 * One page of the index change feed, for [LbIndexSync]. Through the hub's single-slot `sync`
+	 * pool: a `Rejected(503)` means another client's sync holds the slot and is a BACKOFF, never
+	 * a reason to touch the mirror. [epoch] blank (a never-synced mirror) is omitted, which lb-bot
+	 * reads as "no epoch check".
+	 */
+	suspend fun indexChanges(since: Long, epoch: String): LbResult<LbIndexChanges> =
+		getJson(
+			"/lb/index/changes",
+			listOf("since" to since.toString(), "epoch" to epoch)
+		)
+
+	/** Every `{key, seq}` of the index, for the drift check. Same pool and 503 rule. */
+	suspend fun indexKeys(): LbResult<LbIndexKeys> =
+		getJson("/lb/index/keys", emptyList())
+
+	/** False only when the hub advertised a route list without the change feed. */
+	val supportsIndexMirror: Boolean
+		get() = advertisesRoute("GET /lb/index/changes")
+
+	/**
 	 * Route names the hub advertised on the last probe, or empty if it is old enough
 	 * not to advertise any. Used to tell "this hub can't do that" apart from "that
 	 * failed", which otherwise look identical from here.
@@ -2185,6 +2224,69 @@ data class LbRelease(
 	val isMissing: Boolean get() = status == "missing"
 	val isIncomplete: Boolean get() = status == "incomplete" && !groupId.isNullOrBlank()
 }
+
+/**
+ * One page of lb-bot's index change feed, `GET /lb/index/changes?since=&epoch=` (navi-connect
+ * contract §1a). camelCase on the wire, unlike the snake_case rows it carries.
+ *
+ * Two shapes share this class. A **resync** answer (`resync: true`) carries only the envelope and
+ * means "your mirror belongs to another epoch, or claims a seq this index never reached": wipe it,
+ * adopt [epoch], pull again from 0. A normal answer carries [items] with `seq > since`, in seq
+ * order, and [artistCount]/[seqSum] of the whole index taken in the same snapshot — the drift
+ * check's reference values.
+ */
+@Serializable
+data class LbIndexChanges(
+	val resync: Boolean = false,
+	val epoch: String = "",
+	val headSeq: Long = 0L,
+	val scanVersion: Int = 0,
+	/** lb-bot's `LB_BOT_INDEX_TTL_DAYS`, a float upstream. */
+	val ttlDays: Double = 0.0,
+	val items: List<LbIndexItem> = emptyList(),
+	val nextSince: Long = 0L,
+	val more: Boolean = false,
+	val artistCount: Long = 0L,
+	val seqSum: Long = 0L
+)
+
+/**
+ * An artist or a tombstone — flat rather than polymorphic, discriminated by [type], so a field a
+ * later lb-bot adds (or an item type this client doesn't know) degrades to "ignored" instead of
+ * failing the whole page.
+ */
+@Serializable
+data class LbIndexItem(
+	/** `artist` | `tombstone`. */
+	val type: String = "",
+	val key: String = "",
+	val ndArtistId: String = "",
+	val mbid: String = "",
+	val name: String = "",
+	/** Epoch seconds, float upstream. */
+	val scannedAt: Double = 0.0,
+	val scanVersion: Int = 0,
+	val seq: Long = 0L,
+	/** `_index_row_to_wire` rows, in lb-bot's `year, title` order. */
+	val rows: List<LbRelease> = emptyList()
+) {
+	val isArtist: Boolean get() = type == "artist"
+	val isTombstone: Boolean get() = type == "tombstone"
+}
+
+/** `GET /lb/index/keys`: every artist key with its seq (no tombstones), for the drift check. */
+@Serializable
+data class LbIndexKeys(
+	val epoch: String = "",
+	val headSeq: Long = 0L,
+	val keys: List<LbIndexKey> = emptyList()
+)
+
+@Serializable
+data class LbIndexKey(
+	val key: String = "",
+	val seq: Long = 0L
+)
 
 /**
  * The exact pressing a sheet has already resolved, passed to lb-bot instead of letting it guess.

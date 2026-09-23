@@ -31,6 +31,7 @@ import org.jetbrains.compose.resources.getString
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.GenreDao
+import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.RadioDao
@@ -59,7 +60,8 @@ class DbRepository(
 	private val lyricDao: LyricDao,
 	private val syncDao: SyncActionDao,
 	private val sessionManager: SessionManager,
-	private val notificationManager: NotificationManager
+	private val notificationManager: NotificationManager,
+	private val lbIndexDao: LbIndexDao
 ) {
 	private val concurrentRequestLimit = Semaphore(20)
 
@@ -84,6 +86,10 @@ class DbRepository(
 		radioDao.clearAllRadios()
 		lyricDao.clearAllLyrics()
 		syncDao.clearAllActions()
+		// The lb-bot index mirror and response cache: lb-bot data about THIS user's library, so
+		// it goes with it. The next sync starts a fresh mirror from seq 0 under whatever epoch
+		// lb-bot answers.
+		lbIndexDao.clearAll()
 		Logger.i("DbRepository", "Database wiped completely.")
 	}
 

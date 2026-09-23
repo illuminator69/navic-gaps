@@ -167,3 +167,71 @@ val MIGRATION_CACHE_18_19 = object : Migration(18, 19) {
 		}
 	}
 }
+
+/**
+ * v22 → v23: the lb-bot index mirror and the lb-bot response cache — four new, initially-empty
+ * tables and one index. Nothing existing is touched.
+ *
+ * Why a real migration for a database that is otherwise rebuilt destructively on a version change
+ * (see CacheDatabase): the only thing that changed is additions, and the fallback would throw away
+ * the user's whole cached library (a full re-pull from Navidrome) to gain four empty tables. The
+ * mirror itself then fills from lb-bot in the background.
+ *
+ * The DDL must match Room's generated schema (`schemas/…CacheDatabase/23.json`) exactly —
+ * identifiers, types, NOT NULL, primary keys, index name — or Room's post-migration validation
+ * fails on launch. `IF NOT EXISTS` tolerates a database that already has them.
+ */
+val MIGRATION_CACHE_22_23 = object : Migration(22, 23) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `lb_index_artist` (" +
+				"`artistKey` TEXT NOT NULL, " +
+				"`ndArtistId` TEXT NOT NULL, " +
+				"`mbid` TEXT NOT NULL, " +
+				"`name` TEXT NOT NULL, " +
+				"`scannedAt` REAL NOT NULL, " +
+				"`scanVersion` INTEGER NOT NULL, " +
+				"`seq` INTEGER NOT NULL, " +
+				"PRIMARY KEY(`artistKey`))"
+		)
+		connection.execSQL(
+			"CREATE INDEX IF NOT EXISTS `index_lb_index_artist_ndArtistId` " +
+				"ON `lb_index_artist` (`ndArtistId`)"
+		)
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `lb_index_release` (" +
+				"`artistKey` TEXT NOT NULL, " +
+				"`rgid` TEXT NOT NULL, " +
+				"`position` INTEGER NOT NULL, " +
+				"`title` TEXT NOT NULL, " +
+				"`year` TEXT NOT NULL, " +
+				"`primaryType` TEXT NOT NULL, " +
+				"`secondaryTypes` TEXT NOT NULL, " +
+				"`effectiveType` TEXT NOT NULL, " +
+				"`status` TEXT NOT NULL, " +
+				"`matchMethod` TEXT NOT NULL, " +
+				"`matchScore` REAL NOT NULL, " +
+				"`groupId` TEXT, " +
+				"`present` INTEGER, " +
+				"`total` INTEGER, " +
+				"`navidromeAlbumIds` TEXT NOT NULL, " +
+				"PRIMARY KEY(`artistKey`, `rgid`))"
+		)
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `lb_index_meta` (" +
+				"`id` INTEGER NOT NULL, " +
+				"`epoch` TEXT NOT NULL, " +
+				"`cursor` INTEGER NOT NULL, " +
+				"`scanVersion` INTEGER NOT NULL, " +
+				"`ttlDays` REAL NOT NULL, " +
+				"PRIMARY KEY(`id`))"
+		)
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `lb_response_cache` (" +
+				"`key` TEXT NOT NULL, " +
+				"`body` TEXT NOT NULL, " +
+				"`fetchedAt` INTEGER NOT NULL, " +
+				"PRIMARY KEY(`key`))"
+		)
+	}
+}
