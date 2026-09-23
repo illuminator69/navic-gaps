@@ -190,6 +190,25 @@ interface LbIndexDao {
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun putCachedResponse(entry: LbResponseCacheEntity)
 
+	/**
+	 * [putCachedResponse], unless the stored body is from a request that STARTED later.
+	 *
+	 * `fetchedAt` is stamped with when the request left, not when it answered (see
+	 * `LbBotManager.cachedGet`), so two revalidations of one key racing — only possible across a
+	 * library landing, which starts a second one rather than joining the first — cannot let the
+	 * older answer, arriving last, overwrite the newer.
+	 */
+	@Transaction
+	suspend fun putCachedResponseIfNewer(entry: LbResponseCacheEntity) {
+		val existing = getCachedResponse(entry.key)
+		if (existing != null && existing.fetchedAt > entry.fetchedAt) return
+		putCachedResponse(entry)
+	}
+
+	/** Drop bodies nobody has revalidated since [cutoff] — the table's only bound. */
+	@Query("DELETE FROM lb_response_cache WHERE fetchedAt < :cutoff")
+	suspend fun pruneCachedResponses(cutoff: Long)
+
 	@Query("DELETE FROM lb_response_cache")
 	suspend fun clearResponseCache()
 

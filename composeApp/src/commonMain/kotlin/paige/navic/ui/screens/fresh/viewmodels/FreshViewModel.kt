@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlin.time.Clock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -12,6 +13,7 @@ import kotlinx.datetime.daysUntil
 import kotlinx.datetime.toLocalDateTime
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.PreferenceManager
 
@@ -84,37 +86,67 @@ class FreshViewModel(
 	)
 	val state = _state.asStateFlow()
 
+	private var loadJob: Job? = null
+
 	init { load() }
 
 	/**
-	 * Read the feed.
+	 * Read the feed — stale-while-revalidate over `lb_response_cache`.
 	 *
-	 * Gated on connectivity the way `ArtistDetailViewModel.loadDiscography` is:
-	 * this runs from `init`, i.e. on the screen's first frame, and a cold start
-	 * restored straight onto this tab would otherwise burn its one attempt before
-	 * the network is up. There is no automatic retry by design — a feed that
-	 * updates hourly does not deserve a poll — so the failure state carries a
-	 * Retry button, and that is the only thing standing between one unlucky frame
-	 * and a permanently empty tab.
+	 * The cached feed (any age) renders first, straight from Room; a request follows only when
+	 * it is older than ten minutes, or older than the last library change (every row carries
+	 * `artistOwned` / `releaseOwned`, which a landing falsifies), or when [policy] is
+	 * [LbCachePolicy.REFRESH]. A failed request never replaces a feed on screen.
+	 *
+	 * Offline is [LbCachePolicy.CACHE_ONLY], gated on connectivity the way
+	 * `ArtistDetailViewModel.loadDiscography` is: this runs from `init`, i.e. on the screen's
+	 * first frame, and a cold start restored straight onto this tab would otherwise burn its one
+	 * attempt before the network is up. There is no automatic retry by design — a feed that
+	 * updates hourly does not deserve a poll — so with nothing cached the failure state carries a
+	 * Retry button, and that is the only thing standing between one unlucky frame and a
+	 * permanently empty tab.
+	 *
+	 * [quiet] keeps the spinner off: the screen's own revalidation on every visit
+	 * ([revalidate]) must not flash a loading state over a feed that is already there.
 	 */
-	fun load() {
-		viewModelScope.launch {
-			_state.value = _state.value.copy(loading = true, failed = false)
-			if (!isOnline.value) {
-				_state.value = _state.value.copy(loading = false, failed = true)
-				return@launch
-			}
-			val feed = lbBotManager.freshReleases(_state.value.days)
-			_state.value = recompute(
-				_state.value.copy(
-					loading = false,
-					failed = feed == null,
-					all = feed?.releases.orEmpty(),
-					total = feed?.total ?: 0,
-					truncated = feed?.truncated == true
+	fun load(policy: LbCachePolicy = LbCachePolicy.NORMAL, quiet: Boolean = false) {
+		loadJob?.cancel()
+		loadJob = viewModelScope.launch {
+			if (!quiet) _state.value = _state.value.copy(loading = true, failed = false)
+			val days = _state.value.days
+			val effective = if (isOnline.value) policy else LbCachePolicy.CACHE_ONLY
+			lbBotManager.freshReleases(days, policy = effective).collect { feed ->
+				// A window change is a different request: drop an answer for the old one.
+				if (_state.value.days != days) return@collect
+				// `null` only when nothing was cached AND nothing came back, so it replaces
+				// only an empty (or other-window) feed — never one the user is reading.
+				_state.value = recompute(
+					_state.value.copy(
+						failed = feed == null,
+						all = feed?.releases.orEmpty(),
+						total = feed?.total ?: 0,
+						truncated = feed?.truncated == true
+					)
 				)
-			)
+			}
+			// After the Flow, not on its first emission: `loading` is "a request is in flight",
+			// so a pull-to-refresh spins until the network has answered rather than stopping on
+			// the cached feed it painted first.
+			_state.value = _state.value.copy(loading = false)
 		}
+	}
+
+	/** Pull-to-refresh and Retry: revalidate whatever the cached feed's age. */
+	fun refresh() = load(LbCachePolicy.REFRESH)
+
+	/**
+	 * Every visit to the screen. The ViewModel outlives the visit (a root tab keeps it for the
+	 * process), so `init` alone would show the first feed of the session forever; this is a Room
+	 * read and, only when the cached feed has gone stale, one request.
+	 */
+	fun revalidate() {
+		if (loadJob?.isActive == true) return
+		load(quiet = true)
 	}
 
 	fun setDays(days: Int) {

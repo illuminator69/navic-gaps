@@ -129,11 +129,19 @@ fun MissingAlbumSheet(
 	val fills by lbBot.fills.collectAsState()
 	val status = fills[release.rgid]
 
+	// Stale-while-revalidate (`LbBotManager.cachedGet`): a release-group seen before paints its
+	// editions from Room at once, and a revalidated answer replaces them only if it differs.
 	LaunchedEffect(release.rgid) {
 		loadingDetail = true
-		detail = lbBot.albumReleases(release.rgid)
-		loadingDetail = false
-		editionMbid = detail?.releases?.firstOrNull()?.releaseMbid.orEmpty()
+		lbBot.albumReleases(release.rgid).collect { answer ->
+			detail = answer
+			loadingDetail = false
+			// Only the first answer picks the edition: a revalidation must not move a pick
+			// the user has already made (or that the tracklist below is already following).
+			if (editionMbid.isBlank()) {
+				editionMbid = answer?.releases?.firstOrNull()?.releaseMbid.orEmpty()
+			}
+		}
 	}
 
 	// The tracklist is per *edition*: two pressings of one release-group can differ,
@@ -141,7 +149,7 @@ fun MissingAlbumSheet(
 	LaunchedEffect(editionMbid) {
 		if (editionMbid.isBlank()) return@LaunchedEffect
 		tracklist = null
-		tracklist = lbBot.tracklist(editionMbid)
+		lbBot.tracklist(editionMbid).collect { tracklist = it }
 	}
 
 	// The pressing the pickers above have already settled on. Sending it stops lb-bot re-resolving

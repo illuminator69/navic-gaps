@@ -95,8 +95,8 @@ data class LbIndexMetaEntity(
 /**
  * Cached bodies of lb-bot's NON-index reads (editorial meta, releases, tracklists, Fresh, Discover
  * rows), for stale-while-revalidate. [key] is the route plus its sorted params; [body] is the raw
- * JSON exactly as the hub answered it; [fetchedAt] is epoch millis. Populated by a later task —
- * this one only creates the table so the schema bump happens once.
+ * JSON exactly as the hub answered it; [fetchedAt] is epoch millis of when the request that
+ * produced it LEFT. Written and read only by `LbBotManager.cachedGet`, which owns the key format.
  */
 @Entity(tableName = "lb_response_cache")
 data class LbResponseCacheEntity(

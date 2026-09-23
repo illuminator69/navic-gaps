@@ -244,4 +244,16 @@ class PreferenceManager(
 	 * changed it before, so a position would quietly re-point to another genre.
 	 */
 	var deezerGenre by preference("0")
+
+	/**
+	 * When the library last changed as far as this device heard — a hub `library` frame, a fill
+	 * of ours landing, or a (re)connect that may have missed some. Epoch millis.
+	 *
+	 * A watermark for `LbBotManager.cachedGet`: every cached lb-bot answer that carries ownership
+	 * (`owned`, `releaseOwned`, a per-track `present`) and was fetched at or before this is stale,
+	 * whatever its age. A preference rather than an `UPDATE` over the cache table because it is
+	 * one synchronous write from the frame thread, so a screen re-reading on the same bump can
+	 * never beat it, and it survives the process — which the in-memory copy does not.
+	 */
+	var lbCacheLibraryStaleAt by preference(0L)
 }

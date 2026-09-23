@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +111,9 @@ fun FreshScreen(nested: Boolean = false) {
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	// Every visit, not only the ViewModel's first: a root tab keeps it for the process. A Room
+	// read, plus one request only when the cached feed has gone stale (FreshViewModel.revalidate).
+	LaunchedEffect(Unit) { viewModel.revalidate() }
 
 	Scaffold(
 		topBar = {
@@ -129,8 +133,10 @@ fun FreshScreen(nested: Boolean = false) {
 			modifier = Modifier
 				.padding(top = innerPadding.calculateTopPadding()),
 			finished = !state.loading,
-			onRefresh = { viewModel.load() },
-			key = state.all
+			onRefresh = { viewModel.refresh() },
+			// `loading` in the key: a refresh that revalidates to the very feed already on
+			// screen leaves `all` equal, and the indicator would never be told to stop.
+			key = state.all to state.loading
 		) {
 			LazyVerticalGrid(
 				columns = GridCells.Fixed(2),
@@ -173,7 +179,7 @@ fun FreshScreen(nested: Boolean = false) {
 							// hub) and a tab that stays empty for the session.
 							if (state.failed) {
 								Button(
-									onClick = { viewModel.load() },
+									onClick = { viewModel.refresh() },
 									modifier = Modifier.padding(top = 12.dp)
 								) { Text(stringResource(Res.string.action_retry)) }
 							}

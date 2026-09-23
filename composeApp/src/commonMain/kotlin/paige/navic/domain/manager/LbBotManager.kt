@@ -19,13 +19,18 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,16 +41,31 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.serializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Clock
+import paige.navic.data.database.dao.LbIndexDao
+import paige.navic.data.database.entities.LbResponseCacheEntity
 import paige.navic.util.Logger
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+
+/**
+ * How a [LbBotManager.cachedGet] read may use the network.
+ *
+ * - [NORMAL]: the cached body now, then a request only if it is stale (older than the route's
+ *   max age, or ownership-bearing and older than the last library change).
+ * - [CACHE_ONLY]: the cached body or `null`, no request — offline, or a screen painting its first
+ *   frame before it has decided whether lb-bot is up.
+ * - [REFRESH]: the cached body now, then a request whatever its age — pull-to-refresh.
+ */
+enum class LbCachePolicy { NORMAL, CACHE_ONLY, REFRESH }
 
 /**
  * lb-bot: what the library is *missing*.
@@ -70,7 +90,9 @@ import androidx.compose.runtime.mutableStateOf
  * the rest of the file behind an "Unclosed comment" at EOF.
  */
 class LbBotManager(
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	/** Only its `lb_response_cache` half — the index mirror is [LbIndexSync]'s. */
+	private val responseCache: LbIndexDao
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -330,6 +352,248 @@ class LbBotManager(
 		} catch (e: Exception) {
 			Logger.e("LbBotManager", "POST $path failed", e)
 			LbResult.Failed(LbError.Unreachable(e.message.orEmpty()))
+		}
+	}
+
+	/** [getJson] for [cachedGet]: the body as text, because the text is what gets stored. */
+	private suspend fun getText(path: String, params: List<Pair<String, String>>): LbResult<String> {
+		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		return try {
+			val response = client.get(base + path) {
+				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
+			}
+			val text = response.bodyAsText()
+			if (response.status.isSuccess()) LbResult.Ok(text)
+			else failureFor(response.status.value, "GET $path", text)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.e("LbBotManager", "GET $path failed", e)
+			LbResult.Failed(LbError.Unreachable(e.message.orEmpty()))
+		}
+	}
+
+	// ----- response cache: stale-while-revalidate --------------------------- //
+
+	/**
+	 * The last time the library changed as far as this device heard — mirrored from
+	 * [PreferenceManager.lbCacheLibraryStaleAt] so the hot path never touches preferences, and
+	 * written through by [markLibraryStale].
+	 */
+	@Volatile
+	private var libraryStaleAt: Long = preferenceManager.lbCacheLibraryStaleAt
+
+	/**
+	 * Every cached answer that carries ownership is stale from now on, whatever its age.
+	 *
+	 * The hub invalidates `LB_LIBRARY_ROUTES` on a landing for exactly this reason — a cached
+	 * "you don't own this" outlives the fill that falsified it, and a stale badge is a tile
+	 * offering to fetch a record already on disk. Nothing is deleted: the stale body still renders
+	 * instantly and the next read revalidates it, which is the whole contract of [cachedGet].
+	 *
+	 * Called from [onLibraryChanged] (a hub `library` frame, or one of our own fills landing) and
+	 * from `HubManager` on every `welcome` — a socket that was down may have missed frames, and
+	 * a missed frame would otherwise leave a badge wrong until its row's max age ran out. NOT from
+	 * a `fill` or `index` frame: neither is a library event (contract §1b).
+	 */
+	fun markLibraryStale() {
+		val now = nowMs()
+		libraryStaleAt = now
+		preferenceManager.lbCacheLibraryStaleAt = now
+	}
+
+	/**
+	 * `route?k=v&…`, params sorted and blanks dropped — [getJson] drops blanks too, so two calls
+	 * sending the same request share a key. An ownership-bearing answer is tagged
+	 * [LIBRARY_KEY_PREFIX], which is how the tag survives into Room and a body read back after a
+	 * restart is still judged against [libraryStaleAt].
+	 */
+	private fun cacheKey(
+		route: String,
+		params: List<Pair<String, String>>,
+		staleOnLibrary: Boolean
+	): String {
+		fun esc(v: String) = v.replace("%", "%25").replace("&", "%26").replace("=", "%3D")
+		val query = params
+			.filter { it.second.isNotBlank() }
+			.sortedWith(compareBy({ it.first }, { it.second }))
+			.joinToString("&") { (k, v) -> "${esc(k)}=${esc(v)}" }
+		return (if (staleOnLibrary) LIBRARY_KEY_PREFIX else "") + "$route?$query"
+	}
+
+	private fun <T : Any> decodeOrNull(serializer: KSerializer<T>, body: String): T? = try {
+		json.decodeFromString(serializer, body)
+	} catch (e: Exception) {
+		// A body stored by an older build whose shape no longer decodes is simply not cached.
+		Logger.w("LbBotManager", "cached lb-bot body no longer decodes: ${e.message}")
+		null
+	}
+
+	/** One revalidation in flight per key; [startedAt] is what its stored body is stamped with. */
+	private class Revalidation(val startedAt: Long, val result: Deferred<Any?>)
+
+	private val revalidations = mutableMapOf<String, Revalidation>()
+	private val revalidationLock = Mutex()
+
+	/** Once per process: bodies older than [RESPONSE_CACHE_PRUNE_MS] go. */
+	private var pruned = false
+
+	/**
+	 * Stale-while-revalidate over `lb_response_cache`, for lb-bot's NON-index reads — the one
+	 * path every cached route goes through.
+	 *
+	 * The Flow, in order:
+	 * 1. The cached body, **immediately and whatever its age**, when Room has one that decodes.
+	 * 2. Stop there if it is fresh: younger than [maxAgeMs] and, for a [staleOnLibrary] route,
+	 *    fetched after the last library change ([markLibraryStale]). Also stop there under
+	 *    [LbCachePolicy.CACHE_ONLY] — offline, or a screen painting its first frame from Room.
+	 * 3. Otherwise ask the hub, and emit the answer if it differs from what was emitted.
+	 *
+	 * **At least one emission, always**, and `null` only when there was no cached body AND the
+	 * network gave nothing (or no hub is configured at all) — so a caller can treat `null`
+	 * exactly as the old nullable return.
+	 *
+	 * **Failures never overwrite.** A failed request stores nothing and, with a cached body
+	 * already emitted, emits nothing. [keep] says whether an answer is worth storing: an empty
+	 * list or a `found: false` is a legitimate answer but not one to paint on the next open
+	 * (lb-bot says those for a cold MusicBrainz as readily as for a true "nothing"), so it is
+	 * emitted only when there is nothing better to show and is never persisted.
+	 *
+	 * **The request outlives the collector.** It runs in this manager's scope, so a screen left
+	 * mid-request (or a caller that took `first()`) still gets its answer stored for next time,
+	 * and two screens asking for one key share one request.
+	 *
+	 * Never used for fill, status or acquisition reads (`album/status`, `/lb/fills`, `/lb/gap`,
+	 * sources) or anything that POSTs — a stale answer there is a wrong button, not a slow one.
+	 */
+	fun <T : Any> cachedGet(
+		serializer: KSerializer<T>,
+		route: String,
+		params: List<Pair<String, String>>,
+		maxAgeMs: Long,
+		staleOnLibrary: Boolean = false,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL,
+		keep: (T) -> Boolean = { true }
+	): Flow<T?> = flow {
+		// A user who has switched the hub off has switched this layer off: a cached body is
+		// not an answer they asked for (the same gate the index mirror's readers use).
+		if (!isConfigured) {
+			emit(null)
+			return@flow
+		}
+		pruneOnce()
+		val key = cacheKey(route, params, staleOnLibrary)
+		val row = try {
+			responseCache.getCachedResponse(key)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w("LbBotManager", "response cache read failed for $route", e)
+			null
+		}
+		val cached = row?.let { decodeOrNull(serializer, it.body) }
+		if (cached != null) emit(cached)
+
+		val now = nowMs()
+		// `cached` is only ever non-null when `row` is, which is what lets `row` be read below.
+		val fresh = cached != null &&
+			row.fetchedAt <= now &&                     // a clock set back is not "fresh forever"
+			now - row.fetchedAt < maxAgeMs &&
+			!(staleOnLibrary && row.fetchedAt <= libraryStaleAt)
+		val skipNetwork = policy == LbCachePolicy.CACHE_ONLY ||
+			(fresh && policy != LbCachePolicy.REFRESH)
+		if (skipNetwork) {
+			if (cached == null) emit(null)
+			return@flow
+		}
+
+		val answer = revalidate(key, route, params, serializer, staleOnLibrary, keep)
+		if (answer == null) {
+			if (cached == null) emit(null)                  // nothing to show, nothing came back
+		} else if (keep(answer)) {
+			if (answer != cached) emit(answer)              // the revalidated body
+		} else if (cached == null) {
+			emit(answer)                                    // an empty answer, when it's all there is
+		}
+	}
+
+	/** [cachedGet] for a reified [T], so each route below reads as one line. */
+	private inline fun <reified T : Any> cachedGet(
+		route: String,
+		params: List<Pair<String, String>>,
+		maxAgeMs: Long,
+		staleOnLibrary: Boolean = false,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL,
+		noinline keep: (T) -> Boolean = { true }
+	): Flow<T?> = cachedGet(serializer<T>(), route, params, maxAgeMs, staleOnLibrary, policy, keep)
+
+	/**
+	 * The network half of [cachedGet]: join the request already in flight for [key], or start
+	 * one in [scope]. A request that started at or before the last library change is not joined
+	 * by an ownership-bearing read — its answer may predate the landing — and a fresh one starts.
+	 */
+	@Suppress("UNCHECKED_CAST")
+	private suspend fun <T : Any> revalidate(
+		key: String,
+		route: String,
+		params: List<Pair<String, String>>,
+		serializer: KSerializer<T>,
+		staleOnLibrary: Boolean,
+		keep: (T) -> Boolean
+	): T? {
+		val running = revalidationLock.withLock {
+			revalidations[key]
+				?.takeIf { it.result.isActive }
+				?.takeIf { !staleOnLibrary || it.startedAt > libraryStaleAt }
+				?: run {
+					val startedAt = nowMs()
+					val deferred = scope.async {
+						val text = getText(route, params).valueOrNull() ?: return@async null
+						val decoded = decodeOrNull(serializer, text) ?: return@async null
+						if (keep(decoded)) {
+							try {
+								responseCache.putCachedResponseIfNewer(
+									LbResponseCacheEntity(key = key, body = text, fetchedAt = startedAt)
+								)
+							} catch (e: CancellationException) {
+								throw e
+							} catch (e: Exception) {
+								Logger.w("LbBotManager", "response cache write failed for $route", e)
+							}
+						}
+						decoded
+					}
+					Revalidation(startedAt, deferred).also { revalidation ->
+						revalidations[key] = revalidation
+						deferred.invokeOnCompletion {
+							scope.launch {
+								revalidationLock.withLock {
+									if (revalidations[key] === revalidation) revalidations.remove(key)
+								}
+							}
+						}
+					}
+				}
+		}
+		return try {
+			running.result.await() as T?
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			null
+		}
+	}
+
+	private suspend fun pruneOnce() {
+		if (pruned) return
+		pruned = true
+		try {
+			responseCache.pruneCachedResponses(nowMs() - RESPONSE_CACHE_PRUNE_MS)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w("LbBotManager", "response cache prune failed", e)
 		}
 	}
 
@@ -606,11 +870,18 @@ class LbBotManager(
 	 * Fail-soft like [discography]: ListenBrainz being down answers null and the tab
 	 * says so rather than erroring.
 	 */
-	suspend fun freshReleases(days: Int, limit: Int = FRESH_LIMIT): LbFreshFeed? =
-		getJson<LbFreshFeed>(
+	fun freshReleases(
+		days: Int,
+		limit: Int = FRESH_LIMIT,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbFreshFeed?> =
+		cachedGet<LbFreshFeed>(
 			"/lb/fresh-releases",
-			listOf("days" to days.toString(), "limit" to limit.toString())
-		).valueOrNull()
+			listOf("days" to days.toString(), "limit" to limit.toString()),
+			CACHE_FRESH_MS,
+			staleOnLibrary = true,        // artistOwned / releaseOwned on every row
+			policy = policy
+		) { it.releases.isNotEmpty() }
 
 	/**
 	 * Editorial "About" for an artist: the real, full-length, attributed text this app
@@ -625,13 +896,19 @@ class LbBotManager(
 	 * Fail-soft: no hub, no LBBOT_URL, or simply nobody having written about this artist
 	 * all answer null, and the section does not render. Never an error — §7.
 	 */
-	suspend fun artistMeta(mbid: String?, name: String?): LbMeta? {
-		if (mbid.isNullOrBlank() && name.isNullOrBlank()) return null
-		return getJson<LbMeta>(
+	fun artistMeta(
+		mbid: String?,
+		name: String?,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbMeta?> {
+		if (mbid.isNullOrBlank() && name.isNullOrBlank()) return flowOf(null)
+		return cachedGet<LbMeta>(
 			"/lb/meta/artist",
 			if (!mbid.isNullOrBlank()) listOf("mbid" to mbid)
-			else listOf("name" to (name ?: ""))
-		).valueOrNull()
+			else listOf("name" to (name ?: "")),
+			CACHE_META_MS,
+			policy = policy
+		) { it.found }
 	}
 
 	/**
@@ -640,12 +917,21 @@ class LbBotManager(
 	 * [releaseMbid] is an optimisation, not a requirement: it saves lb-bot resolving the
 	 * canonical release, which costs two rate-limited MusicBrainz seconds on a cold call.
 	 */
-	suspend fun albumMeta(rgid: String, releaseMbid: String? = null): LbMeta? {
-		if (rgid.isBlank()) return null
-		return getJson<LbMeta>("/lb/meta/album", buildList {
-			add("rgid" to rgid)
-			if (!releaseMbid.isNullOrBlank()) add("release_mbid" to releaseMbid)
-		}).valueOrNull()
+	fun albumMeta(
+		rgid: String,
+		releaseMbid: String? = null,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbMeta?> {
+		if (rgid.isBlank()) return flowOf(null)
+		return cachedGet<LbMeta>(
+			"/lb/meta/album",
+			buildList {
+				add("rgid" to rgid)
+				if (!releaseMbid.isNullOrBlank()) add("release_mbid" to releaseMbid)
+			},
+			CACHE_META_MS,
+			policy = policy
+		) { it.found }
 	}
 
 	/**
@@ -685,17 +971,24 @@ class LbBotManager(
 	 * Cheap upstream: the merge is cached for 24h on lb-bot's side and never
 	 * touches its MusicBrainz lock, unlike [artistLookup] below.
 	 */
-	suspend fun similarArtists(
+	fun similarArtists(
 		artistMbid: String?,
 		artistName: String?,
-		limit: Int = 20
-	): LbSimilarArtists? {
-		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return null
-		return getJson<LbSimilarArtists>("/lb/artist/similar", buildList {
-			if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
-			if (!artistName.isNullOrBlank()) add("name" to artistName)
-			add("limit" to limit.toString())
-		}).valueOrNull()
+		limit: Int = 20,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbSimilarArtists?> {
+		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return flowOf(null)
+		return cachedGet<LbSimilarArtists>(
+			"/lb/artist/similar",
+			buildList {
+				if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
+				if (!artistName.isNullOrBlank()) add("name" to artistName)
+				add("limit" to limit.toString())
+			},
+			CACHE_SIMILAR_MS,
+			staleOnLibrary = true,        // `owned` / `artistId` / `indexed` per row
+			policy = policy
+		) { it.artists.isNotEmpty() }
 	}
 
 	/**
@@ -711,17 +1004,24 @@ class LbBotManager(
 	 * Short-cached upstream (60 s), because ownership is part of the answer and a
 	 * landed fill falsifies it.
 	 */
-	suspend fun relatedArtists(
+	fun relatedArtists(
 		artistMbid: String?,
 		artistName: String?,
-		limit: Int = 20
-	): LbSimilarArtists? {
-		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return null
-		return getJson<LbSimilarArtists>("/lb/artist/related", buildList {
-			if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
-			if (!artistName.isNullOrBlank()) add("name" to artistName)
-			add("limit" to limit.toString())
-		}).valueOrNull()
+		limit: Int = 20,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbSimilarArtists?> {
+		if (artistMbid.isNullOrBlank() && artistName.isNullOrBlank()) return flowOf(null)
+		return cachedGet<LbSimilarArtists>(
+			"/lb/artist/related",
+			buildList {
+				if (!artistMbid.isNullOrBlank()) add("mbid" to artistMbid)
+				if (!artistName.isNullOrBlank()) add("name" to artistName)
+				add("limit" to limit.toString())
+			},
+			CACHE_SIMILAR_MS,
+			staleOnLibrary = true,
+			policy = policy
+		) { it.artists.isNotEmpty() }
 	}
 
 	/**
@@ -732,18 +1032,32 @@ class LbBotManager(
 	 * is geolocated by **lb-bot's own egress address**, so which country's chart
 	 * this is depends on where the server runs and no client can change it.
 	 */
-	suspend fun deezerChart(limit: Int = 20, genre: String = "0"): LbBrowseFeed? =
-		getJson<LbBrowseFeed>(
+	fun deezerChart(
+		limit: Int = 20,
+		genre: String = "0",
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbBrowseFeed?> =
+		cachedGet<LbBrowseFeed>(
 			"/lb/deezer/chart",
-			listOf("limit" to limit.toString(), "genre" to genre)
-		).valueOrNull()
+			listOf("limit" to limit.toString(), "genre" to genre),
+			CACHE_CHART_MS,
+			staleOnLibrary = true,        // releaseOwned / owned — the badges move, the chart barely does
+			policy = policy
+		) { it.albums.isNotEmpty() || it.artists.isNotEmpty() }
 
 	/** Deezer's editorial selections — what a human picked, ownership-marked. */
-	suspend fun deezerEditorial(limit: Int = 20, genre: String = "0"): LbBrowseFeed? =
-		getJson<LbBrowseFeed>(
+	fun deezerEditorial(
+		limit: Int = 20,
+		genre: String = "0",
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbBrowseFeed?> =
+		cachedGet<LbBrowseFeed>(
 			"/lb/deezer/editorial",
-			listOf("limit" to limit.toString(), "genre" to genre)
-		).valueOrNull()
+			listOf("limit" to limit.toString(), "genre" to genre),
+			CACHE_CHART_MS,
+			staleOnLibrary = true,
+			policy = policy
+		) { it.albums.isNotEmpty() || it.artists.isNotEmpty() }
 
 	/**
 	 * The genres the two rows above can be narrowed to.
@@ -752,8 +1066,13 @@ class LbBotManager(
 	 * there are two clients that would otherwise each hold their own copy — the
 	 * `MoodCharacter` mistake, which has already drifted once.
 	 */
-	suspend fun deezerGenres(): LbDeezerGenres? =
-		getJson<LbDeezerGenres>("/lb/deezer/genres", emptyList()).valueOrNull()
+	fun deezerGenres(policy: LbCachePolicy = LbCachePolicy.NORMAL): Flow<LbDeezerGenres?> =
+		cachedGet<LbDeezerGenres>(
+			"/lb/deezer/genres",
+			emptyList(),
+			CACHE_GENRES_MS,
+			policy = policy
+		) { it.genres.isNotEmpty() }
 
 	/**
 	 * Whether this hub can answer the genre list.
@@ -858,10 +1177,22 @@ class LbBotManager(
 			.valueOrNull()?.candidates.orEmpty()
 	}
 
-	/** Editions of one release-group. Rate-limited MusicBrainz upstream — show a skeleton. */
-	suspend fun albumReleases(rgid: String): LbReleaseDetail? {
-		if (rgid.isBlank()) return null
-		return getJson<LbReleaseDetail>("/lb/album/releases", listOf("rgid" to rgid)).valueOrNull()
+	/**
+	 * Editions of one release-group. Rate-limited MusicBrainz upstream, which is why it is cached
+	 * for a month: a release-group's editions are MusicBrainz data and carry no ownership, so
+	 * only a new pressing makes an old answer wrong. A skeleton only on the first-ever open.
+	 */
+	fun albumReleases(
+		rgid: String,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbReleaseDetail?> {
+		if (rgid.isBlank()) return flowOf(null)
+		return cachedGet<LbReleaseDetail>(
+			"/lb/album/releases",
+			listOf("rgid" to rgid),
+			CACHE_RELEASES_MS,
+			policy = policy
+		) { it.releases.isNotEmpty() }
 	}
 
 	/**
@@ -898,21 +1229,31 @@ class LbBotManager(
 	 * Canonical tracklist for one release. With [albumIds] or [groupId] every track
 	 * also carries its own `present` flag; without them `presenceKnown` is false,
 	 * which means "the library holds none of this" — not an error, and not `0/12`.
+	 *
+	 * Cached a month, like [albumReleases] — the track titles are MusicBrainz's. **But a
+	 * tracklist asked for WITH presence carries per-track `present`, which no age bound makes
+	 * true**: a landing flips it and nothing about the release changes. That form is therefore
+	 * ownership-bearing and goes stale on every library change ([markLibraryStale]), exactly as
+	 * Fresh and the Discover rows do. Without presence it is pure MusicBrainz and is not.
 	 */
-	suspend fun tracklist(
+	fun tracklist(
 		releaseMbid: String,
 		albumIds: List<String> = emptyList(),
-		groupId: String = ""
-	): LbTracklist? {
-		if (releaseMbid.isBlank()) return null
-		return getJson<LbTracklist>(
+		groupId: String = "",
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbTracklist?> {
+		if (releaseMbid.isBlank()) return flowOf(null)
+		return cachedGet<LbTracklist>(
 			"/lb/album/tracklist",
 			listOf(
 				"release_mbid" to releaseMbid,
 				"album_ids" to albumIds.joinToString(","),
 				"group_id" to groupId
-			)
-		).valueOrNull()
+			),
+			CACHE_RELEASES_MS,
+			staleOnLibrary = albumIds.isNotEmpty() || groupId.isNotBlank(),
+			policy = policy
+		) { it.tracks.isNotEmpty() }
 	}
 
 	/**
@@ -1447,6 +1788,9 @@ class LbBotManager(
 	 * so the next read is right regardless.
 	 */
 	fun onLibraryChanged(event: LbLibraryEvent = LbLibraryEvent()) {
+		// Before the bumps: a screen that re-reads on one must already find its cached ownership
+		// stale, or it would re-render the very badge the landing just falsified.
+		markLibraryStale()
 		_libraryEvents.tryEmit(event)
 		_libraryBumps.tryEmit(event)
 		_libraryRevision.value += 1
@@ -2022,6 +2366,40 @@ class LbBotManager(
 		/** Rows to ask the fresh feed for. The screen filters and buckets
 		 *  client-side, so this only has to exceed what anyone scrolls. */
 		const val FRESH_LIMIT = 400
+
+		// How old a cached lb-bot answer may be before [cachedGet] revalidates it. A stale
+		// body is still painted first either way — these decide only whether a request
+		// follows. Ownership-bearing routes are ALSO stale after any library change,
+		// whatever these say, so the ages below bound only what no frame announces
+		// (a Navidrome scan lb-bot has not heard about, a chart that moved).
+		private const val MINUTE_MS = 60_000L
+		private const val DAY_MS = 24 * 60 * MINUTE_MS
+
+		/** Editorial meta: Wikipedia/Wikidata/MusicBrainz text, which moves on no one's clock. */
+		private const val CACHE_META_MS = 30 * DAY_MS
+
+		/** Release-group editions and tracklists: MusicBrainz data. */
+		private const val CACHE_RELEASES_MS = 30 * DAY_MS
+
+		/** Fresh: the plan's ten minutes. ListenBrainz's feed updates hourly at most. */
+		private const val CACHE_FRESH_MS = 10 * MINUTE_MS
+
+		/** "Fans also like", both sources: ownership-badged per row, so the short age. */
+		private const val CACHE_SIMILAR_MS = 10 * MINUTE_MS
+
+		/** Deezer chart and editorial: the list barely moves in an hour; its badges are
+		 *  covered by the library watermark, not by this. */
+		private const val CACHE_CHART_MS = 60 * MINUTE_MS
+
+		/** Deezer's genre list: effectively static. */
+		private const val CACHE_GENRES_MS = DAY_MS
+
+		/** Bodies unrevalidated for this long are deleted, once per process. Longer than
+		 *  every max age above, so a month-old meta body still paints while it revalidates. */
+		private const val RESPONSE_CACHE_PRUNE_MS = 90 * DAY_MS
+
+		/** [cacheKey]'s tag for an ownership-bearing answer. */
+		private const val LIBRARY_KEY_PREFIX = "lib:"
 
 		/** Never let the loop spin: a tick that overran its own interval still waits. */
 		private const val MIN_POLL_GAP_MS = 1_000L

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.LbBotManager
@@ -93,6 +95,11 @@ class ExternalAlbumViewModel(
 	 *  user is looking at, and an older hub 404ing would otherwise retry forever. */
 	private var indexAddTried = false
 
+	// Above `init`, which calls load(): a property initialiser placed after it would run
+	// afterwards and null out the job load() had just stored.
+	private var loadJob: Job? = null
+	private var tracklistJob: Job? = null
+
 	init { load() }
 
 	// ---- previews ------------------------------------------------------------ //
@@ -177,20 +184,51 @@ class ExternalAlbumViewModel(
 
 	fun load() {
 		if (rgid.isBlank()) return
-		viewModelScope.launch {
+		loadJob?.cancel()
+		loadJob = viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true)
 			applyMirror()
-			val detail = lbBotManager.albumReleases(rgid)
-			// The tracklist follows the default variant. `presenceKnown` comes back
-			// false with no Navidrome album ids supplied, which is the normal case
-			// here: every track is missing, and that is not an error and must not
-			// render as "0/12".
-			val releaseMbid = detail?.releases?.firstOrNull()?.releaseMbid.orEmpty()
-			val tracks = if (releaseMbid.isBlank()) null else lbBotManager.tracklist(releaseMbid)
-			_state.value = _state.value.copy(loading = false, detail = detail, tracklist = tracks)
-			resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
-			refreshIndexRow()
+			// Both reads are stale-while-revalidate over `lb_response_cache` (a month: they are
+			// MusicBrainz data), so a release-group opened before paints from Room with no
+			// network at all. The first emission is the cached body when there is one; a second
+			// arrives only if the revalidation changed something.
+			var resolved = false
+			lbBotManager.albumReleases(rgid).collect { detail ->
+				// The tracklist follows the default variant. `presenceKnown` comes back
+				// false with no Navidrome album ids supplied, which is the normal case
+				// here: every track is missing, and that is not an error and must not
+				// render as "0/12".
+				val releaseMbid = detail?.releases?.firstOrNull()?.releaseMbid.orEmpty()
+				val tracks = if (releaseMbid.isBlank()) null else followTracklist(releaseMbid)
+				_state.value = _state.value.copy(loading = false, detail = detail, tracklist = tracks)
+				// Once: both only need the artist and the rgid, which a revalidated detail
+				// does not change — and the index-row add must not be pressed twice.
+				if (!resolved) {
+					resolved = true
+					resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
+					refreshIndexRow()
+				}
+			}
 		}
+	}
+
+	/**
+	 * The tracklist's first answer (the cached one, when there is one), returned so the page
+	 * paints detail and tracks together as it always has; any revalidated answer after it is
+	 * applied on its own. One follower at a time — a new default release replaces the last.
+	 */
+	private suspend fun followTracklist(releaseMbid: String): LbTracklist? {
+		tracklistJob?.cancel()
+		val first = CompletableDeferred<LbTracklist?>()
+		tracklistJob = viewModelScope.launch {
+			lbBotManager.tracklist(releaseMbid).collect { tracks ->
+				if (!first.complete(tracks)) {
+					_state.value = _state.value.copy(tracklist = tracks)
+				}
+			}
+			first.complete(null)
+		}
+		return first.await()
 	}
 
 	/**

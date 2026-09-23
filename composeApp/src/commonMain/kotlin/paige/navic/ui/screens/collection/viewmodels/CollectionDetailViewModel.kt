@@ -191,7 +191,13 @@ class CollectionDetailViewModel(
 				artistMbid = null
 			}
 			if (!rgid.isNullOrBlank()) {
-				launch { _meta.value = lbBotManager.albumMeta(rgid, releaseMbid) }
+				// The cached article first (Room), then a revalidation only if it is a month old;
+				// a failure never replaces what was shown.
+				launch {
+					lbBotManager.albumMeta(rgid, releaseMbid).collect { meta ->
+						if (meta != null || _meta.value == null) _meta.value = meta
+					}
+				}
 			}
 			// Similarity is computed artist-to-artist, so this needs the artist,
 			// not the album; `rgid` only excludes the record on screen.

@@ -1132,6 +1132,11 @@ class HubManager(
 				// A new connection also starts the backoff afresh (R20b): whatever the last socket
 				// was contending with is gone.
 				lbIndexSync.requestSync("welcome", freshStart = true)
+				// Any `library` frame sent while this socket was down is lost, so every cached
+				// lb-bot answer that carries ownership (Fresh, the Discover rows) revalidates on
+				// its next read. It still renders from Room first; this only decides whether a
+				// request follows. Not a library event — no bump, no refetch (contract §1b).
+				lbBotManager.markLibraryStale()
 				Logger.i("HubManager", "connected to hub as $id")
 			}
 

@@ -25,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,6 +139,9 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	// Every visit, not only the ViewModel's first: a root tab keeps it for the process. Room
+	// reads, plus a request only for a row whose cached answer has gone stale.
+	LaunchedEffect(Unit) { viewModel.revalidate() }
 	val scope = rememberCoroutineScope()
 	val snackbarHostState = remember { SnackbarHostState() }
 
@@ -259,8 +263,10 @@ fun DiscoverScreen(nested: Boolean = false) {
 		PullToRefreshBox(
 			modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
 			finished = !state.loading,
-			onRefresh = { viewModel.load() },
-			key = state.supported
+			onRefresh = { viewModel.refresh() },
+			// `loading` in the key: a refresh whose rows all revalidate to what is already on
+			// screen changes nothing else, and the indicator would never be told to stop.
+			key = state.supported to state.loading
 		) {
 			LazyVerticalGrid(
 				columns = GridCells.Fixed(2),

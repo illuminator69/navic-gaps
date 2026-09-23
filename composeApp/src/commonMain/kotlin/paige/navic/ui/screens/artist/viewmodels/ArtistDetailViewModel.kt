@@ -46,6 +46,7 @@ import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.EVENT_ARTIST_SCANNED
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbLibraryEvent
@@ -465,6 +466,14 @@ class ArtistDetailViewModel(
 	fun loadMeta() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
+			if (!lbBotManager.isConfigured) return@launch
+			val mbid = state.artist.musicBrainzId
+			val name = state.artist.name
+			// The About this device last saw, from Room — no probe, no network, offline too —
+			// so a revisited artist has it in the page's first frames rather than after a
+			// `/lb/status` round trip and a MusicBrainz-backed read.
+			lbBotManager.artistMeta(mbid, name, LbCachePolicy.CACHE_ONLY)
+				.collect { cached -> if (cached != null) _meta.value = cached }
 			// `first { it }` rather than reading `isOnline.value` once: this fires
 			// on page open, and opening a page while offline used to mean the About
 			// never appeared for as long as you stayed on it, even once the network
@@ -472,10 +481,11 @@ class ArtistDetailViewModel(
 			// critical path by design — and the coroutine dies with the ViewModel.
 			if (!isOnline.value) isOnline.first { it }
 			if (!lbBotManager.ensureAvailability()) return@launch
-			_meta.value = lbBotManager.artistMeta(
-				state.artist.musicBrainzId,
-				state.artist.name
-			)
+			// Revalidates only when the cached body is older than its max age (a month). A null
+			// here means nothing was cached AND nothing came back; it never replaces a body.
+			lbBotManager.artistMeta(mbid, name).collect { meta ->
+				if (meta != null || _meta.value == null) _meta.value = meta
+			}
 		}
 	}
 

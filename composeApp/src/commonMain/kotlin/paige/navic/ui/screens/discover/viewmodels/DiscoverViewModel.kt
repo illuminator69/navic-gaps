@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
@@ -17,6 +19,7 @@ import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.LbAlbumCandidate
 import paige.navic.domain.manager.LbBrowseAlbum
@@ -139,6 +142,10 @@ class DiscoverViewModel(
 	private val _state = MutableStateFlow(DiscoverUi())
 	val state = _state.asStateFlow()
 
+	/** The load in flight, if any. Above `init`, which starts one: an initialiser placed after
+	 *  it would run afterwards and null out the job `init` had just stored. */
+	private var loadJob: Job? = null
+
 	init {
 		load()
 		// The one row that is not a snapshot. Every other row here is loaded once per
@@ -146,18 +153,50 @@ class DiscoverViewModel(
 		// state that any client can change — and a recipe created on the desktop must
 		// appear here without the user knowing to pull.
 		viewModelScope.launch {
-			// `update`, not `value = value.copy(...)`: `load()` rebuilds the whole
-			// state object from a read of `_state.value`, so a plain read-modify-write
-			// here can be clobbered by a rebuild that started between the two.
+			// `update`, not `value = value.copy(...)`: every row below publishes on its
+			// own, so a plain read-modify-write here could be clobbered by one of them.
 			hubManager.mixes.collect { mixes ->
 				_state.update { it.copy(mixes = mixes) }
 			}
 		}
 	}
 
-	fun load() {
-		viewModelScope.launch {
-			_state.value = _state.value.copy(loading = true)
+	/** A full load: both capability probes, then every row. Pull-to-refresh is [refresh]. */
+	fun load(policy: LbCachePolicy = LbCachePolicy.NORMAL) = start(policy, reprobeClap = true, quiet = false)
+
+	/** Pull-to-refresh: every lb-bot row revalidates whatever its cached age. */
+	fun refresh() = load(LbCachePolicy.REFRESH)
+
+	/**
+	 * Every visit to the screen. As a root tab this ViewModel lives for the process, so `init`
+	 * alone would show the rows of the session's first visit forever. This re-reads Room and
+	 * sends a request only for a row whose cached answer has gone stale — ten minutes for the
+	 * ownership-badged rows, an hour for the Deezer ones, and at once after any library change.
+	 * It skips the AudioMuse probe (not cached anywhere, and not what went stale) and the spinner.
+	 */
+	fun revalidate() {
+		if (loadJob?.isActive == true) return
+		start(LbCachePolicy.NORMAL, reprobeClap = false, quiet = true)
+	}
+
+	/**
+	 * Three phases, each publishing the moment it has something — the screen used to show
+	 * nothing at all until the slowest of eight network calls had answered.
+	 *
+	 * 1. **Room only**: the two playlist rows and every lb-bot row's cached answer
+	 *    ([LbCachePolicy.CACHE_ONLY] — no probe, no request, offline too).
+	 * 2. The capability probes, overlapped.
+	 * 3. The lb-bot rows revalidate through `LbBotManager.cachedGet`, each row publishing its own
+	 *    answer as it lands. A row whose cached answer is fresh sends nothing at all.
+	 *
+	 * A failed revalidation never takes a row away: the cached answer stays up, including while
+	 * lb-bot is unreachable. What SHOWS a row is [displayable] (a hub is configured and
+	 * advertises the route); what FETCHES one is the probe, exactly as before.
+	 */
+	private fun start(policy: LbCachePolicy, reprobeClap: Boolean, quiet: Boolean) {
+		loadJob?.cancel()
+		loadJob = viewModelScope.launch {
+			if (!quiet) _state.update { it.copy(loading = true) }
 
 			// Both playlist rows are Navidrome-only and work offline off Room, so
 			// they are read before anything is gated on connectivity — and off ONE
@@ -171,78 +210,91 @@ class DiscoverViewModel(
 			val listenBrainz = playlists
 				.filter { (it.name ?: "").startsWith(LISTENBRAINZ_PLAYLIST_PREFIX) }
 
-			// The two capability probes answer different services and neither needs
+			// Phase 1. The mood row keeps whatever the last probe said until this one answers,
+			// rather than blinking out for the length of a round trip on every reload.
+			val lastClap = DiscoverRowId.MOOD in _state.value.supported
+			val shown = displayable(lastClap)
+			_state.update {
+				it.copy(rediscovery = rediscovery, listenBrainz = listenBrainz, supported = shown)
+			}
+			loadLbRows(shown, LbCachePolicy.CACHE_ONLY)
+
+			// Phase 2. The two capability probes answer different services and neither needs
 			// the other, so they overlap. Everything on this screen used to be
 			// strictly sequential — eight round trips end to end, several of them
 			// seconds each, which is where a ~25s first open came from.
 			val lbBotProbe = async { isOnline.value && lbBotManager.ensureAvailability() }
-			val clapProbe = async {
+			val clapProbe = if (reprobeClap) async {
 				if (isOnline.value) {
 					runCatching { audioMuseManager.clapAvailability().usable }.getOrDefault(false)
 				} else false
-			}
+			} else null
 			val lbBotUp = lbBotProbe.await()
-			val clapUsable = clapProbe.await()
+			val clapUsable = clapProbe?.await() ?: lastClap
 
-			val supported = DISCOVER_ROWS.filter { row ->
-				when (val capability = row.capability) {
-					is DiscoverCapability.Clap -> clapUsable
-					is DiscoverCapability.LbBot ->
-						lbBotUp && lbBotManager.advertisesRoute(capability.route)
-					DiscoverCapability.Library -> true
-				}
+			val fetchable = DISCOVER_ROWS.filter { row ->
+				val capability = row.capability
+				capability is DiscoverCapability.LbBot &&
+					lbBotUp && lbBotManager.advertisesRoute(capability.route)
 			}.mapTo(mutableSetOf()) { it.id }
+			_state.update { it.copy(supported = displayable(clapUsable)) }
 
-			// Three at a time, never more. The hub's proxy shares FOUR in-flight
-			// slots across every lb-bot route, so fanning all of them out at once
-			// would queue behind itself and starve anything else the app asks for
-			// while the screen loads.
-			val freshJob = async { loadFresh(supported) }
-			val similarJob = async { loadSimilarArtists(supported) }
-			val genresJob = async { loadGenres(supported) }
+			// Phase 3.
+			loadLbRows(fetchable, policy)
+			_state.update { it.copy(loading = false) }
+		}
+	}
 
-			val fresh = freshJob.await()
-			val (seedName, similar) = similarJob.await()
-			val genres = genresJob.await()
+	/**
+	 * The rows the screen may show. An lb-bot row shows whenever a hub is configured and
+	 * advertises its route — NOT only while the probe says lb-bot is up, because a row with a
+	 * cached answer is worth showing while lb-bot is down (the index mirror's precedent), and a
+	 * row with nothing to show hides itself anyway (`horizontalSection` renders nothing for an
+	 * empty list). Switching the hub off still hides them all: [LbBotManager.isConfigured].
+	 */
+	private fun displayable(clapUsable: Boolean): Set<DiscoverRowId> =
+		DISCOVER_ROWS.filter { row ->
+			when (val capability = row.capability) {
+				is DiscoverCapability.Clap -> clapUsable
+				is DiscoverCapability.LbBot ->
+					lbBotManager.isConfigured && lbBotManager.advertisesRoute(capability.route)
+				DiscoverCapability.Library -> true
+			}
+		}.mapTo(mutableSetOf()) { it.id }
 
-			// A stored genre this hub's Deezer no longer lists would silently show
-			// the global chart, so fall back explicitly rather than asking for it.
-			val genre = preferenceManager.deezerGenre
+	/**
+	 * Every lb-bot row in [rows], each publishing its own answers under [policy].
+	 *
+	 * Three at a time, never more. The hub's proxy shares FOUR in-flight
+	 * slots across every lb-bot route, so fanning all of them out at once
+	 * would queue behind itself and starve anything else the app asks for
+	 * while the screen loads. Under [LbCachePolicy.CACHE_ONLY] none of this touches the network
+	 * and it all completes in a few Room reads.
+	 */
+	private suspend fun loadLbRows(rows: Set<DiscoverRowId>, policy: LbCachePolicy): Unit = coroutineScope {
+		val freshJob = launch { if (DiscoverRowId.FRESH in rows) loadFresh(policy) }
+		val similarJob = launch {
+			if (DiscoverRowId.SIMILAR_ARTISTS in rows) loadSimilarArtists(policy)
+		}
+		val genresJob = async { loadGenres(rows, policy) }
+		val genres = genresJob.await()
+		freshJob.join()
+		similarJob.join()
+
+		// A stored genre this hub's Deezer no longer lists would silently show
+		// the global chart, so fall back explicitly rather than asking for it.
+		val genre = if (genres == null) _state.value.genre else {
+			val resolved = preferenceManager.deezerGenre
 				.takeIf { id -> genres.any { it.id == id } }
 				?: DEEZER_GENRE_ALL
-
-			// The two Deezer rows are independent of each other and both are scoped
-			// by the genre above, so they are the second (and last) parallel pair.
-			val chartsJob = async {
-				if (DiscoverRowId.CHARTS in supported) {
-					lbBotManager.deezerChart(ROW_LIMIT, genre)?.albums.orEmpty().take(ROW_LIMIT)
-				} else emptyList()
-			}
-			val editorialJob = async {
-				if (DiscoverRowId.EDITORIAL in supported) {
-					lbBotManager.deezerEditorial(ROW_LIMIT, genre)?.albums.orEmpty().take(ROW_LIMIT)
-				} else emptyList()
-			}
-			val charts = chartsJob.await()
-			val editorial = editorialJob.await()
-
-			_state.value = DiscoverUi(
-				loading = false,
-				supported = supported,
-				fresh = fresh,
-				similarArtists = similar,
-				similarSeed = seedName,
-				rediscovery = rediscovery,
-				listenBrainz = listenBrainz,
-				// Not re-read here: the collector in `init` owns this field, and
-				// rebuilding the whole state object would drop whatever it last wrote.
-				mixes = _state.value.mixes,
-				charts = charts,
-				editorial = editorial,
-				genres = genres,
-				genre = genre
-			)
+			_state.update { it.copy(genres = genres, genre = resolved) }
+			resolved
 		}
+
+		// The two Deezer rows are independent of each other and both are scoped
+		// by the genre above, so they are the second (and last) parallel pair.
+		launch { if (DiscoverRowId.CHARTS in rows) loadChart(genre, policy) }
+		launch { if (DiscoverRowId.EDITORIAL in rows) loadEditorial(genre, policy) }
 	}
 
 	/**
@@ -250,57 +302,95 @@ class DiscoverViewModel(
 	 * reason line. The site-wide half is a chart, and a chart belongs behind
 	 * "See all" rather than at the top of Discover. lb-bot keeps the two ownership
 	 * scopes strictly apart and so does this.
+	 *
+	 * The same request (and so the same cached body) as the Fresh tab's default 30-day window.
+	 * `null` means nothing was cached and nothing came back — an empty row, as before.
 	 */
-	private suspend fun loadFresh(supported: Set<DiscoverRowId>): List<LbFreshRelease> {
-		if (DiscoverRowId.FRESH !in supported) return emptyList()
-		return lbBotManager.freshReleases(30)?.releases
-			.orEmpty()
-			.filter { it.artistOwned }
-			.take(ROW_LIMIT)
+	private suspend fun loadFresh(policy: LbCachePolicy) {
+		lbBotManager.freshReleases(30, policy = policy).collect { feed ->
+			val rows = feed?.releases.orEmpty().filter { it.artistOwned }.take(ROW_LIMIT)
+			_state.update { it.copy(fresh = rows) }
+		}
 	}
 
 	/**
 	 * The similar-artists row, and the name its reason line has to quote.
 	 *
-	 * Returns both because the seed is chosen in here and the caller cannot know it
-	 * otherwise — which is also why this is a function rather than two `async`s: its
-	 * two lb-bot calls stay **sequential** with respect to each other. They spend the
-	 * same bounded pool of in-flight proxy slots, and the second only happens at all
-	 * when the hub advertises the route.
+	 * The seed is chosen in here, and its two lb-bot calls stay **sequential** with respect to
+	 * each other. They spend the same bounded pool of in-flight proxy slots, and the second only
+	 * happens at all when the hub advertises the route.
 	 */
-	private suspend fun loadSimilarArtists(
-		supported: Set<DiscoverRowId>
-	): Pair<String, List<DiscoverArtist>> {
-		if (DiscoverRowId.SIMILAR_ARTISTS !in supported) return "" to emptyList()
-		val seed = pickSeedArtist() ?: return "" to emptyList()
+	private suspend fun loadSimilarArtists(policy: LbCachePolicy) {
+		val seed = pickSeedArtist()
+		if (seed == null) {
+			_state.update { it.copy(similarArtists = emptyList(), similarSeed = "") }
+			return
+		}
 
 		// Two sources for one row, unioned: ListenBrainz knows what is listened to
 		// together and Deezer knows what a catalogue files together, and an artist
 		// absent from one is routinely in the other. ListenBrainz's ordering is kept
 		// — it is the stronger signal for "fans also like" — and Deezer only extends
-		// the tail.
-		val fromListenBrainz = lbBotManager
-			.similarArtists(seed.second, seed.first, ROW_LIMIT)
-			?.artists.orEmpty()
-		val fromDeezer = if (lbBotManager.advertisesRoute(ROUTE_RELATED)) {
-			lbBotManager.relatedArtists(seed.second, seed.first, ROW_LIMIT)
-				?.artists.orEmpty()
-		} else emptyList()
+		// the tail, which is also why the row may publish ListenBrainz's half first.
+		var fromListenBrainz: List<LbSimilarArtist> = emptyList()
+		var fromDeezer: List<LbSimilarArtist> = emptyList()
+		suspend fun publish() {
+			// By MBID where there is one, by name otherwise — Deezer resolves by name
+			// upstream, so an unresolved row has no MBID to key on and keying everything
+			// on a blank string would collapse them into one.
+			val rows = (fromListenBrainz + fromDeezer)
+				.distinctBy { it.mbid.ifBlank { it.name.lowercase() } }
+				.take(ROW_LIMIT)
+			val withArt = withArtwork(rows)
+			_state.update { it.copy(similarArtists = withArt, similarSeed = seed.first) }
+		}
 
-		// By MBID where there is one, by name otherwise — Deezer resolves by name
-		// upstream, so an unresolved row has no MBID to key on and keying everything
-		// on a blank string would collapse them into one.
-		val rows = (fromListenBrainz + fromDeezer)
-			.distinctBy { it.mbid.ifBlank { it.name.lowercase() } }
-			.take(ROW_LIMIT)
-		return seed.first to withArtwork(rows)
+		lbBotManager.similarArtists(seed.second, seed.first, ROW_LIMIT, policy).collect {
+			fromListenBrainz = it?.artists.orEmpty()
+			publish()
+		}
+		if (lbBotManager.advertisesRoute(ROUTE_RELATED)) {
+			lbBotManager.relatedArtists(seed.second, seed.first, ROW_LIMIT, policy).collect {
+				fromDeezer = it?.artists.orEmpty()
+				publish()
+			}
+		}
 	}
 
-	/** The genres both Deezer rows can be narrowed to, or none on an older hub. */
-	private suspend fun loadGenres(supported: Set<DiscoverRowId>): List<LbDeezerGenre> {
-		val wanted = DiscoverRowId.CHARTS in supported || DiscoverRowId.EDITORIAL in supported
-		if (!wanted || !lbBotManager.supportsDeezerGenres) return emptyList()
-		return lbBotManager.deezerGenres()?.genres.orEmpty()
+	/**
+	 * The genres both Deezer rows can be narrowed to — empty on an older hub, and `null` when
+	 * neither Deezer row is being loaded, so the caller leaves the chips it already has alone.
+	 */
+	private suspend fun loadGenres(
+		rows: Set<DiscoverRowId>,
+		policy: LbCachePolicy
+	): List<LbDeezerGenre>? {
+		val wanted = DiscoverRowId.CHARTS in rows || DiscoverRowId.EDITORIAL in rows
+		if (!wanted) return null
+		if (!lbBotManager.supportsDeezerGenres) return emptyList()
+		var genres: List<LbDeezerGenre> = emptyList()
+		lbBotManager.deezerGenres(policy).collect { answer ->
+			genres = answer?.genres.orEmpty()
+		}
+		return genres
+	}
+
+	/**
+	 * One Deezer row for one genre. Dropped if the genre changed while it was in flight — the
+	 * chips re-scope both rows, and an answer for the old genre must not land under the new one.
+	 */
+	private suspend fun loadChart(genre: String, policy: LbCachePolicy) {
+		lbBotManager.deezerChart(ROW_LIMIT, genre, policy).collect { feed ->
+			val rows = feed?.albums.orEmpty().take(ROW_LIMIT)
+			_state.update { if (it.genre == genre) it.copy(charts = rows) else it }
+		}
+	}
+
+	private suspend fun loadEditorial(genre: String, policy: LbCachePolicy) {
+		lbBotManager.deezerEditorial(ROW_LIMIT, genre, policy).collect { feed ->
+			val rows = feed?.albums.orEmpty().take(ROW_LIMIT)
+			_state.update { if (it.genre == genre) it.copy(editorial = rows) else it }
+		}
 	}
 
 	/**
@@ -308,7 +398,8 @@ class DiscoverViewModel(
 	 *
 	 * Reloads only those two rows rather than calling [load]: nothing else on the
 	 * screen is scoped by genre, and a full reload would re-spend the lb-bot budget
-	 * on Fresh and the similar-artists merge for a chip tap.
+	 * on Fresh and the similar-artists merge for a chip tap. A genre visited before paints
+	 * from Room at once; the network is asked only if that answer has gone stale.
 	 */
 	fun setDeezerGenre(genreId: String) {
 		if (_state.value.genre == genreId) return
@@ -316,15 +407,15 @@ class DiscoverViewModel(
 		_state.update { it.copy(genre = genreId) }
 		viewModelScope.launch {
 			val supported = _state.value.supported
-			val charts = if (DiscoverRowId.CHARTS in supported) {
-				lbBotManager.deezerChart(ROW_LIMIT, genreId)?.albums.orEmpty().take(ROW_LIMIT)
-			} else emptyList()
-			val editorial = if (DiscoverRowId.EDITORIAL in supported) {
-				lbBotManager.deezerEditorial(ROW_LIMIT, genreId)?.albums.orEmpty().take(ROW_LIMIT)
-			} else emptyList()
-			// `update`, for the same reason the mixes collector uses it: a `load()`
-			// may have started while these two calls were in flight.
-			_state.update { it.copy(charts = charts, editorial = editorial) }
+			val charts = DiscoverRowId.CHARTS in supported
+			val editorial = DiscoverRowId.EDITORIAL in supported
+			// Both cached answers first, so neither row waits on the other's request.
+			if (charts) loadChart(genreId, LbCachePolicy.CACHE_ONLY)
+			if (editorial) loadEditorial(genreId, LbCachePolicy.CACHE_ONLY)
+			if (!isOnline.value) return@launch
+			// Then sequentially, as before: two slots of the hub's shared four, not more.
+			if (charts) loadChart(genreId, LbCachePolicy.NORMAL)
+			if (editorial) loadEditorial(genreId, LbCachePolicy.NORMAL)
 		}
 	}
 
