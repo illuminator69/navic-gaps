@@ -57,15 +57,18 @@ class MainActivity : ComponentActivity() {
 	 */
 	private fun observeFills() {
 		val notifier = FillNotifier(applicationContext)
+		// Delivered from the manager's own `settle`, so a fill that settles while the
+		// process is alive but this activity is stopped is announced then and there.
+		// In the foreground the snackbar in `App.kt` is the announcement, and the
+		// system notification is deliberately skipped — the same rule Feishin uses —
+		// so the user is not told twice. The row is still marked delivered.
+		lbBot.notificationSink = { event ->
+			if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) notifier.notify(event)
+		}
 		lifecycleScope.launch {
 			repeatOnLifecycle(Lifecycle.State.STARTED) {
-				// Anything that settled while we were away, first.
+				// Anything that settled while the process was dead, first.
 				lbBot.deliverPendingNotifications { notifier.notify(it) }
-				launch {
-					lbBot.fillEvents.collect {
-						lbBot.deliverPendingNotifications { event -> notifier.notify(event) }
-					}
-				}
 				launch {
 					lbBot.ledger.collect { entries ->
 						if (entries.any { it.isRunning }) askForNotifications()

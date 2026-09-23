@@ -37,7 +37,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager`. No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -318,8 +318,18 @@ because both clients must agree on them.
   **Navidrome-first** for the same family of reason: starting from lb-bot's list would hide albums
   the user owns but whose Navidrome record lb-bot's matcher couldn't claim.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
-  it indistinguishable from "nothing is filling this". Poll no tighter than 5 s and back off to
-  10/20 s while the payload is unchanged.
+  it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
+  row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
+  two missed ticks; a real `unknown` is bounded patience on the clock (30 s grace after the tap, two
+  minutes continuous before `gave_up`). The poll is one `GET /lb/fills` for every due row, 5 s
+  backing off to 10/20 s while the payload is unchanged, and 30 s while the hub socket is up and
+  `fill` frames are arriving (`HubManager` sets `hubConnected`). Expiry is a settle measured from
+  the row's last progress, never a delete. A terminal status stays in `_fills` so a sheet shows the
+  outcome and re-enables its picker; the map used to keep the last live state forever.
+- **A cancel is `cancelled`, not a retryable failure.** `canRetry` is false on a cancelled row —
+  a cancel is restarted from the album page — and Cancel is offered from the server's own
+  `cancellable` field, never on `placing`/`placed`. `cancelFill` answers "too late" when lb-bot
+  says placement has begun, and applies lb-bot's status instead of settling the row as cancelled.
 - **Android backup excludes the preferences file** — the one holding the Navidrome password, hub
   token and AudioMuse token. A restored install asks for the server details again, on purpose.
 - **Release builds no longer trust user-installed CAs** (they moved to `debug-overrides`, since the
@@ -535,10 +545,11 @@ true of invented *album art*, and not of an icon naming the kind.
   or read a deterministic order and `shuffled()` in Kotlin where the list is unbounded.
 - **Discover's rows load CONCURRENTLY, and at most three at a time.** Every row used to be awaited
   in sequence — eight round trips, several of them seconds each, which is where a ~25 s first open
-  came from. The cap is not arbitrary: the hub's proxy shares **four** in-flight slots across every
-  lb-bot route, so fanning them all out queues behind itself and starves everything else the app
-  asks for meanwhile. The similar-artists row's own two calls stay sequential inside their helper
-  for the same reason.
+  came from. The cap is not arbitrary: the hub's lb-bot proxy has **four** default in-flight slots
+  shared across every non-polled lb-bot route (the polled and cancelling routes have their own
+  two-slot fast pool), so fanning them all out queues behind itself and starves everything else the
+  app asks for meanwhile. The similar-artists row's own two calls stay sequential inside their
+  helper for the same reason.
 - **A download needs a foreground service, and `setOngoing(true)` is not one.** `DownloadManager`'s
   scope is a process-scoped `SupervisorJob` on a Koin singleton and **nothing in this tree cancels
   it** — no `ProcessLifecycleOwner`, no lifecycle observer, no `onStop`. So "downloads stop when you

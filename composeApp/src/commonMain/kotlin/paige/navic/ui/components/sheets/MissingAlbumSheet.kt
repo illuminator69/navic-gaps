@@ -45,14 +45,6 @@ import navic.composeapp.generated.resources.action_show_files
 import navic.composeapp.generated.resources.action_find_sources
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.info_already_downloading
-import navic.composeapp.generated.resources.info_fill_downloading
-import navic.composeapp.generated.resources.info_fill_failed
-import navic.composeapp.generated.resources.info_fill_needs_match
-import navic.composeapp.generated.resources.info_fill_placed
-import navic.composeapp.generated.resources.info_fill_placing
-import navic.composeapp.generated.resources.info_fill_queued
-import navic.composeapp.generated.resources.info_fill_searching
-import navic.composeapp.generated.resources.info_fill_verified
 import navic.composeapp.generated.resources.info_hub_needs_restart
 import navic.composeapp.generated.resources.info_pending_sync_detail
 import navic.composeapp.generated.resources.info_mp3_would_help
@@ -72,6 +64,10 @@ import navic.composeapp.generated.resources.title_sources
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.ui.components.common.failureHeadline
+import paige.navic.ui.components.common.formatBytes
+import paige.navic.ui.components.common.resolve
+import paige.navic.ui.components.common.runningHeadline
 import paige.navic.domain.manager.LbFillStatus
 import paige.navic.domain.manager.LbGapSource
 import paige.navic.domain.manager.LbRelease
@@ -570,16 +566,11 @@ private fun Tracklist(tracklist: LbTracklist?) {
 @Composable
 internal fun FillProgress(status: LbFillStatus?, onCancel: (() -> Unit)? = null) {
 	if (status == null || status.state == "unknown") return
+	// The same words the Download Center uses (PROTOCOL §15.2): the sheet used to
+	// carry a second set of labels for the same states.
 	val label = when (status.state) {
-		"searching" -> stringResource(Res.string.info_fill_searching)
-		"queued" -> stringResource(Res.string.info_fill_queued)
-		"downloading" -> stringResource(Res.string.info_fill_downloading, status.done, status.total)
-		"placing" -> stringResource(Res.string.info_fill_placing)
-		"placed" -> stringResource(Res.string.info_fill_placed)
-		"verified" -> stringResource(Res.string.info_fill_verified)
-		"needs_match" -> stringResource(Res.string.info_fill_needs_match)
-		"failed" -> stringResource(Res.string.info_fill_failed)
-		else -> status.state
+		"failed" -> stringResource(failureHeadline(status.failureKind))
+		else -> runningHeadline(status.state, status.done, status.total, status.verifyGaveUp).resolve()
 	}
 	Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
 		Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -592,9 +583,17 @@ internal fun FillProgress(status: LbFillStatus?, onCancel: (() -> Unit)? = null)
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 		}
-		if (status.state !in setOf("failed", "verified", "needs_match")) {
+		if (status.state == "downloading" && status.bytesTotal > 0L) {
+			Text(
+				"${formatBytes(status.bytesDone)} / ${formatBytes(status.bytesTotal)}" +
+					if (status.speedBps > 0L) " · ${(status.speedBps / (1024.0 * 1024.0) * 10).toLong() / 10.0} MB/s" else "",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant
+			)
+		}
+		if (status.state in ACTIVE_STATES) {
 			Spacer(Modifier.height(6.dp))
-			if (status.total > 0) {
+			if (status.total > 0 || status.state == "placing" || status.state == "placed") {
 				LinearProgressIndicator(
 					progress = { status.percent / 100f },
 					modifier = Modifier.fillMaxWidth()
@@ -602,17 +601,16 @@ internal fun FillProgress(status: LbFillStatus?, onCancel: (() -> Unit)? = null)
 			} else {
 				LinearProgressIndicator(Modifier.fillMaxWidth())
 			}
-			if (onCancel != null && status.state in CANCELLABLE_STATES) {
-				TextButton(onClick = onCancel) {
-					Text(stringResource(Res.string.action_cancel_download))
-				}
+		}
+		// The server's own Cancel rule: searching, queued or downloading, or a failed
+		// fill whose automatic retry is still pending. Never on `placing`.
+		if (onCancel != null && status.canCancel) {
+			TextButton(onClick = onCancel) {
+				Text(stringResource(Res.string.action_cancel_download))
 			}
 		}
 	}
 }
-
-/** Placement is past the point of no return; only the transfer can be stopped. */
-private val CANCELLABLE_STATES = setOf("searching", "queued", "downloading")
 
 private val ACTIVE_STATES =
 	setOf("searching", "queued", "downloading", "placing", "placed")

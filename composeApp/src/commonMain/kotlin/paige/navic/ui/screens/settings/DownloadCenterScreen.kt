@@ -24,6 +24,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -31,7 +33,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
@@ -45,6 +49,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_allow_mp3_retry
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_try_another_source
+import navic.composeapp.generated.resources.action_open_album
 import navic.composeapp.generated.resources.action_cancel_all
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_clear_failed
@@ -109,7 +114,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFillEntry
+import kotlin.time.Clock
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import paige.navic.ui.components.common.FillButton
+import paige.navic.ui.components.common.FillProgressKind
+import paige.navic.ui.components.common.describeFill
+import paige.navic.ui.components.common.resolve
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.ChevronForward
@@ -143,11 +154,25 @@ fun DownloadCenterScreen() {
 	val wishlistSupported = viewModel.wishlistSupported
 	var fillFilter by remember { mutableStateOf(FillFilter.ALL) }
 	val backStack = LocalNavStack.current
+	// A one-second clock for the countdowns and "last checked Ns ago" on fill rows.
+	val now by produceState(Clock.System.now().toEpochMilliseconds()) {
+		while (true) {
+			delay(1_000)
+			value = Clock.System.now().toEpochMilliseconds()
+		}
+	}
+	// What an action on a fill row answered. Dropped results were how a refused
+	// Retry looked like a tap that did nothing.
+	val snackbar = remember { SnackbarHostState() }
+	LaunchedEffect(Unit) {
+		viewModel.actionMessages.collect { snackbar.showSnackbar(it) }
+	}
 
 	Scaffold(
 		topBar = {
 			NestedTopBar(title = { Text(stringResource(Res.string.title_download_center)) })
 		},
+		snackbarHost = { SnackbarHost(snackbar) },
 		contentWindowInsets = WindowInsets.statusBars
 	) { innerPadding ->
 		CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
@@ -279,24 +304,29 @@ fun DownloadCenterScreen() {
 						shown.forEach { fill ->
 							FillRow(
 								fill = fill,
-								onRetry = { viewModel.retryFill(fill.key) },
-								onAnotherSource = { viewModel.retryAnotherSource(fill.key) },
-								onCancel = { viewModel.cancelFill(fill.key) },
-								onAllowMp3 = { viewModel.allowMp3AndRetry(fill) },
-								onDismiss = { viewModel.dismissFill(fill.key) },
-								// Exactly one failure kind, deliberately. Wishlisting a
-								// format rejection or a transfer failure would register a
-								// slow re-search for something the fast search already
-								// found — the wishlist is for "nobody has it", nothing else.
-								// A blank rgid has nothing to register.
-								onWishlist = if (
-									wishlistSupported &&
-									fill.failureKind == "no_source" &&
-									fill.rgid.isNotBlank() &&
-									fill.key !in wishlisted
-								) {
-									{ viewModel.addToWishlist(fill) }
-								} else null
+								now = now,
+								// The wishlist is for "nobody has it", nothing else; the
+								// vocabulary gates it on the failure kind and the rgid.
+								wishlistAvailable = wishlistSupported && fill.key !in wishlisted,
+								onAction = { button ->
+									when (button) {
+										FillButton.RETRY -> viewModel.retryFill(fill.key)
+										FillButton.TRY_ANOTHER -> viewModel.retryAnotherSource(fill.key)
+										FillButton.CANCEL -> viewModel.cancelFill(fill.key)
+										FillButton.ALLOW_MP3 -> viewModel.allowMp3AndRetry(fill)
+										FillButton.WISHLIST -> viewModel.addToWishlist(fill)
+										FillButton.DISMISS -> viewModel.dismissFill(fill.key)
+										// The album page is where "Download" lives — a cancel
+										// is restarted from there, not with a Retry on the row.
+										FillButton.OPEN_ALBUM -> backStack.add(
+											Screen.ExternalAlbum(
+												rgid = fill.rgid,
+												artistName = fill.artist,
+												title = fill.album
+											)
+										)
+									}
+								}
 							)
 						}
 					}
@@ -587,14 +617,13 @@ private fun DownloadRow(
 @Composable
 private fun FillRow(
 	fill: LbFillEntry,
-	onRetry: () -> Unit,
-	onAnotherSource: () -> Unit,
-	onCancel: () -> Unit,
-	onAllowMp3: () -> Unit,
-	onDismiss: () -> Unit,
-	/** Null when lb-bot has no wishlist, or when this failure is not the kind a wishlist helps. */
-	onWishlist: (() -> Unit)? = null
+	now: Long,
+	wishlistAvailable: Boolean,
+	onAction: (FillButton) -> Unit
 ) {
+	// Every word and every button comes from the shared vocabulary (PROTOCOL §15.2),
+	// the table Feishin renders from too.
+	val view = describeFill(fill, now, wishlistAvailable)
 	FormRow {
 		RemoteCoverArt(
 			url = fill.coverUrl,
@@ -609,106 +638,69 @@ private fun FillRow(
 			)
 			val failed = fill.settled && !fill.succeeded
 			Text(
-				text = fillStateLabel(fill),
+				text = view.headline.resolve(),
 				style = MaterialTheme.typography.bodyMedium,
 				color = if (failed) MaterialTheme.colorScheme.error
 				else MaterialTheme.colorScheme.onSurfaceVariant,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis
 			)
-			// lb-bot's reason, verbatim. It is the only thing that distinguishes "no peer
-			// had it" from "every source was rejected for format" — and the second of
-			// those is what the Allow MP3 button below is for.
-			if (failed && fill.reason.isNotBlank()) {
+			// lb-bot's reason, verbatim, is among these: it is the only thing that
+			// distinguishes "no peer had it" from "every source was rejected for format".
+			view.sublines.forEach { line ->
 				Text(
-					text = fill.reason,
+					text = line.resolve(),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = 3,
 					overflow = TextOverflow.Ellipsis
 				)
 			}
-			// lb-bot's count, which includes the automatic re-attempt the transient
-			// kinds get — so one failure reads differently from four.
-			if (failed && fill.attempts > 1) {
+			view.explain?.let { line ->
 				Text(
-					text = stringResource(Res.string.lbbot_fill_attempts, fill.attempts),
+					text = line.resolve(),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
-			// No Retry below and no MP3 button either — say why rather than leaving
-			// a row whose only affordance is Dismiss. Suppressed once a wishlist is
-			// on offer: the row then HAS an answer, and "nothing more can be tried"
-			// sitting above a button that tries something is simply wrong.
-			if (failed && !fill.canRetry && !fill.mp3WouldHelp && onWishlist == null) {
-				Text(
-					text = stringResource(Res.string.lbbot_fill_no_retry),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant
+			when (view.progress) {
+				FillProgressKind.DETERMINATE -> LinearProgressIndicator(
+					progress = { view.percent / 100f },
+					modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
 				)
-			}
-			if (fill.isRunning) {
-				// Determinate only once lb-bot is counting transfers; before that it is
-				// searching, and a bar sitting at zero reads as a stall.
-				if (fill.total > 0) {
-					LinearProgressIndicator(
-						progress = { fill.percent / 100f },
-						modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-					)
-				} else {
-					LinearProgressIndicator(
-						modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-					)
-				}
+				// Searching, or waiting for the peer: a bar sitting at zero reads as a stall.
+				FillProgressKind.INDETERMINATE -> LinearProgressIndicator(
+					modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+				)
+				FillProgressKind.NONE -> Unit
 			}
 		}
 
-		// A running fill can be stopped from here. There was no way to before: cancelling
-		// in slskd left the row on "downloading" with no failure to hang a Retry on.
-		if (fill.isRunning) {
-			TextButton(onClick = onCancel) {
-				Text(stringResource(Res.string.action_cancel))
-			}
-		}
-		if (fill.settled) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				if (!fill.succeeded) {
-					if (fill.mp3WouldHelp && fill.groupId.isNotBlank()) {
-						TextButton(onClick = onAllowMp3) {
-							Text(stringResource(Res.string.action_allow_mp3_retry))
-						}
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			view.buttons.forEach { button ->
+				when (button) {
+					FillButton.DISMISS -> IconButton(onClick = { onAction(button) }) {
+						Icon(
+							Icons.Outlined.Delete,
+							contentDescription = stringResource(Res.string.action_dismiss),
+							modifier = Modifier.size(20.dp)
+						)
 					}
-					// Only when lb-bot says a plain retry is worth it. It says no for
-					// a format rejection MP3 would fix, because that retry re-runs the
-					// identical search against the identical peers. An unclassified
-					// row (older lb-bot, or a gap fill) keeps the button.
-					if (fill.canRetry) {
-						TextButton(onClick = onRetry) {
-							Text(stringResource(Res.string.action_retry))
-						}
+					else -> TextButton(onClick = { onAction(button) }) {
+						Text(
+							stringResource(
+								when (button) {
+									FillButton.CANCEL -> Res.string.action_cancel
+									FillButton.RETRY -> Res.string.action_retry
+									FillButton.TRY_ANOTHER -> Res.string.action_try_another_source
+									FillButton.ALLOW_MP3 -> Res.string.action_allow_mp3_retry
+									FillButton.WISHLIST -> Res.string.action_add_to_wishlist
+									FillButton.OPEN_ALBUM -> Res.string.action_open_album
+									FillButton.DISMISS -> Res.string.action_dismiss
+								}
+							)
+						)
 					}
-					// The peer was the problem (it crawled, or dropped the transfer): ask
-					// again with it ruled out instead of re-sending the same request.
-					if (fill.canTryAnotherSource) {
-						TextButton(onClick = onAnotherSource) {
-							Text(stringResource(Res.string.action_try_another_source))
-						}
-					}
-					// Nobody had it. The only honest option left is to keep wanting
-					// it and let lb-bot look again on its own slow schedule.
-					onWishlist?.let { wishlist ->
-						TextButton(onClick = wishlist) {
-							Text(stringResource(Res.string.action_add_to_wishlist))
-						}
-					}
-				}
-				IconButton(onClick = onDismiss) {
-					Icon(
-						Icons.Outlined.Delete,
-						contentDescription = stringResource(Res.string.action_dismiss),
-						modifier = Modifier.size(20.dp)
-					)
 				}
 			}
 		}
@@ -797,45 +789,6 @@ private fun PasteLinkRow(
 	}
 }
 
-/**
- * What a fill is doing, in the user's terms rather than lb-bot's.
- *
- * The outcome is checked before the state because a settled row's last state is not the
- * whole story: a fill given up on still reads `unknown`, and a cancelled one keeps
- * whatever it was doing when it was cancelled.
- */
-@Composable
-private fun fillStateLabel(fill: LbFillEntry): String = when {
-	fill.settled -> when (fill.outcome) {
-		LbBotManager.OUTCOME_DONE -> stringResource(Res.string.lbbot_fill_verified)
-		LbBotManager.OUTCOME_CANCELLED -> stringResource(Res.string.lbbot_fill_cancelled)
-		LbBotManager.OUTCOME_NEEDS_PICK -> stringResource(Res.string.lbbot_fill_needs_pick)
-		LbBotManager.OUTCOME_GAVE_UP -> stringResource(Res.string.lbbot_fill_gave_up)
-		else -> if (fill.state == "needs_match")
-			stringResource(Res.string.lbbot_fill_needs_match)
-		// lb-bot's classification, not an inference from the wording of `reason`.
-		// "No peer had it" and "every source was rejected for format" are different
-		// problems with different buttons, and the row should say which before it
-		// is opened. An lb-bot predating the field sends nothing and falls through
-		// to the generic line, exactly as before.
-		else when (fill.failureKind) {
-			"no_source" -> stringResource(Res.string.lbbot_fail_no_source)
-			"format_rejected" -> stringResource(Res.string.lbbot_fail_format)
-			"transfer_failed" -> stringResource(Res.string.lbbot_fail_transfer)
-			"placement_failed" -> stringResource(Res.string.lbbot_fail_placement)
-			"mb_unavailable" -> stringResource(Res.string.lbbot_fail_musicbrainz)
-			else -> stringResource(Res.string.lbbot_fill_failed)
-		}
-	}
-	fill.state == "downloading" && fill.total > 0 ->
-		stringResource(Res.string.lbbot_fill_downloading, fill.done, fill.total)
-	fill.state == "queued" -> stringResource(Res.string.lbbot_fill_queued)
-	fill.state == "placing" -> stringResource(Res.string.lbbot_fill_placing)
-	fill.state == "placed" -> stringResource(Res.string.lbbot_fill_placed)
-	// `searching` and the ambiguous `unknown` — which for a live row means lb-bot's
-	// worker has not written its first ledger row yet — read the same to the user.
-	else -> stringResource(Res.string.lbbot_fill_searching)
-}
 
 /** Human label for a download's [DownloadSource]; unknown values fall back to the raw string. */
 @Composable

@@ -3,8 +3,11 @@ package paige.navic.ui.screens.settings.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -65,33 +68,70 @@ class DownloadCenterViewModel(
 	val fills = lbBotManager.ledger
 
 	/**
+	 * What an action on a row answered, for the screen's snackbar. Every result used
+	 * to be dropped, so a Retry lb-bot refused looked exactly like a tap that did
+	 * nothing — which read as "it can only be restarted from lb-bot".
+	 */
+	private val _actionMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+	val actionMessages: SharedFlow<String> = _actionMessages.asSharedFlow()
+
+	private suspend fun announce(result: LbBotManager.LbResult<paige.navic.domain.manager.LbOk>) {
+		when (result) {
+			is LbBotManager.LbResult.Failed -> _actionMessages.emit(REFUSED)
+			is LbBotManager.LbResult.Ok -> {
+				val value = result.value
+				if (value.error.isNotBlank()) _actionMessages.emit(value.error)
+				else if (!value.ok) _actionMessages.emit(REFUSED)
+			}
+		}
+	}
+
+	/**
 	 * Re-issue a fill. Never automatic — lb-bot walks its whole ranked source list before
 	 * reporting failure, so an unattended retry re-runs the identical search; the user
 	 * asking again is the new information.
 	 */
 	fun retryFill(key: String) {
-		viewModelScope.launch { lbBotManager.retry(key) }
+		viewModelScope.launch { announce(lbBotManager.retry(key)) }
 	}
 
 	/** Retry with the peer that failed or crawled ruled out. */
 	fun retryAnotherSource(key: String) {
-		viewModelScope.launch { lbBotManager.retryAnotherSource(key) }
+		viewModelScope.launch { announce(lbBotManager.retryAnotherSource(key)) }
 	}
 
 	fun cancelFill(key: String) {
-		viewModelScope.launch { lbBotManager.cancelFill(key) }
+		viewModelScope.launch { announce(lbBotManager.cancelFill(key)) }
 	}
 
-	/** Widen this one album's search to include mp3, then try again. Offered only when
-	 *  lb-bot said the search rejected mp3s and would otherwise have found something. */
+	/**
+	 * Widen this one album's search to include mp3, then try again. Offered when lb-bot
+	 * said the search rejected mp3s and would otherwise have found something.
+	 *
+	 * With a review group the opt-in is set on the group and the retry follows — only
+	 * if the opt-in took; it used to retry regardless, under the very format policy that
+	 * had just rejected everything. Without one, the retry itself carries `allowMp3`.
+	 */
 	fun allowMp3AndRetry(entry: paige.navic.domain.manager.LbFillEntry) {
 		viewModelScope.launch {
-			if (entry.groupId.isNotBlank()) lbBotManager.allowMp3(entry.groupId, allow = true)
-			lbBotManager.retry(entry.key)
+			if (entry.groupId.isNotBlank()) {
+				val allowed = lbBotManager.allowMp3(entry.groupId, allow = true)
+				if (allowed !is LbBotManager.LbResult.Ok || !allowed.value.ok) {
+					_actionMessages.emit(REFUSED)
+					return@launch
+				}
+				announce(lbBotManager.retry(entry.key))
+			} else {
+				announce(lbBotManager.retryAllowMp3(entry.key))
+			}
 		}
 	}
 
 	fun dismissFill(key: String) = lbBotManager.dismiss(key)
+
+	private companion object {
+		const val REFUSED = "lb-bot would not take that request."
+	}
 
 	/**
 	 * Keep wanting a release nobody was sharing.

@@ -16,6 +16,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +51,7 @@ import navic.composeapp.generated.resources.title_type_soundtrack
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.components.common.AcquireButton
 import paige.navic.ui.components.common.CoverArt
@@ -277,13 +280,43 @@ private fun DiscographyTile(
 				// which is a different pipeline from acquiring a release outright.
 				val rgid = entry.release?.rgid.orEmpty()
 				if (rgid.isNotBlank() && entry.gapGroupId == null) {
-					AcquireButton(
-						rgid = rgid,
-						artist = artistName,
-						album = entry.release?.title.orEmpty(),
-						onReview = onClick,
-						modifier = Modifier.align(Alignment.TopEnd)
-					)
+					// A fill already running shows its progress here instead of a
+					// button offering to start another one — the tile used to keep
+					// the acquire control up through the whole download.
+					val lbBot = koinInject<LbBotManager>()
+					val ledger by lbBot.ledger.collectAsState()
+					val running = ledger.firstOrNull { it.key == rgid && it.isRunning }
+					if (running != null) {
+						Box(
+							Modifier
+								.align(Alignment.TopEnd)
+								.padding(6.dp)
+								.size(28.dp)
+								.background(
+									MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+									RoundedCornerShape(50)
+								),
+							contentAlignment = Alignment.Center
+						) {
+							if (running.total > 0 || running.bytesTotal > 0L) {
+								CircularProgressIndicator(
+									progress = { running.percent / 100f },
+									modifier = Modifier.size(20.dp),
+									strokeWidth = 2.dp
+								)
+							} else {
+								CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+							}
+						}
+					} else {
+						AcquireButton(
+							rgid = rgid,
+							artist = artistName,
+							album = entry.release?.title.orEmpty(),
+							onReview = onClick,
+							modifier = Modifier.align(Alignment.TopEnd)
+						)
+					}
 				}
 			}
 			if (entry.gapGroupId != null && present != null && total != null && total > 0) {

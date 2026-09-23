@@ -633,6 +633,17 @@
 	<string name="lbbot_fill_done_at">Finished</string>
 	<string name="lbbot_fill_landed">%1$s is in your library</string>
 	<string name="lbbot_fill_lost">Couldn't get %1$s</string>
+	<!-- The acquisition vocabulary, PROTOCOL.md §15.2 — mirrored in Feishin's fill-vocabulary.ts. -->
+	<string name="lbbot_fill_downloading_plain">Downloading</string>
+	<string name="lbbot_fill_placed_unindexed">Added — Navidrome hasn't indexed it yet</string>
+	<string name="lbbot_fill_bytes">%1$s of %2$s</string>
+	<string name="lbbot_fill_speed">%1$s MB/s</string>
+	<string name="lbbot_fill_failed_files">%1$d failed</string>
+	<string name="lbbot_fill_unreachable">Can't reach lb-bot — last checked %1$ds ago</string>
+	<string name="lbbot_fill_retry_in">Retrying automatically in %1$ds</string>
+	<string name="lbbot_fill_wishlist_hint">Nobody had it this time. The swarm changes — add it to the wishlist and lb-bot will keep looking every few hours.</string>
+	<string name="lbbot_fill_needs_pick_hint">Open the album to pick a source.</string>
+	<string name="action_open_album">Open album</string>
 	<string name="title_download_format">Download format</string>
 	<string name="title_cellular_playback_source">On mobile data</string>
 	<string name="option_prefer_downloads_cellular">Prefer downloaded songs</string>

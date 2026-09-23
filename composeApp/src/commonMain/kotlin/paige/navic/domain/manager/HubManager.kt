@@ -143,6 +143,12 @@ class HubManager(
 	private val _connected = MutableStateFlow(false)
 	val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+	init {
+		// While the socket is up, `fill` frames reach lb-bot's manager within a second of
+		// lb-bot writing its ledger, and its poll drops to a safety net.
+		lbBotManager.hubConnected = { _connected.value }
+	}
+
 	private val _devices = MutableStateFlow<List<HubDevice>>(emptyList())
 	val devices: StateFlow<List<HubDevice>> = _devices.asStateFlow()
 
@@ -1141,6 +1147,11 @@ class HubManager(
 			// and missing one costs nothing, because the index flip upstream is durable
 			// and the next read is right regardless.
 			"library" -> lbBotManager.onLibraryChanged(parseLibraryEvent(msg))
+
+			// A fill moved: lb-bot pushed its state or progress through the hub. Nothing
+			// in the library changed, so nothing is refetched — one ledger row is updated,
+			// through the same function the poll uses (PROTOCOL §15.1).
+			"fill" -> lbBotManager.onFillFrame(msg)
 
 			"error" -> {
 				val code = msg["code"]?.jsonPrimitive?.content
