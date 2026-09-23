@@ -45,9 +45,10 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
 
-Two Room databases. **`CacheDatabase` is at 22** and is `fallbackToDestructiveMigration(true)` — it
+Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
 is a cache, and saved queues re-reconcile from the hub. **`DownloadDatabase` (at 4) holds real user
-data** and must never be treated that way.
+data** and must never be treated that way. 23 added the lb-bot index mirror (§5) through a
+hand-written `MIGRATION_CACHE_22_23`, so an upgrade keeps the cached library rather than wiping it.
 
 ---
 
@@ -98,6 +99,18 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    schemas, so shipping 21 would have matched an installed database against the wrong one. Resolve
    the conflicted `N.json` to upstream's (so N means what upstream shipped), regenerate the new
    one, and assert it carries both parents' changes. Confirm `DownloadDatabase` is untouched.
+   **The fork's own tables make this sharper since 23.** `CacheDatabase` 23 is fork-only: the four
+   lb-bot mirror tables (`lb_index_artist`, `lb_index_release`, `lb_index_meta`,
+   `lb_response_cache`, in `entities/LbIndexEntities.kt`, DAO `LbIndexDao`) arrive through the
+   hand-written `MIGRATION_CACHE_22_23` in `DownloadMigrations.kt`, registered in **both**
+   `PlatformModule.android.kt` and `PlatformModule.ios.kt`. When upstream ships its own 22→23 (or
+   anything ≥ 23), renumber upstream's change **above the fork's** — never slot it in underneath and
+   never let two 23s coexist; that is the alpha59 "two 21s" trap again. The fork's migration then
+   has to be re-chained: a new `MIGRATION_CACHE_23_24` (or higher) that applies upstream's DDL on
+   top of the fork's 23, registered in both platform modules, with its SQL checked against the
+   regenerated `N.json`'s `createSql` by script rather than by eye (that is how 22→23 was
+   verified). A migration that is merged away does not fail the build — the upgrade silently falls
+   back to destructive and wipes the cached library, and the mirror re-pulls from zero.
 6. **Translations** (`values-*/strings.xml`): upstream's wholesale, re-add the fork's keys, then
    grep for duplicate `name=` attributes — a duplicate breaks
    `convertXmlValueResourcesForCommonMain` with an error that doesn't name the key.
@@ -120,6 +133,18 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     different things — the emulator found three runtime crashes, the phone found the unsigned APK.
 13. **Do not `git push --tags`.** `upstream` brings ~75 of ssalggnikool's release tags; pushing
     them makes the fork look as though it cut those releases.
+14. **`NavDisplay` keeps BOTH entry decorators**, upstream's list verbatim:
+    `entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(),
+    rememberViewModelStoreNavEntryDecorator())` in `App.kt`. Upstream added it at alpha42
+    (`bbda3447`), and not one of the fork's merges carried it — the alpha52, alpha58 and alpha59
+    trees all lack it, because `App.kt` is taken fork-whole (below) and this was a structural
+    change nobody re-applied. **Nothing failed**: `NavDisplay`'s default is the saveable-state decorator alone, so everything kept
+    working while every ViewModel ever created lived in the activity's store for the whole process
+    — every artist page ever opened stayed alive and re-read on every library bump. It was found by
+    an audit, not a symptom. After a merge touching `App.kt`, grep for
+    `rememberViewModelStoreNavEntryDecorator`. With it in place a ViewModel dies when its entry is
+    popped, so anything that must outlive its screen needs `PersistentViewModelStoreOwner` (the
+    list screens) or a process-scoped manager — never a ViewModel on a popped entry.
 
 ⚠️ `dev.zt64.subsonic:subsonic-client` resolves at `1.0.0-SNAPSHOT` from a GitHub raw maven repo. A
 snapshot is not reproducible: if a build suddenly fails on a symbol that used to exist, suspect
@@ -135,8 +160,9 @@ that before suspecting the merge.
   `hubManager.isRemoteActive` collector that swaps `session.player` between ExoPlayer and
   `RemoteSessionPlayer` was the last surviving reader of `mediaSession` after upstream renamed it
   to `mediaLibrarySession`, and nothing but reading it caught that.
-- **`App.kt`** — every nav entry, the `Washed` wrapper on the root tabs, the composition locals.
-  Take the fork's whole and re-apply upstream's structural changes by hand.
+- **`App.kt`** — every nav entry, the `Washed` wrapper on the root tabs, the composition locals,
+  the `NavDisplay` entry decorators (rule 14). Take the fork's whole and re-apply upstream's
+  structural changes by hand.
 - **`PreferenceManager.kt`**, **`SessionManager.kt`**, **`DownloadManager.kt`**,
   **`DbRepository.kt`**, **`SongDao.kt`** — union merges where both sides append. Usually textual
   collisions only; read them as unions rather than as choices.
@@ -317,6 +343,20 @@ because both clients must agree on them.
   makes an album vanish *because* the download succeeded. The discography shelf is built
   **Navidrome-first** for the same family of reason: starting from lb-bot's list would hide albums
   the user owns but whose Navidrome record lb-bot's matcher couldn't claim.
+- **The artist page reads lb-bot's discography from a local mirror, not the network.**
+  `LbIndexSync` (`domain/manager/`) keeps the `lb_index_*` tables converged with lb-bot's change
+  feed — a pull on every hub `welcome`, every `index` frame and every 15-minute sync cycle, one in
+  flight, backoff on 503. `ArtistDetailViewModel` reads the artist's mirrored rows and builds the
+  typed shelf **before** the page goes to `Success`, so the shelf is in the first frame and the
+  legacy carousel is never shown-then-swapped; it then observes the mirror as a Flow. The old
+  `ensureAvailability` → `GET /lb/artist/discography` waterfall survives only as the fallback for
+  an artist the mirror does not hold yet. `ExternalArtistViewModel`, `ExternalAlbumViewModel` and
+  `CollectionDetailViewModel` (the rgid behind an owned album's About) read the same mirror first.
+  Library bumps reach the artist page as `LbBotManager.libraryBumps`, filtered to the page's own
+  `ndArtistId` / albums / release-groups; the bare `libraryRevision` is for pages with nothing to
+  filter on. The discography-scan poll (`awaitArtistScan`) is a 15 s fallback raced against the
+  mirror Flow, because the scan record — the only way to learn a scan *failed* — is not index
+  state. Only `LbIndexSync` writes the mirror, and only from the feed.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
