@@ -376,6 +376,20 @@ because both clients must agree on them.
   filter on. The discography-scan poll (`awaitArtistScan`) is a 15 s fallback raced against the
   mirror Flow, because the scan record — the only way to learn a scan *failed* — is not index
   state. Only `LbIndexSync` writes the mirror, and only from the feed.
+- **lb-bot's other reads are stale-while-revalidate over `lb_response_cache`, through one
+  `LbBotManager.cachedGet`.** Meta artist/album and album releases/tracklist (30 d), Fresh and
+  "Fans also like" (10 min), the Deezer chart/editorial (1 h) and genres (24 h) return a `Flow`:
+  the cached body first, whatever its age, then a request only if it is stale. Key = route +
+  sorted non-blank params; a failure or an empty/`found:false` answer never overwrites a body.
+  An **ownership-bearing** answer (every Fresh/Discover row, a tracklist asked for WITH presence)
+  is also stale once the library changes: `markLibraryStale()` sets a persisted watermark from
+  `onLibraryChanged` and from every hub `welcome` (frames missed while the socket was down), and
+  such a body fetched at or before it revalidates on its next read. Bodies are stamped with when
+  the request LEFT, so one in flight across a landing still counts as stale. Never cached: fill
+  and acquisition state (`album/status`, `/lb/fills`, `/lb/gap`, sources), the discography (the
+  mirror has it), wishlist, lookups, anything that POSTs. Discover paints its Room rows and every
+  cached lb-bot row before the probes, and Discover/Fresh call `revalidate()` on every visit,
+  because as root tabs their ViewModels outlive the visit.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
