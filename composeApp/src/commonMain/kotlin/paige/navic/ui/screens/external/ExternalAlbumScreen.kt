@@ -103,8 +103,14 @@ fun ExternalAlbumScreen(
 		}
 	}
 
-	val heading = state.detail?.title?.ifBlank { null } ?: title
-	val artist = state.detail?.artist?.ifBlank { null } ?: artistName
+	// lb-bot's detail when it has answered; before that the index mirror's (read from Room
+	// before any request leaves), and only then whatever the route carried.
+	val heading = state.detail?.title?.ifBlank { null }
+		?: state.mirrorTitle.ifBlank { null }
+		?: title
+	val artist = state.detail?.artist?.ifBlank { null }
+		?: state.mirrorArtist.ifBlank { null }
+		?: artistName
 
 	// Resolved in the viewmodel — library first, MusicBrainz second, nothing third
 	// — so both affordances below agree and neither has to re-derive it. Null means

@@ -24,6 +24,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbMeta
 import paige.navic.domain.manager.LbSimilarAlbums
 import paige.navic.domain.manager.SessionManager
@@ -48,6 +49,7 @@ class CollectionDetailViewModel(
 	private val sessionManager: SessionManager,
 	private val snackBarManager: SnackBarManager,
 	private val lbBotManager: LbBotManager,
+	private val lbIndexSync: LbIndexSync,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	// Starts empty and is filled by [refreshCollection]'s first emission, which comes off
@@ -167,27 +169,77 @@ class CollectionDetailViewModel(
 	 * already maps release-groups to the Navidrome album ids they landed as. The
 	 * release MBID still rides along as `release_mbid` — that is what it is, and
 	 * it saves lb-bot resolving the canonical release itself.
+	 *
+	 * **That index is local now.** The rgid comes out of the index mirror (Room), so
+	 * the two serial hops that used to stand in front of both requests — a
+	 * `/lb/status` probe, then the artist's whole discography over the network just
+	 * to find one row — are gone, and the two requests go out together. The mirror's
+	 * row also carries the artist's MBID, which similarity is keyed by. The network
+	 * path is kept for an album whose artist the mirror does not hold (yet).
 	 */
 	fun loadLbBotExtras(album: DomainAlbum, releaseMbid: String?) {
 		viewModelScope.launch {
-			if (!lbBotManager.ensureAvailability()) return@launch
-			val rgid = releaseGroupIdFor(album)
+			val fromMirror = mirroredRelease(album)
+			val rgid: String?
+			val artistMbid: String?
+			if (fromMirror != null) {
+				rgid = fromMirror.first
+				artistMbid = fromMirror.second
+			} else {
+				if (!lbBotManager.ensureAvailability()) return@launch
+				rgid = releaseGroupIdFor(album)
+				artistMbid = null
+			}
 			if (!rgid.isNullOrBlank()) {
-				_meta.value = lbBotManager.albumMeta(rgid, releaseMbid)
+				launch { _meta.value = lbBotManager.albumMeta(rgid, releaseMbid) }
 			}
 			// Similarity is computed artist-to-artist, so this needs the artist,
 			// not the album; `rgid` only excludes the record on screen.
 			//
-			// No MBID is sent because Room's album row does not carry the
-			// artist's. lb-bot resolves it from its own Navidrome artist index
-			// before asking ListenBrainz, whose similar-artists endpoint is
-			// keyed by MBID and answers nothing for a bare name.
+			// Room's album row does not carry the artist's MBID. The mirror's artist
+			// row does, when this album came from it; otherwise lb-bot resolves it
+			// from its own Navidrome artist index before asking ListenBrainz, whose
+			// similar-artists endpoint is keyed by MBID and answers nothing for a
+			// bare name.
 			_similar.value = lbBotManager.similarAlbums(
-				artistMbid = null,
+				artistMbid = artistMbid,
 				artistName = album.artistName,
 				rgid = rgid
 			)
 		}
+	}
+
+	/**
+	 * `(rgid, artist MBID)` for this album out of the index mirror — the same two rules as
+	 * [releaseGroupIdFor], in the same order: a row that names this Navidrome album id (this
+	 * artist's first, for a collaboration filed under several), else a same-titled row in this
+	 * artist's mirrored discography. Room reads only; nothing here waits on lb-bot.
+	 *
+	 * Null means the mirror does not know this artist at all, and only then does the caller
+	 * fall back to the network. A mirrored artist with no matching row answers `(null, mbid)`:
+	 * the network would read the very same index and say the same thing. The artist MBID is
+	 * lb-bot's own when it has one — never the `nd:` fallback key.
+	 */
+	private suspend fun mirroredRelease(album: DomainAlbum): Pair<String?, String?>? {
+		if (!lbBotManager.isConfigured) return null
+		return runCatching {
+			val byId = lbIndexSync.releasesForAlbum(collectionId, album.artistId)
+				.firstOrNull { it.release.rgid.isNotBlank() }
+			if (byId != null) {
+				return@runCatching byId.release.rgid to byId.artist?.mbid?.ifBlank { null }
+			}
+			val artist = lbIndexSync.findArtist(album.artistId) ?: return@runCatching null
+			val artistMbid = artist.artist.mbid.ifBlank { null }
+			val wanted = album.name?.trim()?.lowercase()
+			val row = wanted?.let { title ->
+				artist.releases.firstOrNull {
+					it.rgid.isNotBlank() && it.title.trim().lowercase() == title
+				}
+			}
+			row?.rgid to artistMbid
+		}
+			.onFailure { Logger.w("CollectionDetailViewModel", "index mirror read failed", it) }
+			.getOrNull()
 	}
 
 	/**

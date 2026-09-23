@@ -17,6 +17,8 @@ import paige.navic.data.database.entities.LbIndexMetaEntity
 import paige.navic.data.database.planIndexDrift
 import paige.navic.data.database.relations.LbIndexArtistWithReleases
 import paige.navic.data.database.toDiscography
+import paige.navic.data.database.toWire
+import paige.navic.data.database.entities.LbIndexArtistEntity
 import paige.navic.util.Logger
 import kotlin.time.Clock
 
@@ -53,14 +55,29 @@ class LbIndexSync(
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private val triggers = Channel<String>(Channel.CONFLATED)
+	/** Written by the worker, read by [requestSync] on whatever thread a frame arrives on. */
+	@kotlin.concurrent.Volatile
 	private var retryJob: Job? = null
+	/** Worker-only. A fresh start is handed over through [backoffReset] instead. */
 	private var consecutiveFailures = 0
+
+	/**
+	 * Set by a trigger that starts afresh ([requestSync]'s `freshStart`), consumed by the worker
+	 * before its next pass: the backoff ladder goes back to its first rung. A flag rather than a
+	 * direct write because [consecutiveFailures] belongs to the worker.
+	 */
+	@kotlin.concurrent.Volatile
+	private var backoffReset = false
 
 	private enum class Outcome { DONE, SKIPPED, BACKOFF }
 
 	init {
 		scope.launch {
 			for (why in triggers) {
+				if (backoffReset) {
+					backoffReset = false
+					consecutiveFailures = 0
+				}
 				val outcome = try {
 					sync(why)
 				} catch (e: CancellationException) {
@@ -97,9 +114,27 @@ class LbIndexSync(
 	/**
 	 * Ask for a pull. Never blocks, never runs two at once; safe from any thread or frame handler.
 	 * [lbAlive] is true only when the trigger is itself evidence lb-bot is reachable.
+	 *
+	 * **A pending backoff retry holds every other trigger off** (review ruling R20b). Without
+	 * this the `index` frames — up to one per 2 s during a bulk build — and the 15-minute tick
+	 * walked straight past the backoff, so a client contending for the hub's single `sync` slot
+	 * retried every ~2 s instead of backing off, which is the load the backoff exists to shed.
+	 * The retry itself still runs, and a trigger it swallowed loses nothing: the retry pulls from
+	 * the same cursor. An `index` frame's proof that lb-bot is up is kept for that retry.
+	 *
+	 * [freshStart] is the exception: a new hub connection (`welcome`), or the hub announcing
+	 * lb-bot has just come back (`lb` frame, R18). Either invalidates the reason for the wait —
+	 * the backoff was measured against a socket or an lb-bot that no longer exists — so it cancels
+	 * the pending retry, resets the ladder and pulls now, as Feishin does on a welcome.
 	 */
-	fun requestSync(why: String, lbAlive: Boolean = false) {
+	fun requestSync(why: String, lbAlive: Boolean = false, freshStart: Boolean = false) {
 		if (lbAlive) lbProvenAlive = true
+		if (freshStart) {
+			backoffReset = true
+			retryJob?.cancel()
+		} else if (why != RETRY && retryJob?.isActive == true) {
+			return
+		}
 		triggers.trySend(why)
 	}
 
@@ -114,7 +149,7 @@ class LbIndexSync(
 		retryJob?.cancel()
 		retryJob = scope.launch {
 			delay(wait)
-			requestSync("retry")
+			requestSync(RETRY)
 		}
 	}
 
@@ -142,6 +177,11 @@ class LbIndexSync(
 		val proven = lbProvenAlive
 		lbProvenAlive = false
 		if (!proven && !lbBotManager.ensureAvailability()) return Outcome.SKIPPED
+		// Asked AGAIN, after the probe (review ruling R20a). On a hub too old to send `welcome.lb`
+		// nothing has filled the route list before the first probe, and an empty list means
+		// "advertises everything" — so the check above passed vacuously and every trigger sent one
+		// `/lb/index/changes` that 404'd. The probe has now filled the list if the hub has one.
+		if (!lbBotManager.supportsIndexMirror) return Outcome.SKIPPED
 
 		var force: Set<String> = emptySet()
 		var driftChecked = false
@@ -260,8 +300,40 @@ class LbIndexSync(
 			nowSeconds = Clock.System.now().toEpochMilliseconds() / 1000.0
 		)
 
+	/**
+	 * Every mirrored row for one release-group, each with its artist — a collaboration is filed
+	 * under each credited artist. [preferArtistKey] (an artist MBID, which is lb-bot's key for a
+	 * scanned artist) sorts that artist's row first; after it, a row that names a Navidrome album,
+	 * since that is the answer "does the library hold this" needs. Empty = not in the mirror.
+	 */
+	suspend fun releasesByRgid(rgid: String, preferArtistKey: String = ""): List<LbMirroredRelease> {
+		if (rgid.isBlank()) return emptyList()
+		return dao.releasesByRgid(rgid)
+			.map { row -> LbMirroredRelease(row.toWire(), dao.getArtistByKey(row.artistKey)) }
+			.sortedWith(
+				compareByDescending<LbMirroredRelease> {
+					preferArtistKey.isNotBlank() && it.artist?.artistKey == preferArtistKey
+				}.thenByDescending { it.release.navidromeAlbumIds.any { id -> id.isNotBlank() } }
+			)
+	}
+
+	/**
+	 * The mirrored rows that claim a Navidrome album id — the owned album page's way from an
+	 * album to its release-group without asking lb-bot for the artist's whole discography.
+	 * [ndArtistId] sorts that artist's row first. The DAO's quoted `LIKE` over the JSON list is
+	 * a substring match, so the id is re-checked against the decoded list here.
+	 */
+	suspend fun releasesForAlbum(ndAlbumId: String, ndArtistId: String = ""): List<LbMirroredRelease> {
+		if (ndAlbumId.isBlank()) return emptyList()
+		return dao.releasesByNavidromeAlbumId(ndAlbumId)
+			.map { row -> LbMirroredRelease(row.toWire(), dao.getArtistByKey(row.artistKey)) }
+			.filter { ndAlbumId in it.release.navidromeAlbumIds }
+			.sortedByDescending { ndArtistId.isNotBlank() && it.artist?.ndArtistId == ndArtistId }
+	}
+
 	private companion object {
 		const val TAG = "LbIndexSync"
+		const val RETRY = "retry"
 		const val MAX_RESYNCS = 2
 		const val MAX_RETRIES = 6
 		const val RETRY_BASE_MS = 10_000L
@@ -270,3 +342,10 @@ class LbIndexSync(
 		const val DEFAULT_TTL_DAYS = 30.0
 	}
 }
+
+/** One mirrored release-group row with the mirrored artist it is filed under (null only if the
+ *  artist row vanished between the two reads — a sync landing mid-lookup). */
+data class LbMirroredRelease(
+	val release: LbRelease,
+	val artist: LbIndexArtistEntity?
+)

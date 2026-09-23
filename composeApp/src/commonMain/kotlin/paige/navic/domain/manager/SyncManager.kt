@@ -98,14 +98,15 @@ class SyncManager(
 	private fun observeLbBotFills() {
 		scope.launch {
 			lbBotManager.libraryEvents.collect { event ->
-				// A discography scan changes lb-bot's index only; the artist page re-reads
-				// that itself off the revision bump. Nothing in Navidrome moved.
+				// A discography scan changes lb-bot's index only; the artist page gets it
+				// from the index mirror (or, for an artist not mirrored yet, re-reads it off
+				// its own filtered bump). Nothing in Navidrome moved.
 				if (event.event == EVENT_ARTIST_SCANNED) return@collect
 				if (event.ndAlbumIds.isNotEmpty()) {
 					repository.syncAlbumsById(event.ndAlbumIds)
 						.onSuccess {
 							Logger.i("SyncManager", "lb-bot landing synced: ${event.ndAlbumIds}")
-							lbBotManager.onLocalLibrarySynced()
+							lbBotManager.onLocalLibrarySynced(event.ndAlbumIds)
 							scheduleArtworkResync(event.ndAlbumIds)
 						}
 						.onFailure {
@@ -136,7 +137,7 @@ class SyncManager(
 			for (wait in ARTWORK_RESYNC_DELAYS) {
 				delay(wait)
 				repository.syncAlbumsById(ids)
-					.onSuccess { lbBotManager.onLocalLibrarySynced() }
+					.onSuccess { lbBotManager.onLocalLibrarySynced(ids) }
 					.onFailure { Logger.w("SyncManager", "artwork re-sync failed for $ids", it) }
 			}
 		}

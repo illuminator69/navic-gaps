@@ -5,15 +5,23 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -37,6 +45,9 @@ import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbDiscography
+import paige.navic.domain.manager.LbIndexSync
+import paige.navic.domain.manager.LbLibraryEvent
 import paige.navic.domain.manager.LbMeta
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
@@ -135,6 +146,7 @@ class ArtistDetailViewModel(
 	private val albumDao: AlbumDao,
 	private val downloadManager: DownloadManager,
 	private val lbBotManager: LbBotManager,
+	private val lbIndexSync: LbIndexSync,
 	private val nativeApiManager: NativeApiManager,
 	private val snackBarManager: SnackBarManager,
 	connectivityManager: ConnectivityManager
@@ -205,21 +217,88 @@ class ArtistDetailViewModel(
 	private val _selectedGap = MutableStateFlow<DiscographyEntry?>(null)
 	val selectedGap = _selectedGap.asStateFlow()
 
+	// ----- where the shelf's lb-bot rows came from -------------------------------------------- //
+	//
+	// Two sources, and the mirror wins. The local index mirror (`LbIndexSync`, Room) is read
+	// before the page's first frame and observed for as long as the page lives; the network read
+	// (`GET /lb/artist/discography`) is only the fallback for an artist the mirror does not hold
+	// yet — the first sync still running, an old hub with no change feed, an artist lb-bot has
+	// never scanned. Once the mirror has answered for this artist the network is never asked
+	// again, and a network answer that lands after it is dropped rather than painted over it.
+	// Every write to [_discography] from either source goes through [discographyLock], so a
+	// rebuild never interleaves with another.
+
+	/** The lb-bot discography the shelf was last built from, from whichever source. */
+	private var lbData: LbDiscography? = null
+
+	/** True once the mirror has answered for this artist. */
+	private var fromMirror = false
+
+	/** The album list [lbData] was last built against — compared by identity, see [applyLbData]. */
+	private var builtAlbums: List<DomainAlbum>? = null
+
+	private val discographyLock = Mutex()
+	private var mirrorJob: Job? = null
+
 	init {
 		loadArtistData()
 		// A fill landing — here or on another client — changes two answers at once:
 		// Navidrome has an album it didn't, and lb-bot no longer counts that
 		// release-group as missing. Showing one without the other is exactly the
 		// double-listing the reconciliation below exists to prevent.
+		//
+		// lb-bot's half now arrives through the mirror Flow on its own (see
+		// [observeMirror]); what a bump still owes the page is Navidrome's half, and it
+		// is filtered to THIS artist — see [concerns]. It used to be the bare
+		// `libraryRevision`, which with every visited artist page kept alive made each
+		// landing anywhere in the library a network refetch per page ever opened.
 		viewModelScope.launch {
-			lbBotManager.libraryRevision.drop(1).collect {
+			lbBotManager.libraryBumps.collect { bump ->
+				if ((artistState.value as? UiState.Success) == null) return@collect
+				if (!concerns(bump)) return@collect
 				// The page's album list is a snapshot of Room taken at open. Without
 				// re-reading it, a landed album arrives in Room and the discography row
 				// flips, but the tile has no album to resolve to — "Added — syncing".
-				reloadAlbumsFromRoom()
-				loadDiscography()
+				val albumsChanged = reloadAlbumsFromRoom()
+				when {
+					// The mirror carries lb-bot's side; only a changed album list needs the
+					// shelf rebuilt, and that is local.
+					fromMirror -> if (albumsChanged) rebuildDiscography()
+					// Not mirrored yet: lb-bot's rows arrive only by asking.
+					else -> loadDiscographyFromNetwork()
+				}
 			}
 		}
+	}
+
+	/**
+	 * Whether a library bump can change anything on THIS page ("filter library bumps by
+	 * `ndArtistId`", navi-connect index-mirror plan §4).
+	 *
+	 * - It names an artist (`ndArtistId` — lb-bot's `artistScanned`, which carries the id the
+	 *   scan was started with): exactly this one or not at all.
+	 * - It names a release-group or albums: this page's if any of them is on it — an album tile,
+	 *   a cross-artist album [buildSections] resolved, an album id or rgid on one of lb-bot's
+	 *   rows — or if Room files one of the albums under this artist (a landing this page had no
+	 *   tile for yet, e.g. a fill started from Fresh).
+	 * - It names nothing (a changed-albums sweep): it cannot be ruled out. That costs a Room read
+	 *   compared against what is shown, and nothing more unless the album list really moved.
+	 */
+	private suspend fun concerns(bump: LbLibraryEvent): Boolean {
+		if (bump.ndArtistId.isNotBlank()) return bump.ndArtistId == artistId
+		if (bump.rgid.isBlank() && bump.ndAlbumIds.isEmpty()) return true
+		val releases = lbData?.releases.orEmpty()
+		if (bump.rgid.isNotBlank() && releases.any { it.rgid == bump.rgid }) return true
+		val onPage = (artistState.value as? UiState.Success)?.data?.albums.orEmpty()
+			.mapTo(mutableSetOf()) { it.id }
+		onPage.addAll(resolvedStrayAlbumIds)
+		releases.forEach { onPage.addAll(it.navidromeAlbumIds) }
+		if (bump.ndAlbumIds.any { it in onPage }) return true
+		val unknown = bump.ndAlbumIds.filter { it.isNotBlank() && it !in onPage }
+		if (unknown.isEmpty()) return false
+		return runCatching { albumDao.getAlbumsByIds(unknown) }
+			.getOrDefault(emptyList())
+			.any { it.album.artistId == artistId }
 	}
 
 	private fun loadArtistData() {
@@ -251,6 +330,23 @@ class ArtistDetailViewModel(
 
 				starred.value = artistRepository.isArtistStarred(domainArtist)
 
+				// lb-bot's discography, from the local index mirror — a Room read, no network,
+				// no availability probe — and built into typed sections in the SAME pass,
+				// BEFORE the page goes to Success. The screen's first Success frame therefore
+				// already has the shelf, and the legacy album carousel (which renders only
+				// while there is no shelf) is never shown and then swapped out: the "jump"
+				// this page used to do as the rows spliced in after a probe and a fetch.
+				val mirrored = readMirror(domainArtist)
+				if (mirrored != null) {
+					val sections = buildSections(domainAlbums, mirrored.releases)
+					discographyLock.withLock {
+						fromMirror = true
+						lbData = mirrored
+						builtAlbums = domainAlbums
+						_discography.value = discographyUiFor(mirrored, sections, _discography.value)
+					}
+				}
+
 				artistState.value = UiState.Success(
 					ArtistState(
 						artist = domainArtist,
@@ -259,11 +355,15 @@ class ArtistDetailViewModel(
 						similarArtists = initialSimilarArtists
 					)
 				)
+				// The mirror keeps answering for as long as the page lives: a sync that
+				// changes this artist re-emits, with no refetch and no bump involved.
+				observeMirror(domainArtist)
 
 				// Fire-and-forget, and strictly after the page has its own data: the
 				// discography shelf is an enhancement, and an artist page must render
-				// identically whether or not lb-bot is there.
-				loadDiscography()
+				// identically whether or not lb-bot is there. The network discography is
+				// only asked for an artist the mirror does not hold (yet).
+				if (mirrored == null) loadDiscographyFromNetwork()
 				loadMeta()
 				loadAppearsOn(domainAlbums)
 
@@ -338,8 +438,9 @@ class ArtistDetailViewModel(
 	 * no row at all — so building the shelf out of lb-bot's list would silently hide
 	 * albums the user owns.
 	 */
-	private suspend fun reloadAlbumsFromRoom() {
-		val current = (artistState.value as? UiState.Success)?.data ?: return
+	/** Re-read this artist's albums from Room; true when the list actually changed. */
+	private suspend fun reloadAlbumsFromRoom(): Boolean {
+		val current = (artistState.value as? UiState.Success)?.data ?: return false
 		var rows = albumDao.getAlbumsByArtist(artistId).firstOrNull() ?: emptyList()
 		if (rows.isEmpty()) {
 			rows = albumDao.getAlbumsByArtistName(current.artist.name).firstOrNull() ?: emptyList()
@@ -347,10 +448,11 @@ class ArtistDetailViewModel(
 		val albums = rows.map { it.toDomainModel() }
 		// Cover id included: an artwork re-sync changes nothing else about the album.
 		if (albums.map { Triple(it.id, it.songCount, it.coverArtId) } ==
-			current.albums.map { Triple(it.id, it.songCount, it.coverArtId) }) return
+			current.albums.map { Triple(it.id, it.songCount, it.coverArtId) }) return false
 		// Re-read the state: the metadata fetch may have replaced it while Room answered.
-		val latest = (artistState.value as? UiState.Success)?.data ?: return
+		val latest = (artistState.value as? UiState.Success)?.data ?: return false
 		artistState.value = UiState.Success(latest.copy(albums = albums))
+		return true
 	}
 
 	/**
@@ -388,45 +490,148 @@ class ArtistDetailViewModel(
 		_aboutOpen.value = false
 	}
 
-	fun loadDiscography() {
+	/**
+	 * This artist from the index mirror, or null when the mirror does not hold them — or when no
+	 * hub is configured at all ([LbBotManager.isConfigured]): the mirror answers offline and
+	 * with lb-bot down, which is its point, but not for a user who has switched the layer off.
+	 * Looked up exactly as lb-bot looks up the network read (MBID key first, then the Navidrome
+	 * id — contract §1a), so both sources name the same artist.
+	 */
+	private suspend fun readMirror(artist: DomainArtist): LbDiscography? {
+		if (!lbBotManager.isConfigured) return null
+		return runCatching { lbIndexSync.discography(artistId, artist.musicBrainzId) }
+			.onFailure { Logger.w("ArtistDetailViewModel", "index mirror read failed", it) }
+			.getOrNull()
+	}
+
+	/**
+	 * Collect the mirror for this artist for the life of the page. Its first emission repeats
+	 * what [loadArtistData] already painted, and [applyLbData] drops it as unchanged; after that
+	 * every emission is a sync that touched this artist — a rescan landing, a fill flipping a
+	 * row, the first sync reaching an artist that was only on the network path — and it rebuilds
+	 * the shelf in place. A null (not mirrored, or wiped by a `resync` and not re-pulled yet)
+	 * leaves whatever is shown alone rather than blanking the shelf under the user.
+	 *
+	 * Started once: [loadArtistData] runs again after a star/unstar.
+	 */
+	private fun observeMirror(artist: DomainArtist) {
+		if (mirrorJob != null) return
+		mirrorJob = viewModelScope.launch {
+			lbIndexSync.observeDiscography(artistId, artist.musicBrainzId)
+				.catch { Logger.w("ArtistDetailViewModel", "index mirror observe failed", it) }
+				.collect { data ->
+					if (data == null || !lbBotManager.isConfigured) return@collect
+					applyLbData(data, mirror = true)
+				}
+		}
+	}
+
+	/**
+	 * The FALLBACK: `GET /lb/artist/discography`, for an artist the mirror does not hold. This
+	 * is the old per-page `ensureAvailability` → `discography` waterfall, kept for exactly that
+	 * case (plan §4) and never taken once the mirror has answered.
+	 */
+	private fun loadDiscographyFromNetwork() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
+			if (fromMirror) return@launch
 			if (!isOnline.value || !lbBotManager.ensureAvailability()) {
-				_discography.value = DiscographyUi(available = false)
+				markUnavailable()
 				return@launch
 			}
 			val data = lbBotManager.discography(state.artist.id, state.artist.musicBrainzId)
 			if (data == null) {
-				_discography.value = DiscographyUi(available = false)
+				markUnavailable()
 				return@launch
 			}
-			if (!data.indexed) {
-				_discography.value = DiscographyUi(available = true, indexed = false)
-				return@launch
-			}
-			_discography.value = DiscographyUi(
-				available = true,
-				indexed = true,
-				scannedAt = (data.scannedAt * 1000).toLong(),
-				stale = data.stale,
-				sections = buildSections(state.albums, data.releases)
-			)
+			applyLbData(data, mirror = false)
 		}
 	}
 
-	/** Start the (slow, rate-limited) MusicBrainz walk, then wait for the index to fill. */
+	/** lb-bot is not answering and the mirror has nothing: render no shelf at all (§7). */
+	private suspend fun markUnavailable() {
+		discographyLock.withLock {
+			if (fromMirror) return
+			_discography.value = DiscographyUi(available = false)
+		}
+	}
+
+	/**
+	 * The one way lb-bot data reaches the shelf after the first frame, from either source.
+	 *
+	 * Skipped when nothing changed — same data, built against the very same album list (by
+	 * identity: [reloadAlbumsFromRoom] only replaces the list when it really moved) — which is
+	 * the mirror Flow's first emission, and any re-emission a sync makes for another artist's
+	 * change that happened to touch this one's lookup. A network answer arriving after the mirror
+	 * took over is dropped. The in-flight scan state ([DiscographyUi.indexing] / `scanError`)
+	 * is carried across: a rebuild is not the scan finishing.
+	 */
+	private suspend fun applyLbData(data: LbDiscography, mirror: Boolean) {
+		val albums = (artistState.value as? UiState.Success)?.data?.albums ?: return
+		discographyLock.withLock {
+			if (!mirror && fromMirror) return
+			if (data == lbData && albums === builtAlbums && (!mirror || fromMirror)) return
+			val sections = if (data.indexed) buildSections(albums, data.releases) else emptyList()
+			if (mirror) fromMirror = true
+			lbData = data
+			builtAlbums = albums
+			_discography.value = discographyUiFor(data, sections, _discography.value)
+		}
+	}
+
+	/** The album list moved (a landing reached Room): rebuild from the data already held. */
+	private suspend fun rebuildDiscography() {
+		val data = lbData ?: return
+		applyLbData(data, mirror = fromMirror)
+	}
+
+	private fun discographyUiFor(
+		data: LbDiscography,
+		sections: List<DiscographySection>,
+		previous: DiscographyUi
+	): DiscographyUi = if (!data.indexed) {
+		DiscographyUi(
+			available = true,
+			indexed = false,
+			indexing = previous.indexing,
+			scanError = previous.scanError
+		)
+	} else {
+		DiscographyUi(
+			available = true,
+			indexed = true,
+			indexing = previous.indexing,
+			scanError = previous.scanError,
+			scannedAt = (data.scannedAt * 1000).toLong(),
+			stale = data.stale,
+			sections = sections
+		)
+	}
+
+	/**
+	 * Start the (slow, rate-limited) MusicBrainz walk, then wait for the index to fill.
+	 *
+	 * The wait is a race. The mirror is the feedback: lb-bot stores the scan, pushes an `index`
+	 * frame, [LbIndexSync] pulls, and this artist's mirror Flow emits a newer `scannedAt` —
+	 * seconds after the walk ends. [LbBotManager.awaitArtistScan] is the fallback, a 15 s poll
+	 * (woken early by lb-bot's `artistScanned` frame) that is also the only thing able to say the
+	 * scan FAILED, since the scan record is not index state. Whichever answers first wins.
+	 */
 	fun indexArtist() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		val mbid = state.artist.musicBrainzId
 		if (mbid.isNullOrBlank()) return
 		viewModelScope.launch {
-			_discography.value = _discography.value.copy(indexing = true)
+			_discography.value = _discography.value.copy(indexing = true, scanError = "")
 			// Watch `scanned_at`, not `indexed`. For an already-indexed artist `indexed` is true on
 			// the very first tick, so the spinner cleared while the walk was still running — in
 			// exactly the case a rescan button exists for. A first scan reads 0 here, so the same
-			// "it moved" rule covers both.
-			_discography.value = _discography.value.copy(scanError = "")
-			val scannedAtBefore = lbBotManager.discography(state.artist.id, mbid)?.scannedAt ?: 0.0
+			// "it moved" rule covers both. The float as lb-bot wrote it — from whichever source the
+			// shelf is showing, else asked — never the page's millisecond copy, whose truncation
+			// would read as "it moved" on an unchanged scan.
+			val scannedAtBefore = lbData?.takeIf { it.indexed }?.scannedAt
+				?: lbBotManager.discography(state.artist.id, mbid)?.scannedAt
+				?: 0.0
 			val taskId = lbBotManager.indexArtist(mbid, state.artist.name, state.artist.id)
 			if (taskId == null) {
 				_discography.value = _discography.value.copy(
@@ -436,14 +641,42 @@ class ArtistDetailViewModel(
 				return@launch
 			}
 			// A big discography takes 10-60s at MusicBrainz's one request a second.
-			when (val outcome = lbBotManager.awaitArtistScan(state.artist.id, mbid, taskId, scannedAtBefore)) {
-				is LbScanOutcome.Done -> _discography.value = DiscographyUi(
-					available = true,
-					indexed = true,
-					scannedAt = (outcome.data.scannedAt * 1000).toLong(),
-					stale = outcome.data.stale,
-					sections = buildSections(state.albums, outcome.data.releases)
-				)
+			val outcome = coroutineScope {
+				val viaMirror = async<LbScanOutcome> {
+					try {
+						LbScanOutcome.Done(
+							lbIndexSync.observeDiscography(state.artist.id, mbid)
+								.filterNotNull()
+								.first { it.indexed && it.scannedAt > scannedAtBefore }
+						)
+					} catch (e: CancellationException) {
+						throw e
+					} catch (e: Exception) {
+						// A Room failure must not take the scan down with it: leave the
+						// race to the poll.
+						Logger.w("ArtistDetailViewModel", "index mirror watch failed", e)
+						awaitCancellation()
+					}
+				}
+				val viaPoll = async {
+					lbBotManager.awaitArtistScan(state.artist.id, mbid, taskId, scannedAtBefore)
+				}
+				select<LbScanOutcome> {
+					viaMirror.onAwait { it }
+					viaPoll.onAwait { it }
+				}.also {
+					viaMirror.cancel()
+					viaPoll.cancel()
+				}
+			}
+			when (outcome) {
+				is LbScanOutcome.Done -> {
+					_discography.value = _discography.value.copy(indexing = false)
+					// The mirror Flow may already have painted this; applyLbData skips it then.
+					// A network Done for an artist the mirror does not hold yet is the one case
+					// where this paints the result.
+					applyLbData(outcome.data, mirror = fromMirror)
+				}
 				is LbScanOutcome.Failed -> _discography.value = _discography.value.copy(
 					indexing = false,
 					scanError = outcome.error

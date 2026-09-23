@@ -53,7 +53,12 @@ val viewModelModule = module {
 	// Parameterised on their route keys — a MusicBrainz artist mbid and a
 	// release-group id, neither of which is resolvable from the graph.
 	viewModel { (artistMbid: String, name: String) ->
-		ExternalArtistViewModel(artistMbid = artistMbid, artistName = name, lbBotManager = get())
+		ExternalArtistViewModel(
+			artistMbid = artistMbid,
+			artistName = name,
+			lbBotManager = get(),
+			lbIndexSync = get()
+		)
 	}
 	viewModel { (rgid: String, artistMbid: String, artistName: String, artistId: String) ->
 		ExternalAlbumViewModel(
@@ -63,6 +68,7 @@ val viewModelModule = module {
 			artistId = artistId,
 			artistDao = get(),
 			lbBotManager = get(),
+			lbIndexSync = get(),
 			previewManager = get(),
 			mediaPlayer = get()
 		)
@@ -143,6 +149,7 @@ val viewModelModule = module {
 			sessionManager = get(),
 			snackBarManager = get(),
 			lbBotManager = get(),
+			lbIndexSync = get(),
 			connectivityManager = get()
 		)
 	}

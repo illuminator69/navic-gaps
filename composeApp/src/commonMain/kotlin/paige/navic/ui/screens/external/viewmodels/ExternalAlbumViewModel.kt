@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbIndexSync
+import paige.navic.domain.manager.LbMirroredRelease
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.LbTracklist
@@ -16,6 +18,7 @@ import paige.navic.domain.manager.toDomainSong
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.shared.MediaPlayerViewModel
 import kotlinx.coroutines.flow.firstOrNull
+import paige.navic.util.Logger
 
 data class ExternalAlbumUi(
 	val loading: Boolean = true,
@@ -31,7 +34,14 @@ data class ExternalAlbumUi(
 	 *  older hub that does not proxy the route, or MusicBrainz not answering. */
 	val indexAddFailed: Boolean = false,
 	/** Where this album's artist opens, once it is known. Null = nowhere to go. */
-	val artistTarget: ArtistTarget? = null
+	val artistTarget: ArtistTarget? = null,
+	/**
+	 * The title and artist as lb-bot's index mirror has them — read from Room before any
+	 * request leaves, so the header is right in the first frame even when the route carried
+	 * only an id. [detail] supersedes both once `/lb/album/releases` answers.
+	 */
+	val mirrorTitle: String = "",
+	val mirrorArtist: String = ""
 )
 
 /**
@@ -72,6 +82,7 @@ class ExternalAlbumViewModel(
 	private val artistId: String,
 	private val artistDao: ArtistDao,
 	private val lbBotManager: LbBotManager,
+	private val lbIndexSync: LbIndexSync,
 	private val previewManager: PreviewManager,
 	private val mediaPlayer: MediaPlayerViewModel
 ) : ViewModel() {
@@ -158,10 +169,17 @@ class ExternalAlbumViewModel(
 		}
 	}
 
+	/**
+	 * The mirror's answer for this release-group, if it has one: resolved once, before the
+	 * network, and reused by [resolveArtistTarget] and [refreshIndexRow].
+	 */
+	private var mirrored: LbMirroredRelease? = null
+
 	fun load() {
 		if (rgid.isBlank()) return
 		viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true)
+			applyMirror()
 			val detail = lbBotManager.albumReleases(rgid)
 			// The tracklist follows the default variant. `presenceKnown` comes back
 			// false with no Navidrome album ids supplied, which is the normal case
@@ -173,6 +191,32 @@ class ExternalAlbumViewModel(
 			resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
 			refreshIndexRow()
 		}
+	}
+
+	/**
+	 * The index row, title and artist straight out of lb-bot's index mirror — a Room read, so
+	 * it lands before `/lb/album/releases`, and offline too.
+	 *
+	 * The row is what this page otherwise had to ask the network for after the detail and the
+	 * tracklist: whether the library holds this release-group (its Navidrome album ids — the
+	 * screen then redirects to the owned album straight away), and the `incomplete` row's gap
+	 * handle. The artist row behind it names lb-bot's artist, which [resolveArtistTarget] uses.
+	 * A release-group filed under several artists prefers the one this page was opened for.
+	 */
+	private suspend fun applyMirror() {
+		if (!lbBotManager.isConfigured) return
+		val found = runCatching { lbIndexSync.releasesByRgid(rgid, preferArtistKey = artistMbid) }
+			.onFailure { Logger.w("ExternalAlbumViewModel", "index mirror read failed", it) }
+			.getOrNull()
+			?.firstOrNull()
+			?: return
+		mirrored = found
+		_state.value = _state.value.copy(
+			indexed = found.release,
+			ownedAlbumId = found.release.navidromeAlbumIds.firstOrNull { it.isNotBlank() },
+			mirrorTitle = found.release.title,
+			mirrorArtist = found.artist?.name.orEmpty()
+		)
 	}
 
 	/**
@@ -197,6 +241,19 @@ class ExternalAlbumViewModel(
 			return
 		}
 
+		// 1b. lb-bot's index files this release-group under an artist it matched to a
+		//     Navidrome id — the library's own id, no name matching involved. Only when Room
+		//     has that artist: a featured artist can carry an id with no page (§5).
+		val mirrorArtist = mirrored?.artist
+		val mirrorNdId = mirrorArtist?.ndArtistId.orEmpty()
+		if (mirrorNdId.isNotBlank() && !mirrorNdId.startsWith("mb:")) {
+			val local = runCatching { artistDao.getArtistById(mirrorNdId) }.getOrNull()
+			if (local != null) {
+				_state.value = _state.value.copy(artistTarget = ArtistTarget.Library(local.artistId))
+				return
+			}
+		}
+
 		// 2. Ask Room. Both spellings: the page's own parameter is the browse row's
 		//    artist ("Daft Punk") while lb-bot's is the full MusicBrainz credit
 		//    ("Daft Punk feat. …"), and either may be the one the library filed.
@@ -213,8 +270,9 @@ class ExternalAlbumViewModel(
 			}
 		}
 
-		// 3. MusicBrainz — the page's own parameter, else what lb-bot just answered.
-		val mbid = artistMbid.ifBlank { detailMbid }
+		// 3. MusicBrainz — the page's own parameter, else what lb-bot just answered, else
+		//    the mirror's artist.
+		val mbid = artistMbid.ifBlank { detailMbid }.ifBlank { mirrorArtist?.mbid.orEmpty() }
 		if (mbid.isNotBlank()) {
 			_state.value = _state.value.copy(
 				artistTarget = ArtistTarget.External(mbid, names.firstOrNull().orEmpty())
@@ -225,6 +283,10 @@ class ExternalAlbumViewModel(
 	}
 
 	private suspend fun refreshIndexRow() {
+		// The mirror already answered: that IS the index row, and it is kept current by the
+		// feed, so the discography read (and the single-release add, which only runs for a
+		// row the index lacks) has nothing to add.
+		if (mirrored != null) return
 		if (artistMbid.isBlank()) return
 		val disco = lbBotManager.discography("mb:$artistMbid", artistMbid)
 		val row = disco?.releases?.firstOrNull { it.rgid == rgid }

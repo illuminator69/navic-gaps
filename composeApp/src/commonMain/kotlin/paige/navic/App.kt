@@ -46,10 +46,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
@@ -345,6 +347,21 @@ fun App() {
 								.expressiveBlurSource(expressiveBlur),
 							backStack = backStack,
 							sceneStrategies = sceneStrategies,
+							// Upstream's, restored: it arrived at alpha42 and no fork merge ever
+							// carried it (App.kt is taken fork-whole), and NavDisplay's default is
+							// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
+							// lived in the activity's store for the life of the process — every
+							// artist page ever opened stayed alive and re-read on every library
+							// bump. With it, a ViewModel dies when its entry leaves the back stack;
+							// the list screens that must outlive that already opt out through
+							// `PersistentViewModelStoreOwner`. navigation3 keys each store by the
+							// entry's content key, so an entry that is merely covered (a sheet over
+							// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
+							// CLAUDE.md §2 — both decorators, in this order.
+							entryDecorators = listOf(
+								rememberSaveableStateHolderNavEntryDecorator(),
+								rememberViewModelStoreNavEntryDecorator()
+							),
 							onBack = {
 								if (backStack.size >= 2) {
 									backStack.removeLastOrNull()

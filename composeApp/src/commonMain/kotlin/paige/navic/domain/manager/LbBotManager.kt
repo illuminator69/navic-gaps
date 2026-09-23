@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -104,6 +106,16 @@ class LbBotManager(
 	private fun hubBase(): String? = hubHttpBase(preferenceManager)
 
 	/**
+	 * Whether lb-bot is reachable through anything at all — a hub is set, enabled and has a
+	 * token. A preference read, not a probe. The artist page gates its lb-bot index mirror on
+	 * this: the mirror answers offline by design, but a user who has switched the hub off has
+	 * switched the lb-bot layer off, and a shelf from a mirror they can no longer act on would
+	 * be the "renders something without lb-bot" the §7 rule forbids.
+	 */
+	val isConfigured: Boolean
+		get() = hubBase() != null
+
+	/**
 	 * Changes whenever the route configuration does, so a `LaunchedEffect` keyed on it
 	 * re-probes instead of caching "unavailable" for the life of the composition.
 	 * Preferences here are plain delegated properties with no Flow behind them.
@@ -139,6 +151,23 @@ class LbBotManager(
 	/** What landed, for the one consumer that needs more than "something did": the Room sync. */
 	private val _libraryEvents = MutableSharedFlow<LbLibraryEvent>(extraBufferCapacity = 32)
 	val libraryEvents: SharedFlow<LbLibraryEvent> = _libraryEvents.asSharedFlow()
+
+	/**
+	 * Every [libraryRevision] bump that a page might care about, WITH what it names — lb-bot's
+	 * `library` frames and fill transitions as they arrive, then the Room sync's "that album is in
+	 * Room now" ([onLocalLibrarySynced]) carrying the album ids it synced.
+	 *
+	 * [libraryRevision] says only "something moved", which left every artist page on the back
+	 * stack re-reading on every landing anywhere in the library. This is what lets a page filter:
+	 * an event naming another artist (`ndArtistId`) is not its business, one naming an album or a
+	 * release-group it shows is, and one naming nothing at all (a changed-albums sweep) cannot be
+	 * ruled out. Newest kept on overflow — a bump is "re-read now", so the latest is the useful one.
+	 */
+	private val _libraryBumps = MutableSharedFlow<LbLibraryEvent>(
+		extraBufferCapacity = 32,
+		onBufferOverflow = BufferOverflow.DROP_OLDEST
+	)
+	val libraryBumps: SharedFlow<LbLibraryEvent> = _libraryBumps.asSharedFlow()
 
 	/** Latest poll for each watched album fill, keyed by release-group mbid. */
 	private val _fills = MutableStateFlow<Map<String, LbFillStatus>>(emptyMap())
@@ -483,6 +512,18 @@ class LbBotManager(
 	 * ran out, and the page looked like an artist with nothing missing. lb-bot now keeps
 	 * the old discography and reports the failure on the discography read itself, matched
 	 * here by task id — not by time, since lb-bot's clock is not this device's.
+	 *
+	 * **This is the fallback, not the feedback.** A finished scan reaches the page through
+	 * the index mirror — lb-bot's `index` frame, a pull, the page's mirror Flow — within a
+	 * couple of seconds, and the pages race this against that. What only this read can say is
+	 * that the scan FAILED (the scan record is task state, not index state, so the mirror never
+	 * carries it). So the poll runs every [SCAN_POLL_INTERVAL_MS] = 15 s instead of 5, and is
+	 * woken early by lb-bot's own `artistScanned` library frame for this artist, which it sends
+	 * on failure as well as success and which clears the hub's cached discography first — so
+	 * the read it triggers is fresh. A frame that lands between two reads is simply missed and
+	 * the 15 s tick covers it.
+	 *
+	 * Not the fill poll: `pollLoop` and its constants are a different loop (contract §1b).
 	 */
 	suspend fun awaitArtistScan(
 		ndId: String,
@@ -490,9 +531,12 @@ class LbBotManager(
 		taskId: String,
 		scannedBefore: Double
 	): LbScanOutcome {
-		repeat(SCAN_POLL_ATTEMPTS) {
-			delay(SCAN_POLL_INTERVAL_MS)
-			val data = discography(ndId, mbid) ?: return@repeat
+		val deadline = nowMs() + SCAN_WAIT_MS
+		while (nowMs() < deadline) {
+			withTimeoutOrNull(SCAN_POLL_INTERVAL_MS) {
+				libraryEvents.first { it.event == EVENT_ARTIST_SCANNED && it.ndArtistId == ndId }
+			}
+			val data = discography(ndId, mbid) ?: continue
 			val scan = data.scan?.takeIf { it.taskId == taskId }
 			if (scan?.state == "failed") {
 				return LbScanOutcome.Failed(scan.error.ifBlank { "The discography scan failed" }, data)
@@ -1404,11 +1448,17 @@ class LbBotManager(
 	 */
 	fun onLibraryChanged(event: LbLibraryEvent = LbLibraryEvent()) {
 		_libraryEvents.tryEmit(event)
+		_libraryBumps.tryEmit(event)
 		_libraryRevision.value += 1
 	}
 
-	/** Room now holds what an [LbLibraryEvent] announced; screens reading Room re-read. */
-	fun onLocalLibrarySynced() {
+	/**
+	 * Room now holds what an [LbLibraryEvent] announced; screens reading Room re-read.
+	 * [ndAlbumIds] are the albums that sync wrote, when it knows — empty for a sweep, which a
+	 * page then cannot rule itself out of (see [libraryBumps]).
+	 */
+	fun onLocalLibrarySynced(ndAlbumIds: List<String> = emptyList()) {
+		_libraryBumps.tryEmit(LbLibraryEvent(EVENT_LOCAL_SYNCED, ndAlbumIds = ndAlbumIds))
 		_libraryRevision.value += 1
 	}
 
@@ -2064,9 +2114,12 @@ sealed interface LbScanOutcome {
 	data object TimedOut : LbScanOutcome
 }
 
-/** Scans that retry MusicBrainz can run for minutes; the scan record ends the wait early. */
-private const val SCAN_POLL_ATTEMPTS = 60
-private const val SCAN_POLL_INTERVAL_MS = 5_000L
+/** Scans that retry MusicBrainz can run for minutes; the scan record ends the wait early.
+ *  Five minutes, as the old 60 × 5 s was. */
+private const val SCAN_WAIT_MS = 5 * 60_000L
+/** The scan poll's FALLBACK tick — the mirror Flow and the `artistScanned` frame are the
+ *  feedback (see [LbBotManager.awaitArtistScan]). Was 5 s, when this poll was all there was. */
+private const val SCAN_POLL_INTERVAL_MS = 15_000L
 
 /** The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. */
 @Serializable
@@ -2924,6 +2977,8 @@ const val EVENT_PLACED = "albumPlaced"
 const val EVENT_INDEXED = "albumIndexed"
 /** A discography scan finished or failed. Changes lb-bot's index, nothing in Navidrome. */
 const val EVENT_ARTIST_SCANNED = "artistScanned"
+/** Not a wire event: [LbBotManager.onLocalLibrarySynced]'s bump, "Room caught up". */
+const val EVENT_LOCAL_SYNCED = "localSynced"
 
 /**
  * One `library` frame from the hub (or the local fill poll saying the same thing).

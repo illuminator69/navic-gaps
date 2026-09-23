@@ -1054,13 +1054,19 @@ class HubManager(
 	// Inbound frames
 	// ------------------------------------------------------------------ //
 
-	/** `welcome.lb`: `{available: bool, routes: [...]}`, the same answer `/lb/status` gives. */
-	private fun applyLbAdvert(lb: JsonObject) {
-		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return
+	/**
+	 * `welcome.lb`, or an `lb` frame: `{available: bool, routes: [...]}`, the same answer
+	 * `/lb/status` gives. Returns whether this advert moved lb-bot from unavailable to available
+	 * (false when it carried no usable `available` at all, which touches nothing).
+	 */
+	private fun applyLbAdvert(lb: JsonObject): Boolean {
+		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return false
 		val routes = (lb["routes"] as? JsonArray)
 			?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 			?: emptyList()
+		val wasAvailable = lbBotManager.available.value
 		lbBotManager.applyHubAdvert(available, routes)
+		return available && !wasAvailable
 	}
 
 	private suspend fun handleFrame(msg: JsonObject) {
@@ -1124,7 +1130,9 @@ class HubManager(
 				// Pull the lb-bot index mirror on EVERY welcome. `lbIndex` is only a hint and is
 				// not trusted to skip the pull: an up-to-date pull costs ~100 bytes, and an
 				// `index` frame missed while this socket was down would make the hint stale.
-				lbIndexSync.requestSync("welcome")
+				// A new connection also starts the backoff afresh (R20b): whatever the last socket
+				// was contending with is gone.
+				lbIndexSync.requestSync("welcome", freshStart = true)
 				Logger.i("HubManager", "connected to hub as $id")
 			}
 
@@ -1183,6 +1191,19 @@ class HubManager(
 			// needed for that; the pull answers both authoritatively.
 			// The frame is also proof lb-bot is up, whatever a cached availability says.
 			"index" -> lbIndexSync.requestSync("index frame", lbAlive = true)
+
+			// The hub's lb-bot verdict CHANGED (ruling R18): `{available, routes}`, the very object
+			// `welcome.lb` carries, sent whenever the hub's own probe flips. Applied exactly as the
+			// welcome applies it — `welcome.lb` alone is a connect-time snapshot, and a client that
+			// stays connected would otherwise never hear lb-bot come up or go away. Coming UP is
+			// also when the mirror has most likely fallen behind (no `index` frame could reach us
+			// while lb-bot was down), so it pulls, and as a fresh start: a backoff measured against
+			// an lb-bot that was down is no reason to wait now. Old hubs never send this frame.
+			"lb" -> try {
+				if (applyLbAdvert(msg)) lbIndexSync.requestSync("lb available", freshStart = true)
+			} catch (e: Exception) {
+				Logger.e("HubManager", "lb frame ignored", e)
+			}
 
 			"error" -> {
 				val code = msg["code"]?.jsonPrimitive?.content
