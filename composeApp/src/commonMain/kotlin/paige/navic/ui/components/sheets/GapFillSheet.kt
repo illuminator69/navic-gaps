@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,8 @@ import navic.composeapp.generated.resources.action_auto_pick
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_download_from_source
 import navic.composeapp.generated.resources.action_find_sources
+import navic.composeapp.generated.resources.action_open_in_lbbot
+import navic.composeapp.generated.resources.action_search_again
 import navic.composeapp.generated.resources.action_recheck_album
 import navic.composeapp.generated.resources.action_show_files
 import navic.composeapp.generated.resources.info_gap_edition
@@ -112,6 +115,8 @@ fun GapFillSheet(
 	val scope = rememberCoroutineScope()
 
 	val gaps by lbBot.gaps.collectAsState()
+	val webUrl by lbBot.webUrl.collectAsState()
+	val uriHandler = LocalUriHandler.current
 	var loading by remember(groupId) { mutableStateOf(true) }
 	var working by remember(groupId) { mutableStateOf(false) }
 	var error by remember(groupId) { mutableStateOf<LbBotManager.LbError?>(null) }
@@ -209,6 +214,10 @@ fun GapFillSheet(
 				// what is really "busy". So the button says what it is doing instead.
 				val searching =
 					gap.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
+				// Tracks already picked and nothing to fetch them from: the search that
+				// picked them has results no longer, so a search is the remedy — not the
+				// "go and decide in lb-bot" this used to say.
+				val needsFreshSearch = !searching && gap.status == "picking" && gap.sources.isEmpty()
 
 				// "Is a transfer actually happening", which `status == "downloading"` is a late
 				// and incomplete proxy for. lb-bot enqueues on its own thread and flips that
@@ -293,7 +302,10 @@ fun GapFillSheet(
 						modifier = Modifier.weight(1f)
 					) {
 						if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
-						else Text(stringResource(Res.string.action_find_sources))
+						else Text(stringResource(
+							if (gap.sources.isNotEmpty() || needsFreshSearch) Res.string.action_search_again
+							else Res.string.action_find_sources
+						))
 					}
 					if (transferInFlight) {
 						OutlinedButton(onClick = { act { lbBot.gapCancel(groupId) } }) {
@@ -337,6 +349,15 @@ fun GapFillSheet(
 						enabled = !working && !searching
 					) {
 						Text(stringResource(Res.string.action_auto_pick))
+					}
+				}
+				// lb-bot's own Fill-gaps page for this album, in the browser, for anything this
+				// sheet does not port. Only when the hub advertises lb-bot's address (an older hub
+				// does not, and a guessed one would be a button that leads nowhere). Group ids are
+				// lb-bot's own hex hashes, so they need no escaping in the hash route.
+				if (webUrl.isNotBlank()) {
+					TextButton(onClick = { runCatching { uriHandler.openUri("$webUrl/#/gaps/$groupId") } }) {
+						Text(stringResource(Res.string.action_open_in_lbbot))
 					}
 				}
 				}
@@ -394,9 +415,10 @@ private fun GapStatusLine(gap: LbGap, transferInFlight: Boolean) {
 			task.current.ifBlank { stringResource(Res.string.info_fill_searching) }
 		gap.status == "complete" -> stringResource(Res.string.info_fill_verified)
 		// `picking` is what asking for sources sets, before anything has been
-		// found — so with candidates on screen it means "your move", not "go and
-		// use lb-bot's web UI". Only the sourceless case is a real hand-off:
-		// that is lb-bot's match workspace, which Navic does not port.
+		// found — so with candidates on screen it means "your move". Sourceless, it
+		// is NOT a hand-off to lb-bot's workspace, though this used to say so: the
+		// tracks were picked by a search whose results lb-bot (or, until
+		// applyGapSummary kept them, this client) no longer holds. Search again.
 		gap.status == "picking" -> stringResource(
 			if (gap.sources.isNotEmpty()) Res.string.info_gap_pick_source
 			else Res.string.info_gap_needs_lbbot

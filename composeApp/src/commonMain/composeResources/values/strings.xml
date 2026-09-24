@@ -697,7 +697,7 @@
 	<string name="info_source_coverage">%1$d of %2$d tracks</string>
 	<string name="info_mp3_would_help">Allowing MP3 would have found a source.</string>
 	<string name="info_gap_pick_source">Sources found. Pick one below.</string>
-	<string name="info_gap_needs_lbbot">lb-bot needs a decision on this album. Finish it in lb-bot's own web interface.</string>
+	<string name="info_gap_needs_lbbot">The sources found for this album are gone. Search again to get a fresh list.</string>
 
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>
@@ -770,6 +770,8 @@
 	<string name="info_external_album_index_failed">Couldn't add this release to the artist's index, so it may keep listing as missing. Downloading still works.</string>
 
 	<string name="action_find_sources">Find sources</string>
+	<string name="action_search_again">Search again</string>
+	<string name="action_open_in_lbbot">Open in lb-bot</string>
 	<string name="info_searching_sources">Searching Soulseek…</string>
 	<string name="info_source_matches_album">Matches album title</string>
 	<string name="info_source_wrong_album">Different album?</string>

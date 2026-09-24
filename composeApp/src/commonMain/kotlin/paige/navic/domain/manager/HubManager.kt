@@ -1064,7 +1064,8 @@ class HubManager(
 		val routes = (lb["routes"] as? JsonArray)
 			?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 			?: emptyList()
-		lbBotManager.applyHubAdvert(available, routes)
+		val webUrl = (lb["webUrl"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+		lbBotManager.applyHubAdvert(available, routes, webUrl)
 		return available
 	}
 

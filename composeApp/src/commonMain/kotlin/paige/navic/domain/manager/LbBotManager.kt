@@ -613,6 +613,7 @@ class LbBotManager(
 			return false
 		}
 		_hubRoutes.value = probe.routes
+		_webUrl.value = cleanWebUrl(probe.webUrl)
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
 		_availableAt = nowMs()
@@ -668,11 +669,25 @@ class LbBotManager(
 	 * touched, and the probe path works exactly as before — a missing advert must never be read as
 	 * "unavailable".
 	 */
-	fun applyHubAdvert(available: Boolean, routes: List<String>) {
+	fun applyHubAdvert(available: Boolean, routes: List<String>, webUrl: String = "") {
 		_hubRoutes.value = routes
 		_available.value = available
 		_availableAt = nowMs()
+		_webUrl.value = cleanWebUrl(webUrl)
 	}
+
+	/**
+	 * lb-bot's own web UI, when the hub says where it is ("" otherwise — an older hub,
+	 * or lb-bot switched off). For the one screen that has to hand the user over to
+	 * lb-bot's workspace: its SPA routes on the hash, and `#/gaps/<groupId>` opens that
+	 * album's Fill-gaps page.
+	 */
+	private val _webUrl = MutableStateFlow("")
+	val webUrl: StateFlow<String> = _webUrl.asStateFlow()
+
+	/** Only something a browser should open, and without a trailing slash. */
+	private fun cleanWebUrl(url: String?): String =
+		url?.trimEnd('/')?.takeIf { it.startsWith("http://") || it.startsWith("https://") }.orEmpty()
 
 	/**
 	 * One page of the index change feed, for [LbIndexSync]. Through the hub's single-slot `sync`
@@ -2223,9 +2238,26 @@ class LbBotManager(
 	}
 
 	/** The gap counterpart of [applyAlbumStatus]: one writer for the gap ledger. */
-	private suspend fun applyGapSummary(key: String, gap: LbGap, now: Long = nowMs()) {
-		val previousStatus = _gaps.value[key]?.status
+	private suspend fun applyGapSummary(key: String, summary: LbGap, now: Long = nowMs()) {
+		val previous = _gaps.value[key]
+		val previousStatus = previous?.status
+		// `/lb/fills` answers a SUMMARY: the gap view with its source list dropped (it
+		// carries sourcesTotal and sourcesFoundAt, never the rows). Publishing it as-is
+		// replaced the sheet's gap with one holding no sources on every poll tick, so a
+		// search's results vanished seconds after they appeared and the sheet, now at
+		// `picking` with nothing to pick, told the user lb-bot needed a decision
+		// (beabadoobee / Loveworm, 2026-09-24). Keep the rows we already hold when the
+		// summary describes the same result set; when it reports results we have never
+		// read (a search just finished), fetch the full view once.
+		val gap = if (summary.sources.isEmpty() && previous != null &&
+			previous.sources.isNotEmpty() && previous.sourcesFoundAt == summary.sourcesFoundAt
+		) summary.copy(
+			sources = previous.sources,
+			sourcesPage = previous.sourcesPage,
+			sourcesPages = previous.sourcesPages
+		) else summary
 		_gaps.update { it + (key to gap) }
+		if (gap.sources.isEmpty() && summary.sourcesTotal > 0) scope.launch { refreshGap(key) }
 
 		val filling = gap.tracks.filter { it.state != "present" }
 		val filled = filling.count { it.state == "done" || it.state == "downloaded" }
@@ -2458,7 +2490,9 @@ data class LbStatusProbe(
 	val configured: Boolean = false,
 	val upstreamReachable: Boolean = false,
 	/** Routes this hub can proxy. Empty from a hub too old to advertise them. */
-	val routes: List<String> = emptyList()
+	val routes: List<String> = emptyList(),
+	/** lb-bot's web UI for a person to open; empty from a hub too old to say. */
+	val webUrl: String = ""
 )
 
 @Serializable

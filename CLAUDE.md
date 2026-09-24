@@ -404,6 +404,13 @@ because both clients must agree on them.
   `fill` frames are arriving (`HubManager` sets `hubConnected`). Expiry is a settle measured from
   the row's last progress, never a delete. A terminal status stays in `_fills` so a sheet shows the
   outcome and re-enables its picker; the map used to keep the last live state forever.
+- **A `/lb/fills` gap summary carries no source rows.** It is the gap view with `sources`
+  dropped (only `sourcesTotal` / `sourcesFoundAt`), and `applyGapSummary` used to publish it
+  whole — every poll tick blanked `GapFillSheet`'s picker, which then read `picking` with nothing
+  to pick and told the user lb-bot needed a decision. It keeps the rows it holds while
+  `sourcesFoundAt` is unchanged, and re-reads the full `/lb/gap` once when a summary reports
+  sources it has never read. The sheet's sourceless `picking` line now says "search again", and
+  "Open in lb-bot" opens `<webUrl>/#/gaps/<groupId>` when the hub advertises `webUrl`.
 - **A cancel is `cancelled`, not a retryable failure.** `canRetry` is false on a cancelled row —
   a cancel is restarted from the album page — and Cancel is offered from the server's own
   `cancellable` field, never on `placing`/`placed`. `cancelFill` answers "too late" when lb-bot
