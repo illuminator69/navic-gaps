@@ -101,7 +101,9 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    one, and assert it carries both parents' changes. Confirm `DownloadDatabase` is untouched.
    **The fork's own tables make this sharper since 23.** `CacheDatabase` 23 is fork-only: the four
    lb-bot mirror tables (`lb_index_artist`, `lb_index_release`, `lb_index_meta`,
-   `lb_response_cache`, in `entities/LbIndexEntities.kt`, DAO `LbIndexDao`) arrive through the
+   `lb_response_cache`, in `entities/LbIndexEntities.kt`, DAO `LbIndexDao`) and their two indices
+   (`lb_index_artist.ndArtistId`, `lb_index_release.rgid` — the latter added before 23 ever
+   shipped, since the `(artistKey, rgid)` key cannot serve `WHERE rgid = ?`) arrive through the
    hand-written `MIGRATION_CACHE_22_23` in `DownloadMigrations.kt`, registered in **both**
    `PlatformModule.android.kt` and `PlatformModule.ios.kt`. When upstream ships its own 22→23 (or
    anything ≥ 23), renumber upstream's change **above the fork's** — never slot it in underneath and
@@ -161,9 +163,12 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
 
     Grep `PersistentViewModelStoreOwner` against both parents after a merge; a fork-only root tab
     added later needs its own row here. Anything else that must outlive its screen belongs in a
-    process-scoped manager, never in a ViewModel on a popped entry — e.g. `DownloadCenterViewModel`
-    (a settings detail pane, not a tab) runs its retry / cancel POSTs in `viewModelScope`, so
-    backing out mid-request can now cancel one.
+    process-scoped manager, never in a ViewModel on a popped entry. A ViewModel that must start
+    such work itself shields it instead: `DownloadCenterViewModel` (a settings detail pane, not a
+    tab) runs its cancel / retry / another-source / allow-mp3 / wishlist POSTs through
+    `launchToCompletion`, i.e. `withContext(NonCancellable)` inside `viewModelScope` — before that,
+    a Cancel tapped just before backing out was cancelled with the pane and the download kept
+    running. A new lb-bot action on that screen goes through the same helper.
 
 ⚠️ `dev.zt64.subsonic:subsonic-client` resolves at `1.0.0-SNAPSHOT` from a GitHub raw maven repo. A
 snapshot is not reproducible: if a build suddenly fails on a symbol that used to exist, suspect
