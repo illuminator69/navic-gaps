@@ -20,6 +20,7 @@ import paige.navic.data.database.toDiscography
 import paige.navic.data.database.toWire
 import paige.navic.data.database.entities.LbIndexArtistEntity
 import paige.navic.util.Logger
+import kotlin.random.Random
 import kotlin.time.Clock
 
 /**
@@ -42,10 +43,11 @@ import kotlin.time.Clock
  * the running one leaves.
  *
  * **Failures leave the mirror alone.** A 503 means another client holds the hub's single `sync`
- * slot; it, a 502/504 and a network error all back off (10 s doubling to 5 min, then wait for the
- * next trigger) with the cursor untouched. Only a `resync` answer wipes rows. An old hub (no such
- * route) or no lb-bot at all is simply "skip": the mirror stays empty and every page keeps its
- * network path, exactly as before this existed.
+ * slot; it, a 502/504 and a network error all back off (10 s doubling to 5 min, each step jittered
+ * ±25 %, then wait for the next trigger) with the cursor untouched. Only a `resync` answer wipes
+ * rows. An old hub (no such route) or no lb-bot at all is simply "skip": the mirror stays empty
+ * and every page keeps its network path, exactly as before this existed — and a 404 from the feed
+ * is remembered until the hub could have changed, so no trigger asks again before then.
  *
  * Only this class writes the mirror, and only from the feed. Nothing a user does writes a row.
  */
@@ -69,6 +71,15 @@ class LbIndexSync(
 	@kotlin.concurrent.Volatile
 	private var backoffReset = false
 
+	/**
+	 * Worker-only. The hub answered 404 for the feed: it (or the lb-bot behind it) is older than
+	 * the mirror, and every `index` frame, 15-minute tick and retry would otherwise ask again and
+	 * get the same 404. Cleared by a fresh start ([backoffReset] — a new `welcome` or lb-bot
+	 * coming back, the only ways a hub gets newer) and by an `index` frame ([lbProvenAlive]),
+	 * which only a hub and lb-bot that speak the feed can send. As Feishin's `feedMissing`.
+	 */
+	private var feedMissing = false
+
 	private enum class Outcome { DONE, SKIPPED, BACKOFF }
 
 	init {
@@ -77,6 +88,7 @@ class LbIndexSync(
 				if (backoffReset) {
 					backoffReset = false
 					consecutiveFailures = 0
+					feedMissing = false
 				}
 				val outcome = try {
 					sync(why)
@@ -145,7 +157,10 @@ class LbIndexSync(
 			consecutiveFailures = 0
 			return
 		}
-		val wait = (RETRY_BASE_MS shl (consecutiveFailures - 1)).coerceAtMost(RETRY_MAX_MS)
+		// Jittered ±25 %, as Feishin does: two devices bounced off the hub's single `sync` slot at
+		// the same moment would otherwise come back in lockstep and collide again, rung after rung.
+		val step = (RETRY_BASE_MS shl (consecutiveFailures - 1)).coerceAtMost(RETRY_MAX_MS)
+		val wait = (step * (0.75 + Random.nextDouble() * 0.5)).toLong()
 		retryJob?.cancel()
 		retryJob = scope.launch {
 			delay(wait)
@@ -176,6 +191,8 @@ class LbIndexSync(
 		if (!lbBotManager.supportsIndexMirror) return Outcome.SKIPPED
 		val proven = lbProvenAlive
 		lbProvenAlive = false
+		if (proven) feedMissing = false
+		if (feedMissing) return Outcome.SKIPPED
 		if (!proven && !lbBotManager.ensureAvailability()) return Outcome.SKIPPED
 		// Asked AGAIN, after the probe (review ruling R20a). On a hub too old to send `welcome.lb`
 		// nothing has filled the route list before the first probe, and an empty list means
@@ -193,7 +210,12 @@ class LbIndexSync(
 			val since = meta.cursor
 			val page = when (val result = lbBotManager.indexChanges(since, meta.epoch)) {
 				is LbBotManager.LbResult.Ok -> result.value
-				is LbBotManager.LbResult.Failed -> return outcomeFor(result.error, "index changes")
+				is LbBotManager.LbResult.Failed -> {
+					// Only the feed's own 404 is remembered: the keys route below arrived with it,
+					// and a one-off 404 there is no evidence the feed is gone.
+					if (result.error == LbBotManager.LbError.RouteUnknown) feedMissing = true
+					return outcomeFor(result.error, "index changes")
+				}
 			}
 
 			// Another epoch, or lb-bot restored to a point behind this mirror. The one answer that

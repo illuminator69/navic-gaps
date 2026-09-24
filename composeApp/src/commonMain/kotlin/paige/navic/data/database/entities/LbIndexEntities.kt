@@ -51,10 +51,15 @@ data class LbIndexArtistEntity(
  *
  * [position] is the order the rows arrived in, which is lb-bot's own `ORDER BY year, title`;
  * reading back by it reproduces the server's order without re-implementing its collation.
+ *
+ * The `rgid` index serves `LbIndexDao.releasesByRgid` (every external-album open): the primary key
+ * leads with `artistKey`, so it cannot answer `WHERE rgid = ?`, and without this that lookup
+ * scanned the whole table — tens of thousands of rows on a large library.
  */
 @Entity(
 	tableName = "lb_index_release",
-	primaryKeys = ["artistKey", "rgid"]
+	primaryKeys = ["artistKey", "rgid"],
+	indices = [Index("rgid")]
 )
 data class LbIndexReleaseEntity(
 	val artistKey: String,

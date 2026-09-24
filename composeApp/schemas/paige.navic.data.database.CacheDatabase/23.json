@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 23,
-    "identityHash": "dafb54d7fbd67a8f0537bcf4a286d2b4",
+    "identityHash": "51653ce079bd2420f7c4f28e9872ff62",
     "entities": [
       {
         "tableName": "AlbumEntity",
@@ -1034,7 +1034,18 @@
             "artistKey",
             "rgid"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_lb_index_release_rgid",
+            "unique": false,
+            "columnNames": [
+              "rgid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lb_index_release_rgid` ON `${TABLE_NAME}` (`rgid`)"
+          }
+        ]
       },
       {
         "tableName": "lb_index_meta",
@@ -1111,7 +1122,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'dafb54d7fbd67a8f0537bcf4a286d2b4')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '51653ce079bd2420f7c4f28e9872ff62')"
     ]
   }
 }

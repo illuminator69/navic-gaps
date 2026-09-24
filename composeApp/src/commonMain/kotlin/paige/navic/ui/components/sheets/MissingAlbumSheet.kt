@@ -136,10 +136,30 @@ fun MissingAlbumSheet(
 		lbBot.albumReleases(release.rgid).collect { answer ->
 			detail = answer
 			loadingDetail = false
+			val variants = answer?.releases.orEmpty()
 			// Only the first answer picks the edition: a revalidation must not move a pick
 			// the user has already made (or that the tracklist below is already following).
 			if (editionMbid.isBlank()) {
-				editionMbid = answer?.releases?.firstOrNull()?.releaseMbid.orEmpty()
+				variantIndex = 0
+				editionMbid = variants.firstOrNull()?.releaseMbid.orEmpty()
+				return@collect
+			}
+			// But the variant is held by *position*, and a revalidated list need not be in the
+			// same order, or the same length. Left alone, `chosenEdition()` paired the kept
+			// edition with whatever variant now sat at the old index — the wrong title and track
+			// count sent to `albumSources` and `download`, silently. So the index follows the
+			// edition. An edition the new answer no longer lists at all is a pick that no longer
+			// exists: fall back to the first variant, as the first answer did, rather than send
+			// an edition next to a variant it does not belong to.
+			val found = variants.indexOfFirst { variant ->
+				variant.releaseMbid == editionMbid ||
+					variant.editions.any { it.releaseMbid == editionMbid }
+			}
+			if (found >= 0) {
+				variantIndex = found
+			} else {
+				variantIndex = 0
+				editionMbid = variants.firstOrNull()?.releaseMbid.orEmpty()
 			}
 		}
 	}

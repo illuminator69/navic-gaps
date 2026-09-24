@@ -3,6 +3,7 @@ package paige.navic.ui.screens.settings.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
@@ -87,21 +89,35 @@ class DownloadCenterViewModel(
 	}
 
 	/**
+	 * Run a row action to the end, whether or not this screen is still there to hear the answer.
+	 *
+	 * Since the ViewModel-store entry decorator came back (navic-gaps CLAUDE.md, rule 14) this
+	 * ViewModel dies when its pane is popped, and `viewModelScope` with it — so a Cancel tapped
+	 * just before backing out was cancelled with the screen, and the download it was meant to stop
+	 * kept running. The request is the user's decision, not the screen's: it runs
+	 * [NonCancellable]. What follows it is harmless with the screen gone — the snackbar flow
+	 * drops an emit nobody collects, and the ledger it updates lives in [LbBotManager].
+	 */
+	private fun launchToCompletion(block: suspend () -> Unit) {
+		viewModelScope.launch { withContext(NonCancellable) { block() } }
+	}
+
+	/**
 	 * Re-issue a fill. Never automatic — lb-bot walks its whole ranked source list before
 	 * reporting failure, so an unattended retry re-runs the identical search; the user
 	 * asking again is the new information.
 	 */
 	fun retryFill(key: String) {
-		viewModelScope.launch { announce(lbBotManager.retry(key)) }
+		launchToCompletion { announce(lbBotManager.retry(key)) }
 	}
 
 	/** Retry with the peer that failed or crawled ruled out. */
 	fun retryAnotherSource(key: String) {
-		viewModelScope.launch { announce(lbBotManager.retryAnotherSource(key)) }
+		launchToCompletion { announce(lbBotManager.retryAnotherSource(key)) }
 	}
 
 	fun cancelFill(key: String) {
-		viewModelScope.launch { announce(lbBotManager.cancelFill(key)) }
+		launchToCompletion { announce(lbBotManager.cancelFill(key)) }
 	}
 
 	/**
@@ -113,12 +129,12 @@ class DownloadCenterViewModel(
 	 * had just rejected everything. Without one, the retry itself carries `allowMp3`.
 	 */
 	fun allowMp3AndRetry(entry: paige.navic.domain.manager.LbFillEntry) {
-		viewModelScope.launch {
+		launchToCompletion {
 			if (entry.groupId.isNotBlank()) {
 				val allowed = lbBotManager.allowMp3(entry.groupId, allow = true)
 				if (allowed !is LbBotManager.LbResult.Ok || !allowed.value.ok) {
 					_actionMessages.emit(REFUSED)
-					return@launch
+					return@launchToCompletion
 				}
 				announce(lbBotManager.retry(entry.key))
 			} else {
@@ -146,7 +162,7 @@ class DownloadCenterViewModel(
 	 * release in two lists saying opposite things about whether it is still wanted.
 	 */
 	fun addToWishlist(entry: paige.navic.domain.manager.LbFillEntry) {
-		viewModelScope.launch {
+		launchToCompletion {
 			// Marked before the call, so a second tap during the round trip cannot
 			// send a second add; cleared again if the add did not take, so the
 			// button comes back rather than leaving the row with no affordance.

@@ -170,7 +170,7 @@ val MIGRATION_CACHE_18_19 = object : Migration(18, 19) {
 
 /**
  * v22 → v23: the lb-bot index mirror and the lb-bot response cache — four new, initially-empty
- * tables and one index. Nothing existing is touched.
+ * tables and two indices. Nothing existing is touched.
  *
  * Why a real migration for a database that is otherwise rebuilt destructively on a version change
  * (see CacheDatabase): the only thing that changed is additions, and the fallback would throw away
@@ -216,6 +216,10 @@ val MIGRATION_CACHE_22_23 = object : Migration(22, 23) {
 				"`total` INTEGER, " +
 				"`navidromeAlbumIds` TEXT NOT NULL, " +
 				"PRIMARY KEY(`artistKey`, `rgid`))"
+		)
+		connection.execSQL(
+			"CREATE INDEX IF NOT EXISTS `index_lb_index_release_rgid` " +
+				"ON `lb_index_release` (`rgid`)"
 		)
 		connection.execSQL(
 			"CREATE TABLE IF NOT EXISTS `lb_index_meta` (" +
