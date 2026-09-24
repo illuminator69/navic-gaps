@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import paige.navic.domain.parser.LogLine
 import paige.navic.domain.parser.LogLineParser
+import java.io.IOException
 import java.io.InputStreamReader
 
 private const val LOG_SIZE = 500
@@ -62,6 +63,10 @@ actual class LogManager {
 						incoming.trySend(LogLineParser.parseString(nextLine, nextLineId++))
 					}
 				}
+			} catch (_: IOException) {
+				// The expected way out: stopStreaming() destroys the process to unblock readLine(),
+				// which then throws "read interrupted by close()". Uncaught, that escaped this
+				// handler-less scope and crashed the app every time the screen was left.
 			} finally {
 				// Without this a stopped-and-restarted log screen leaves an orphaned logcat
 				// process reading forever.
