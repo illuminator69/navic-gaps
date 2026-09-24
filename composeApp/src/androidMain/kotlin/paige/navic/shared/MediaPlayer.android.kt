@@ -62,6 +62,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import io.ktor.client.request.head
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -689,14 +690,12 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 			} else {
 				if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
 			}
+			// No estimateContentLength — see AndroidMediaPlayerViewModel.getStreamUrl for why.
 			return sessionManager.api.getStreamUrl(
 				songId,
 				bitrate,
 				container?.takeIf { it.isNotBlank() })
 				.toUri()
-				.buildUpon()
-				.appendQueryParameter("estimateContentLength", "true")
-				.build()
 		}
 	}
 
@@ -857,6 +856,12 @@ private const val MAX_NETWORK_RETRIES = 4
 // give an unavailable-looking track this long to turn out to be perfectly playable before acting.
 private const val AVAILABILITY_GRACE_MS = 2_000L
 
+/** How many songs ahead of the current one [AndroidMediaPlayerViewModel] asks Navidrome to transcode. */
+private const val WARM_AHEAD = 2
+
+/** Remembered warm-up urls, so a timeline that re-emits every few seconds re-requests nothing. */
+private const val WARMED_URLS_MAX = 64
+
 class AndroidMediaPlayerViewModel(
 	stateRepository: PlayerStateRepository,
 	songRepository: SongRepository,
@@ -977,7 +982,12 @@ class AndroidMediaPlayerViewModel(
 		return preferenceManager.preferDownloadsOnCellular
 	}
 
-	private fun getStreamUrl(id: String): Uri {
+	/** What the current network's quality setting asks Navidrome for; a transcode when [isTranscode]. */
+	private class StreamRequest(val bitrate: Int, val format: String?) {
+		val isTranscode: Boolean get() = bitrate > 0 || format != null
+	}
+
+	private fun currentStreamRequest(): StreamRequest {
 		val isCellular = connectivityManager.isCellular.value
 		val bitrate = if (preferenceManager.isAdvancedTranscodingActive) {
 			if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
@@ -989,29 +999,68 @@ class AndroidMediaPlayerViewModel(
 		} else {
 			if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
 		}
-		val format = container?.takeIf { it.isNotBlank() }
-		val url = sessionManager.api.getStreamUrl(id, bitrate, format).toUri()
+		return StreamRequest(bitrate, container?.takeIf { it.isNotBlank() })
+	}
 
-		// `estimateContentLength` asks the server to declare a Content-Length it
-		// has to COMPUTE, as `requested bitrate / 8 * duration`, because a
-		// transcode's real size is unknown until it has been produced. It exists so
-		// seeking works on a transcoded stream, and it is only meaningful when we
-		// asked for a transcode.
+	private fun getStreamUrl(id: String): Uri {
+		val request = currentStreamRequest()
+
+		// No `estimateContentLength`, on any request. It asks Navidrome to declare a
+		// Content-Length it COMPUTES as `bitrate / 8 * duration`, because a transcode's
+		// real size is unknown until it has been produced — and for VBR Opus that guess
+		// was measured 6 % short to 11 % long. ExoPlayer trusts it twice over: the Ogg
+		// extractor reads a track's DURATION off the last page it finds at the declared
+		// end, so a short guess yields a whole-second duration seconds too early (the
+		// "bar sits at the end while the audio keeps going, and the next song starts at
+		// 0:10" bug); and Navidrome cuts the body off at the declared length, ending the
+		// response in a reset through Cloudflare.
 		//
-		// Sent on a request for the ORIGINAL file — which is the default, since
-		// `StreamingQuality.Lossless` is `bitrate = 0, container = null` — it can
-		// only ever be wrong, and wrong in the direction that truncates: a declared
-		// length shorter than the bytes actually sent makes ExoPlayer stop at that
-		// offset and treat it as the end of the track. That is silent. There is no
-		// error, nothing is logged, and the player simply advances — which is
-		// exactly what "the song abruptly cut off partway through, and the logs show
-		// nothing" looks like, with the fraction varying per file because it is the
-		// ratio of the assumed bitrate to the real one.
-		if (bitrate <= 0 && format == null) return url
+		// Without it, a transcode Navidrome has already cached is served whole, with its
+		// exact length and Range support, and one it has not is streamed complete with
+		// no length at all. The cost falls on that second case only: ExoPlayer cannot
+		// seek inside a stream of unknown length (see [seek]), and the duration comes from
+		// the library instead of the player (see [currentDurationMs]).
+		// [warmUpcomingTranscodes] makes it rare by getting upcoming songs cached first.
+		return sessionManager.api.getStreamUrl(id, request.bitrate, request.format).toUri()
+	}
 
-		return url.buildUpon()
-			.appendQueryParameter("estimateContentLength", "true")
-			.build()
+	private val warmedUrls = LinkedHashSet<String>()
+
+	/**
+	 * Ask Navidrome to transcode the next [WARM_AHEAD] songs before the player gets to them.
+	 *
+	 * A transcode Navidrome has cached is served with its exact length and Range support, so
+	 * it has an exact duration and can be seeked; one it has not is streamed with no length
+	 * (see [getStreamUrl]) and can't be. A HEAD request is enough to get it cached: Navidrome
+	 * answers at once and drains the transcode into its cache in the background, which
+	 * measured at 3–10 s for a 3–6 minute FLAC to Opus 320. ExoPlayer starts loading the next
+	 * song only once the current one is fully buffered, a few seconds in, so warming two ahead
+	 * means the next song was usually warmed a whole song earlier. What stays unwarmed is the
+	 * song you tap to start a queue, and anything skipped to faster than Navidrome transcodes.
+	 *
+	 * Downloads, previews, radio and untranscoded streams are skipped: those already have
+	 * exact lengths, or no Navidrome transcode behind them.
+	 */
+	private fun warmUpcomingTranscodes() {
+		val player = controller ?: return
+		if (!currentStreamRequest().isTranscode) return
+		val timeline = player.currentTimeline
+		if (timeline.isEmpty) return
+		var index = player.currentMediaItemIndex
+		repeat(WARM_AHEAD) {
+			index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+			if (index == C.INDEX_UNSET) return
+			val id = player.getMediaItemAt(index).mediaId
+			if (id.startsWith("radio_") || PreviewManager.isPreviewId(id)) return@repeat
+			if (useDownloadFor(lastDownloadedMap[id])) return@repeat
+			val url = getStreamUrl(id).toString()
+			if (!warmedUrls.add(url)) return@repeat
+			if (warmedUrls.size > WARMED_URLS_MAX) warmedUrls.remove(warmedUrls.first())
+			viewModelScope.launch(Dispatchers.IO) {
+				runCatching { sessionManager.api.httpClient.head(url) }
+					.onFailure { Logger.w("MediaPlayer", "transcode warm-up failed for $id: ${it.message}") }
+			}
+		}
 	}
 
 	/**
@@ -1085,6 +1134,7 @@ class AndroidMediaPlayerViewModel(
 						// so apply the deferred quality/source change now — this is where a
 						// network handover actually lands.
 						if (currentItemReresolvePending) reresolveQueueUris(lastDownloadedMap)
+						warmUpcomingTranscodes()
 
 						if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
 							mediaItem?.mediaId?.let { id ->
@@ -1199,6 +1249,9 @@ class AndroidMediaPlayerViewModel(
 
 					override fun onTimelineChanged(timeline: Timeline, reason: Int) {
 						updatePlaybackState()
+						// A new or reordered queue: its first songs need warming before the
+						// player reaches them, not only after the next track change.
+						if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) warmUpcomingTranscodes()
 					}
 				})
 				updatePlaybackState()
@@ -1705,7 +1758,7 @@ class AndroidMediaPlayerViewModel(
 		progressJob = viewModelScope.launch {
 			while (controller?.isPlaying == true) {
 				val player = controller ?: break
-				val duration = player.duration
+				val duration = currentDurationMs(player)
 				if (duration > 0) {
 					val progress =
 						(player.currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -1716,9 +1769,20 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	/**
+	 * The player's duration, or the library's when the player has none — which is the normal
+	 * case for a transcode Navidrome has not cached yet: it is streamed with no length (see
+	 * [getStreamUrl]), so the Ogg extractor never learns a duration. Without the fallback the
+	 * progress bar sat at 0 for the whole of such a song.
+	 */
+	private fun currentDurationMs(player: Player): Long =
+		player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+			?: _uiState.value.currentSong?.duration?.inWholeMilliseconds
+			?: 0L
+
 	private fun updateProgress() {
 		controller?.let { player ->
-			val duration = player.duration
+			val duration = currentDurationMs(player)
 			if (duration > 0) {
 				val pos = player.currentPosition
 				val progress = (pos.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -2166,7 +2230,22 @@ class AndroidMediaPlayerViewModel(
 		}
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			controller?.let {
-				val target = (it.duration * normalized).toLong()
+				// A stream with no declared length (a first play of an uncached transcode, see
+				// [getStreamUrl]) cannot be seeked: ExoPlayer turns every seek into it into a
+				// seek to 0, so dragging the scrubber would restart the song. Ignore it
+				// instead; the progress loop puts the bar back where playback actually is.
+				// A placeholder window is still preparing and says nothing yet, so a seek
+				// issued then goes through, as it always did.
+				val timeline = it.currentTimeline
+				val index = it.currentMediaItemIndex
+				if (!timeline.isEmpty && index in 0 until timeline.windowCount) {
+					val window = timeline.getWindow(index, Timeline.Window())
+					if (!window.isPlaceholder && !window.isSeekable) {
+						updateProgress()
+						return@let
+					}
+				}
+				val target = (currentDurationMs(it) * normalized).toLong()
 				it.seekTo(target)
 				_uiState.update { state ->
 					state.copy(progress = normalized)

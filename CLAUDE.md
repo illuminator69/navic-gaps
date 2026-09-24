@@ -607,15 +607,26 @@ true of invented *album art*, and not of an icon naming the kind.
   `DiscoverViewModel.localAlbumFor` is that check. Match on the title with the edition suffix
   dropped: Deezer ships "Discovery (Remastered)" where MusicBrainz and the library both say
   "Discovery", and the parenthetical defeats a `LIKE` and a fielded search alike.
-- **`estimateContentLength` belongs only on a request that asked for a transcode.** It makes the
-  server *compute* a Content-Length as `requested bitrate / 8 * duration`, because a transcode's
-  real size is unknown until it exists. On a request for the original file — which is the DEFAULT,
-  since `StreamingQuality.Lossless` is `bitrate = 0, container = null` — it can only be wrong, and
-  wrong in the direction that truncates: a declared length shorter than the bytes actually sent
-  makes ExoPlayer stop there and treat it as the end of the track. **That failure is silent.** No
-  exception, nothing in logcat, the player just advances — so it reads as "the song cut off partway
-  through and the logs show nothing", with the fraction varying per file because it is the ratio of
-  the assumed bitrate to the real one.
+- **Never send `estimateContentLength`** (removed 2026-09-24; upstream sends it on every
+  stream). It makes Navidrome *compute* a Content-Length as `bitrate / 8 * duration` for a transcode
+  it has not finished. For VBR Opus that guess was measured **6 % short to 11 % long**. ExoPlayer
+  trusts it twice over:
+  - **The duration comes out wrong.** The Ogg extractor reads a track's duration off the last page
+    it finds at the declared end. ffmpeg writes about one page a second, so a short guess yields a
+    whole-second duration seconds too early: `216000` for 218.25 s of audio. The track change then
+    fires while audio is still playing; the sink logs `Unexpected audio track timestamp
+    discontinuity`, the next song's bar starts at 0:10, and so on.
+  - **The body is cut off.** Navidrome truncates the body at the declared length, and through
+    Cloudflare the response ends in an HTTP/2 reset.
+
+  Without the parameter, a transcode Navidrome has cached is served with its exact length and
+  Range support. An uncached one streams complete with no length, and ExoPlayer derives the exact
+  duration once it has loaded. The cost is that the uncached one cannot be seeked (ExoPlayer turns
+  the seek into a seek to 0), so `seek()` ignores it and `currentDurationMs()` falls back to the
+  library's duration. `warmUpcomingTranscodes()` HEADs the next two songs so they are cached before
+  they play: a HEAD makes Navidrome drain the transcode into its cache, in 3–10 s. Measured with a
+  Robolectric ExoPlayer harness against the live server: 5/5 uncached tracks got exact durations
+  and a clean single load, where the estimate had given errors, retries and round-number durations.
 - **A row's identity is its ID, never the `DomainSong`.** `CollectionDetailScreen` keyed its open
   sheet on `selection == song`, a data-class equality over every field. The list re-emits fresh
   instances whenever the collection is re-read, so rating or starring from inside the sheet changed
