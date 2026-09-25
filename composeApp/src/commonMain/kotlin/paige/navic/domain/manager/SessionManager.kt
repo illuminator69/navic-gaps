@@ -77,6 +77,11 @@ class SessionManager(
 
 			// OkHttp's default 10s read timeout aborts library syncs when the
 			// server is momentarily slow (e.g. mid-scan behind a tunnel).
+			//
+			// requestTimeoutMillis caps a request's whole lifetime, body included, and
+			// Ktor ends an over-time body as a CLEAN end-of-stream rather than an error.
+			// Anything that streams a file through this client must lift it: the player
+			// (PlaybackService's streamingClient) and downloads (DownloadManager) do.
 			install(HttpTimeout) {
 				connectTimeoutMillis = 15_000
 				requestTimeoutMillis = 120_000

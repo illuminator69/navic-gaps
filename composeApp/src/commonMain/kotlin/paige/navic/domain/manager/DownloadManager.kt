@@ -6,7 +6,9 @@ import coil3.request.ImageRequest
 import coil3.size.Size
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.onDownload
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.bodyAsChannel
@@ -729,6 +731,12 @@ class DownloadManager(
 
 		val request = client.prepareRequest(sessionManager.api.getStreamUrl(song.id, bitrate, format)) {
 			method = HttpMethod.Get
+			// No total-request cap for a file transfer. The shared client's 120 s one ends a body
+			// that is still arriving as a CLEAN end-of-stream, not an error, so a download slower
+			// than two minutes was cut off and saved as complete (measured: a steady 80 KB/s read
+			// stopped at 12.2 of 15.8 MB, at exactly 120 s). The socket timeout still catches a
+			// transfer that has actually stalled.
+			timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
 			onDownload { bytesSentTotal, contentLength ->
 				if (contentLength != null && contentLength > 0L) {
 					val progress = (bytesSentTotal.toDouble() / contentLength).toFloat()

@@ -607,6 +607,20 @@ true of invented *album art*, and not of an icon naming the kind.
   `DiscoverViewModel.localAlbumFor` is that check. Match on the title with the edition suffix
   dropped: Deezer ships "Discovery (Remastered)" where MusicBrainz and the library both say
   "Discovery", and the parenthetical defeats a `LIKE` and a fielded search alike.
+- **Nothing that streams a file may inherit the shared client's `requestTimeoutMillis`.**
+  `SessionManager`'s Ktor client caps a request's whole lifetime at 120 s (added for library syncs),
+  and when the cap fires mid-body, Ktor ends the body as a **clean end-of-stream, not an error**.
+  media3's `KtorDataSource` reports that as the end of the file. ExoPlayer routinely pauses a song's
+  load mid-song once the buffer ahead reaches the `LoadControl` cap (600 s), with the connection held
+  open, so a song preloaded minutes early lost everything after the pause point. It played silent from
+  there while the position crawled on the standalone clock (`hasReadStreamToEnd`, `buf` reads as the
+  full duration because the load "finished"), and the next song was fine. That was the
+  2026-09 "audio goes silent, the bar keeps moving" bug, blamed first on
+  `estimateContentLength`, then Bluetooth, then the Opus decoder. Measured through the real server:
+  idle 150 s or 400 s → cut off ~80 KB later with no error; no request timeout → read in full; a
+  steady 80 KB/s download → cut off at exactly 120 s. Fixed by `PlaybackService`'s
+  `streamingClient` and a per-request `timeout {}` in `DownloadManager`. Don't "unify" them back onto
+  the shared client.
 - **Never send `estimateContentLength`** (removed 2026-09-24; upstream sends it on every
   stream). It makes Navidrome *compute* a Content-Length as `bitrate / 8 * duration` for a transcode
   it has not finished. For VBR Opus that guess was measured **6 % short to 11 % long**. ExoPlayer

@@ -62,6 +62,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.request.head
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -189,7 +191,19 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 				setSmallIcon(resourceProvider.icNavic)
 			}
 
-		val httpDataSourceFactory = KtorDataSource.Factory(sessionManager.api.httpClient)
+		// The shared client's `requestTimeoutMillis` (120 s, for API calls) must not reach audio. It
+		// caps a request's WHOLE lifetime, body included, and when it fires mid-body Ktor ends the
+		// body as a clean end-of-stream, which KtorDataSource reports as the end of the file. A
+		// song's load outlives 120 s whenever ExoPlayer pauses it mid-song because the buffer ahead
+		// reached [LoadControl]'s cap (600 s), which is routine: the song then silently stopped at
+		// the point where the load had paused, the player finished it on its standalone clock, and
+		// the next song played normally. Measured through the real server: a stream idled for
+		// 150 s and 400 s ended cleanly ~80 KB later; with no request timeout, both read in full.
+		// The connect and socket timeouts still apply, so a dead server is still noticed.
+		val streamingClient = sessionManager.api.httpClient.config {
+			install(HttpTimeout) { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
+		}
+		val httpDataSourceFactory = KtorDataSource.Factory(streamingClient)
 		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
 
 		val extractorsFactory = ExtractorsFactory {
