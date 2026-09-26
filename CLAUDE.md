@@ -621,6 +621,21 @@ true of invented *album art*, and not of an icon naming the kind.
   steady 80 KB/s download → cut off at exactly 120 s. Fixed by `PlaybackService`'s
   `streamingClient` and a per-request `timeout {}` in `DownloadManager`. Don't "unify" them back onto
   the shared client.
+- **The player streams over HTTP/1.1 on its own client, through `ResumingDataSource`, and buffers
+  at most 300 s ahead.** All three came from the same bug, after the timeout fix alone didn't end it:
+  - **Why not HTTP/2.** Every request to the server shares one HTTP/2 connection and one 16 MiB
+    OkHttp receive window. A load paused with its buffer unread stalls that window, and through the
+    Cloudflare tunnel the stream is then reset: a 57–89 MB FLAC idled 120 s died at exactly
+    16,777,216 bytes. Over HTTP/1.1 the same files idled 60–400 s all read in full.
+  - **`ResumingDataSource`** reopens a broken stream with a Range at the byte it stopped at. That
+    covers a read error, and a body that ends short of its `Content-Length`, which `KtorDataSource`
+    otherwise accepts as the end of the file. Verified: the HTTP/2 reset above resumed at byte
+    16777216 and delivered the whole file. It logs each resume under `ResumingDataSource`.
+  - **`maxBufferMs` 300 s, was 600 s.** The gap to `minBufferMs` (32 s) is how long a load sits
+    paused; about 270 s stays inside the 400 s verified.
+
+  Downloads and the warm-up HEADs still use the shared HTTP/2 client. They read continuously, so they
+  never stall a window.
 - **Never send `estimateContentLength`** (removed 2026-09-24; upstream sends it on every
   stream). It makes Navidrome *compute* a Content-Length as `bitrate / 8 * duration` for a transcode
   it has not finished. For VBR Opus that guess was measured **6 % short to 11 % long**. ExoPlayer

@@ -62,9 +62,14 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.UserAgent
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.head
+import io.ktor.client.request.header
+import okhttp3.Protocol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -119,6 +124,7 @@ import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.exoplayer.AudioGainProcessor
 import paige.navic.exoplayer.ExoPlayerCoilBitmapLoader
+import paige.navic.exoplayer.ResumingDataSource
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
 import java.io.File
@@ -139,6 +145,7 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 	private var mediaLibrarySession: MediaLibrarySession? = null
 	private var exoPlayer: ExoPlayer? = null
 	private var remotePlayer: RemoteSessionPlayer? = null
+	private var streamingClient: HttpClient? = null
 	private val serviceScope = MainScope()
 	private var scrobbleManager: AndroidScrobbleManager? = null
 	private val resourceProvider: ResourceProvider by inject()
@@ -175,10 +182,18 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 		// real limiter is targetBufferBytes, which otherwise defaults to a fraction of a megabyte
 		// for audio and caps a lossless stream at a few seconds. 48 MB covers a long FLAC; it is a
 		// ceiling, not an allocation, so short/transcoded tracks still cost little.
+		//
+		// maxBufferMs was 600 s and is 300 s, because the gap between it and minBufferMs is how long
+		// a load sits PAUSED, connection open and unread: loading stops at the max and resumes only
+		// below the min. At 600 s that was up to ~9.5 min, and a connection idle that long is what
+		// the network kills (the silent-audio bug). Measured through the tunnel: over HTTP/1.1 (the
+		// streamingClient below) a 400 s idle read in full, so ~270 s stays inside what has been
+		// verified; over HTTP/2 a 120 s idle was already reset. [ResumingDataSource] covers what
+		// gets through anyway. Five minutes still rides out a handover.
 		val loadControl = DefaultLoadControl.Builder()
 			.setBufferDurationsMs(
 				/* minBufferMs = */ 32_000,
-				/* maxBufferMs = */ 600_000,
+				/* maxBufferMs = */ 300_000,
 				/* bufferForPlaybackMs = */ 2_500,
 				/* bufferForPlaybackAfterRebufferMs = */ 5_000
 			)
@@ -191,19 +206,38 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 				setSmallIcon(resourceProvider.icNavic)
 			}
 
-		// The shared client's `requestTimeoutMillis` (120 s, for API calls) must not reach audio. It
-		// caps a request's WHOLE lifetime, body included, and when it fires mid-body Ktor ends the
-		// body as a clean end-of-stream, which KtorDataSource reports as the end of the file. A
-		// song's load outlives 120 s whenever ExoPlayer pauses it mid-song because the buffer ahead
-		// reached [LoadControl]'s cap (600 s), which is routine: the song then silently stopped at
-		// the point where the load had paused, the player finished it on its standalone clock, and
-		// the next song played normally. Measured through the real server: a stream idled for
-		// 150 s and 400 s ended cleanly ~80 KB later; with no request timeout, both read in full.
-		// The connect and socket timeouts still apply, so a dead server is still noticed.
-		val streamingClient = sessionManager.api.httpClient.config {
-			install(HttpTimeout) { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
+		// Audio gets its own client, not the shared API one, for three measured reasons:
+		//
+		// - No `requestTimeoutMillis`. The shared client's 120 s cap covers a request's whole
+		//   lifetime, body included, and Ktor ends an over-time body as a CLEAN end-of-stream,
+		//   which KtorDataSource reports as the end of the file: a song whose load outlived 120 s
+		//   stopped there, in silence, while the player ran on (the silent-audio bug).
+		// - HTTP/1.1, not HTTP/2. On HTTP/2 every request to the server shares ONE connection and
+		//   one 16 MiB OkHttp receive window, so a paused load holding its buffer unread starves
+		//   every other stream on it, the next song's load and the app's API calls included; and
+		//   whether a stream the tunnel kills reads as an error or as a clean end is up to the
+		//   proxy. Over HTTP/1.1 each load has its own connection, and a body cut off early always
+		//   throws: a Content-Length or a chunked body short of its last chunk.
+		// - Its own connection pool, so a stalled song never holds a connection an API call wants.
+		//
+		// Connect and socket timeouts still apply, so a dead server is noticed.
+		// [ResumingDataSource] then reopens a broken stream at the byte it stopped at.
+		streamingClient = HttpClient(OkHttp) {
+			engine { config { protocols(listOf(Protocol.HTTP_1_1)) } }
+			install(UserAgent) { agent = "Navic" }
+			install(HttpTimeout) {
+				connectTimeoutMillis = 15_000
+				socketTimeoutMillis = 60_000
+			}
+			val customHeaders = preferenceManager.customHeadersMap()
+			if (customHeaders.isNotEmpty()) {
+				defaultRequest {
+					customHeaders.forEach { (key, value) -> header(key, value) }
+				}
+			}
 		}
-		val httpDataSourceFactory = KtorDataSource.Factory(streamingClient)
+		val httpDataSourceFactory =
+			ResumingDataSource.Factory(KtorDataSource.Factory(checkNotNull(streamingClient)))
 		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
 
 		val extractorsFactory = ExtractorsFactory {
@@ -384,6 +418,8 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 		}
 		exoPlayer?.release()
 		remotePlayer?.release()
+		streamingClient?.close()
+		streamingClient = null
 		super.onDestroy()
 		mediaLibrarySession = null
 		exoPlayer = null
