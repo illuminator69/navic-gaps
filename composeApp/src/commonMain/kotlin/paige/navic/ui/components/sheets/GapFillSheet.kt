@@ -64,6 +64,7 @@ import navic.composeapp.generated.resources.info_no_sources
 import navic.composeapp.generated.resources.info_source_coverage
 import navic.composeapp.generated.resources.info_source_matches_album
 import navic.composeapp.generated.resources.info_source_artist_unverified
+import navic.composeapp.generated.resources.lbbot_fill_cancelled
 import navic.composeapp.generated.resources.info_source_recommended
 import navic.composeapp.generated.resources.info_source_wrong_album
 import navic.composeapp.generated.resources.info_tracks_present
@@ -414,7 +415,8 @@ private fun GapTracks(gap: LbGap) {
 				// majority of the list and needs no word next to it.
 				if (track.state !in setOf("present", "missing")) {
 					Text(
-						track.state.replace('_', ' '),
+						if (track.state == "cancelled") stringResource(Res.string.lbbot_fill_cancelled)
+						else track.state.replace('_', ' '),
 						style = MaterialTheme.typography.labelSmall,
 						color = MaterialTheme.colorScheme.primary
 					)

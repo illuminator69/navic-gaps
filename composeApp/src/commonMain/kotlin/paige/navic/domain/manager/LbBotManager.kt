@@ -2310,7 +2310,10 @@ class LbBotManager(
 
 		val filling = gap.tracks.filter { it.state != "present" }
 		val filled = filling.count { it.state == "done" || it.state == "downloaded" }
-		val failedFiles = filling.count { it.state == "failed" || it.state == "cancelled" }
+		// A cancelled track is the user's verdict (ruling R8): finished for progress, and
+		// neither a success nor a failure.
+		val cancelledFiles = filling.count { it.state == "cancelled" }
+		val failedFiles = filling.count { it.state == "failed" }
 		val searching = gap.sourceTask?.status.orEmpty() in SEARCH_IN_FLIGHT
 		val transferring = gap.status == "downloading" ||
 			gap.tracks.any { it.state == "queued" || it.state == "downloading" }
@@ -2342,7 +2345,7 @@ class LbBotManager(
 				unknownSince = since,
 				state = ledgerState,
 				reason = gapReason(gap),
-				percent = if (filling.isEmpty()) 0 else filled * 100 / filling.size,
+				percent = if (filling.isEmpty()) 0 else (filled + cancelledFiles) * 100 / filling.size,
 				done = filled,
 				total = filling.size,
 				failedFiles = failedFiles,
@@ -3508,8 +3511,9 @@ data class LbGap(
 		!searching && status == "picking" && tracks.any { it.state == "downloaded" }
 }
 
-/** Track states that count as "no longer waiting on a transfer". */
-private val GAP_TRACK_DONE_STATES = setOf("downloaded", "done", "skipped")
+/** Track states that count as "no longer waiting on a transfer" — `cancelled` included: it is
+ *  finished for progress, though neither a success nor a failure. */
+private val GAP_TRACK_DONE_STATES = setOf("downloaded", "done", "skipped", "cancelled")
 
 @Serializable
 data class LbGapTask(
@@ -3521,7 +3525,11 @@ data class LbGapTask(
 	val error: String = ""
 )
 
-/** `state`: present | missing | picked | queued | downloading | downloaded | failed | skipped | done. */
+/**
+ * `state`: present | missing | picked | queued | downloading | downloaded | failed | cancelled |
+ * skipped | done (PROTOCOL §15.2). `cancelled` is its own word since lb-bot B-004 — it used to
+ * arrive as `failed`.
+ */
 @Serializable
 data class LbGapTrack(
 	val position: Int = 0,
