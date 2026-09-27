@@ -334,7 +334,12 @@ fun GapFillSheet(
 					}
 				}
 
-				if (gap.sources.isNotEmpty()) {
+				// `!gap.stalledPlacement` too: `applyGapSummary` keeps the previous poll's
+				// source rows while `sourcesFoundAt` is unchanged, and a stalled placement is
+				// reached from exactly that path (search -> fetch -> download -> placement
+				// never files) — without this the fetch UI can stay visible for a case where
+				// a fetch would only repeat the same non-fix.
+				if (gap.sources.isNotEmpty() && !gap.stalledPlacement) {
 					Spacer(Modifier.height(12.dp))
 					SheetLabel(stringResource(Res.string.title_sources))
 					SheetCaption(stringResource(Res.string.info_source_failover))
