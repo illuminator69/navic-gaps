@@ -283,7 +283,15 @@ class DiscoverViewModel(
 
 		// A stored genre this hub's Deezer no longer lists would silently show
 		// the global chart, so fall back explicitly rather than asking for it.
-		val genre = if (genres == null) _state.value.genre else {
+		val genre = if (genres == null) _state.value.genre
+		// Nothing cached is not "this hub lists no genres": resolving against it would swap the
+		// user's genre for the global chart, and with lb-bot down no later phase fetches the list
+		// to put it back. Take the stored one on trust until a real list can check it.
+		else if (genres.isEmpty() && policy == LbCachePolicy.CACHE_ONLY) {
+			val stored = preferenceManager.deezerGenre
+			_state.update { it.copy(genre = stored) }
+			stored
+		} else {
 			val resolved = preferenceManager.deezerGenre
 				.takeIf { id -> genres.any { it.id == id } }
 				?: DEEZER_GENRE_ALL
@@ -313,6 +321,9 @@ class DiscoverViewModel(
 		}
 	}
 
+	/** The Deezer half of the similar-artists row, and the seed it was fetched for. */
+	private var lastRelated: Pair<String, List<LbSimilarArtist>>? = null
+
 	/**
 	 * The similar-artists row, and the name its reason line has to quote.
 	 *
@@ -333,7 +344,12 @@ class DiscoverViewModel(
 		// — it is the stronger signal for "fans also like" — and Deezer only extends
 		// the tail, which is also why the row may publish ListenBrainz's half first.
 		var fromListenBrainz: List<LbSimilarArtist> = emptyList()
-		var fromDeezer: List<LbSimilarArtist> = emptyList()
+		// The Deezer half the row already shows, for this seed. Starting it empty made every
+		// revalidation publish the ListenBrainz half ALONE and hold it there for the length of
+		// ListenBrainz's request, so the row visibly shrank and grew back on each visit.
+		val related = lbBotManager.advertisesRoute(ROUTE_RELATED)
+		var fromDeezer: List<LbSimilarArtist> =
+			lastRelated?.takeIf { related && it.first == seed.first }?.second.orEmpty()
 		suspend fun publish() {
 			// By MBID where there is one, by name otherwise — Deezer resolves by name
 			// upstream, so an unresolved row has no MBID to key on and keying everything
@@ -349,9 +365,10 @@ class DiscoverViewModel(
 			fromListenBrainz = it?.artists.orEmpty()
 			publish()
 		}
-		if (lbBotManager.advertisesRoute(ROUTE_RELATED)) {
+		if (related) {
 			lbBotManager.relatedArtists(seed.second, seed.first, ROW_LIMIT, policy).collect {
 				fromDeezer = it?.artists.orEmpty()
+				lastRelated = seed.first to fromDeezer
 				publish()
 			}
 		}
