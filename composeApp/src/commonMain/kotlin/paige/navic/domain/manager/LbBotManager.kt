@@ -129,13 +129,28 @@ class LbBotManager(
 
 	/**
 	 * Whether lb-bot is reachable through anything at all — a hub is set, enabled and has a
-	 * token. A preference read, not a probe. The artist page gates its lb-bot index mirror on
+	 * token, and has not said its own lb-bot proxy is off ([hubProxyOff]). A preference read plus
+	 * the last thing the hub said, never a probe. The artist page gates its lb-bot index mirror on
 	 * this: the mirror answers offline by design, but a user who has switched the hub off has
 	 * switched the lb-bot layer off, and a shelf from a mirror they can no longer act on would
 	 * be the "renders something without lb-bot" the §7 rule forbids.
 	 */
 	val isConfigured: Boolean
-		get() = hubBase() != null
+		get() = hubBase() != null && !hubProxyOff
+
+	/**
+	 * The hub has said its lb-bot proxy is switched OFF — `/lb/status` answering
+	 * `configured: false`, or an advert of `available: false` with no routes (a hub proxies
+	 * nothing then, and says so with an empty list). That is the hub-side twin of the user
+	 * switching the layer off, and [isConfigured] treats it the same. It is NOT lb-bot being
+	 * unreachable: an enabled proxy always advertises its routes, and a mirror or a cached row
+	 * is exactly what should keep showing then. The bare empty list must not be read through
+	 * [advertisesRoute], where empty means "a hub too old to say", i.e. everything.
+	 *
+	 * In memory only: the next welcome restates it within a moment of every connect.
+	 */
+	@Volatile
+	private var hubProxyOff = false
 
 	/**
 	 * Changes whenever the route configuration does, so a `LaunchedEffect` keyed on it
@@ -614,6 +629,7 @@ class LbBotManager(
 		}
 		_hubRoutes.value = probe.routes
 		_webUrl.value = cleanWebUrl(probe.webUrl)
+		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
 		_availableAt = nowMs()
@@ -671,6 +687,7 @@ class LbBotManager(
 	 */
 	fun applyHubAdvert(available: Boolean, routes: List<String>, webUrl: String = "") {
 		_hubRoutes.value = routes
+		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()
 		_webUrl.value = cleanWebUrl(webUrl)
