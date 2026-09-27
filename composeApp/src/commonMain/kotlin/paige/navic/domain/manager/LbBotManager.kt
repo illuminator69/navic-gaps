@@ -1386,7 +1386,9 @@ class LbBotManager(
 		}
 		val top = sources.firstOrNull()
 			?: return AcquireOutcome.NeedsReview(AcquireReason.NO_SOURCES)
-		if (!top.albumMatchOk) {
+		// Sending `top` as the source is the user's consent to that folder, which bypasses
+		// lb-bot's own refusal to fetch an artist-unverified one unattended (ruling R4).
+		if (!top.albumMatchOk || !top.artistVerified) {
 			return AcquireOutcome.NeedsReview(AcquireReason.UNCERTAIN_MATCH)
 		}
 		if (!top.coverageFull || top.coverageDetail.totalTracks <= 0) {
@@ -3537,6 +3539,10 @@ data class LbGapSource(
 	 *  peer's whole discography comes back, and peer speed is no way to tell them apart. */
 	val albumMatch: Double = 0.0,
 	val albumMatchOk: Boolean = false,
+	/** Whether lb-bot found the artist in the folder — its path, file names or tracklist.
+	 *  False rows are never fetched unattended upstream, never `recommended`, and must not
+	 *  be picked on the user's behalf here either. Absent (an older lb-bot) means verified. */
+	val artistVerified: Boolean = true,
 	val score: Double = 0.0,
 	val rank: Int = 0,
 	val recommended: Boolean = false,

@@ -54,6 +54,7 @@ import navic.composeapp.generated.resources.info_source_complete
 import navic.composeapp.generated.resources.info_source_failover
 import navic.composeapp.generated.resources.info_source_matches_album
 import navic.composeapp.generated.resources.info_source_partial
+import navic.composeapp.generated.resources.info_source_artist_unverified
 import navic.composeapp.generated.resources.info_source_recommended
 import navic.composeapp.generated.resources.info_source_wrong_album
 import navic.composeapp.generated.resources.label_edition
@@ -476,6 +477,15 @@ internal fun AlbumSources(
 							stringResource(Res.string.info_source_recommended),
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.primary
+						)
+					}
+					// No artist evidence in the folder (lb-bot's artistVerified). lb-bot will not
+					// fetch it unattended, and a tap here is consent — so the row must say so.
+					if (!source.artistVerified) {
+						Text(
+							stringResource(Res.string.info_source_artist_unverified),
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.error
 						)
 					}
 				}

@@ -62,6 +62,7 @@ import navic.composeapp.generated.resources.info_mp3_would_help
 import navic.composeapp.generated.resources.info_no_sources
 import navic.composeapp.generated.resources.info_source_coverage
 import navic.composeapp.generated.resources.info_source_matches_album
+import navic.composeapp.generated.resources.info_source_artist_unverified
 import navic.composeapp.generated.resources.info_source_recommended
 import navic.composeapp.generated.resources.info_source_wrong_album
 import navic.composeapp.generated.resources.info_tracks_present
@@ -491,6 +492,15 @@ private fun GapSources(
 							stringResource(Res.string.info_source_recommended),
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.primary
+						)
+					}
+					// No artist evidence in the folder (lb-bot's artistVerified). lb-bot will not
+					// fetch it unattended, and a tap here is consent — so the row must say so.
+					if (!source.artistVerified) {
+						Text(
+							stringResource(Res.string.info_source_artist_unverified),
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.error
 						)
 					}
 				}

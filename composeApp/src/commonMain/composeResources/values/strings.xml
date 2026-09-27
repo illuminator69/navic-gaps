@@ -775,6 +775,7 @@
 	<string name="info_searching_sources">Searching Soulseek…</string>
 	<string name="info_source_matches_album">Matches album title</string>
 	<string name="info_source_wrong_album">Different album?</string>
+	<string name="info_source_artist_unverified">Artist unverified</string>
 	<string name="info_source_complete">All %1$d tracks</string>
 	<string name="info_source_partial">%1$d of %2$d tracks</string>
 	<string name="info_source_failover">lb-bot falls back to the next-best source if this peer disappears.</string>
