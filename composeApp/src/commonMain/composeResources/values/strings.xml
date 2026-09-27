@@ -698,6 +698,7 @@
 	<string name="info_mp3_would_help">Allowing MP3 would have found a source.</string>
 	<string name="info_gap_pick_source">Sources found. Pick one below.</string>
 	<string name="info_gap_needs_lbbot">The sources found for this album are gone. Search again to get a fresh list.</string>
+	<string name="info_gap_awaiting_match">lb-bot needs a decision in its own match workspace for this album.</string>
 
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>

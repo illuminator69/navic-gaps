@@ -55,6 +55,7 @@ import navic.composeapp.generated.resources.info_source_failover
 import navic.composeapp.generated.resources.info_source_files_unexpanded
 import navic.composeapp.generated.resources.info_fill_searching
 import navic.composeapp.generated.resources.info_fill_verified
+import navic.composeapp.generated.resources.info_gap_awaiting_match
 import navic.composeapp.generated.resources.info_gap_needs_lbbot
 import navic.composeapp.generated.resources.info_gap_pick_source
 import navic.composeapp.generated.resources.info_hub_needs_restart
@@ -215,10 +216,16 @@ fun GapFillSheet(
 				// what is really "busy". So the button says what it is doing instead.
 				val searching =
 					gap.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
-				// Tracks already picked and nothing to fetch them from: the search that
-				// picked them has results no longer, so a search is the remedy — not the
-				// "go and decide in lb-bot" this used to say.
-				val needsFreshSearch = !searching && gap.status == "picking" && gap.sources.isEmpty()
+				// lb-bot reports `picking` for two buckets. `needs_match` is files already
+				// downloaded and waiting for a manual match — its tracks read `downloaded` — and
+				// only lb-bot's own workspace can take that decision; a search cannot.
+				val awaitingMatch = gap.awaitingMatch(searching)
+				// The other, `source_pending`: tracks picked and nothing to fetch them from. With
+				// lb-bot's no-source reason the search ran and found nothing (the status line says
+				// why); without one, the search that picked them has results no longer. Either
+				// way a search is the remedy — not the "go and decide in lb-bot" this used to say.
+				val needsFreshSearch = !searching && !awaitingMatch && gap.status == "picking" &&
+					gap.sources.isEmpty() && gap.noSourceReason.isBlank()
 
 				// "Is a transfer actually happening", which `status == "downloading"` is a late
 				// and incomplete proxy for. lb-bot enqueues on its own thread and flips that
@@ -304,7 +311,8 @@ fun GapFillSheet(
 					) {
 						if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
 						else Text(stringResource(
-							if (gap.sources.isNotEmpty() || needsFreshSearch) Res.string.action_search_again
+							if (gap.sources.isNotEmpty() || needsFreshSearch || gap.noSourceReason.isNotBlank())
+								Res.string.action_search_again
 							else Res.string.action_find_sources
 						))
 					}
@@ -332,8 +340,11 @@ fun GapFillSheet(
 					}
 					// A search that has ended and left nothing. Keyed off the task being
 					// over rather than a literal "finished" — lb-bot ends tasks as
-					// `complete` or `error`, so the old check never once matched.
-				} else if ((gap.sourceTask != null && !searching) || gap.failReason.isNotBlank()) {
+					// `complete` or `error`, so the old check never once matched. Not for files
+					// already downloaded and awaiting a match: those were found.
+				} else if (!awaitingMatch &&
+					((gap.sourceTask != null && !searching) || gap.failReason.isNotBlank())
+				) {
 					Text(
 						stringResource(Res.string.info_no_sources),
 						style = MaterialTheme.typography.bodySmall,
@@ -357,8 +368,16 @@ fun GapFillSheet(
 				// does not, and a guessed one would be a button that leads nowhere). Group ids are
 				// lb-bot's own hex hashes, so they need no escaping in the hash route.
 				if (webUrl.isNotBlank()) {
-					TextButton(onClick = { runCatching { uriHandler.openUri("$webUrl/#/gaps/$groupId") } }) {
-						Text(stringResource(Res.string.action_open_in_lbbot))
+					val openInLbBot = { runCatching { uriHandler.openUri("$webUrl/#/gaps/$groupId") } }
+					// The only way forward for a pending match, so it is the prominent button then.
+					if (awaitingMatch) {
+						Button(onClick = { openInLbBot() }) {
+							Text(stringResource(Res.string.action_open_in_lbbot))
+						}
+					} else {
+						TextButton(onClick = { openInLbBot() }) {
+							Text(stringResource(Res.string.action_open_in_lbbot))
+						}
 					}
 				}
 				}
@@ -416,14 +435,17 @@ private fun GapStatusLine(gap: LbGap, transferInFlight: Boolean) {
 			task.current.ifBlank { stringResource(Res.string.info_fill_searching) }
 		gap.status == "complete" -> stringResource(Res.string.info_fill_verified)
 		// `picking` is what asking for sources sets, before anything has been
-		// found — so with candidates on screen it means "your move". Sourceless, it
-		// is NOT a hand-off to lb-bot's workspace, though this used to say so: the
-		// tracks were picked by a search whose results lb-bot (or, until
-		// applyGapSummary kept them, this client) no longer holds. Search again.
-		gap.status == "picking" -> stringResource(
-			if (gap.sources.isNotEmpty()) Res.string.info_gap_pick_source
-			else Res.string.info_gap_needs_lbbot
-		)
+		// found — so with candidates on screen it means "your move". Sourceless it is
+		// three cases (PROTOCOL §15), and only a pending match is a hand-off to
+		// lb-bot's workspace. A search that found nothing says lb-bot's own reason.
+		// Otherwise the tracks were picked by a search whose results lb-bot (or, until
+		// applyGapSummary kept them, this client) no longer holds: search again.
+		gap.status == "picking" -> when {
+			gap.sources.isNotEmpty() -> stringResource(Res.string.info_gap_pick_source)
+			gap.awaitingMatch(searching = false) -> stringResource(Res.string.info_gap_awaiting_match)
+			gap.noSourceReason.isNotBlank() -> gap.noSourceReason
+			else -> stringResource(Res.string.info_gap_needs_lbbot)
+		}
 		gap.status == "downloading" -> gap.album.ifBlank { "" }
 		gap.failDetail.isNotBlank() -> gap.failDetail
 		task?.error?.isNotBlank() == true -> task.error

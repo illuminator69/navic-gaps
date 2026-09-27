@@ -3489,6 +3489,13 @@ data class LbGap(
 	val tracksDone: Int get() = tracks.count { it.state in GAP_TRACK_DONE_STATES }
 	val tracksWanted: Int get() = tracks.count { it.state != "present" }
 	val tracksFailed: Int get() = tracks.count { it.state == "failed" }
+
+	/**
+	 * lb-bot's `needs_match` bucket: `picking` with files already downloaded and waiting for a
+	 * manual match — a decision only lb-bot's own workspace can take, not a search (PROTOCOL §15).
+	 */
+	fun awaitingMatch(searching: Boolean): Boolean =
+		!searching && status == "picking" && tracks.any { it.state == "downloaded" }
 }
 
 /** Track states that count as "no longer waiting on a transfer". */
