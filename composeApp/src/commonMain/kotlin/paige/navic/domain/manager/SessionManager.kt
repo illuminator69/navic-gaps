@@ -373,6 +373,82 @@ class SessionManager(
 	}
 
 	/**
+	 * OpenSubsonic `reportPlayback` (the `playbackReport` extension) — this device's playback
+	 * state and position, which is what Navidrome's `getNowPlaying` shows. Returns whether the
+	 * server accepted it. Callers gate on [fetchOpenSubsonicExtensions] and use
+	 * [PlaybackReporter], never this directly.
+	 *
+	 * Hand-rolled because the bundled client's `reportPlayback` cannot work against Navidrome:
+	 * it passes its `PlaybackState` / `MediaType` enums straight to Ktor's `parameter()`, which
+	 * sends `toString()` — `state=PLAYING&mediaType=SONG` — and Navidrome compares `state`
+	 * case-sensitively against the spec's lower-case values, so every call is refused as
+	 * "Invalid state". [state] here is the wire value itself.
+	 *
+	 * `ignoreScrobble` is always sent true: [ScrobbleManager] stays the one path that scrobbles
+	 * (with the user's percentage and minimum-length settings, and the offline queue). Left
+	 * false, Navidrome would also scrobble server-side on `stopped` and count plays twice.
+	 */
+	suspend fun reportPlayback(
+		mediaId: String,
+		state: String,
+		positionMs: Long,
+		playbackRate: Float
+	): Boolean {
+		val base = settings.getString("instanceUrl", "").trimEnd('/')
+		val username = settings.getString("username", "")
+		val password = settings.getString("password", "")
+
+		val salt = Random.nextBytes(12)
+			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+		val token = "$password$salt".encodeUtf8().md5().hex()
+
+		val httpClient = HttpClient {
+			install(ContentNegotiation) {
+				json(Json {
+					ignoreUnknownKeys = true
+					isLenient = true
+					coerceInputValues = true
+				})
+			}
+			install(UserAgent) { agent = "Navic" }
+			install(HttpTimeout) {
+				connectTimeoutMillis = 15_000
+				requestTimeoutMillis = 30_000
+			}
+		}
+
+		return try {
+			val envelope: SubsonicStatusEnvelope =
+				httpClient.get("$base/rest/reportPlayback.view") {
+					preferenceManager.customHeadersMap().forEach { (key, value) ->
+						header(key, value)
+					}
+					parameter("u", username)
+					parameter("t", token)
+					parameter("s", salt)
+					parameter("v", "1.16.1")
+					parameter("c", "Navic")
+					parameter("f", "json")
+					parameter("mediaId", mediaId)
+					parameter("mediaType", "song")
+					parameter("positionMs", positionMs.coerceAtLeast(0))
+					parameter("state", state)
+					parameter("playbackRate", playbackRate)
+					parameter("ignoreScrobble", true)
+				}.body()
+			if (envelope.response.status != "ok") {
+				Logger.w(
+					"SessionManager",
+					"reportPlayback refused: ${envelope.response.error?.message.orEmpty()}"
+				)
+			}
+			envelope.response.status == "ok"
+		} finally {
+			httpClient.close()
+		}
+	}
+
+	/**
 	 * OpenSubsonic `getSonicSimilarTracks` — ids of sonically similar tracks,
 	 * ordered by similarity. Unlike `getSimilarSongs2` (which Navidrome can serve
 	 * heuristically via agents), this ALWAYS routes through the sonic plugin, so
@@ -672,6 +748,24 @@ data class SubsonicExtensionsBody(
 data class OpenSubsonicExtensionDto(
 	val name: String = "",
 	val versions: List<Int> = emptyList()
+)
+
+/** A reply with no payload worth reading — just whether the call was accepted. */
+@Serializable
+data class SubsonicStatusEnvelope(
+	@SerialName("subsonic-response") val response: SubsonicStatusBody = SubsonicStatusBody()
+)
+
+@Serializable
+data class SubsonicStatusBody(
+	val status: String = "ok",
+	val error: SubsonicErrorDto? = null
+)
+
+@Serializable
+data class SubsonicErrorDto(
+	val code: Int = 0,
+	val message: String = ""
 )
 
 @Serializable

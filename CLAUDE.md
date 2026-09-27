@@ -328,6 +328,14 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   fixed by media3 alone: `DeviceInfo.routingControllerId` would have to name a real `MediaRouter2`
   routing session, i.e. a `MediaRoute2ProviderService` publishing the hub's devices. Deliberately
   not built.
+- **`reportPlayback` describes the LOCAL player only.** `domain/manager/PlaybackReporter.kt` is
+  driven off the same listener on the local ExoPlayer as the scrobbles (`AndroidScrobbleManager`),
+  so the mirrored remote session is never reported from here. It sends nothing unless the server
+  advertises `playbackReport`, and closes the phone's entry with one `stopped` when
+  `isRemoteActive` flips (the swap's `local.pause()` is what triggers it). Always
+  `ignoreScrobble=true`: `ScrobbleManager` stays the only scrobbler. The call is hand-rolled in
+  `SessionManager`, because the bundled client's sends `state=PLAYING` (enum `toString()`) and
+  Navidrome only accepts lower case. Android only; iOS does not report.
 - **Android Auto knows nothing about the hub.** Its `resolveStreamUrl` builds a *local* Navidrome
   URL, so browsing or playing from Auto during a remote session may start local playback. Untested
   as of alpha59.

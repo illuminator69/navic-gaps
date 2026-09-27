@@ -307,7 +307,8 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 				connectivityManager,
 				syncManager,
 				sessionManager,
-				preferenceManager
+				preferenceManager,
+				hubManager
 			)
 
 		val sessionIntent = applicationContext.packageManager
