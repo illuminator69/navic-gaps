@@ -305,17 +305,23 @@ fun GapFillSheet(
 					// less margin — the tracks land inside an album you already
 					// have. Auto is still here, one row down, for when the ranking
 					// is good enough; it just isn't the default any more.
-					Button(
-						onClick = { act { lbBot.gapSearch(groupId) } },
-						enabled = !working && !searching && !transferInFlight,
-						modifier = Modifier.weight(1f)
-					) {
-						if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
-						else Text(stringResource(
-							if (gap.sources.isNotEmpty() || needsFreshSearch || gap.noSourceReason.isNotBlank())
-								Res.string.action_search_again
-							else Res.string.action_find_sources
-						))
+					// Hidden entirely for a stalled placement (B-011, ruling R15,
+					// mirroring Feishin): a fresh search cannot place a file that
+					// already downloaded, so this is never offered as a Retry for
+					// that case. Recheck album (below) stays.
+					if (!gap.stalledPlacement) {
+						Button(
+							onClick = { act { lbBot.gapSearch(groupId) } },
+							enabled = !working && !searching && !transferInFlight,
+							modifier = Modifier.weight(1f)
+						) {
+							if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
+							else Text(stringResource(
+								if (gap.sources.isNotEmpty() || needsFreshSearch || gap.noSourceReason.isNotBlank())
+									Res.string.action_search_again
+								else Res.string.action_find_sources
+							))
+						}
 					}
 					if (transferInFlight) {
 						OutlinedButton(onClick = { act { lbBot.gapCancel(groupId) } }) {
