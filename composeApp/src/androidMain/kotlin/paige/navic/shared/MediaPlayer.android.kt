@@ -1093,6 +1093,10 @@ class AndroidMediaPlayerViewModel(
 	 */
 	private fun warmUpcomingTranscodes() {
 		val player = controller ?: return
+		// While another device plays, the session holds RemoteSessionPlayer and this controller's
+		// timeline is the REMOTE queue: warming it would transcode songs this phone never plays,
+		// at this phone's quality.
+		if (routeRemotely != null) return
 		if (!currentStreamRequest().isTranscode) return
 		val timeline = player.currentTimeline
 		if (timeline.isEmpty) return
