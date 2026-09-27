@@ -150,6 +150,10 @@ kotlin {
 		}
 
 		buildToolsVersion = "37.0.0"
+
+		// JVM unit tests for commonMain's pure rule functions (commonTest), run with
+		// `./gradlew :composeApp:testAndroidHostTest`. Fork-only; upstream has no tests.
+		withHostTest {}
 	}
 
 	sourceSets {
@@ -183,6 +187,10 @@ kotlin {
 
 		iosMain.dependencies {
 			implementation(libs.bundles.ktor.ios)
+		}
+
+		commonTest.dependencies {
+			implementation(kotlin("test"))
 		}
 	}
 

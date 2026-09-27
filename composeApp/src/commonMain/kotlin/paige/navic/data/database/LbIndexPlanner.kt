@@ -14,8 +14,8 @@ import paige.navic.domain.manager.LbRelease
 /*
  * How a client applies lb-bot's index change feed (navi-connect contract §1a, "Client mirror
  * rules"), as PURE functions: local state and a page in, the writes to make out. No Room, no
- * clock, no network — so the rules can be read in one place and checked by hand (Navic has no
- * test source set; see the task report), and the DAO's transaction only executes the plan.
+ * clock, no network — so the rules can be read in one place and are executed by
+ * `commonTest`'s LbIndexPlannerTest, and the DAO's transaction only executes the plan.
  */
 
 /** An artist to write: the row, and the complete set of its releases that replaces the old one. */
