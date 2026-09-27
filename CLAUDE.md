@@ -749,8 +749,15 @@ true of invented *album art*, and not of an icon naming the kind.
   `ArtistDetail` / `CollectionDetail`.** Those take Navidrome ids and load from Room, and keeping
   them strict is what makes their not-in-the-DB error path correct.
 - **Keep AudioMuse fail-soft** (grey out and fall back to Tier 1 when the plugin or index is
-  missing) and lb-bot **stricter**: not configured, unreachable and unindexed all render
-  **nothing**. The artist page must look exactly as it does without that layer.
+  missing) and lb-bot **stricter**: switched off — by the user, or by the hub (its proxy off:
+  `/lb/status` `configured: false`, or an advert of `available: false` with **no** routes) — and
+  unindexed render **nothing**. The artist page must then look exactly as it does without that
+  layer; `LbBotManager.isConfigured` is the one gate for both. **Unreachable is different since
+  the index mirror (§5):** the mirrored shelf and every cached lb-bot row keep showing while
+  lb-bot is down, because answering without it is what the mirror and the response cache are
+  for. Only what needs a live lb-bot — the network discography fallback, fetches, the probe-gated
+  Fresh tab — goes away. An enabled proxy always advertises its routes, which is how "down" is
+  told from "off"; an empty list alone still means "a hub too old to say" to `advertisesRoute`.
 - **Cast requires publicly reachable stream and cover URLs** — the speaker fetches them itself, so
   a Tailscale or LAN address will not do.
 - `ui/components/common/Form*` components are carried as fork code; upstream deleted them and
