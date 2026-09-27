@@ -341,8 +341,8 @@ fun GapFillSheet(
 					// A search that has ended and left nothing. Keyed off the task being
 					// over rather than a literal "finished" — lb-bot ends tasks as
 					// `complete` or `error`, so the old check never once matched. Not for files
-					// already downloaded and awaiting a match: those were found.
-				} else if (!awaitingMatch &&
+					// already downloaded (awaiting a match, or a stalled placement): those were found.
+				} else if (!awaitingMatch && !gap.stalledPlacement &&
 					((gap.sourceTask != null && !searching) || gap.failReason.isNotBlank())
 				) {
 					Text(

@@ -2258,6 +2258,8 @@ class LbBotManager(
 	 * failure; the task error is the fallback for a search that itself broke.
 	 */
 	private fun gapReason(gap: LbGap): String = when {
+		// A stalled placement's kind names nothing a reader can act on; its sentence does.
+		gap.stalledPlacement && gap.failDetail.isNotBlank() -> gap.failDetail
 		gap.failReason.isNotBlank() -> gap.failReason
 		gap.noSourceReason.isNotBlank() -> gap.noSourceReason
 		else -> gap.sourceTask?.error.orEmpty()
@@ -2316,6 +2318,10 @@ class LbBotManager(
 		// `ready` after an auto run means the search found nothing, or every source
 		// rejected the enqueue. Bounded patience, as `unknown` gets on the album path.
 		val idle = gap.status == "ready" && !searching
+		// A stalled placement is lb-bot's `failed`, but the files did arrive: the ledger row
+		// reads as §15.2's needs_match ("Downloaded, but needs sorting out in lb-bot", its
+		// sentence, Dismiss), not "Couldn't get this one" with a Retry that re-searches.
+		val ledgerState = if (gap.stalledPlacement) "needs_match" else gap.status
 
 		val decision = watchLock.withLock {
 			val watches = loadWatches()
@@ -2334,7 +2340,7 @@ class LbBotManager(
 				quietTicks = quiet,
 				nextPollAt = now + intervalFor(quiet),
 				unknownSince = since,
-				state = gap.status,
+				state = ledgerState,
 				reason = gapReason(gap),
 				percent = if (filling.isEmpty()) 0 else filled * 100 / filling.size,
 				done = filled,
@@ -2363,8 +2369,8 @@ class LbBotManager(
 						"failed" -> OUTCOME_FAILED
 						else -> OUTCOME_NEEDS_PICK
 					},
-					state = gap.status,
-					reason = gap.sourceTask?.error.orEmpty()
+					state = ledgerState,
+					reason = if (gap.stalledPlacement) gapReason(gap) else gap.sourceTask?.error.orEmpty()
 				)
 				else -> null
 			}
@@ -3476,6 +3482,10 @@ data class LbGap(
 	val sourceTask: LbGapTask? = null,
 	val failReason: String = "",
 	val failDetail: String = "",
+	/** lb-bot's stale `downloaded` group: files fetched and never filed into the album. It reads
+	 *  `failed`, with [failDetail] naming the remedy (reconcile or rescan in lb-bot) — the
+	 *  files were found, so neither "no sources" nor another source is the answer. */
+	val stalledPlacement: Boolean = false,
 	val allowMp3: Boolean = false,
 	val noSourceReason: String = "",
 	val mp3WouldHelp: Boolean = false,
