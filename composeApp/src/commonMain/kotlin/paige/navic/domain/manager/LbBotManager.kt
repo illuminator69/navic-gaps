@@ -215,6 +215,12 @@ class LbBotManager(
 	val gaps: StateFlow<Map<String, LbGap>> = _gaps.asStateFlow()
 
 	/**
+	 * The `sourcesFoundAt` each gap's full view was last read (or is being read) for, so a
+	 * summary reporting sources we hold no rows for costs one `/lb/gap`, not one per poll tick.
+	 */
+	private val gapSourceReads = MutableStateFlow<Map<String, Double>>(emptyMap())
+
+	/**
 	 * Every fill this device has started, newest first — in flight *and* finished.
 	 *
 	 * The watch map used to be pruned the moment a fill settled, which meant a failure
@@ -1763,6 +1769,7 @@ class LbBotManager(
 			// The sheet reads these; a dismissed row must not keep showing its last state.
 			_fills.update { it - key }
 			_gaps.update { it - key }
+			gapSourceReads.update { it - key }
 		}
 	}
 
@@ -2254,6 +2261,27 @@ class LbBotManager(
 		else -> gap.sourceTask?.error.orEmpty()
 	}
 
+	/**
+	 * Read the full `/lb/gap` once for a result set ([foundAt]) a summary reported and we hold no
+	 * rows for. Once, not on every tick: nothing else stops a second read while the first is in
+	 * flight, and a full view that also comes back sourceless (lb-bot's rows expired while its
+	 * count did not) would otherwise be re-read every poll for as long as the gap is watched. A
+	 * failed read is forgotten, so the next tick tries again — one at a time.
+	 */
+	private fun readGapSources(key: String, foundAt: Double) {
+		var claimed = false
+		gapSourceReads.update { reads ->
+			claimed = reads[key] != foundAt
+			if (claimed) reads + (key to foundAt) else reads
+		}
+		if (!claimed) return
+		scope.launch {
+			if (refreshGap(key) !is LbResult.Ok) {
+				gapSourceReads.update { reads -> if (reads[key] == foundAt) reads - key else reads }
+			}
+		}
+	}
+
 	/** The gap counterpart of [applyAlbumStatus]: one writer for the gap ledger. */
 	private suspend fun applyGapSummary(key: String, summary: LbGap, now: Long = nowMs()) {
 		val previous = _gaps.value[key]
@@ -2274,7 +2302,7 @@ class LbBotManager(
 			sourcesPages = previous.sourcesPages
 		) else summary
 		_gaps.update { it + (key to gap) }
-		if (gap.sources.isEmpty() && summary.sourcesTotal > 0) scope.launch { refreshGap(key) }
+		if (gap.sources.isEmpty() && summary.sourcesTotal > 0) readGapSources(key, summary.sourcesFoundAt)
 
 		val filling = gap.tracks.filter { it.state != "present" }
 		val filled = filling.count { it.state == "done" || it.state == "downloaded" }
