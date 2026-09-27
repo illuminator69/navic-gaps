@@ -366,8 +366,10 @@ fun GapFillSheet(
 
 				// Auto, demoted: it walks the same ranked list this picker shows,
 				// so it stays available for a user who trusts it, without being
-				// the path of least resistance.
-				if (!transferInFlight) {
+				// the path of least resistance. Also withheld for a stalled placement
+				// (B-011, ruling R17): R15 covers every fetch/fill action for that case,
+				// and picking a source for lb-bot to auto-fetch is exactly that.
+				if (!transferInFlight && !gap.stalledPlacement) {
 					TextButton(
 						onClick = { commit { lbBot.gapAuto(groupId) } },
 						enabled = !working && !searching
