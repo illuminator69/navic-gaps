@@ -3,6 +3,7 @@ package paige.navic.ui.screens.search
 import paige.navic.di.isLandscape
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -98,6 +100,8 @@ import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.common.SmallRatingRow
 import paige.navic.ui.components.common.SwipeToDismissBox
+import paige.navic.ui.components.common.blur.LocalExpressiveBlur
+import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -197,10 +201,25 @@ fun SearchScreen(
 	var moodQuery by remember { mutableStateOf("") }
 	var moodSongs by remember { mutableStateOf<List<DomainSong>>(emptyList()) }
 
+	// The album page's top-bar recipe (collection/components/TopBar.kt): transparent at rest, so
+	// the cover wash runs unbroken under the status bar, and a translucent `surface` over the
+	// frost once results are scrolled under it. Without it the rows showed straight through the
+	// query field and the chips. NOT `by`: read in the draw phase below, so a scroll that flips
+	// it does not recompose the screen.
+	val topBarScrim = animateFloatAsState(
+		if (viewModel.gridState.canScrollBackward) 1f else 0f
+	)
+	val topBarScrimColor = MaterialTheme.colorScheme.surface
+
 	Scaffold(
 		topBar = {
 			Column(
 				modifier = Modifier
+					.expressiveBlurEffect(LocalExpressiveBlur.current)
+					.drawBehind {
+						// Capped at 0.7 like the album page's, so the wash still shows through.
+						drawRect(topBarScrimColor.copy(alpha = topBarScrim.value * 0.7f))
+					}
 					.padding(
 						TopAppBarDefaults.windowInsets.asPaddingValues()
 					)
