@@ -4,14 +4,20 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import paige.navic.di.ForceSystemBars
+import paige.navic.di.LocalNavStack
+import paige.navic.ui.navigation.railFollowsCover
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.CoverColors
 import paige.navic.ui.util.coverAmbientGradient
@@ -135,4 +141,31 @@ fun BrowsingAmbient(content: @Composable () -> Unit) {
 			)
 		}
 	}
+}
+
+/**
+ * B-008: the tablet `SideBar`'s scheme. The rail sits beside `NavDisplay`, so it cannot see the
+ * page's [BrowsingAmbient]; it takes the same now-playing scheme itself while the page on top of
+ * the back stack is one that function washes ([railFollowsCover]). A detail or artist page,
+ * Settings, or a two-pane detail keeps the app's base scheme, i.e. the rail as it always looked.
+ *
+ * `cover.scheme` as is, not BrowsingAmbient's transparent-background copy: nothing is drawn under
+ * the rail, and its container reads the opaque `surface`. That makes this a nested `NavicTheme`,
+ * which CLAUDE.md §6 rule 6 forbids a SCREEN since it paints over the page's gradient; the rail
+ * has none under it.
+ *
+ * The base is passed as the app's scheme, never as null: `NavicTheme(null)` hands its content
+ * over unwrapped while a scheme adds a content-colour wrapper, so flipping between the two would
+ * change the group structure, re-create the rail and drop its saved expanded state. The back
+ * stack is read here, behind `derivedStateOf`, so a push or pop recomposes this (not App) only
+ * when the answer changes.
+ */
+@Composable
+fun RailAmbient(content: @Composable () -> Unit) {
+	val backStack = LocalNavStack.current
+	val followsCover by remember(backStack) { derivedStateOf { backStack.railFollowsCover() } }
+	val cover = rememberCoverColorScheme(rememberNowPlayingCoverArtId(), isDark = rememberAppIsDark())
+	// The same gate as BrowsingAmbient, rule 1: an unresolved cover is an absence, not a colour.
+	val themed = followsCover && cover.themed && cover.resolved
+	NavicTheme(if (themed) cover.scheme else MaterialTheme.colorScheme, content = content)
 }

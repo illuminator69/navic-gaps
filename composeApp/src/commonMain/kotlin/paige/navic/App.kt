@@ -153,6 +153,7 @@ import paige.navic.ui.screens.song.SongDetailSheet
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.BrowsingAmbient
+import paige.navic.ui.components.common.RailAmbient
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import paige.navic.ui.screens.genre.GenreDetailScreen
 import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
@@ -365,7 +366,8 @@ fun App() {
 				Row(modifier = Modifier.fillMaxSize()) {
 					if (platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 						&& Screen.Login !in backStack) {
-						SideBar()
+						// navi-connect (B-008): the cover's scheme while a washed page is on top.
+						RailAmbient { SideBar() }
 					}
 					Scaffold(
 						modifier = Modifier.nestedScroll(scrollManager.connection),

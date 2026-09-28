@@ -505,9 +505,21 @@ Seven rules, each of which is a bug that shipped:
    artwork decides what a browsing page looks like, but those values still drive the settings
    screens, every dialog, and any page with no artwork to read.
 
-**Known gap:** the `SideBar` is not themed. It sits outside `NavDisplay`, so it cannot read the
-per-screen cover ambient and stays on the app's base scheme — a light rail against a dark
-artwork-themed page. Cosmetic, tablet-only.
+**The tablet rail follows browsing pages only (B-008, option 2).** The `SideBar` sits beside
+`NavDisplay`, so it cannot read a page's `BrowsingAmbient`. `RailAmbient`, beside it in
+`CoverAmbientBackground.kt`, wraps it in `App.kt` and takes the same now-playing scheme itself,
+gated on `themed && resolved` as rule 1 says, while the **page** on top of the back stack is a
+washed browsing screen:
+`railFollowsCover()` in `ui/navigation/WashedBrowsing.kt`, which skips the sheet entries that sit
+over a page (now playing, lyrics, queue, speed, song sheet). The rail is `WideNavigationRail`'s
+non-modal container, i.e. the scheme's `surface`: opaque, and at the artwork's brightness like the
+page beside it. Its nested `NavicTheme` is not a rule-6 case, since nothing is drawn under the rail.
+**The limit:** detail and artist pages, Settings, the image viewer and a two-pane
+`CollectionDetail` keep the base rail, so a light rail beside a dark artwork-themed *detail* page
+is still expected (option 3, every screen publishing its scheme, would close it). A new washed tab
+goes in `WashedBrowsingScreens` as well as behind `Washed`; `WashedBrowsingDriftTest`
+(androidHostTest, JVM-only because it reads the source) fails when the two, the self-washing
+`LibraryScreen` or the sheet list drift apart.
 
 ---
 
