@@ -35,13 +35,18 @@ class WashedBrowsingDriftTest {
 		return file.readText()
 	}
 
-	/** App.kt's `entryProvider`, one block of text per `entry<Screen.X>`, keyed on `X`. */
-	private fun entryBlocks(): Map<String, String> {
+	/** App.kt's `entryProvider` function, from its signature to its closing brace. */
+	private fun entryProviderBody(): String {
 		val app = source("App.kt")
 		val start = app.indexOf("private fun entryProvider(")
 		val end = app.indexOf("\n}\n", start)
 		assertTrue(start >= 0 && end > start, "entryProvider not found in App.kt")
-		val body = app.substring(start, end)
+		return app.substring(start, end)
+	}
+
+	/** App.kt's `entryProvider`, one block of text per `entry<Screen.X>`, keyed on `X`. */
+	private fun entryBlocks(): Map<String, String> {
+		val body = entryProviderBody()
 		val heads = Regex("""entry<Screen\.([A-Za-z.]+)>""").findAll(body).toList()
 		assertTrue(heads.size > 20, "only ${heads.size} entries parsed out of App.kt")
 		return heads.mapIndexed { i, head ->
@@ -55,7 +60,9 @@ class WashedBrowsingDriftTest {
 
 	@Test
 	fun thePredicateIsExactlyTheWashedEntriesPlusTheSelfWashingScreens() {
-		val wrappedInApp = entryBlocks().filterValues { "Washed {" in it }.keys
+		// `Washed {`, `Washed{` and `Washed(content = …)` alike.
+		val washedCall = Regex("""\bWashed\s*[({]""")
+		val wrappedInApp = entryBlocks().filterValues { washedCall.containsMatchIn(it) }.keys
 		assertTrue(
 			selfWashing.values.none { it in wrappedInApp },
 			"a self-washing screen is also wrapped in App.kt, i.e. washed twice"
@@ -65,6 +72,7 @@ class WashedBrowsingDriftTest {
 
 	@Test
 	fun onlyTheKnownScreensWashThemselves() {
+		val ambientCall = Regex("""\bBrowsingAmbient\s*[({]""")
 		val callers = srcRoot.walkTopDown()
 			.filter { it.isFile && it.extension == "kt" }
 			.filter { file ->
@@ -72,7 +80,7 @@ class WashedBrowsingDriftTest {
 					val line = raw.trim()
 					!line.startsWith("//") && !line.startsWith("*") && !line.startsWith("/*") &&
 						!line.contains("fun BrowsingAmbient") &&
-						(line.contains("BrowsingAmbient {") || line.contains("BrowsingAmbient("))
+						ambientCall.containsMatchIn(line)
 				}
 			}
 			.map { it.relativeTo(srcRoot).invariantSeparatorsPath }
@@ -84,7 +92,25 @@ class WashedBrowsingDriftTest {
 	@Test
 	fun theOverlayListIsExactlyTheSheetSceneEntries() {
 		val sheetScene = Regex("""SceneStrategy\.(bottomSheet|dialog)\(""")
-		val sheets = entryBlocks().filterValues { sheetScene.containsMatchIn(it) }.keys
+		// Metadata can be inline (`metadata = NowPlayingSceneStrategy.bottomSheet(…)`) or a name,
+		// as `navtabMetadata` and `imageViewMetadata` are: a `val` in entryProvider's preamble. A
+		// name is looked up there, and one declared anywhere else fails loudly rather than being
+		// read as "not a sheet".
+		val preamble = entryProviderBody().substringBefore("entryProvider {")
+		val valHeads = Regex("""\n\tval (\w+)\s*=""").findAll(preamble).toList()
+		val localVals = valHeads.mapIndexed { i, head ->
+			val to = valHeads.getOrNull(i + 1)?.range?.first ?: preamble.length
+			head.groupValues[1] to preamble.substring(head.range.last + 1, to)
+		}.toMap()
+		val namedMetadata = Regex("""metadata\s*=\s*([A-Za-z_]\w*)\s*\)""")
+		val sheets = entryBlocks().filterValues { block ->
+			sheetScene.containsMatchIn(block) || namedMetadata.find(block)?.groupValues?.get(1)?.let { name ->
+				val initialiser = localVals[name]
+				assertTrue(initialiser != null, "metadata `$name` is not a val of entryProvider; teach this test where it lives")
+				sheetScene.containsMatchIn(initialiser)
+			} == true
+		}.keys
+		assertTrue("navtabMetadata" in localVals && "imageViewMetadata" in localVals, "preamble vals not parsed")
 		assertEquals(sheets, PageOverlayScreens.names())
 	}
 }

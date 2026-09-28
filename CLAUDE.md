@@ -496,8 +496,10 @@ Seven rules, each of which is a bug that shipped:
    `NavicTheme` re-derives a fresh scheme with an *opaque* `background` and paints straight over the
    gradient. It kept alpha59's Statistics tab flat while every other tab followed the artwork — and
    it made *adding* the `Washed` wrapper measure as literally zero change, which is a very
-   convincing way to conclude the wrapper was not the problem. The only legitimate nested use is
-   `MoreButton`'s, for sheets that deliberately want the app's scheme rather than the page's.
+   convincing way to conclude the wrapper was not the problem. The legitimate nested uses are
+   `MoreButton`'s, for sheets that deliberately want the app's scheme rather than the page's, and
+   `RailAmbient`'s for the tablet rail (below), which sits *beside* the wash rather than inside it:
+   nothing is drawn under the rail, so its opaque `surface` hides nothing.
 7. **`dynamicTheming` gates the whole engine**, inside `rememberCoverColorScheme`, so one gate
    covers the home, every tab, both detail screens, the mini-player, the now-playing chrome and
    every sheet. It defaults **true** — a pref defaulting false would un-theme every existing
@@ -507,13 +509,17 @@ Seven rules, each of which is a bug that shipped:
 
 **The tablet rail follows browsing pages only (B-008, option 2).** The `SideBar` sits beside
 `NavDisplay`, so it cannot read a page's `BrowsingAmbient`. `RailAmbient`, beside it in
-`CoverAmbientBackground.kt`, wraps it in `App.kt` and takes the same now-playing scheme itself,
-gated on `themed && resolved` as rule 1 says, while the **page** on top of the back stack is a
-washed browsing screen:
-`railFollowsCover()` in `ui/navigation/WashedBrowsing.kt`, which skips the sheet entries that sit
-over a page (now playing, lyrics, queue, speed, song sheet). The rail is `WideNavigationRail`'s
-non-modal container, i.e. the scheme's `surface`: opaque, and at the artwork's brightness like the
-page beside it. Its nested `NavicTheme` is not a rule-6 case, since nothing is drawn under the rail.
+`CoverAmbientBackground.kt`, wraps it in `App.kt` and takes the same now-playing scheme itself
+while the **page** on top of the back stack is a washed browsing screen: `railFollowsCover()` in
+`ui/navigation/WashedBrowsing.kt`, which skips the sheet entries that sit over a page (now
+playing, lyrics, queue, speed, song sheet). It is gated on `themed && resolved` as rule 1 says,
+**and on a cover id being present** (`railWearsCover`). `rememberCoverColorScheme` keeps its last
+palette when the id goes away (clear queue, a radio stream, a coverless track, the generic avatar),
+so `resolved` stays true; pages opened after that show the base, and an app-lifetime rail would
+otherwise keep the stale colours beside them. A present id whose fetch fails still leaves the
+previous palette on the rail, as on a page that was already open. The rail is
+`WideNavigationRail`'s non-modal container, i.e. the scheme's `surface`: opaque, and at the
+artwork's brightness like the page beside it (see rule 6 for why its nested `NavicTheme` is fine).
 **The limit:** detail and artist pages, Settings, the image viewer and a two-pane
 `CollectionDetail` keep the base rail, so a light rail beside a dark artwork-themed *detail* page
 is still expected (option 3, every screen publishing its scheme, would close it). A new washed tab

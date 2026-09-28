@@ -153,6 +153,8 @@ kotlin {
 
 		// JVM unit tests for commonMain's pure rule functions (commonTest), run with
 		// `./gradlew :composeApp:testAndroidHostTest`. Fork-only; upstream has no tests.
+		// src/androidHostTest holds the JVM-only ones, which read the source tree with java.io
+		// (B-008's WashedBrowsingDriftTest); the same task runs both.
 		withHostTest {}
 	}
 

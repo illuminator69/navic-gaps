@@ -2,6 +2,7 @@ package paige.navic.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.util.CoverPlaceholder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -106,5 +107,41 @@ class WashedBrowsingTest {
 		assertNull(listOf<NavKey>(Screen.NowPlaying).topPage())
 		assertFalse(emptyList<NavKey>().railFollowsCover())
 		assertFalse(listOf<NavKey>(Screen.NowPlaying).railFollowsCover())
+	}
+
+	// --- railWearsCover ----------------------------------------------------------------------
+
+	@Test
+	fun aWashedPageWithAResolvedCoverWearsIt() {
+		assertTrue(railWearsCover(followsCover = true, coverArtId = "al-1", themed = true, resolved = true))
+	}
+
+	@Test
+	fun nothingPlayingARadioStreamOrACoverlessTrackGoesBaseEvenWithAStalePalette() {
+		// `rememberCoverColorScheme` keeps the last palette when the id goes away, so `resolved`
+		// can still be true here: clear queue (no current song), a radio stream (coverArtId =
+		// null), a track with no art (null or blank).
+		assertFalse(railWearsCover(followsCover = true, coverArtId = null, themed = true, resolved = true))
+		assertFalse(railWearsCover(followsCover = true, coverArtId = "", themed = true, resolved = true))
+		assertFalse(railWearsCover(followsCover = true, coverArtId = "  ", themed = true, resolved = true))
+	}
+
+	@Test
+	fun navidromesGenericAvatarIsNoCoverEither() {
+		// The engine never fetches a placeholder id (its `hasArt`), so it too leaves a stale palette.
+		CoverPlaceholder.learn(topHash = "deadbeef", topCount = 26, runnerUpCount = 3)
+		try {
+			assertFalse(railWearsCover(followsCover = true, coverArtId = "ar-7_deadbeef", themed = true, resolved = true))
+			assertTrue(railWearsCover(followsCover = true, coverArtId = "ar-7_cafe", themed = true, resolved = true))
+		} finally {
+			CoverPlaceholder.learn(topHash = null, topCount = 0, runnerUpCount = 0)
+		}
+	}
+
+	@Test
+	fun theEnginesOwnGatesAndTheTopPageStillApply() {
+		assertFalse(railWearsCover(followsCover = false, coverArtId = "al-1", themed = true, resolved = true))
+		assertFalse(railWearsCover(followsCover = true, coverArtId = "al-1", themed = false, resolved = true))
+		assertFalse(railWearsCover(followsCover = true, coverArtId = "al-1", themed = true, resolved = false))
 	}
 }

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import paige.navic.di.ForceSystemBars
 import paige.navic.di.LocalNavStack
 import paige.navic.ui.navigation.railFollowsCover
+import paige.navic.ui.navigation.railWearsCover
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.CoverColors
 import paige.navic.ui.util.coverAmbientGradient
@@ -164,8 +165,12 @@ fun BrowsingAmbient(content: @Composable () -> Unit) {
 fun RailAmbient(content: @Composable () -> Unit) {
 	val backStack = LocalNavStack.current
 	val followsCover by remember(backStack) { derivedStateOf { backStack.railFollowsCover() } }
-	val cover = rememberCoverColorScheme(rememberNowPlayingCoverArtId(), isDark = rememberAppIsDark())
-	// The same gate as BrowsingAmbient, rule 1: an unresolved cover is an absence, not a colour.
-	val themed = followsCover && cover.themed && cover.resolved
-	NavicTheme(if (themed) cover.scheme else MaterialTheme.colorScheme, content = content)
+	val coverArtId = rememberNowPlayingCoverArtId()
+	// Called on every screen, so the structure never changes; only the choice below does.
+	val cover = rememberCoverColorScheme(coverArtId, isDark = rememberAppIsDark())
+	// BrowsingAmbient's gate (rule 1: an unresolved cover is an absence, not a colour) plus a cover
+	// id, because the engine keeps the last palette after the song or its art goes away. A present
+	// id whose fetch fails still leaves the previous palette here: see railWearsCover.
+	val wearsCover = railWearsCover(followsCover, coverArtId, cover.themed, cover.resolved)
+	NavicTheme(if (wearsCover) cover.scheme else MaterialTheme.colorScheme, content = content)
 }
