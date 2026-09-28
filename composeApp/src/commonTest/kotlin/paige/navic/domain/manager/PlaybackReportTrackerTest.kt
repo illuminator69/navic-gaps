@@ -166,4 +166,37 @@ class PlaybackReportTrackerTest {
 		val out = t.onMediaChanged(snap(id = "radio_7", playing = true), false)
 		assertEquals(listOf("s1" to STOPPED), out.states())
 	}
+
+	// B-027 (b): the service is destroyed. The open entry gets its `stopped` then, once.
+
+	@Test
+	fun teardownClosesAPlayingEntryOnceAtItsPosition() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		assertEquals(
+			listOf(PlaybackReport("s1", STOPPED, 95_000, 1f)),
+			t.onTeardown(snap(playing = true, pos = 95_000))
+		)
+		assertNull(t.openId)
+		assertTrue(t.onTeardown(snap(playing = true, pos = 96_000)).isEmpty())
+	}
+
+	@Test
+	fun teardownClosesAPausedEntryOnceAtItsPosition() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		t.onPlayingChanged(snap(pos = 61_000), false)
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 61_000, 1f)), t.onTeardown(snap(pos = 61_000)))
+		assertTrue(t.onTeardown(snap(pos = 61_000)).isEmpty())
+	}
+
+	@Test
+	fun teardownWithNothingOpenSendsNothing() {
+		assertTrue(PlaybackReportTracker().onTeardown(snap(playing = true)).isEmpty())
+		// Already closed by a handoff: nothing left to stop.
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		t.onPlayingChanged(snap(pos = 42_000), suppressed = true)
+		assertTrue(t.onTeardown(snap(pos = 42_000)).isEmpty())
+	}
 }

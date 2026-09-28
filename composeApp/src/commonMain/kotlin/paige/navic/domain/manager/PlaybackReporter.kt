@@ -4,11 +4,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.util.Logger
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
@@ -26,6 +28,9 @@ private const val PROBE_RETRY_MS = 5 * 60_000L
  * says where playback is. Debounced rather than throttled, so the final seek is never dropped.
  */
 private const val SEEK_SETTLE_MS = 500L
+
+/** How long the service's teardown `stopped` may take, the wait for an in-flight report included. */
+private const val TEARDOWN_SEND_MS = 2_000L
 
 /** OpenSubsonic `reportPlayback` states, spelled as the wire wants them (lower case). */
 enum class PlaybackReportState(val wire: String) {
@@ -110,6 +115,13 @@ class PlaybackReportTracker {
 		return listOf(open(id, state, s))
 	}
 
+	/**
+	 * The playback service is being destroyed: the open entry's one `stopped`, and nothing after
+	 * it. Without this the entry lingers in `getNowPlaying` until Navidrome expires it (a paused
+	 * one for 30 minutes).
+	 */
+	fun onTeardown(s: PlaybackSnapshot): List<PlaybackReport> = close(s)
+
 	private fun start(id: String, s: PlaybackSnapshot) = listOf(
 		open(id, PlaybackReportState.STARTING, s),
 		open(id, PlaybackReportState.PLAYING, s)
@@ -164,9 +176,10 @@ class PlaybackReporter(
 	private var supported: Boolean? = null
 	private var probedAt = 0L
 	private var seekJob: Job? = null
+	private val consumer: Job
 
 	init {
-		scope.launch {
+		consumer = scope.launch {
 			for (report in outbox) send(report)
 		}
 		// Another login may be another server: probe again rather than trust the last answer.
@@ -203,9 +216,29 @@ class PlaybackReporter(
 		enqueue(tracker.onPositionOrRateChanged(snapshot, suppressed))
 	}
 
-	fun release() {
+	/**
+	 * The service is being destroyed, and [scope] with it. Closes the open entry with one
+	 * `stopped`, sent from [teardownScope] because [scope] is cancelled right after this returns.
+	 *
+	 * The `stopped` is the last word. Reports still queued are dropped, and one already in flight
+	 * (typically the `paused` from `onTaskRemoved`) is cancelled and waited out first, so a stale
+	 * `paused` cannot land after it and reopen the entry. Sent only when the server is already
+	 * known to support it: never a capability probe from a dying service.
+	 */
+	fun release(snapshot: PlaybackSnapshot) {
 		seekJob?.cancel()
-		outbox.close()
+		outbox.cancel()
+		consumer.cancel()
+		val last = tracker.onTeardown(snapshot)
+		if (last.isEmpty() || supported != true || !connectivityManager.isOnline.value) return
+		// Best-effort: once the service is gone the process may be cached, and Android's freezer
+		// can suspend it before the call leaves (CLAUDE.md §7). Navidrome then expires the entry.
+		teardownScope.launch {
+			withTimeoutOrNull(TEARDOWN_SEND_MS) {
+				consumer.join()
+				last.forEach { post(it) }
+			}
+		}
 	}
 
 	private fun enqueue(reports: List<PlaybackReport>) {
@@ -215,6 +248,10 @@ class PlaybackReporter(
 	private suspend fun send(report: PlaybackReport) {
 		if (!connectivityManager.isOnline.value) return
 		if (!isSupported()) return
+		post(report)
+	}
+
+	private suspend fun post(report: PlaybackReport) {
 		try {
 			withContext(Dispatchers.IO) {
 				sessionManager.reportPlayback(
@@ -246,5 +283,13 @@ class PlaybackReporter(
 			Logger.w(TAG, "playbackReport capability probe failed", e)
 			false
 		}
+	}
+
+	private companion object {
+		/**
+		 * Outlives the service, for [release]'s `stopped`. Process-lifetime and never cancelled:
+		 * every job on it is bounded by [TEARDOWN_SEND_MS].
+		 */
+		val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	}
 }

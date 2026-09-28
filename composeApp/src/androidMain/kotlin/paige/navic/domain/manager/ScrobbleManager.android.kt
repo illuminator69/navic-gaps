@@ -90,6 +90,7 @@ class AndroidScrobbleManager(
 
 	fun release() {
 		player.removeListener(this)
-		playbackReporter.release()
+		// The player still holds its item here: the service stops and releases it after this.
+		playbackReporter.release(snapshot())
 	}
 }
