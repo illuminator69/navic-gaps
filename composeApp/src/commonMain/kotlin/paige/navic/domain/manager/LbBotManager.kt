@@ -2308,12 +2308,7 @@ class LbBotManager(
 		_gaps.update { it + (key to gap) }
 		if (gap.sources.isEmpty() && summary.sourcesTotal > 0) readGapSources(key, summary.sourcesFoundAt)
 
-		val filling = gap.tracks.filter { it.state != "present" }
-		val filled = filling.count { it.state == "done" || it.state == "downloaded" }
-		// A cancelled track is the user's verdict (ruling R8): finished for progress, and
-		// neither a success nor a failure.
-		val cancelledFiles = filling.count { it.state == "cancelled" }
-		val failedFiles = filling.count { it.state == "failed" }
+		val progress = gapLedgerProgress(gap)
 		val searching = gap.sourceTask?.status.orEmpty() in SEARCH_IN_FLIGHT
 		val transferring = gap.status == "downloading" ||
 			gap.tracks.any { it.state == "queued" || it.state == "downloading" }
@@ -2334,7 +2329,9 @@ class LbBotManager(
 				if (!busy) { saveWatches(watches + (key to next)); return@withLock null }
 				next = current.reopened("", emptyList(), false, now).copy(lastCheckedAt = now)
 			}
-			val fingerprint = "${gap.status}|${gap.sourceTask?.status}|$filled/${filling.size}"
+			// `progress.done` includes cancelled/skipped tracks (they're finished for progress,
+			// ruling R8); the fingerprint is only a "did it move" detector, so that's fine here.
+			val fingerprint = "${gap.status}|${gap.sourceTask?.status}|${progress.done}/${progress.total}"
 			val moved = fingerprint != next.fingerprint
 			val quiet = if (moved) 0 else next.quietTicks + 1
 			val since = if (idle) (if (next.unknownSince > 0L) next.unknownSince else now) else 0L
@@ -2345,10 +2342,10 @@ class LbBotManager(
 				unknownSince = since,
 				state = ledgerState,
 				reason = gapReason(gap),
-				percent = if (filling.isEmpty()) 0 else (filled + cancelledFiles) * 100 / filling.size,
-				done = filled,
-				total = filling.size,
-				failedFiles = failedFiles,
+				percent = progress.percent,
+				done = progress.done,
+				total = progress.total,
+				failedFiles = progress.failed,
 				artist = gap.artist.ifBlank { next.artist },
 				album = gap.album.ifBlank { next.album },
 				mp3WouldHelp = gap.mp3WouldHelp,
@@ -3514,6 +3511,23 @@ data class LbGap(
 /** Track states that count as "no longer waiting on a transfer" — `cancelled` included: it is
  *  finished for progress, though neither a success nor a failure. */
 private val GAP_TRACK_DONE_STATES = setOf("downloaded", "done", "skipped", "cancelled")
+
+/** One count for a gap's progress (B-024): the ledger row's `done`/`total`/`percent`/`failedFiles`
+ *  all come from here, fed by [LbGap]'s own `tracksDone`/`tracksWanted`/`tracksFailed` — no second
+ *  list of states that can disagree with them (the bar used to count `cancelled` while the
+ *  headline didn't, and `skipped` was counted by neither). */
+internal data class GapProgress(val done: Int, val total: Int, val percent: Int, val failed: Int)
+
+internal fun gapLedgerProgress(gap: LbGap): GapProgress {
+	val total = gap.tracksWanted
+	val done = gap.tracksDone
+	return GapProgress(
+		done = done,
+		total = total,
+		percent = if (total == 0) 0 else done * 100 / total,
+		failed = gap.tracksFailed
+	)
+}
 
 @Serializable
 data class LbGapTask(
