@@ -1968,7 +1968,9 @@ class LbBotManager(
 				artist = settledWatch.artist,
 				album = settledWatch.album,
 				outcome = settledWatch.outcome,
-				reason = settledWatch.reason
+				reason = settledWatch.reason,
+				state = settledWatch.state,
+				isGap = settledWatch.kind == KIND_GAP
 			)
 		)
 		// From here rather than from a lifecycle collector: a settle while the process is
@@ -1998,7 +2000,9 @@ class LbBotManager(
 				artist = watch.artist,
 				album = watch.album,
 				outcome = watch.outcome,
-				reason = watch.reason
+				reason = watch.reason,
+				state = watch.state,
+				isGap = watch.kind == KIND_GAP
 			)
 			try {
 				notify(event)
@@ -3887,9 +3891,16 @@ data class LbFillEntry(
 
 /** A fill reaching a terminal outcome. Emitted once, from `settle`. */
 data class LbFillEvent(
+	/** A gap's key is its lb-bot review-group id; an album fill's is its release-group MBID. */
 	val key: String,
 	val artist: String,
 	val album: String,
 	val outcome: String,
-	val reason: String
+	val reason: String,
+	/** The ledger row's state at settle — `needs_match` is what tells "downloaded, needs
+	 *  sorting out" apart from any other `failed` (B-026, [fillAnnouncementFor]). */
+	val state: String,
+	/** A gap fill rather than an album fill: only a gap's [key] is a review group lb-bot's
+	 *  Fill-gaps page can open ([fillAnnouncementLinkPath]). */
+	val isGap: Boolean
 )

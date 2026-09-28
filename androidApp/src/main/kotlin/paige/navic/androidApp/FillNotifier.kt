@@ -7,8 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.FillAnnouncement
 import paige.navic.domain.manager.LbFillEvent
+import paige.navic.domain.manager.fillAnnouncementFor
 import paige.navic.androidApp.R
 
 /**
@@ -52,14 +53,23 @@ class FillNotifier(private val context: Context) {
 	 */
 	fun notify(event: LbFillEvent) {
 		val name = event.album.ifBlank { event.artist }.ifBlank { return }
-		// The same two outcomes the snackbar announces. `needs_pick` is the picker
-		// waiting on the user, `cancelled` is something they just did, and `gave_up`
-		// means we stopped tracking rather than that anything happened — none of the
-		// three is news arriving from elsewhere, which is what a notification is for.
-		val text = when (event.outcome) {
-			LbBotManager.OUTCOME_DONE -> context.getString(R.string.notif_fill_landed, name)
-			LbBotManager.OUTCOME_FAILED -> context.getString(R.string.notif_fill_lost, name)
-			else -> return
+		// The same three texts the snackbar picks, by the same rule (B-026,
+		// `fillAnnouncementFor`): landed; downloaded but waiting in lb-bot to be filed by hand
+		// (ledger state `needs_match`), which is not a failure and must not read like one; and
+		// couldn't get it, with lb-bot's own sentence when it gave one. `needs_pick` is the
+		// picker waiting on the user, `cancelled` is something they just did, and `gave_up`
+		// means we stopped tracking rather than that anything happened — none of the three is
+		// news arriving from elsewhere, which is what a notification is for.
+		//
+		// Text only: the tap still just opens Navic, as Feishin's desktop notification is
+		// text-only too. The in-app snackbar is what carries "Open in lb-bot".
+		val text = when (fillAnnouncementFor(event)) {
+			FillAnnouncement.DONE -> context.getString(R.string.notif_fill_landed, name)
+			FillAnnouncement.NEEDS_SORTING -> context.getString(R.string.notif_fill_needs_sorting, name)
+			FillAnnouncement.COULDNT_GET ->
+				if (event.reason.isNotBlank()) context.getString(R.string.notif_fill_lost_reason, name, event.reason)
+				else context.getString(R.string.notif_fill_lost, name)
+			null -> return
 		}
 		ensureChannel()
 
@@ -81,6 +91,8 @@ class FillNotifier(private val context: Context) {
 			.setSmallIcon(android.R.drawable.stat_sys_download_done)
 			.setContentTitle(context.getString(R.string.app_name))
 			.setContentText(text)
+			// Expandable, so lb-bot's reason sentence isn't cut to one line.
+			.setStyle(Notification.BigTextStyle().bigText(text))
 			.setContentIntent(open)
 			.setAutoCancel(true)
 			.build()

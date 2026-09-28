@@ -23,6 +23,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.detailPane
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.listPane
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,9 +65,12 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_open_in_lbbot
 import navic.composeapp.generated.resources.info_link_unresolved
 import navic.composeapp.generated.resources.lbbot_fill_landed
 import navic.composeapp.generated.resources.lbbot_fill_lost
+import navic.composeapp.generated.resources.lbbot_fill_lost_reason
+import navic.composeapp.generated.resources.lbbot_fill_needs_sorting
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -76,7 +82,10 @@ import paige.navic.di.LocalSnackBarState
 import paige.navic.di.PlatformType
 import paige.navic.di.rememberPlatformContext
 import paige.navic.domain.manager.BottomBarScrollManager
+import paige.navic.domain.manager.FillAnnouncement
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.fillAnnouncementFor
+import paige.navic.domain.manager.fillAnnouncementLinkPath
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
@@ -247,19 +256,49 @@ fun App() {
 	val lbBot = koinInject<LbBotManager>()
 	val fillLanded = stringResource(Res.string.lbbot_fill_landed)
 	val fillLost = stringResource(Res.string.lbbot_fill_lost)
+	val fillLostReason = stringResource(Res.string.lbbot_fill_lost_reason)
+	val fillNeedsSorting = stringResource(Res.string.lbbot_fill_needs_sorting)
+	val openInLbBot = stringResource(Res.string.action_open_in_lbbot)
+	val uriHandler = LocalUriHandler.current
 	LaunchedEffect(Unit) {
 		lbBot.fillEvents.collect { event ->
 			val name = event.album.ifBlank { event.artist }.ifBlank { return@collect }
-			// Only the two outcomes worth interrupting for. `needs_pick` is the picker
-			// waiting on the user and `cancelled` is something they just did, both of
-			// which announce themselves; `gave_up` means we stopped looking, not that
-			// anything happened.
-			val message = when (event.outcome) {
-				LbBotManager.OUTCOME_DONE -> fillLanded.replace("%1\$s", name)
-				LbBotManager.OUTCOME_FAILED -> fillLost.replace("%1\$s", name)
-				else -> return@collect
+			// `fillAnnouncementFor` picks the words (B-026). Three outcomes are worth
+			// interrupting for: done; a `failed` whose files did arrive and wait in lb-bot to be
+			// filed by hand (ledger state `needs_match`: a stalled gap placement, or an album
+			// fill lb-bot calls needs_match); and any other `failed`. `needs_pick` is the picker waiting on the user and `cancelled` is
+			// something they just did, both of which announce themselves; `gave_up` means we
+			// stopped looking, not that anything happened.
+			when (fillAnnouncementFor(event)) {
+				FillAnnouncement.DONE -> snackBarState.showSnackbar(fillLanded.replace("%1\$s", name))
+				FillAnnouncement.NEEDS_SORTING -> {
+					// Not a failure, and it must not read like one or send the user after a retry
+					// that would only refetch what is already on disk. The remedy is lb-bot's own
+					// workspace, so the snackbar carries the way there when the hub says where it
+					// is — read at settle time, not at composition.
+					val webUrl = lbBot.webUrl.value
+					val path = fillAnnouncementLinkPath(event)
+					val link = if (webUrl.isNotBlank() && path.isNotBlank()) "$webUrl/$path" else ""
+					val result = snackBarState.showSnackbar(
+						message = fillNeedsSorting.replace("%1\$s", name),
+						actionLabel = openInLbBot.takeIf { link.isNotBlank() },
+						// Explicit: with an action the default is Indefinite, which would hold
+						// this collector (and every announcement queued behind it) until tapped.
+						duration = SnackbarDuration.Long
+					)
+					if (result == SnackbarResult.ActionPerformed) runCatching { uriHandler.openUri(link) }
+				}
+				// lb-bot's own sentence names the cause ("103 peers offered 2,047 files, but none
+				// in FLAC…"), which is worth more than any wording of ours.
+				FillAnnouncement.COULDNT_GET -> snackBarState.showSnackbar(
+					if (event.reason.isNotBlank()) {
+						fillLostReason.replace("%1\$s", name).replace("%2\$s", event.reason)
+					} else {
+						fillLost.replace("%1\$s", name)
+					}
+				)
+				null -> Unit
 			}
-			snackBarState.showSnackbar(message)
 		}
 	}
 

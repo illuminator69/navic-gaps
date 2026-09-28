@@ -633,6 +633,9 @@
 	<string name="lbbot_fill_done_at">Finished</string>
 	<string name="lbbot_fill_landed">%1$s is in your library</string>
 	<string name="lbbot_fill_lost">Couldn't get %1$s</string>
+	<!-- B-026: the settled-fill snackbar's other two texts, mirrored in Feishin's use-fill-announcements.ts. -->
+	<string name="lbbot_fill_lost_reason">Couldn't get %1$s: %2$s</string>
+	<string name="lbbot_fill_needs_sorting">Downloaded %1$s — needs sorting out in lb-bot</string>
 	<!-- The acquisition vocabulary, PROTOCOL.md §15.2 — mirrored in Feishin's fill-vocabulary.ts. -->
 	<string name="lbbot_fill_downloading_plain">Downloading</string>
 	<string name="lbbot_fill_placed_unindexed">Added — Navidrome hasn't indexed it yet</string>

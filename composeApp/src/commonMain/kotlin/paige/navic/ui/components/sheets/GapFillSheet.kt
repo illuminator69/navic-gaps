@@ -383,8 +383,11 @@ fun GapFillSheet(
 				// lb-bot's own hex hashes, so they need no escaping in the hash route.
 				if (webUrl.isNotBlank()) {
 					val openInLbBot = { runCatching { uriHandler.openUri("$webUrl/#/gaps/$groupId") } }
-					// The only way forward for a pending match, so it is the prominent button then.
-					if (awaitingMatch) {
+					// The only way forward for a pending match, so it is the prominent button then —
+					// and for a stalled placement too (B-026): the files arrived and need filing in
+					// lb-bot, and this sheet hides every search/fetch/Auto action for it (R15/R17).
+					// Feishin's gap modal promotes it on the same pair.
+					if (awaitingMatch || gap.stalledPlacement) {
 						Button(onClick = { openInLbBot() }) {
 							Text(stringResource(Res.string.action_open_in_lbbot))
 						}

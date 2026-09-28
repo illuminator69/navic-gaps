@@ -5,4 +5,6 @@
 	     notifier is Android-only and cannot reach Compose resources. -->
 	<string name="notif_fill_landed">%1$s is in your library</string>
 	<string name="notif_fill_lost">Couldn\'t get %1$s</string>
+	<string name="notif_fill_lost_reason">Couldn\'t get %1$s: %2$s</string>
+	<string name="notif_fill_needs_sorting">Downloaded %1$s — needs sorting out in lb-bot</string>
 </resources>
