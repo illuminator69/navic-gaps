@@ -2255,21 +2255,6 @@ class LbBotManager(
 	}
 
 	/**
-	 * Why a gap fill ended, in lb-bot's own words, most specific first.
-	 *
-	 * `noSourceReason` is the attributable one ("103 peers offered 2,047 files, but none
-	 * in FLAC…") and is what makes the Allow-MP3 offer make sense; `failReason` names the
-	 * failure; the task error is the fallback for a search that itself broke.
-	 */
-	private fun gapReason(gap: LbGap): String = when {
-		// A stalled placement's kind names nothing a reader can act on; its sentence does.
-		gap.stalledPlacement && gap.failDetail.isNotBlank() -> gap.failDetail
-		gap.failReason.isNotBlank() -> gap.failReason
-		gap.noSourceReason.isNotBlank() -> gap.noSourceReason
-		else -> gap.sourceTask?.error.orEmpty()
-	}
-
-	/**
 	 * Read the full `/lb/gap` once for a result set ([foundAt]) a summary reported and we hold no
 	 * rows for. Once, not on every tick: nothing else stops a second read while the first is in
 	 * flight, and a full view that also comes back sourceless (lb-bot's rows expired while its
@@ -3519,6 +3504,24 @@ private val GAP_TRACK_DONE_STATES = setOf("downloaded", "done", "skipped", "canc
  *  list of states that can disagree with them (the bar used to count `cancelled` while the
  *  headline didn't, and `skipped` was counted by neither). */
 internal data class GapProgress(val done: Int, val total: Int, val percent: Int, val failed: Int)
+
+/**
+ * Why a gap fill ended, in lb-bot's own words, most specific first.
+ *
+ * `failDetail` comes first because it is the one sentence written for a reader: `failReason` is a
+ * machine token (`error` / `blocked_no_source` / `download_failed`) that reached the snackbar and
+ * the notification verbatim before this ordering (B-026) — "Couldn't get Help!: download_failed".
+ * `noSourceReason` is the attributable one ("103 peers offered 2,047 files, but none in FLAC…") and
+ * is what makes the Allow-MP3 offer make sense; the task error is the fallback for a search that
+ * itself broke. Mirrors Feishin's `gap.failDetail || gap.failReason || gap.noSourceReason ||
+ * gap.sourceTask?.error`.
+ */
+internal fun gapReason(gap: LbGap): String = when {
+	gap.failDetail.isNotBlank() -> gap.failDetail
+	gap.failReason.isNotBlank() -> gap.failReason
+	gap.noSourceReason.isNotBlank() -> gap.noSourceReason
+	else -> gap.sourceTask?.error.orEmpty()
+}
 
 internal fun gapLedgerProgress(gap: LbGap): GapProgress {
 	val total = gap.tracksWanted

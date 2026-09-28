@@ -142,4 +142,24 @@ class GapSettleTest {
 		assertEquals("downloading", gapLedgerState(gap("downloading", "downloading"), searching = false, transferring = false))
 		assertEquals("failed", gapLedgerState(gap("failed", "failed"), searching = false, transferring = false))
 	}
+
+	// --- gapReason (B-026) ------------------------------------------------------------------
+
+	@Test
+	fun aFailDetailSentenceIsPreferredOverAMachineToken() {
+		val g = LbGap(status = "failed", failReason = "download_failed", failDetail = "Couldn't reach a working source.")
+		assertEquals("Couldn't reach a working source.", gapReason(g))
+	}
+
+	@Test
+	fun withNoFailDetailTheNoSourceReasonIsUsed() {
+		val g = LbGap(status = "failed", noSourceReason = "103 peers offered 2,047 files, but none in FLAC")
+		assertEquals("103 peers offered 2,047 files, but none in FLAC", gapReason(g))
+	}
+
+	@Test
+	fun withNothingElseTheSourceTaskErrorIsUsed() {
+		val g = LbGap(status = "failed", sourceTask = LbGapTask(error = "search timed out"))
+		assertEquals("search timed out", gapReason(g))
+	}
 }
