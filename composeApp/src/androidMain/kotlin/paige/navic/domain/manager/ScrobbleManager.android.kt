@@ -49,6 +49,8 @@ class AndroidScrobbleManager(
 
 	init {
 		player.addListener(this)
+		// B-027: the legacy now-playing ping stands down while reportPlayback holds the entry.
+		scrobbleManager.nowPlayingReported = { playbackReporter.reportsNowPlaying }
 		// A takeover closes the reported entry itself: the service's swap pauses this player,
 		// and a player already paused fires no event for that pause.
 		scope.launch {

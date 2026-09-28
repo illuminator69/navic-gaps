@@ -31,6 +31,9 @@ class ScrobbleManager(
 	private var progressJob: Job? = null
 	private var accumulatedPlayTime: Long = 0
 
+	// navi-connect (B-027): set by the Android listener to PlaybackReporter.reportsNowPlaying.
+	var nowPlayingReported: () -> Boolean = { false }
+
 	fun onMediaChanged(mediaId: String?) {
 		currentMediaId = mediaId
 		hasScrobbledCurrent = false
@@ -116,6 +119,9 @@ class ScrobbleManager(
 		if (!preferenceManager.enableScrobbling || songId == null) return
 
 		if (!connectivityManager.isOnline.value) return
+		// navi-connect (B-027): reportPlayback already holds this device's now-playing entry, and
+		// on Navidrome this ping lands in the same entry, only resetting its position to 0.
+		if (nowPlayingReported()) return
 
 		scope.launch(Dispatchers.IO) {
 			try {

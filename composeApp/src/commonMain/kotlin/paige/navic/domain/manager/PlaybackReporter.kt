@@ -202,6 +202,15 @@ class PlaybackReporter(
 	private val suppressed: Boolean
 		get() = hubManager.isRemoteActive.value || !preferenceManager.enableScrobbling
 
+	/**
+	 * The server is known to take `reportPlayback`, so this reporter holds the device's
+	 * now-playing entry. Navidrome (0.64) files `scrobble(submission=false)` under the same
+	 * player's one entry, as a `playing` report at position 0, and forwards NowPlaying to
+	 * Last.fm / ListenBrainz for either call, so `ScrobbleManager` skips its ping while this
+	 * holds. Unknown (not yet probed) or unsupported reads false, and the ping still goes.
+	 */
+	val reportsNowPlaying: Boolean get() = supported == true
+
 	fun onMediaChanged(snapshot: PlaybackSnapshot) {
 		seekJob?.cancel()
 		enqueue(tracker.onMediaChanged(snapshot, suppressed))

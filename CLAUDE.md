@@ -44,6 +44,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
+| Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4), fed by the listener in `androidMain/.../domain/manager/ScrobbleManager.android.kt`. **One edit inside upstream's `ScrobbleManager.kt`:** the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027). Keep both through a merge: lose them and the legacy now-playing ping comes back, resetting the entry's position to 0 |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
 is a cache, and saved queues re-reconcile from the hub. **`DownloadDatabase` (at 4) holds real user
@@ -331,11 +332,17 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
 - **`reportPlayback` describes the LOCAL player only.** `domain/manager/PlaybackReporter.kt` is
   driven off the same listener on the local ExoPlayer as the scrobbles (`AndroidScrobbleManager`),
   so the mirrored remote session is never reported from here. It sends nothing unless the server
-  advertises `playbackReport`, and closes the phone's entry with one `stopped` when
-  `isRemoteActive` flips (the swap's `local.pause()` is what triggers it). Always
-  `ignoreScrobble=true`: `ScrobbleManager` stays the only scrobbler. The call is hand-rolled in
-  `SessionManager`, because the bundled client's sends `state=PLAYING` (enum `toString()`) and
-  Navidrome only accepts lower case. Android only; iOS does not report.
+  advertises `playbackReport`. It closes the phone's entry with one `stopped` when
+  `isRemoteActive` flips: the takeover closes it itself, because the swap's `local.pause()` fires
+  no event when local was already paused. It also closes it when `PlaybackService` is destroyed,
+  from a process-lifetime scope, bounded to 2 s and best-effort, and that `stopped` supersedes
+  anything still queued. Always `ignoreScrobble=true`: `ScrobbleManager` stays the only scrobbler.
+  **While the server is known to support it, `ScrobbleManager`'s legacy now-playing ping
+  (`scrobble(submission=false)`) is skipped.** Navidrome 0.64 implements that ping as a
+  `reportPlayback` `playing` at position 0 under the same player key, and forwards NowPlaying to
+  Last.fm / ListenBrainz for either call, so the ping only reset the entry's position. The call
+  is hand-rolled in `SessionManager`, because the bundled client's sends `state=PLAYING` (enum
+  `toString()`) and Navidrome only accepts lower case. Android only; iOS does not report.
 - **Android Auto knows nothing about the hub.** Its `resolveStreamUrl` builds a *local* Navidrome
   URL, so browsing or playing from Auto during a remote session may start local playback. Untested
   as of alpha59.
