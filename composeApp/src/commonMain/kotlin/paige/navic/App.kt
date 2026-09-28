@@ -265,8 +265,9 @@ fun App() {
 			val name = event.album.ifBlank { event.artist }.ifBlank { return@collect }
 			// `fillAnnouncementFor` picks the words (B-026). Three outcomes are worth
 			// interrupting for: done; a `failed` whose files did arrive and wait in lb-bot to be
-			// filed by hand (ledger state `needs_match`: a stalled gap placement, or an album
-			// fill lb-bot calls needs_match); and any other `failed`. `needs_pick` is the picker waiting on the user and `cancelled` is
+			// filed by hand (ledger state `needs_match`: a stalled gap placement, a `picking` gap
+			// with a downloaded track (Q-031), or an album fill lb-bot calls needs_match); and any
+			// other `failed`. `needs_pick` is the picker waiting on the user and `cancelled` is
 			// something they just did, both of which announce themselves; `gave_up` means we
 			// stopped looking, not that anything happened.
 			when (fillAnnouncementFor(event)) {

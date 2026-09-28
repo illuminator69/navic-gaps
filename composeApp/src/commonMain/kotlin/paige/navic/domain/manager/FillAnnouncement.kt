@@ -12,8 +12,9 @@ import io.ktor.http.encodeURLParameter
  * does not always mean nothing arrived. Two roads reach it with the files already
  * sitting in lb-bot, waiting to be filed by hand (PROTOCOL §15.2's needs_match row,
  * rulings R10/R15/R17):
- *   - a gap whose placement stalled — applyGapSummary writes it as the ledger state
- *     `needs_match`;
+ *   - a gap whose placement stalled, or a `picking` gap with a `downloaded` track
+ *     (Q-031) — applyGapSummary writes both as the ledger state `needs_match`
+ *     (gapLedgerState / gapSettle);
  *   - an album fill lb-bot itself reports as `needs_match`.
  * Both read "Downloaded X — needs sorting out in lb-bot", not "Couldn't get X": the
  * second sends the user looking for a retry that would only refetch files already on

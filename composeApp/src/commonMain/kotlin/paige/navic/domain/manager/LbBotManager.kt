@@ -2320,10 +2320,9 @@ class LbBotManager(
 		// `ready` after an auto run means the search found nothing, or every source
 		// rejected the enqueue. Bounded patience, as `unknown` gets on the album path.
 		val idle = gap.status == "ready" && !searching
-		// A stalled placement is lb-bot's `failed`, but the files did arrive: the ledger row
-		// reads as §15.2's needs_match ("Downloaded, but needs sorting out in lb-bot", its
-		// sentence, Dismiss), not "Couldn't get this one" with a Retry that re-searches.
-		val ledgerState = if (gap.stalledPlacement) "needs_match" else gap.status
+		// A stalled placement, or a `picking` gap whose files already downloaded (Q-031): the
+		// files did arrive, so the row reads as §15.2's needs_match — see gapLedgerState.
+		val ledgerState = gapLedgerState(gap, searching, transferring)
 
 		val decision = watchLock.withLock {
 			val watches = loadWatches()
@@ -2366,17 +2365,16 @@ class LbBotManager(
 				idle -> if (now - since >= UNKNOWN_SETTLE_MS && now - next.startedAt >= UNKNOWN_GRACE_MS)
 					Decision.Settle(OUTCOME_GAVE_UP, gap.status, gapReason(gap)) else null
 				// `picking` with the search finished is the picker holding candidates and
-				// waiting on the user — a "your move", not a failure.
-				gap.status in TERMINAL_GAP_STATES -> Decision.Settle(
-					outcome = when (gap.status) {
-						"complete" -> OUTCOME_DONE
-						"failed" -> OUTCOME_FAILED
-						else -> OUTCOME_NEEDS_PICK
-					},
-					state = ledgerState,
-					reason = if (gap.stalledPlacement) gapReason(gap) else gap.sourceTask?.error.orEmpty()
-				)
-				else -> null
+				// waiting on the user — a "your move", not a failure — unless a track already
+				// downloaded, which is lb-bot's needs_match bucket (Q-031). gapSettle tells them apart.
+				else -> gapSettle(gap, searching, transferring)?.let { settle ->
+					Decision.Settle(
+						outcome = settle.outcome,
+						state = settle.state,
+						// needs_match: lb-bot's own sentence (its failDetail for a stalled placement).
+						reason = if (settle.state == "needs_match") gapReason(gap) else gap.sourceTask?.error.orEmpty()
+					)
+				}
 			}
 		}
 		// `complete` means placed; lb-bot's verifier sends `albumIndexed` once Navidrome has it.
@@ -2527,7 +2525,7 @@ class LbBotManager(
 		/** The states a fill may be cancelled from — the server states it per fill
 		 *  (`cancellable`); this is the fallback for an lb-bot that does not. */
 		val CANCELLABLE_FILL_STATES = setOf("searching", "queued", "downloading")
-		private val TERMINAL_GAP_STATES = setOf("complete", "failed", "picking")
+		internal val TERMINAL_GAP_STATES = setOf("complete", "failed", "picking")
 
 		/** A source search that hasn't answered yet. Every gap state is provisional
 		 *  while one of these is true, because asking for sources changes the group's
@@ -3530,6 +3528,49 @@ internal fun gapLedgerProgress(gap: LbGap): GapProgress {
 		total = total,
 		percent = if (total == 0) 0 else done * 100 / total,
 		failed = gap.tracksFailed
+	)
+}
+
+/**
+ * The ledger row's `state` for a gap. Two cases read §15.2's needs_match ("Downloaded, but needs
+ * sorting out in lb-bot", its sentence, Dismiss) rather than lb-bot's own status, because the files
+ * did arrive and only lb-bot's workspace can file them:
+ *  - a stalled placement — lb-bot's `failed`, so without this it read "Couldn't get this one" with
+ *    a Retry that re-searches;
+ *  - Q-031: a `picking` gap with a `downloaded` track ([LbGap.awaitingMatch]) — lb-bot's
+ *    needs_match bucket, which read "Waiting for you to pick a source".
+ * A `state`, not an lb-bot status: `needs_match` is never a gap status, exactly as the stalled
+ * case already reused it. The second case is gated on nothing being in flight, as Feishin's
+ * gapIsBusy gates its settle: a search ([searching]) flips the group to `picking` before it has
+ * found anything, and a fetch ([transferring]) queues its tracks before lb-bot moves the status
+ * off `picking` — on a gap already holding a `downloaded` track, that window would otherwise
+ * announce "needs sorting out" at the start of the fetch.
+ */
+internal fun gapLedgerState(gap: LbGap, searching: Boolean, transferring: Boolean): String =
+	if (gap.stalledPlacement || gap.awaitingMatch(searching || transferring)) "needs_match" else gap.status
+
+/** How a gap that stopped being busy settles: the outcome and the ledger state written with it. */
+internal data class GapSettle(val outcome: String, val state: String)
+
+/**
+ * The settle mapping `applyGapSummary` writes for a gap in [LbBotManager.TERMINAL_GAP_STATES];
+ * `null` for any other status. Mirrors Feishin's `gapSettleOutcome` (fill-announce-logic.ts):
+ * the needs_match cases settle `failed` at `needs_match`, the shape an album fill's needs_match
+ * already has, so `fillAnnouncementFor` says "Downloaded X — needs sorting out in lb-bot" and the
+ * Download Center row takes FillVocabulary's needs_match branch. A `picking` gap with nothing
+ * downloaded is still the picker holding candidates — a "your move", not a failure.
+ *
+ * Keyed on lb-bot's status, not on [gapLedgerState]: `needs_match` is not a terminal gap status,
+ * and a `picking` gap in that bucket must still settle.
+ */
+internal fun gapSettle(gap: LbGap, searching: Boolean, transferring: Boolean): GapSettle? {
+	if (gap.status !in LbBotManager.TERMINAL_GAP_STATES) return null
+	if (gap.status == "complete") return GapSettle(LbBotManager.OUTCOME_DONE, gap.status)
+	val state = gapLedgerState(gap, searching, transferring)
+	return GapSettle(
+		outcome = if (gap.status == "failed" || state == "needs_match") LbBotManager.OUTCOME_FAILED
+			else LbBotManager.OUTCOME_NEEDS_PICK,
+		state = state
 	)
 }
 
