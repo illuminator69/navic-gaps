@@ -44,6 +44,17 @@ class GapLedgerProgressTest {
 	}
 
 	@Test
+	fun percentRoundsHalfUpLikeFeishinsMathRound() {
+		// Feishin's gapProgress is Math.round(done * 100 / wanted); 2 of 3 is 66.67 and Math.round
+		// takes .5 and up, so it reads 67, not the 66 a floor gives.
+		val g = gap("downloaded", "downloaded", "downloading")
+		val progress = gapLedgerProgress(g)
+		assertEquals(2, progress.done)
+		assertEquals(3, progress.total)
+		assertEquals(67, progress.percent)
+	}
+
+	@Test
 	fun anEmptyGapIsZeroZeroZero() {
 		val progress = gapLedgerProgress(LbGap())
 		assertEquals(0, progress.done)

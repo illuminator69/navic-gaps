@@ -3529,7 +3529,9 @@ internal fun gapLedgerProgress(gap: LbGap): GapProgress {
 	return GapProgress(
 		done = done,
 		total = total,
-		percent = if (total == 0) 0 else done * 100 / total,
+		// Round half up in integer arithmetic to match Feishin's Math.round(done * 100 / wanted)
+		// — Math.round takes .5 and up, and a floor read 2-of-3 as 66 rather than 67.
+		percent = if (total == 0) 0 else (done * 200 + total) / (2 * total),
 		failed = gap.tracksFailed
 	)
 }
