@@ -95,12 +95,44 @@ class GapSettleTest {
 		// before it flips the status off `picking`, so for a tick or two the group reads `picking`
 		// + `downloaded` + `queued`. Nothing it says is final while a transfer runs (Feishin's
 		// gapIsBusy never settles it), and reading it as needs_match would announce "Downloaded X
-		// — needs sorting out" at the start of a fetch.
+		// — needs sorting out" at the start of a fetch. A transfer in flight is never a reason to
+		// stop: lb-bot ranks a failed or needs_match bucket above it, so gapSettle must not fire
+		// while transferring is true, or the watch stops polling a fill that is still running.
 		val fetching = gap("picking", "downloaded", "queued", "picked")
 		assertEquals("picking", gapLedgerState(fetching, searching = false, transferring = true))
+		assertNull(gapSettle(fetching, searching = false, transferring = true))
+		// Once the transfer ends (its tracks resolve off `queued`), the same `downloaded` track
+		// reads as needs_match, exactly as it does with no transfer ever having been in flight.
+		val settled = fetching.copy(tracks = fetching.tracks.filterNot { it.state == "queued" })
 		assertEquals(
-			GapSettle(LbBotManager.OUTCOME_NEEDS_PICK, "picking"),
-			gapSettle(fetching, searching = false, transferring = true)
+			GapSettle(LbBotManager.OUTCOME_FAILED, "needs_match"),
+			gapSettle(settled, searching = false, transferring = false)
+		)
+	}
+
+	@Test
+	fun aFailedBucketWithAQueuedTrackDoesNotSettleWhileTransferring() {
+		// lb-bot's `_review_group_next_action` ranks the failed bucket above an in-flight
+		// transfer: a fill missing one track reads `failed` + `queued` on its first poll, while
+		// the rest of the album is still downloading.
+		val g = gap("failed", "failed", "queued")
+		assertNull(gapSettle(g, searching = false, transferring = true))
+		assertEquals(
+			GapSettle(LbBotManager.OUTCOME_FAILED, "failed"),
+			gapSettle(g, searching = false, transferring = false)
+		)
+	}
+
+	@Test
+	fun aNeedsMatchBucketWithAQueuedTrackDoesNotSettleWhileTransferring() {
+		// Q-031: a `picking` gap already holding a `downloaded` track stays `picking` for the
+		// whole transfer while lb-bot fetches the rest, so this is needs_match's own case of the
+		// same rule.
+		val g = gap("picking", "downloaded", "queued")
+		assertNull(gapSettle(g, searching = false, transferring = true))
+		assertEquals(
+			GapSettle(LbBotManager.OUTCOME_FAILED, "needs_match"),
+			gapSettle(g, searching = false, transferring = false)
 		)
 	}
 

@@ -3562,9 +3562,17 @@ internal data class GapSettle(val outcome: String, val state: String)
  *
  * Keyed on lb-bot's status, not on [gapLedgerState]: `needs_match` is not a terminal gap status,
  * and a `picking` gap in that bucket must still settle.
+ *
+ * A transfer in flight is never a reason to stop: lb-bot ranks a failed or needs_match bucket
+ * above it (`_review_group_next_action`), so a gap can read `failed` or `picking`+`downloaded`
+ * on the very first poll of a fill whose other tracks are still `queued`/`downloading`. The poll
+ * loop only re-polls `!settled || retryAt > 0`, and a gap never sets `retryAt`, so settling here
+ * while [transferring] is true would be permanent — the running fill is never watched again.
+ * Mirrors Feishin's `gapIsBusy`.
  */
 internal fun gapSettle(gap: LbGap, searching: Boolean, transferring: Boolean): GapSettle? {
 	if (gap.status !in LbBotManager.TERMINAL_GAP_STATES) return null
+	if (transferring) return null
 	if (gap.status == "complete") return GapSettle(LbBotManager.OUTCOME_DONE, gap.status)
 	val state = gapLedgerState(gap, searching, transferring)
 	return GapSettle(
