@@ -2,6 +2,7 @@ package paige.navic.domain.manager
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.manager.PlaybackReportState.PAUSED
@@ -233,5 +234,26 @@ class PlaybackReportTrackerTest {
 	@Test
 	fun aTakeoverWithNothingOpenSendsNothing() {
 		assertTrue(PlaybackReportTracker().onRemoteActive(snap()).isEmpty())
+	}
+
+	// B-027 (a): the legacy now-playing ping stands down only while reportPlayback really holds
+	// the entry. Suppressed (another hub device active, scrobbling off), the reporter sends
+	// nothing, so the ping is the only now-playing local playback has.
+
+	@Test
+	fun theLegacyPingStandsDownOnlyForASupportedUnsuppressedReporter() {
+		assertTrue(PlaybackReportTracker.coversNowPlaying(supported = true, suppressed = false))
+	}
+
+	@Test
+	fun theLegacyPingStillGoesWhileSupportIsUnknownOrAbsent() {
+		assertFalse(PlaybackReportTracker.coversNowPlaying(supported = null, suppressed = false))
+		assertFalse(PlaybackReportTracker.coversNowPlaying(supported = false, suppressed = false))
+	}
+
+	@Test
+	fun theLegacyPingStillGoesWhileTheReporterIsSuppressed() {
+		assertFalse(PlaybackReportTracker.coversNowPlaying(supported = true, suppressed = true))
+		assertFalse(PlaybackReportTracker.coversNowPlaying(supported = null, suppressed = true))
 	}
 }

@@ -149,6 +149,15 @@ class PlaybackReportTracker {
 	}
 
 	companion object {
+		/**
+		 * Whether `reportPlayback` holds this device's now-playing entry right now, which makes the
+		 * legacy `scrobble(submission=false)` ping redundant (B-027). It needs both: the server known
+		 * to take it, and a reporter not suppressed. Suppressed, the reporter sends nothing, and the
+		 * ping is the only now-playing local playback has.
+		 */
+		fun coversNowPlaying(supported: Boolean?, suppressed: Boolean): Boolean =
+			supported == true && !suppressed
+
 		/** Radio streams and lb-bot previews are not Navidrome songs; the server has no id for them. */
 		fun reportableId(mediaId: String?): String? = mediaId
 			?.takeUnless { it.isBlank() || it.startsWith("radio_") || PreviewManager.isPreviewId(it) }
@@ -203,13 +212,15 @@ class PlaybackReporter(
 		get() = hubManager.isRemoteActive.value || !preferenceManager.enableScrobbling
 
 	/**
-	 * The server is known to take `reportPlayback`, so this reporter holds the device's
-	 * now-playing entry. Navidrome (0.64) files `scrobble(submission=false)` under the same
-	 * player's one entry, as a `playing` report at position 0, and forwards NowPlaying to
-	 * Last.fm / ListenBrainz for either call, so `ScrobbleManager` skips its ping while this
-	 * holds. Unknown (not yet probed) or unsupported reads false, and the ping still goes.
+	 * True while this reporter holds the device's now-playing entry: the server is known to take
+	 * `reportPlayback` and nothing suppresses it (no other hub device active, scrobbling on).
+	 * Navidrome (0.64) files `scrobble(submission=false)` under the same player's one entry, as a
+	 * `playing` report at position 0, and forwards NowPlaying to Last.fm / ListenBrainz for either
+	 * call, so `ScrobbleManager` skips its ping while this holds. Support unknown (not yet probed)
+	 * or absent, or the reporter suppressed, reads false, and the ping still goes.
 	 */
-	val reportsNowPlaying: Boolean get() = supported == true
+	val reportsNowPlaying: Boolean
+		get() = PlaybackReportTracker.coversNowPlaying(supported, suppressed)
 
 	fun onMediaChanged(snapshot: PlaybackSnapshot) {
 		seekJob?.cancel()
