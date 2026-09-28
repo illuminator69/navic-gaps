@@ -199,4 +199,39 @@ class PlaybackReportTrackerTest {
 		t.onPlayingChanged(snap(pos = 42_000), suppressed = true)
 		assertTrue(t.onTeardown(snap(pos = 42_000)).isEmpty())
 	}
+
+	// B-027 (c): another hub device takes over. The takeover itself closes the entry, because
+	// the swap's pause() fires no event when local playback was already paused.
+
+	@Test
+	fun aTakeoverWhilePausedClosesThePausedEntry() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		t.onPlayingChanged(snap(pos = 61_000), false)
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 61_000, 1f)), t.onRemoteActive(snap(pos = 61_000)))
+		assertNull(t.openId)
+	}
+
+	@Test
+	fun aTakeoverWhilePlayingThenThePauseEventStopsOnce() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		val takeover = t.onRemoteActive(snap(playing = true, pos = 42_000))
+		val pauseEvent = t.onPlayingChanged(snap(pos = 42_000), suppressed = true)
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 42_000, 1f)), takeover + pauseEvent)
+	}
+
+	@Test
+	fun thePauseEventThenTheTakeoverStopsOnce() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		val pauseEvent = t.onPlayingChanged(snap(pos = 42_000), suppressed = true)
+		val takeover = t.onRemoteActive(snap(pos = 42_000))
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 42_000, 1f)), pauseEvent + takeover)
+	}
+
+	@Test
+	fun aTakeoverWithNothingOpenSendsNothing() {
+		assertTrue(PlaybackReportTracker().onRemoteActive(snap()).isEmpty())
+	}
 }

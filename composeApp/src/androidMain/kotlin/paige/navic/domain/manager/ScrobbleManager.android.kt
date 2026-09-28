@@ -4,6 +4,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 class AndroidScrobbleManager(
 	private val player: Player,
@@ -48,6 +49,13 @@ class AndroidScrobbleManager(
 
 	init {
 		player.addListener(this)
+		// A takeover closes the reported entry itself: the service's swap pauses this player,
+		// and a player already paused fires no event for that pause.
+		scope.launch {
+			hubManager.isRemoteActive.collect { remote ->
+				if (remote) playbackReporter.onRemoteActive(snapshot())
+			}
+		}
 	}
 
 	override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {

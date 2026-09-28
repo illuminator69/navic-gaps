@@ -65,8 +65,8 @@ data class PlaybackSnapshot(
  * It tracks the one item Navidrome holds a now-playing entry for on our behalf ([openId]).
  * `suppressed` is true while another hub device plays or scrobbling is off: nothing new is
  * reported then, and an entry still open is closed with one `stopped`. That closing report is
- * what clears the phone out of `getNowPlaying` on a handoff, because `RemoteSessionPlayer`'s swap
- * pauses the local player just after `isRemoteActive` flips.
+ * what clears the phone out of `getNowPlaying` on a handoff: [onRemoteActive] sends it when
+ * `isRemoteActive` flips, or the swap's pause of the local player does, whichever comes first.
  */
 class PlaybackReportTracker {
 	var openId: String? = null
@@ -121,6 +121,14 @@ class PlaybackReportTracker {
 	 * one for 30 minutes).
 	 */
 	fun onTeardown(s: PlaybackSnapshot): List<PlaybackReport> = close(s)
+
+	/**
+	 * Another hub device just became the active one: close the entry whatever the local play
+	 * state. The swap's `pause()` closes it through [onPlayingChanged] only when local was
+	 * playing; paused already, it fires no event and the entry stayed open. Whichever of the two
+	 * comes first sends the one `stopped`, and the other finds nothing open.
+	 */
+	fun onRemoteActive(s: PlaybackSnapshot): List<PlaybackReport> = close(s)
 
 	private fun start(id: String, s: PlaybackSnapshot) = listOf(
 		open(id, PlaybackReportState.STARTING, s),
@@ -214,6 +222,11 @@ class PlaybackReporter(
 
 	fun onRateChanged(snapshot: PlaybackSnapshot) {
 		enqueue(tracker.onPositionOrRateChanged(snapshot, suppressed))
+	}
+
+	/** `isRemoteActive` turned true: see [PlaybackReportTracker.onRemoteActive]. */
+	fun onRemoteActive(snapshot: PlaybackSnapshot) {
+		enqueue(tracker.onRemoteActive(snapshot))
 	}
 
 	/**
