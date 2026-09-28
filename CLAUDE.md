@@ -200,11 +200,19 @@ that before suspecting the merge.
 ```bash
 ./gradlew :androidApp:assembleRelease     # ~2 min → androidApp/build/outputs/apk/release/Navic.apk
 ./gradlew :androidApp:assembleDebug       # for correctness work
+./gradlew :composeApp:testAndroidHostTest # JVM host tests, no device/emulator
 ```
 
 There is no `:composeApp:compileDebugKotlinAndroid` task. Gradle provisions its own JDK 21
 toolchain — don't set `JAVA_HOME`. **Judge smoothness on release only**; debug Compose is
 dramatically choppier and will mislead you.
+
+**Host tests** run pure logic on the JVM, no device needed: `composeApp/src/commonTest` for
+rule functions (`LbIndexPlannerTest`, `PlaybackReportTrackerTest`) and `composeApp/src/androidHostTest`
+for the ones that read the source tree with `java.io` (`WashedBrowsingDriftTest`) — one task,
+`testAndroidHostTest`, runs both. Filter to one class while iterating with
+`./gradlew :composeApp:testAndroidHostTest --tests '<FQCN>'`, and run the whole task once before
+committing.
 
 ### RAM: this box cannot run two 8 GB daemons
 
