@@ -12,6 +12,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.UserAgent
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -43,6 +44,31 @@ class SessionManager(
 	private var currentUser: User? = null
 	private val mutex = Mutex()
 	private val scope = CoroutineScope(Dispatchers.IO)
+
+	// One client reused for the manager's lifetime, for the hand-rolled Subsonic
+	// calls below (getArtists, getArtistInfo2, reportPlayback, ...) — the old
+	// per-call new/close built and tore down a full HttpClient on every play,
+	// pause and seek (reportPlayback runs on all three). Same precedent as
+	// AudioMuseManager.client. `install(HttpTimeout)` with no values set here
+	// changes nothing for the seven calls that never open a `timeout {}` block:
+	// Ktor's OkHttp engine only overrides connect/read/write timeout when the
+	// corresponding HttpTimeoutConfig field is non-null (setupTimeoutAttributes
+	// in OkHttpEngine.kt), so a null field leaves OkHttp's own client defaults
+	// in place — the same as when HttpTimeout was never installed at all.
+	// reportPlayback opts into its 15s/30s pair with a per-request `timeout {}`.
+	private val httpClient by lazy {
+		HttpClient {
+			install(ContentNegotiation) {
+				json(Json {
+					ignoreUnknownKeys = true
+					isLenient = true
+					coerceInputValues = true
+				})
+			}
+			install(UserAgent) { agent = "Navic" }
+			install(HttpTimeout)
+		}
+	}
 
 	var api: SubsonicClient = createClient(
 		instanceUrl = settings.getString("instanceUrl", ""),
@@ -188,18 +214,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicArtistsEnvelope =
 				httpClient.get("$base/rest/getArtists.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -213,8 +228,6 @@ class SessionManager(
 					parameter("f", "json")
 				}.body()
 			envelope.response.artists?.index?.flatMap { it.artist } ?: emptyList()
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -248,18 +261,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicArtistInfo2Envelope =
 				httpClient.get("$base/rest/getArtistInfo2.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -275,8 +277,6 @@ class SessionManager(
 					parameter("count", maxSimilar)
 				}.body()
 			envelope.response.artistInfo2
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -295,18 +295,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicSimilarEnvelope =
 				httpClient.get("$base/rest/getSimilarSongs2.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -322,8 +311,6 @@ class SessionManager(
 					parameter("count", count)
 				}.body()
 			envelope.response.similarSongs2?.song?.map { it.id } ?: emptyList()
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -342,18 +329,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicExtensionsEnvelope =
 				httpClient.get("$base/rest/getOpenSubsonicExtensions.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -367,8 +343,6 @@ class SessionManager(
 					parameter("f", "json")
 				}.body()
 			envelope.response.openSubsonicExtensions.map { it.name }
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -402,24 +376,16 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-			install(HttpTimeout) {
-				connectTimeoutMillis = 15_000
-				requestTimeoutMillis = 30_000
-			}
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicStatusEnvelope =
 				httpClient.get("$base/rest/reportPlayback.view") {
+					// Per-request, on the shared client: everything else here rides the
+					// engine's own default timeouts (see the field's kdoc), but this call
+					// runs on every play/pause/seek and keeps its old 15s/30s pair.
+					timeout {
+						connectTimeoutMillis = 15_000
+						requestTimeoutMillis = 30_000
+					}
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
 						header(key, value)
 					}
@@ -443,8 +409,6 @@ class SessionManager(
 				)
 			}
 			envelope.response.status == "ok"
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -464,18 +428,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicSonicMatchEnvelope =
 				httpClient.get("$base/rest/getSonicSimilarTracks.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -491,8 +444,6 @@ class SessionManager(
 					parameter("count", count)
 				}.body()
 			envelope.response.sonicMatch.map { it.entry.id }
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -510,18 +461,7 @@ class SessionManager(
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 		val token = "$password$salt".encodeUtf8().md5().hex()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val envelope: SubsonicSonicMatchEnvelope =
 				httpClient.get("$base/rest/findSonicPath.view") {
 					preferenceManager.customHeadersMap().forEach { (key, value) ->
@@ -538,8 +478,6 @@ class SessionManager(
 					parameter("count", count)
 				}.body()
 			envelope.response.sonicMatch.map { it.entry.id }
-		} finally {
-			httpClient.close()
 		}
 	}
 
@@ -565,18 +503,7 @@ class SessionManager(
 		val token = "$password$salt".encodeUtf8().md5().hex()
 		val customHeaders = preferenceManager.customHeadersMap()
 
-		val httpClient = HttpClient {
-			install(ContentNegotiation) {
-				json(Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-					coerceInputValues = true
-				})
-			}
-			install(UserAgent) { agent = "Navic" }
-		}
-
-		return try {
+		return run {
 			val all = mutableListOf<RawArtist>()
 			var offset = 0
 			while (true) {
@@ -602,8 +529,6 @@ class SessionManager(
 				offset += pageSize
 			}
 			all
-		} finally {
-			httpClient.close()
 		}
 	}
 
