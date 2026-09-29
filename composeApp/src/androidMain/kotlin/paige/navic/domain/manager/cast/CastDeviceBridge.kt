@@ -1035,6 +1035,17 @@ internal class CastDeviceBridge(
 			teardownCast()
 			return
 		}
+		// …and it must be LIVE. A speaker playback was moved away from keeps its receiver session,
+		// paused on the old track — which matched, so the next launch claimed it and pulled the
+		// session back onto the speaker (seen 2026-09-30: this app, reinstalled, re-adopted a
+		// DOGTOOTH paused 12 minutes earlier). Re-joining a session the hub still names as ours is
+		// not a claim and is unaffected.
+		val live = status.playerState == "PLAYING" || status.playerState == "BUFFERING"
+		if (claim && !live) {
+			Logger.i(TAG, "$friendlyName: running session is ${status.playerState} — not claiming the idle slot")
+			teardownCast()
+			return
+		}
 
 		status.positionMs?.let { lastPositionMs = it }
 		playing = status.isPlaying
