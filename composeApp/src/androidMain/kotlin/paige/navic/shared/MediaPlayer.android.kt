@@ -403,6 +403,17 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 	}
 
 	override fun onTaskRemoved(rootIntent: Intent?) {
+		// B-048: while another hub device plays, the session's player is the RemoteSessionPlayer
+		// facade, and pauseAllPlayersAndStopSelf()'s setPlayWhenReady(false) on it is a hub
+		// `pause` — swiping Navic away paused Feishin. Nothing local is playing then, so only ask
+		// to stop; the notification stays a remote control while the other device plays.
+		if (mediaLibrarySession?.player === remotePlayer && remotePlayer != null) {
+			stopSelf()
+			return
+		}
+		// B-036: the app's own MediaController keeps this service bound, so it outlives the
+		// swipe and onDestroy's closing `stopped` never went out; close the entry here.
+		scrobbleManager?.onTaskRemoved()
 		pauseAllPlayersAndStopSelf()
 	}
 

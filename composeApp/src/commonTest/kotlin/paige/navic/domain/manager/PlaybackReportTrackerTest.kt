@@ -201,6 +201,26 @@ class PlaybackReportTrackerTest {
 		assertTrue(t.onTeardown(snap(pos = 42_000)).isEmpty())
 	}
 
+	// B-036: swiped away from recents. The service outlives it (the app's own controller keeps it
+	// bound), so the entry is closed there, and the swipe's pause that follows reports nothing.
+
+	@Test
+	fun aSwipeAwayClosesTheEntryAndItsPauseReportsNothing() {
+		val t = PlaybackReportTracker()
+		t.onMediaChanged(snap(playing = true), false)
+		assertEquals(
+			listOf(PlaybackReport("s1", STOPPED, 80_000, 1f)),
+			t.onTaskRemoved(snap(playing = true, pos = 80_000))
+		)
+		assertTrue(t.onPlayingChanged(snap(pos = 80_000), false).isEmpty())
+		assertNull(t.openId)
+		// Opened again from the notification and played: a fresh entry.
+		assertEquals(
+			listOf("s1" to STARTING, "s1" to PLAYING),
+			t.onPlayingChanged(snap(playing = true, pos = 80_000), false).states()
+		)
+	}
+
 	// B-027 (c): another hub device takes over. The takeover itself closes the entry, because
 	// the swap's pause() fires no event when local playback was already paused.
 

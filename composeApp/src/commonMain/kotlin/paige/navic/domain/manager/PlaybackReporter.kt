@@ -123,6 +123,13 @@ class PlaybackReportTracker {
 	fun onTeardown(s: PlaybackSnapshot): List<PlaybackReport> = close(s)
 
 	/**
+	 * The app was swiped away from recents (B-036). The service pauses and asks to stop, but the
+	 * app's own in-process MediaController keeps it bound, so it is not destroyed and [onTeardown]
+	 * never runs: close the entry here. Playing again later opens a fresh one.
+	 */
+	fun onTaskRemoved(s: PlaybackSnapshot): List<PlaybackReport> = close(s)
+
+	/**
 	 * Another hub device just became the active one: close the entry whatever the local play
 	 * state. The swap's `pause()` closes it through [onPlayingChanged] only when local was
 	 * playing; paused already, it fires no event and the entry stayed open. Whichever of the two
@@ -242,6 +249,16 @@ class PlaybackReporter(
 
 	fun onRateChanged(snapshot: PlaybackSnapshot) {
 		enqueue(tracker.onPositionOrRateChanged(snapshot, suppressed))
+	}
+
+	/**
+	 * Swiped away from recents: see [PlaybackReportTracker.onTaskRemoved]. Through the outbox, not
+	 * like [release]: the service lives on, so the queue stays open and keeps its order. Called
+	 * before the swipe's pause, which then finds nothing open and reports nothing.
+	 */
+	fun onTaskRemoved(snapshot: PlaybackSnapshot) {
+		seekJob?.cancel()
+		enqueue(tracker.onTaskRemoved(snapshot))
 	}
 
 	/** `isRemoteActive` turned true: see [PlaybackReportTracker.onRemoteActive]. */

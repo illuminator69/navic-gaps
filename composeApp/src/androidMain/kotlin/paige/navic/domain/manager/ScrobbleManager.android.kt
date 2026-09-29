@@ -98,6 +98,11 @@ class AndroidScrobbleManager(
 		playbackReporter.onRateChanged(snapshot())
 	}
 
+	/** The app was swiped away; the service outlives it (B-036). */
+	fun onTaskRemoved() {
+		playbackReporter.onTaskRemoved(snapshot())
+	}
+
 	fun release() {
 		player.removeListener(this)
 		// The player still holds its item here: the service stops and releases it after this.
