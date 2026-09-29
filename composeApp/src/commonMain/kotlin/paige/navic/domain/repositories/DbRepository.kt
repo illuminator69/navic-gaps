@@ -145,8 +145,8 @@ class DbRepository(
 					progressCallback(globalProgress, message)
 				}.getOrThrow()
 
-				validAlbumIds.addAll(libraryResult.first)
-				validSongIds.addAll(libraryResult.second)
+				validAlbumIds.addAll(libraryResult.albumIds)
+				validSongIds.addAll(libraryResult.songIds)
 
 				val totalPlaylists = playlists.size
 				if (totalPlaylists > 0) {
@@ -167,8 +167,15 @@ class DbRepository(
 					}.awaitAll()
 				}
 
-				albumDao.deleteObsoleteAlbums(validAlbumIds)
-				songDao.deleteObsoleteSongs(validSongIds)
+				// B-037: only a COMPLETE pull may prune. An album whose getAlbum failed twice is in
+				// neither id set, so pruning after a partial pull deleted it (and its songs) from
+				// Room while the sync still reported success — an owned album then read as
+				// missing until a later sync happened to fetch it. syncLibrarySongs already
+				// skipped its own prune on a failure; this second one didn't.
+				if (libraryResult.complete) {
+					albumDao.deleteObsoleteAlbums(validAlbumIds)
+					songDao.deleteObsoleteSongs(validSongIds)
+				}
 
 				progressCallback(1.0f, Res.string.info_syncing_finished)
 			} finally {
@@ -177,9 +184,15 @@ class DbRepository(
 		}
 	}
 
+	/**
+	 * What [syncLibrarySongs] read. [complete] is false when any album's fetch failed: the id sets
+	 * then lack that album and its songs, so nothing may be pruned against them (B-037).
+	 */
+	data class LibrarySync(val albumIds: Set<String>, val songIds: Set<String>, val complete: Boolean)
+
 	suspend fun syncLibrarySongs(
 		onProgress: suspend (Float, StringResource) -> Unit = { _, _ -> }
-	): Result<Pair<Set<String>, Set<String>>> = runDbOp {
+	): Result<LibrarySync> = runDbOp {
 		val pageSize = 500
 		var offset = 0
 		val allAlbumSummaries = mutableListOf<ApiAlbum>()
@@ -194,7 +207,7 @@ class DbRepository(
 			offset += pageSize
 		}
 
-		if (allAlbumSummaries.isEmpty()) return@runDbOp emptySet<String>() to emptySet()
+		if (allAlbumSummaries.isEmpty()) return@runDbOp LibrarySync(emptySet(), emptySet(), complete = true)
 
 		val totalAlbums = allAlbumSummaries.size
 		val completedAlbums = AtomicInt(0)
@@ -294,7 +307,7 @@ class DbRepository(
 		)
 
 		onProgress(1.0f, Res.string.info_syncing_saved)
-		allValidAlbumIds to allValidSongIds
+		LibrarySync(allValidAlbumIds, allValidSongIds, complete = failedAlbums.get() == 0)
 	}
 
 	/**
