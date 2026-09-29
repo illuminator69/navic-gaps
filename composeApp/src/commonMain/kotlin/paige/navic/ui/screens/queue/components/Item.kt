@@ -152,6 +152,7 @@ fun QueueScreenItem(
 						CoverArt(
 							modifier = Modifier.size(SongRowDefaults.CoverSize),
 							coverArtId = song.coverArtId,
+							fallbackAlbumId = song.albumId,
 							shape = SongRowDefaults.CoverShape
 						)
 					},

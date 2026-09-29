@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Icon
@@ -15,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +41,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_image_failed_to_load
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
@@ -46,6 +50,9 @@ import paige.navic.ui.theme.defaultFont
 import paige.navic.util.Logger
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import paige.navic.util.CoverPlaceholder
+
+/** [CoverArt]'s album-cover lookup hasn't answered yet: draw nothing rather than flash the error. */
+private const val FALLBACK_PENDING = "\u0000pending"
 
 @Composable
 fun CoverArt(
@@ -70,7 +77,13 @@ fun CoverArt(
 	 * circle. Pass it explicitly wherever the caller knows, which is everywhere
 	 * an artist is being drawn.
 	 */
-	isArtist: Boolean? = null
+	isArtist: Boolean? = null,
+	/**
+	 * B-038: the album a song row belongs to. When the song's own cover can't load — offline, a
+	 * per-file `mf-…` id that was never fetched while online — the album's stored cover is drawn
+	 * instead: downloads and album tiles cache that one. Looked up only on failure.
+	 */
+	fallbackAlbumId: String? = null
 ) {
 	val coilPlatformContext = LocalCoilPlatformContext.current
 
@@ -140,6 +153,29 @@ fun CoverArt(
 					"Failed to load cover art, falling back to placeholder",
 					it.result.throwable
 				)
+			}
+			if (fallbackAlbumId != null) {
+				val albumDao = koinInject<AlbumDao>()
+				val fallback by produceState<String?>(FALLBACK_PENDING, fallbackAlbumId) {
+					value = try {
+						albumDao.getAlbumCoverArtId(fallbackAlbumId)
+					} catch (e: Exception) {
+						null
+					}
+				}
+				if (fallback == FALLBACK_PENDING) return@SubcomposeAsyncImage
+				val albumCover = fallback
+				if (!albumCover.isNullOrBlank() && albumCover != coverArtId) {
+					CoverArt(
+						coverArtId = albumCover,
+						modifier = Modifier.fillMaxSize(),
+						contentScale = contentScale,
+						square = false,
+						crossfadeMs = 0,
+						shape = shape
+					)
+					return@SubcomposeAsyncImage
+				}
 			}
 			LazyColumn(
 				horizontalAlignment = Alignment.CenterHorizontally,

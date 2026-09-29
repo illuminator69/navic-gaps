@@ -69,6 +69,11 @@ interface AlbumDao {
 	@Query("SELECT EXISTS(SELECT 1 FROM AlbumEntity WHERE albumId = :albumId AND starredAt IS NOT NULL)")
 	suspend fun isAlbumStarred(albumId: String): Boolean
 
+	/** B-038: an offline song row's fallback art — the album's cover, which downloads and album
+	 *  tiles cache, where a song's own `mf-` id was often never fetched. */
+	@Query("SELECT coverArtId FROM AlbumEntity WHERE albumId = :albumId")
+	suspend fun getAlbumCoverArtId(albumId: String): String?
+
 	@Query("SELECT userRating FROM AlbumEntity WHERE albumId = :albumId")
 	suspend fun getAlbumRating(albumId: String): Int?
 

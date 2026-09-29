@@ -163,6 +163,7 @@ fun SongListScreenItem(
 				leadingContent = {
 					CoverArt(
 						coverArtId = song.coverArtId,
+						fallbackAlbumId = song.albumId,
 						modifier = Modifier.size(50.dp),
 						shape = preferenceManager.coverArtShape.decreasedShape
 					)
