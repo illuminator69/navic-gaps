@@ -37,7 +37,7 @@ import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.DropdownItem
 
 /**
- * A "Continue listening" card: the queue's cover (frozen at its first track, so it doesn't change as
+ * A "Continue listening" card: the queue's cover (its resume track's, B-046, so it changes as
  * playback moves), what it's called, and how it was made. Tapping resumes the queue at its saved
  * playhead; the overflow previews its tracks or drops it from the history.
  *

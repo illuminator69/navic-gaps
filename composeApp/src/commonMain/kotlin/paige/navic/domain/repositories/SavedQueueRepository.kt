@@ -27,8 +27,8 @@ import kotlinx.coroutines.flow.firstOrNull
  * written to be cheap: an unchanged queue (the common case — a progress tick) only moves the cursor
  * via [SavedQueueDao.updateProgress] instead of re-encoding the whole `List<DomainSong>`.
  *
- * A record's identity is a **listening session**, not a track list: `sourceName` and `coverArtId` are
- * stamped when the queue is born and never rewritten, and [findMatching] recognises a queue we already
+ * A record's identity is a **listening session**, not a track list: `sourceName` is stamped when the
+ * queue is born and never rewritten (`coverArtId` follows the resume track, B-046), and [findMatching] recognises a queue we already
  * have a record for so replaying an album refreshes its card instead of cloning it. Both rules mirror
  * Feishin and the hub (`hub.py._upsert_saved_queue`), which is the point — all three render one shared
  * history.
@@ -69,6 +69,29 @@ class SavedQueueRepository(
 	fun observeAll(): Flow<List<SavedQueueEntity>> = savedQueueDao.observeAll()
 
 	suspend fun get(id: String): SavedQueueEntity? = savedQueueDao.getById(id)
+
+	/**
+	 * B-046: the live session moved to [index] while the hub is connected (local writes are off
+	 * then). The hub broadcasts records only when a queue is edited, and its own cursor on them is
+	 * throttled, so the active card kept the index of the last edit — art and title a track behind,
+	 * always, for radio, whose top-up lands just before each track boundary. Only when the record
+	 * holds the session's track there ([expectSongId]); `updatedAt` stays, so the order is the hub's.
+	 */
+	suspend fun followCursor(id: String, index: Int, expectSongId: String) {
+		val entity = savedQueueDao.getById(id) ?: return
+		if (entity.currentIndex == index) return
+		val song = decodeQueue(entity).getOrNull(index) ?: return
+		if (song.id != expectSongId) return
+		savedQueueDao.updateProgress(
+			id = id,
+			index = index,
+			songId = song.id,
+			songName = song.title,
+			coverArtId = song.coverArtId,
+			positionMs = entity.positionMs,
+			updatedAt = entity.updatedAt
+		)
+	}
 
 	/** A hub saved-queue record, songs already resolved to [DomainSong] (placeholders for un-synced). */
 	data class RemoteSavedQueue(
@@ -190,10 +213,8 @@ class SavedQueueRepository(
 						currentIndex = r.currentIndex,
 						currentSongId = r.currentSongId,
 						currentSongName = r.currentSongName,
-						// Same "established wins, null is not established" rule as sourceName: the
-						// cover is frozen at the queue's birth, so a record that already has one
-						// keeps it rather than adopting whatever the broadcast happened to carry.
-						coverArtId = existing?.coverArtId ?: r.coverArtId,
+						// The broadcast's resume track's art (B-046); a null keeps the row's.
+						coverArtId = r.coverArtId ?: existing?.coverArtId,
 						positionMs = r.positionMs,
 						shuffle = r.shuffle,
 						repeatMode = r.repeatMode,
@@ -325,14 +346,14 @@ class SavedQueueRepository(
 		val unchanged = id == cachedId && sig == cachedSig
 
 		if (unchanged) {
-			// Same queue, just a moving cursor — no blob rewrite. The cover does NOT move: it is
-			// frozen at the queue's birth (PROTOCOL.md §8.3), so the same shared record renders the
-			// same art here, in Feishin and on the hub. Only the title tracks the resume point.
+			// Same queue, just a moving cursor — no blob rewrite. The title and the cover both
+			// follow the resume point (B-046, PROTOCOL.md §8.3).
 			val written = savedQueueDao.updateProgress(
 				id = id,
 				index = idx,
 				songId = currentSong?.id,
 				songName = currentSong?.title,
+				coverArtId = currentSong?.coverArtId,
 				positionMs = positionMs,
 				updatedAt = now
 			)
@@ -348,7 +369,7 @@ class SavedQueueRepository(
 		}
 
 		// New session, or the queue was edited: full write. Identity fields (createdAt, the user's
-		// name, the birth-stamped source name and the cover) are preserved, since a rewrite would
+		// name, the birth-stamped source name) are preserved, since a rewrite would
 		// otherwise clobber them. "Established wins, but a null is not established" — the same rule
 		// the hub applies, so a name that only resolves a moment after playback starts still lands.
 		val existing = savedQueueDao.getById(id)
@@ -365,16 +386,11 @@ class SavedQueueRepository(
 				currentIndex = idx,
 				currentSongId = currentSong?.id,
 				currentSongName = currentSong?.title,
-				// Birth TRACK, not birth cursor: the hub derives a record's art from `songs[0]`
-				// (HubManager.applySavedQueues does the same), so taking it from the queue's first
-				// entry is what makes one shared record render identically here and in Feishin.
-				// It also can't be null — the queue is non-empty by the guard above — whereas
-				// `currentSong` is briefly null right as a queue starts, and a record born in that
-				// window kept a null cover forever: the cheap progress path never writes the column,
-				// so nothing healed it until the queue itself was edited.
-				coverArtId = existing?.coverArtId
-					?: queue.firstOrNull()?.coverArtId
-					?: currentSong?.coverArtId,
+				// The resume track's art (B-046). `currentSong` is briefly null right as a queue
+				// starts; the row's own cover, then the first track's, stand in until the next tick.
+				coverArtId = currentSong?.coverArtId
+					?: existing?.coverArtId
+					?: queue.firstOrNull()?.coverArtId,
 				positionMs = positionMs,
 				shuffle = state.isShuffleEnabled,
 				repeatMode = state.repeatMode,

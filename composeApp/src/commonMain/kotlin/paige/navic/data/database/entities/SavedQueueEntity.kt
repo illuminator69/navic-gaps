@@ -36,9 +36,10 @@ data class SavedQueueEntity(
 	/** Title of the current track, cached so the list's third line needn't decode the blob. */
 	val currentSongName: String? = null,
 	/**
-	 * Cover art for the card, stamped at the queue's BIRTH and never rewritten — part of the record's
-	 * identity, like `sourceName`. That's the hub's rule (PROTOCOL.md §8.3) and Feishin's; letting it
-	 * follow the resume cursor here meant one shared record showed different art on each client.
+	 * Cover art for the card: the RESUME track's, so it follows playback like the title (B-046). It
+	 * was frozen at the queue's birth until 2026-09-30, which read as a thumbnail always lagging the
+	 * song playing. Every client derives it from the record's own cursor (PROTOCOL.md §8.3), so one
+	 * shared record still shows the same art everywhere.
 	 *
 	 * Rendered by id with this client's own credentials — a peer's cover URL points at its own server
 	 * with its own auth and won't load here.

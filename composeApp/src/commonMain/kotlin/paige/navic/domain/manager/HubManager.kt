@@ -928,6 +928,18 @@ class HubManager(
 	// from the record's resume track, rendered by id with that client's own credentials — a URL
 	// carrying OUR server address and OUR auth token is not something the other client can display.
 
+	/** B-046: point the live session's saved-queue card at the track actually playing. */
+	private suspend fun followSavedQueueCursor() {
+		val s = _remoteSession.value
+		val id = s.savedQueueId ?: return
+		val expect = s.tracks.getOrNull(s.index)?.id ?: return
+		try {
+			savedQueueRepository.followCursor(id, s.index, expect)
+		} catch (e: Exception) {
+			Logger.w("HubManager", "saved-queue cursor follow failed", e)
+		}
+	}
+
 	/**
 	 * Adopt the hub's authoritative saved-queue history into the local Room store (a REPLACE — that's
 	 * what lets a delete on one client propagate here). Hub tracks are minimal, so they're resolved
@@ -962,12 +974,11 @@ class HubManager(
 				currentIndex = idx,
 				currentSongId = songs.getOrNull(idx)?.id,
 				currentSongName = songs.getOrNull(idx)?.title,
-				// Art comes from the queue's FIRST track — its birth — not from the resume cursor:
-				// the hub and Feishin freeze `coverImageUrl` at birth (PROTOCOL.md §8.3), so deriving
-				// it from the cursor here made one shared record look different on each client. The
-				// record's own `coverImageUrl` stays ignored: it's the other client's authed URL
+				// Art is the RESUME track's (B-046, PROTOCOL.md §8.3), derived from the record's own
+				// cursor, as Feishin does — so one shared record still looks the same on each client.
+				// The record's own `coverImageUrl` stays ignored: it's the other client's authed URL
 				// against its own server, which is exactly why those covers wouldn't load.
-				coverArtId = songs.firstOrNull()?.coverArtId,
+				coverArtId = songs.getOrNull(idx)?.coverArtId ?: songs.firstOrNull()?.coverArtId,
 				positionMs = rec["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L,
 				shuffle = rec["shuffle"]?.jsonPrimitive?.booleanOrNull ?: false,
 				repeatMode = repeatToInt(rec["repeat"]?.jsonPrimitive?.contentOrNullSafe() ?: "none"),
@@ -1144,6 +1155,7 @@ class HubManager(
 			// A session frame is the snapshot fields at the top level.
 			"session" -> {
 				applySession(msg)
+				followSavedQueueCursor()
 				// Active device may have just dropped (activeId → null): adopt the
 				// last-known queue locally, paused, so we're not stranded mirroring it.
 				adoptIfNoLiveReceiver()
@@ -1160,12 +1172,15 @@ class HubManager(
 					positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: prev.positionMs,
 					positionAtMs = nowMs()
 				)
+				followSavedQueueCursor()
 			}
 
 			"devices" -> msg["devices"]?.let { parseDevices(it.asObjectList()) }
 
 			"savedQueues" -> try {
 				applySavedQueues(msg["queues"]?.asObjectList() ?: emptyList())
+				// The broadcast's cursor for the live record can be a track behind.
+				followSavedQueueCursor()
 			} catch (e: Exception) {
 				Logger.e("HubManager", "saved-queue broadcast adopt failed", e)
 			}

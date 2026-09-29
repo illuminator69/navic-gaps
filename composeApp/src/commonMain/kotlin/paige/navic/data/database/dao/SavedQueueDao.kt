@@ -23,15 +23,14 @@ interface SavedQueueDao {
 	 * Cheap path for progress ticks: the queue itself is unchanged, so only the playback cursor and
 	 * timestamp move — no need to rewrite the (potentially large) [SavedQueueEntity.queueJson] blob.
 	 *
-	 * [SavedQueueEntity.coverArtId] is deliberately NOT touched: the card's art is frozen at the
-	 * queue's birth (PROTOCOL.md §8.3), which is what the hub and Feishin do — moving it with the
-	 * cursor made the same shared record render different art on each client. Only the title follows
-	 * the resume point.
+	 * [SavedQueueEntity.coverArtId] moves with the cursor (B-046): the card's art is the resume
+	 * track's, like its title, on every client (PROTOCOL.md §8.3). A null [coverArtId] keeps the one
+	 * the row has.
 	 */
 	@Query(
 		"UPDATE SavedQueueEntity SET currentIndex = :index, currentSongId = :songId, " +
-			"currentSongName = :songName, positionMs = :positionMs, " +
-			"updatedAt = :updatedAt WHERE id = :id"
+			"currentSongName = :songName, coverArtId = COALESCE(:coverArtId, coverArtId), " +
+			"positionMs = :positionMs, updatedAt = :updatedAt WHERE id = :id"
 	)
 	/**
 	 * Returns the number of rows written — 0 means there is no such record.
@@ -46,6 +45,7 @@ interface SavedQueueDao {
 		index: Int,
 		songId: String?,
 		songName: String?,
+		coverArtId: String?,
 		positionMs: Long,
 		updatedAt: Long
 	): Int
