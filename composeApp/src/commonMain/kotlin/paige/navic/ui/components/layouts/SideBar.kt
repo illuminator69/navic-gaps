@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,33 +73,58 @@ fun SideBar() {
 	}
 
 	val railState = rememberWideNavigationRailState()
+	val railExpanded = railState.targetValue == WideNavigationRailValue.Expanded
+	// The rail's own per-item spacing and minimum height (NavigationRailCollapsedTokens
+	// .ItemVerticalSpace, NavigationRailBaselineItemTokens.ContainerHeight, and 48 dp expanded),
+	// which it no longer applies now that the tabs are one scrolling child — see below.
+	val itemSpacing by animateDpAsState(
+		if (railExpanded) 0.dp else 4.dp,
+		animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+	)
+	val itemMinHeight by animateDpAsState(
+		if (railExpanded) 48.dp else 64.dp,
+		animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+	)
 
 	WideNavigationRail(
 		state = railState,
 		header = {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				SideBarHeader(state = railState)
-				SideBarMiniPlayer(railExpanded = railState.targetValue == WideNavigationRailValue.Expanded)
+				SideBarMiniPlayer(railExpanded = railExpanded)
 			}
 		}
 	) {
-		tabs.forEach { tab ->
-			val selected = backStack.lastOrNull() == tab.destination
-			WideNavigationRailItem(
-				selected = selected,
-				onClick = dropUnlessResumed {
-					onTabSelected(tab.destination)
-				},
-				icon = {
-					if (selected) {
-						Icon(tab.iconFilled, null)
-					} else {
-						Icon(tab.iconOutlined, null)
-					}
-				},
-				label = { Text(stringResource(tab.label)) },
-				railExpanded = railState.targetValue == WideNavigationRailValue.Expanded
-			)
+		// B-039: on a phone in landscape (~360 dp tall) the header left room for three tabs and
+		// the rail doesn't scroll, so Playlists and Songs were unreachable. The tabs are one
+		// scrolling Column. The rail sizes its first child to the height below the header but
+		// places it a header gap lower (WNRHeaderPadding, 40 dp): the bottom padding keeps the
+		// viewport on screen, or the last tab would scroll to just past the edge.
+		Column(
+			Modifier
+				.padding(bottom = 40.dp)
+				.verticalScroll(rememberScrollState()),
+			verticalArrangement = Arrangement.spacedBy(itemSpacing)
+		) {
+			tabs.forEach { tab ->
+				val selected = backStack.lastOrNull() == tab.destination
+				WideNavigationRailItem(
+					selected = selected,
+					onClick = dropUnlessResumed {
+						onTabSelected(tab.destination)
+					},
+					icon = {
+						if (selected) {
+							Icon(tab.iconFilled, null)
+						} else {
+							Icon(tab.iconOutlined, null)
+						}
+					},
+					label = { Text(stringResource(tab.label)) },
+					railExpanded = railExpanded,
+					modifier = Modifier.heightIn(min = itemMinHeight)
+				)
+			}
 		}
 	}
 }
