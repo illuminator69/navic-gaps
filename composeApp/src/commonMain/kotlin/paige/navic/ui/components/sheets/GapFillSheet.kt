@@ -7,11 +7,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,7 +63,6 @@ import navic.composeapp.generated.resources.info_no_sources
 import navic.composeapp.generated.resources.info_source_coverage
 import navic.composeapp.generated.resources.info_source_matches_album
 import navic.composeapp.generated.resources.info_source_artist_unverified
-import navic.composeapp.generated.resources.lbbot_fill_cancelled
 import navic.composeapp.generated.resources.info_source_recommended
 import navic.composeapp.generated.resources.info_source_wrong_album
 import navic.composeapp.generated.resources.info_tracks_present
@@ -77,6 +75,7 @@ import paige.navic.domain.manager.LbGap
 import paige.navic.domain.manager.LbGapSource
 import paige.navic.domain.manager.LbSourceFiles
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.gapTrackStateLabel
 
 /**
  * Consecutive failures a *polled* read may suffer before the sheet says anything.
@@ -182,7 +181,16 @@ fun GapFillSheet(
 	}
 
 	ModalBottomSheet(onDismissRequest = onDismissRequest) {
-		Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+		// B-043: ONE scrolling column. The track and source lists used to be LazyColumns capped
+		// at 240/300 dp inside a column that didn't scroll: fully expanded and taller than the
+		// screen, neither inner list scrolled, so sources past the second and the actions below
+		// them were unreachable. Tens of rows at most — nothing here needs to be lazy.
+		Column(
+			Modifier
+				.verticalScroll(rememberScrollState())
+				.padding(horizontal = 20.dp)
+				.padding(bottom = 24.dp)
+		) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				CoverArt(coverArtId = coverArtId, modifier = Modifier.size(64.dp))
 				Column(Modifier.padding(start = 12.dp)) {
@@ -405,8 +413,8 @@ fun GapFillSheet(
 
 @Composable
 private fun GapTracks(gap: LbGap) {
-	LazyColumn(Modifier.heightIn(max = 240.dp)) {
-		items(gap.tracks) { track ->
+	Column {
+		gap.tracks.forEach { track ->
 			Row(
 				Modifier.fillMaxWidth().padding(vertical = 3.dp),
 				verticalAlignment = Alignment.CenterVertically
@@ -431,8 +439,8 @@ private fun GapTracks(gap: LbGap) {
 				// majority of the list and needs no word next to it.
 				if (track.state !in setOf("present", "missing")) {
 					Text(
-						if (track.state == "cancelled") stringResource(Res.string.lbbot_fill_cancelled)
-						else track.state.replace('_', ' '),
+						gapTrackStateLabel(track.state)?.let { stringResource(it) }
+							?: track.state.replace('_', ' '),
 						style = MaterialTheme.typography.labelSmall,
 						color = MaterialTheme.colorScheme.primary
 					)
@@ -465,9 +473,13 @@ private fun GapStatusLine(gap: LbGap, transferInFlight: Boolean) {
 			else -> stringResource(Res.string.info_gap_needs_lbbot)
 		}
 		gap.status == "downloading" -> gap.album.ifBlank { "" }
-		gap.failDetail.isNotBlank() -> gap.failDetail
-		task?.error?.isNotBlank() == true -> task.error
+		// A stalled placement's failDetail is lb-bot's current sentence. Any other one comes
+		// from a message kind lb-bot stopped writing (B-022), so it is left over from an older
+		// search and its counts contradict the current no-source verdict (Q-033, as B-044).
+		gap.stalledPlacement && gap.failDetail.isNotBlank() -> gap.failDetail
 		gap.noSourceReason.isNotBlank() -> gap.noSourceReason
+		task?.error?.isNotBlank() == true -> task.error
+		gap.failDetail.isNotBlank() -> gap.failDetail
 		else -> ""
 	}
 	Column(Modifier.fillMaxWidth()) {
@@ -519,8 +531,8 @@ private fun GapSources(
 	var expanded by remember { mutableStateOf(-1) }
 	var loadingIndex by remember { mutableStateOf(-1) }
 
-	LazyColumn(Modifier.heightIn(max = 300.dp)) {
-		items(sources) { source ->
+	Column {
+		sources.forEach { source ->
 			Column(
 				Modifier
 					.fillMaxWidth()

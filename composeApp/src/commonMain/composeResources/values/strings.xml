@@ -646,6 +646,14 @@
 	<string name="lbbot_fill_retry_in">Retrying automatically in %1$ds</string>
 	<string name="lbbot_fill_wishlist_hint">Nobody had it this time. The swarm changes — add it to the wishlist and lb-bot will keep looking every few hours.</string>
 	<string name="lbbot_fill_needs_pick_hint">Open the album to pick a source.</string>
+	<!-- A gap track's state beside its title (Q-037); Feishin's TRACK_LABEL says the same. -->
+	<string name="lbbot_track_missing">Missing</string>
+	<string name="lbbot_track_picked">Picked</string>
+	<string name="lbbot_track_queued">Queued</string>
+	<string name="lbbot_track_downloaded">Downloaded</string>
+	<string name="lbbot_track_failed">Failed</string>
+	<string name="lbbot_track_skipped">Skipped</string>
+	<string name="lbbot_track_added">Added</string>
 	<string name="action_open_album">Open album</string>
 	<string name="title_download_format">Download format</string>
 	<string name="title_cellular_playback_source">On mobile data</string>

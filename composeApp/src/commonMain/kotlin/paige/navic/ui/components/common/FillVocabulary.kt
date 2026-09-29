@@ -29,6 +29,13 @@ import navic.composeapp.generated.resources.lbbot_fill_speed
 import navic.composeapp.generated.resources.lbbot_fill_unreachable
 import navic.composeapp.generated.resources.lbbot_fill_verified
 import navic.composeapp.generated.resources.lbbot_fill_wishlist_hint
+import navic.composeapp.generated.resources.lbbot_track_added
+import navic.composeapp.generated.resources.lbbot_track_downloaded
+import navic.composeapp.generated.resources.lbbot_track_failed
+import navic.composeapp.generated.resources.lbbot_track_missing
+import navic.composeapp.generated.resources.lbbot_track_picked
+import navic.composeapp.generated.resources.lbbot_track_queued
+import navic.composeapp.generated.resources.lbbot_track_skipped
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbFillEntry
@@ -191,4 +198,22 @@ fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): Fil
 	}
 	buttons += FillButton.DISMISS
 	return FillPresentation(headline, sublines, explain, progress, percent, buttons)
+}
+
+/**
+ * Q-037: a gap track's `state` (lb-bot's `_TRACK_STATE_BY_DECISION`, PROTOCOL §15.2) as words —
+ * the sheet printed the raw lowercase token beside the one it did translate ("Cancelled").
+ * Mirrors Feishin's `TRACK_LABEL`. Null for a token this build doesn't know.
+ */
+fun gapTrackStateLabel(state: String): StringResource? = when (state) {
+	"missing" -> Res.string.lbbot_track_missing
+	"picked" -> Res.string.lbbot_track_picked
+	"queued" -> Res.string.lbbot_track_queued
+	"downloading" -> Res.string.lbbot_fill_downloading_plain
+	"downloaded" -> Res.string.lbbot_track_downloaded
+	"failed" -> Res.string.lbbot_track_failed
+	"cancelled" -> Res.string.lbbot_fill_cancelled
+	"skipped" -> Res.string.lbbot_track_skipped
+	"done" -> Res.string.lbbot_track_added
+	else -> null
 }
