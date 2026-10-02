@@ -19,13 +19,11 @@ import paige.navic.App
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.domain.manager.PermissionManager
-import paige.navic.shared.MediaPlayerViewModel
 
 class MainActivity : ComponentActivity() {
 
 	private val lbBot: LbBotManager by inject()
 	private val permissionManager: PermissionManager by inject()
-	private val mediaPlayer: MediaPlayerViewModel by inject()
 
 	private val requestNotifications =
 		registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -36,16 +34,6 @@ class MainActivity : ComponentActivity() {
 		handleDeepLink(intent)
 		observeFills()
 		setContent { App() }
-	}
-
-	/**
-	 * Q-040: a swipe away from recents releases the media controller so the playback service can
-	 * stop. Coming back (a fresh activity after the swipe, or any return to the foreground) asks
-	 * for it again; a no-op while it is still connected.
-	 */
-	override fun onStart() {
-		super.onStart()
-		mediaPlayer.onUiStarted()
 	}
 
 	/**

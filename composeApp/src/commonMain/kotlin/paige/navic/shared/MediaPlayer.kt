@@ -484,12 +484,6 @@ abstract class MediaPlayerViewModel(
 		budgetMs: Long
 	): LoadOutcome = LoadOutcome(true)
 
-	/**
-	 * The app's activity has started. Android reconnects here to a playback service that a swipe
-	 * away from recents let go of (Q-040). Open with a no-op default, so iOS compiles unchanged.
-	 */
-	open fun onUiStarted() {}
-
 	open fun setPlayerVolume(volume: Float) {}
 	open fun applyRemoteRepeat(mode: Int) {}
 	open fun applyRemoteShuffle(enabled: Boolean) {}
