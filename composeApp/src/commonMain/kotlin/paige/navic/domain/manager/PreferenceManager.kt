@@ -256,4 +256,12 @@ class PreferenceManager(
 	 * never beat it, and it survives the process — which the in-memory copy does not.
 	 */
 	var lbCacheLibraryStaleAt by preference(0L)
+
+	/**
+	 * The mediaId of the now-playing entry Navidrome last confirmed for this device's
+	 * `reportPlayback`, or "" when the last confirmed report closed it. Persisted so a force stop
+	 * does not leave the phone in `getNowPlaying`: the next playback service closes it with a
+	 * `stopped` for this exact id (Q-042, `PlaybackReportLedger`).
+	 */
+	var playbackReportOpenId by preference("")
 }

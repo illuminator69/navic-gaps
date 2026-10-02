@@ -172,6 +172,46 @@ class PlaybackReportTracker {
 }
 
 /**
+ * The now-playing entry Navidrome may still hold for this device, kept across processes (Q-042).
+ *
+ * The tracker's [PlaybackReportTracker.openId] lives in memory, so a force stop (or a freeze
+ * before [PlaybackReporter.release]'s `stopped` leaves) forgets an entry the server still shows:
+ * `playing` until the track's remaining time runs out, `paused` for about 30 minutes. So the id
+ * of every report the server CONFIRMED is stored, and the next reporter closes it first.
+ *
+ * Pure apart from the [load] / [save] pair, so the rules run in a host test with a fake sender.
+ * A report the server did not confirm changes nothing: a dropped `stopped` keeps the id for the
+ * next start, and a dropped `playing` was never shown. A `stopped` clears the id only when it is
+ * for that exact id, because Navidrome ignores a `stopped` whose mediaId differs from the entry.
+ */
+class PlaybackReportLedger(
+	private val load: () -> String,
+	private val save: (String) -> Unit
+) {
+	/** The `stopped` that closes an entry an earlier process left open, or null when none is. */
+	fun closeLeftOpen(): PlaybackReport? = load()
+		.takeIf { it.isNotBlank() }
+		?.let { PlaybackReport(it, PlaybackReportState.STOPPED, positionMs = 0L, playbackRate = 1f) }
+
+	/** Send [report] through [send], then remember what the server holds if it confirmed. */
+	suspend fun deliver(report: PlaybackReport, send: suspend (PlaybackReport) -> Boolean): Boolean {
+		val confirmed = send(report)
+		if (confirmed) record(report)
+		return confirmed
+	}
+
+	private fun record(report: PlaybackReport) {
+		val held = load()
+		val next = when (report.state) {
+			PlaybackReportState.STOPPED -> if (report.mediaId == held) "" else held
+			else -> report.mediaId
+		}
+		// Written on a change only: most reports re-confirm the id already held.
+		if (next != held) save(next)
+	}
+}
+
+/**
  * Tells Navidrome what the LOCAL player is doing, through OpenSubsonic `reportPlayback`, so
  * `getNowPlaying` (Navidrome's own panel, tunelog) sees the phone's state and position instead
  * of just the scrobble-time "now playing" ping.
@@ -193,6 +233,11 @@ class PlaybackReporter(
 ) {
 	private val tracker = PlaybackReportTracker()
 
+	private val ledger = PlaybackReportLedger(
+		load = { preferenceManager.playbackReportOpenId },
+		save = { preferenceManager.playbackReportOpenId = it }
+	)
+
 	// Bounded: a server that stops answering must not let reports pile up behind it.
 	private val outbox = Channel<PlaybackReport>(capacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -203,6 +248,11 @@ class PlaybackReporter(
 	private val consumer: Job
 
 	init {
+		// Q-042: close what an earlier process left open (a force stop, or a teardown frozen before
+		// its `stopped` left), first in the queue and before the consumer runs, so nothing this
+		// reporter sends can overtake it. It is for the stored id exactly: Navidrome ignores a
+		// `stopped` for any other. Offline or unsupported, it is dropped and the id stays stored.
+		ledger.closeLeftOpen()?.let { outbox.trySend(it) }
 		consumer = scope.launch {
 			for (report in outbox) send(report)
 		}
@@ -301,20 +351,24 @@ class PlaybackReporter(
 		post(report)
 	}
 
+	/** Through [ledger], so every report the server confirms is remembered across processes (Q-042). */
 	private suspend fun post(report: PlaybackReport) {
-		try {
-			withContext(Dispatchers.IO) {
-				sessionManager.reportPlayback(
-					mediaId = report.mediaId,
-					state = report.state.wire,
-					positionMs = report.positionMs,
-					playbackRate = report.playbackRate
-				)
+		ledger.deliver(report) {
+			try {
+				withContext(Dispatchers.IO) {
+					sessionManager.reportPlayback(
+						mediaId = it.mediaId,
+						state = it.state.wire,
+						positionMs = it.positionMs,
+						playbackRate = it.playbackRate
+					)
+				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				Logger.w(TAG, "reportPlayback ${it.state.wire} failed", e)
+				false
 			}
-		} catch (e: CancellationException) {
-			throw e
-		} catch (e: Exception) {
-			Logger.w(TAG, "reportPlayback ${report.state.wire} failed", e)
 		}
 	}
 
