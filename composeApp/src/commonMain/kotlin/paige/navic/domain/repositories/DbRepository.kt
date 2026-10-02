@@ -167,7 +167,8 @@ class DbRepository(
 					}.awaitAll()
 				}
 
-				// B-037: only a COMPLETE pull may prune. An album whose getAlbum failed twice is in
+				// B-037: only a COMPLETE pull may prune. An album whose getAlbum failed twice, or one
+				// the album list skipped because Navidrome moved it mid-walk (a scan), is in
 				// neither id set, so pruning after a partial pull deleted it (and its songs) from
 				// Room while the sync still reported success — an owned album then read as
 				// missing until a later sync happened to fetch it. syncLibrarySongs already
@@ -185,29 +186,44 @@ class DbRepository(
 	}
 
 	/**
-	 * What [syncLibrarySongs] read. [complete] is false when any album's fetch failed: the id sets
-	 * then lack that album and its songs, so nothing may be pruned against them (B-037).
+	 * What [syncLibrarySongs] read. [complete] is false when any album's fetch failed, or when the
+	 * album list itself may have moved while it was walked: the id sets can then lack an album the
+	 * server still has, so nothing may be pruned against them (B-037).
 	 */
 	data class LibrarySync(val albumIds: Set<String>, val songIds: Set<String>, val complete: Boolean)
+
+	/**
+	 * Navidrome's whole album list, the one walk both the full sync and [syncChangedAlbums] use.
+	 * See [listAllAlbums]: overlapping pages, bracketed by two `getScanStatus` reads.
+	 */
+	private suspend fun listAlbums(): AlbumListing<ApiAlbum> = listAllAlbums(
+		page = { size, offset ->
+			sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, size, offset)
+		},
+		id = { it.id },
+		scanMark = { readScanMark() }
+	)
+
+	/** Null when the status can't be read, which leaves the listing unstable rather than failing it. */
+	private suspend fun readScanMark(): ScanMark? = try {
+		sessionManager.api.getScanStatus().let { ScanMark(it.scanning, it.count) }
+	} catch (e: Exception) {
+		if (e is CancellationException) throw e
+		Logger.w("DbRepository", "scan status unreadable: ${e.message}")
+		null
+	}
 
 	suspend fun syncLibrarySongs(
 		onProgress: suspend (Float, StringResource) -> Unit = { _, _ -> }
 	): Result<LibrarySync> = runDbOp {
-		val pageSize = 500
-		var offset = 0
-		val allAlbumSummaries = mutableListOf<ApiAlbum>()
-
 		onProgress(0.0f, Res.string.info_syncing_albums)
-		while (true) {
-			val batch =
-				sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
-			if (batch.isEmpty()) break
-			allAlbumSummaries.addAll(batch)
-			if (batch.size < pageSize) break
-			offset += pageSize
+		val listing = listAlbums()
+		val allAlbumSummaries = listing.albums
+		if (!listing.stable) {
+			Logger.w("DbRepository", "album list moved while it was read (a scan?): no prune this sync")
 		}
 
-		if (allAlbumSummaries.isEmpty()) return@runDbOp LibrarySync(emptySet(), emptySet(), complete = true)
+		if (allAlbumSummaries.isEmpty()) return@runDbOp LibrarySync(emptySet(), emptySet(), complete = listing.stable)
 
 		val totalAlbums = allAlbumSummaries.size
 		val completedAlbums = AtomicInt(0)
@@ -291,10 +307,11 @@ class DbRepository(
 			}
 		}
 
-		if (failedAlbums.get() == 0) {
+		val complete = failedAlbums.get() == 0 && listing.stable
+		if (complete) {
 			albumDao.deleteObsoleteAlbums(allValidAlbumIds)
 			songDao.deleteObsoleteSongs(allValidSongIds)
-		} else {
+		} else if (failedAlbums.get() > 0) {
 			Logger.w(
 				"DbRepository",
 				"skipping obsolete cleanup because ${failedAlbums.get()} album fetches failed"
@@ -307,7 +324,7 @@ class DbRepository(
 		)
 
 		onProgress(1.0f, Res.string.info_syncing_saved)
-		LibrarySync(allValidAlbumIds, allValidSongIds, complete = failedAlbums.get() == 0)
+		LibrarySync(allValidAlbumIds, allValidSongIds, complete = complete)
 	}
 
 	/**
@@ -415,15 +432,10 @@ class DbRepository(
 	 * gives up and leaves the job to the full sync. Upsert only; removals stay its job too.
 	 */
 	suspend fun syncChangedAlbums(maxChanged: Int = 300): Result<Int> = runDbOp {
-		val pageSize = 500
-		val remote = mutableListOf<ApiAlbum>()
-		var offset = 0
-		while (true) {
-			val batch = sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
-			remote += batch
-			if (batch.size < pageSize) break
-			offset += pageSize
-		}
+		// Upsert only, so an unstable listing is still worth acting on: it can only under-report.
+		val listing = listAlbums()
+		val remote = listing.albums
+		if (!listing.stable) Logger.i("DbRepository", "- album list moved while it was read; the next sweep catches the rest")
 		val local = albumDao.getAlbumFingerprints().associateBy { it.albumId }
 		val changed = remote.filter { album ->
 			val known = local[album.id]
