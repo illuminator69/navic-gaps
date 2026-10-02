@@ -79,6 +79,8 @@ class AlbumListingTest {
 		}
 		var reads = 0
 		val listing = list(pager) { ScanMark(scanning = reads++ == 1, count = 1000) }
+		// The residual hole, pinned: the moved album really is missing from this walk.
+		assertFalse("a0900" in listing.albums)
 		assertFalse(listing.stable)
 	}
 
