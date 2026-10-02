@@ -291,7 +291,10 @@ class CastBridgeManager(
 		)
 		if (!stale) return false
 		val why = if (bridge.loopAlive) {
-			"no welcome for ${(now - bridge.disconnectedSince) / 1_000}s"
+			// The interval the verdict counted (only while the hub was up), then the bridge's own
+			// downtime, which can be far longer after a hub outage.
+			val counted = now - maxOf(bridge.disconnectedSince, hubUpSince ?: bridge.disconnectedSince)
+			"no welcome for ${counted / 1_000}s while the hub was up; down ${(now - bridge.disconnectedSince) / 1_000}s in all"
 		} else {
 			"its connect loop has ended"
 		}
