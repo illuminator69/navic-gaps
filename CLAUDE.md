@@ -33,9 +33,9 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 
 | Area | Entry points |
 |---|---|
-| Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session) |
+| Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7) |
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
-| Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager`. No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
+| Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
@@ -44,7 +44,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
-| Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0 |
+| Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
 is a cache, and saved queues re-reconcile from the hub. **`DownloadDatabase` (at 4) holds real user
@@ -92,6 +92,12 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    `BottomSheetScene` (they carry the cover ambient and the `OverlayScene` structure) while
    `NowPlayingScreen` and `LyricsScreen` come from upstream and read the local: two consumers, zero
    providers. Every throwing local must end the merge with exactly one provider.
+
+   Fork-only Koin bindings are the easiest to lose, because upstream's modules never had them.
+   `HubSocketClientFactory` (B-045) is registered in **both** `PlatformModule.android.kt` and
+   `PlatformModule.ios.kt` and consumed by `HubManager`'s last `get()` in `ManagerModule.kt`; a
+   merge that drops a registration compiles, and `HubManager` is `createdAtStart`, so the app dies
+   at launch with `NoDefinitionFoundException`.
 4. **Build `:androidApp:assembleRelease` and verify the signature. Every time.** See §3 — upstream
    owns that line and keeps rewriting it, debug signs correctly either way, and an unsigned APK
    reads on the phone as a vague "couldn't update".
@@ -352,13 +358,33 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   Last.fm / ListenBrainz for either call, so the ping only reset the entry's position. The call
   is hand-rolled in `SessionManager`, because the bundled client's sends `state=PLAYING` (enum
   `toString()`) and Navidrome only accepts lower case. Android only; iOS does not report.
+- **A force stop's now-playing entry is closed on the next start (Q-042).** The tracker's open id
+  lives in memory, so `PlaybackReportLedger` (in `PlaybackReporter.kt`) persists the mediaId of
+  every report Navidrome *confirmed* (`reportPlayback`'s Boolean) in
+  `PreferenceManager.playbackReportOpenId`, cleared by a confirmed `stopped` for that id. A new
+  reporter queues a `stopped` for **that exact id** before its consumer starts, because Navidrome
+  ignores a `stopped` whose mediaId differs from the entry. A dropped or refused send keeps the id
+  for the next start. Watched closing a force-stopped entry on the phone, 2026-10-02.
 - **Android Auto knows nothing about the hub.** Its `resolveStreamUrl` builds a *local* Navidrome
   URL, so browsing or playing from Auto during a remote session may start local playback. Untested
   as of alpha59.
+- **Q-040 (releasing the in-process `MediaController` on a swipe, so the service can stop) was
+  built and reverted 2026-10-02** and is kept on the local branch `q040-wip`: it needs
+  `onPlaybackResumption` first, or a media button after a swipe reaches an empty service (likely
+  `ForegroundServiceDidNotStartInTimeException`).
 
 The cast bridge's own rules — self-exclusion on reconnect, join-don't-launch, release by pausing
 rather than stopping — are protocol-level and live in navi-connect's `CLAUDE.md` and `PROTOCOL.md`,
 because both clients must agree on them.
+
+Its reconnect behaviour is app-local (B-045). `CastDeviceBridge.runLoop` survives a
+`CancellationException` that is not its own — `ensureActive()` still ends it on `destroy()`, and
+`start()` never restarts a loop that ended, which is how a bridge sat on "connecting…" for the life
+of the app. The backoff resets on `welcome`. And `CastBridgeManager`'s reconcile tears down and
+re-claims a bridge whose loop has ended, or that has been `!connected` for over 2 min **while this
+device's own hub link was up** (`bridgeIsStale` in `BridgeLiveness.kt`): the clock does not run
+during a hub outage, when no bridge can get in and a teardown would close a cast channel that is
+still advancing the speaker's queue. It logs one line when it fires.
 
 ---
 
@@ -367,6 +393,15 @@ because both clients must agree on them.
 - **Don't overwrite a track's artist with its album's.** The library sync used to, which discarded
   the full "A feat. B" credit Navidrome sends and made featured artists invisible app-wide. The
   album artist is a *fallback* for a track that names none.
+- **Only a complete AND stable pull prunes Room (B-037).** The album list is offset-paged while
+  Navidrome may be editing it: an album removed or renamed behind the walk shifts the next one
+  back across the page boundary, unread, and the prune deleted it. `listAllAlbums`
+  (`domain/repositories/AlbumListing.kt`), shared by `syncLibrarySongs` and `syncChangedAlbums`,
+  overlaps pages 50 on 500 and dedupes by id, and calls the listing `stable` only when
+  `getScanStatus` answers before and after with no scan and an unchanged count. An unstable or
+  partial pull still upserts, but `LibrarySync.complete` is false and nothing is pruned. A rename
+  that moves an album behind the walk mid-scan is still missed by that sync; the bracket is what
+  keeps it from being pruned.
 - **A song's artists come from the server; only the LINKS are filtered.** `SongEntity.artists` is
   the OpenSubsonic `artists[]` array, so names and ids are authoritative — which retired the fork's
   old split-on-"feat." heuristic entirely. What survives is `util/SongCredits.kt`:
@@ -802,6 +837,14 @@ true of invented *album art*, and not of an icon naming the kind.
   for. Only what needs a live lb-bot — the network discography fallback, fetches, the probe-gated
   Fresh tab — goes away. An enabled proxy always advertises its routes, which is how "down" is
   told from "off"; an empty list alone still means "a hub too old to say" to `advertisesRoute`.
+- **WebSocket pings are set on the engine, not the plugin.** On the OkHttp engine (Ktor 3.5.2,
+  OkHttp 5.3.2) `install(WebSockets) { pingIntervalMillis = … }` sends nothing: Ktor's session only
+  reports the interval of the OkHttpClient underneath, 0 by default, so a half-open hub socket
+  blocked `incoming` until something else noticed. Real pings need
+  `engine { config { pingInterval(10, SECONDS) } }`: `pingingWebSocketClient()`
+  (`androidMain/.../domain/manager/HubSocketClient.android.kt`) for every cast bridge, and for
+  `HubManager`, which is commonMain and cannot name OkHttp, through `HubSocketClientFactory`
+  (registered per platform; §2 rule 3). OkHttp fails a socket whose pong is a full interval late.
 - **Cast requires publicly reachable stream and cover URLs** — the speaker fetches them itself, so
   a Tailscale or LAN address will not do.
 - `ui/components/common/Form*` components are carried as fork code; upstream deleted them and
