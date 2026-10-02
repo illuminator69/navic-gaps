@@ -120,6 +120,51 @@ class PlaybackReportLedgerTest {
 		assertEquals(3, store.writes)
 	}
 
+	private fun snap(id: String, playing: Boolean) =
+		PlaybackSnapshot(id, isPlaying = playing, playWhenReady = playing, stopped = false, positionMs = 5_000L)
+
+	@Test
+	fun aTeardownRightAfterTheSwipeStillSendsTheStopped() {
+		// Q-040: the swipe queues its `stopped` and closes the tracker; the service is destroyed
+		// before the queue drains, and release() drops the queue. The ledger still holds s1.
+		val store = Store()
+		val ledger = store.ledger()
+		val tracker = PlaybackReportTracker()
+		val sender = FakeSender()
+		tracker.onMediaChanged(snap("s1", playing = true), suppressed = false)
+			.forEach { deliver(ledger, sender, it) }
+		val queuedBySwipe = tracker.onTaskRemoved(snap("s1", playing = true))
+		assertEquals(listOf("s1" to STOPPED), queuedBySwipe.map { it.mediaId to it.state })
+		// ...never delivered. The teardown:
+		val last = ledger.closeOnTeardown(tracker.onTeardown(snap("s1", playing = false)))
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 0L, 1f)), last)
+	}
+
+	@Test
+	fun aTeardownAfterTheSwipesStoppedLandedSendsNothing() {
+		val store = Store()
+		val ledger = store.ledger()
+		val tracker = PlaybackReportTracker()
+		val sender = FakeSender()
+		tracker.onMediaChanged(snap("s1", playing = true), suppressed = false)
+			.forEach { deliver(ledger, sender, it) }
+		tracker.onTaskRemoved(snap("s1", playing = true)).forEach { deliver(ledger, sender, it) }
+		assertEquals(emptyList<PlaybackReport>(), ledger.closeOnTeardown(tracker.onTeardown(snap("s1", playing = false))))
+	}
+
+	@Test
+	fun anOrdinaryTeardownKeepsTheTrackersOwnClose() {
+		// The tracker's close carries the real position; the ledger's fallback is only for when
+		// the tracker has nothing left to close.
+		val store = Store()
+		val ledger = store.ledger()
+		val tracker = PlaybackReportTracker()
+		tracker.onMediaChanged(snap("s1", playing = true), suppressed = false)
+			.forEach { deliver(ledger, FakeSender(), it) }
+		val last = ledger.closeOnTeardown(tracker.onTeardown(snap("s1", playing = false)))
+		assertEquals(listOf(PlaybackReport("s1", STOPPED, 5_000L, 1f)), last)
+	}
+
 	@Test
 	fun aSessionCutOffMidTrackLeavesTheTrackHeld() {
 		val store = Store()
