@@ -193,18 +193,6 @@ class PlaybackReportLedger(
 		.takeIf { it.isNotBlank() }
 		?.let { PlaybackReport(it, PlaybackReportState.STOPPED, positionMs = 0L, playbackRate = 1f) }
 
-	/**
-	 * The service's teardown close: the tracker's own `stopped` when it still holds an entry, else
-	 * the one for the id the server last confirmed (Q-040 fix round 1).
-	 *
-	 * Since Q-040 a swipe releases the app's controller, so the service is destroyed a few main
-	 * thread messages after onTaskRemoved. That `stopped` was queued, and the tracker closed,
-	 * while [PlaybackReporter.release] drops the queue: the close was usually lost and only the
-	 * next start healed it. A duplicate is harmless: Navidrome ignores a `stopped` with no entry.
-	 */
-	fun closeOnTeardown(fromTracker: List<PlaybackReport>): List<PlaybackReport> =
-		fromTracker.ifEmpty { listOfNotNull(closeLeftOpen()) }
-
 	/** Send [report] through [send], then remember what the server holds if it confirmed. */
 	suspend fun deliver(report: PlaybackReport, send: suspend (PlaybackReport) -> Boolean): Boolean {
 		val confirmed = send(report)
@@ -314,11 +302,9 @@ class PlaybackReporter(
 	}
 
 	/**
-	 * Swiped away from recents: see [PlaybackReportTracker.onTaskRemoved]. Through the outbox, so
-	 * it keeps its order behind anything already queued. Called before the swipe's pause, which
-	 * then finds nothing open and reports nothing. Since Q-040 the app lets go of the service on
-	 * a local swipe, so [release] usually follows within a few main-thread messages and drops the
-	 * queue before this `stopped` leaves; release resends it from [ledger] in that case.
+	 * Swiped away from recents: see [PlaybackReportTracker.onTaskRemoved]. Through the outbox, not
+	 * like [release]: the service lives on, so the queue stays open and keeps its order. Called
+	 * before the swipe's pause, which then finds nothing open and reports nothing.
 	 */
 	fun onTaskRemoved(snapshot: PlaybackSnapshot) {
 		seekJob?.cancel()
@@ -343,9 +329,7 @@ class PlaybackReporter(
 		seekJob?.cancel()
 		outbox.cancel()
 		consumer.cancel()
-		// Falls back to the ledger's close when the tracker has nothing open: a swipe's `stopped`
-		// still sitting in the outbox just cancelled above (Q-040).
-		val last = ledger.closeOnTeardown(tracker.onTeardown(snapshot))
+		val last = tracker.onTeardown(snapshot)
 		if (last.isEmpty() || supported != true || !connectivityManager.isOnline.value) return
 		// Best-effort: once the service is gone the process may be cached, and Android's freezer
 		// can suspend it before the call leaves (CLAUDE.md §7). Navidrome then expires the entry.
