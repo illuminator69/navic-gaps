@@ -135,7 +135,6 @@ import paige.navic.util.Logger
 import java.io.File
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.TimeSource
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.firstOrNull
 import paige.navic.domain.models.SavedQueueSource
@@ -944,10 +943,9 @@ private const val WARM_AHEAD = 2
 private const val WARMED_URLS_MAX = 64
 
 /**
- * The longest a caller waits for a released controller to reconnect (Q-040). Binding a service in
- * this process normally takes well under a second. A hub `do:load` waits no longer than its own
- * budget, and settles in whatever of that budget the reconnect left ([AndroidMediaPlayerViewModel.awaitRemoteQueueLoad]),
- * so its verdict still reaches the hub inside the deadline.
+ * How long a caller waits for a released controller to reconnect (Q-040). Binding a service in
+ * this process normally takes well under a second; the bound keeps a hub `do:load` answering
+ * inside the hub's own deadline instead of hanging the frame that carried it.
  */
 private const val CONTROLLER_CONNECT_TIMEOUT_MS = 5_000L
 
@@ -985,11 +983,7 @@ class AndroidMediaPlayerViewModel(
 
 	private var loadingCollectionId: String? = null
 
-	/**
-	 * The player volume a released controller had, or the hub set while none was connected
-	 * (Q-040). Applied to the next controller, so a new service does not come back at full volume.
-	 */
-	private var carriedVolume: Float? = null
+	private var pendingSyncState: PlayerUiState? = null
 
 	// Last map seen by the URI re-resolution pass, so [reresolveQueueUris] can be re-run from a
 	// track transition without waiting for the flow to re-emit.
@@ -1060,28 +1054,21 @@ class AndroidMediaPlayerViewModel(
 
 	/**
 	 * A connected controller, reconnecting first if a swipe or a dead service released the last one
-	 * (Q-040). Null when the connect fails or takes longer than [timeoutMs].
+	 * (Q-040). Null when the connect fails or takes longer than [CONTROLLER_CONNECT_TIMEOUT_MS].
 	 *
 	 * For the paths that must work with no UI up: a hub `do:load` ([applyRemoteQueue]) and the
 	 * `play`, `jump` and `seek` directives. A reconnect binds (and so recreates) the playback
 	 * service and restores the queue it lost, paused, before returning. Callable from any thread;
 	 * the work runs on Main, like everything else that touches the controller.
 	 */
-	private suspend fun awaitController(
-		timeoutMs: Long = CONTROLLER_CONNECT_TIMEOUT_MS
-	): MediaController? = withContext(Dispatchers.Main.immediate) {
+	private suspend fun awaitController(): MediaController? = withContext(Dispatchers.Main.immediate) {
 		controller?.takeIf { it.isConnected }?.let { return@withContext it }
 		try {
-			withTimeoutOrNull(timeoutMs.coerceAtMost(CONTROLLER_CONNECT_TIMEOUT_MS)) { connection.await() }
+			withTimeoutOrNull(CONTROLLER_CONNECT_TIMEOUT_MS) { connection.await() }
 		} catch (e: CancellationException) {
 			// The connect was abandoned under us (released mid-connect). Only our own
 			// cancellation may propagate: the hub's frame handler must not see a stray one.
 			currentCoroutineContext().ensureActive()
-			null
-		} catch (e: Exception) {
-			// Never thrown on to a caller: init and onUiStarted launch this bare, and an
-			// exception there would take the app down.
-			Logger.e("MediaPlayer", "media controller reconnect failed", e)
 			null
 		}
 	}
@@ -1120,27 +1107,15 @@ class AndroidMediaPlayerViewModel(
 			return null
 		}
 		controller = connected
-		carriedVolume?.let { connected.volume = it }
-		carriedVolume = null
-		// Restored from the UI state as it is NOW (restoreOnConnect), not from a copy taken at the
-		// swipe: while released, hub frames kept writing it (queue edits, a clear, repeat, shuffle,
-		// the session adopt), and the swipe-time queue would come back and be published over the
-		// session. At launch it is the persisted state restoreState put there.
-		restoreOnConnect(_uiState.value)?.let { restore ->
-			try {
-				downloadManager.allDownloads.first()
-				applySyncState(connected, restore)
-			} catch (e: CancellationException) {
-				throw e
-			} catch (e: Exception) {
-				// An empty player is recoverable (the next load fills it); a crash is not.
-				Logger.e("MediaPlayer", "restoring the queue into the player failed", e)
-			}
-		}
-		// After the restore, so its first updatePlaybackState reads the restored player rather
-		// than an empty one (track 1 at 0:00, shuffle and repeat off, reported to the hub).
-		// Callers waiting on this connect get a player that already holds the queue.
+		// Taken before setupController runs, so the queue is restored exactly once, here, and a
+		// caller waiting on this connect gets a player that already holds it.
+		val restore = pendingSyncState
+		pendingSyncState = null
 		setupController()
+		if (restore != null) {
+			downloadManager.allDownloads.first()
+			applySyncState(connected, restore)
+		}
 		return connected
 	}
 
@@ -1149,22 +1124,22 @@ class AndroidMediaPlayerViewModel(
 	 *
 	 * The app's own controller kept the service bound, so after a swipe its stopSelf() could not
 	 * end it and it outlived the app. Released here on the service's swipe signal, and when the
-	 * service disconnects under us. While released, the UI state is the only copy of the local
-	 * queue, and the no-controller paths keep it current; [connect] restores it, paused.
+	 * service disconnects under us. What was loaded is kept as [pendingSyncState], paused, the
+	 * same way a launch restores it, so a reconnect can re-seed the new service's empty player.
 	 * Idempotent; Main only.
 	 */
 	private fun releaseController() {
 		val future = controllerFuture
-		val held = controller
-		if (held == null && future == null) return
-		if (held?.isConnected == true) carriedVolume = held.volume
+		if (controller == null && future == null) return
 		controller = null
 		controllerFuture = null
 		controllerSetupJob?.cancel()
 		controllerSetupJob = null
 		// The swipe paused the player, but its callback may never reach a controller released
 		// this soon: say paused here, or the UI and the widgets keep showing it playing.
-		_uiState.update { it.copy(isPaused = true, isLoading = false) }
+		val paused = _uiState.value.copy(isPaused = true, isLoading = false)
+		_uiState.value = paused
+		pendingSyncState = paused
 		future?.let { MediaController.releaseFuture(it) }
 		Logger.i("MediaPlayer", "media controller released; the playback service may stop")
 	}
@@ -1674,8 +1649,10 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			val player = controller
 
-			// No controller: connect() restores from _uiState, which restoreState set first.
-			if (player == null) return@launch
+			if (player == null) {
+				pendingSyncState = state
+				return@launch
+			}
 
 			applySyncState(player, state)
 		}
@@ -1734,7 +1711,7 @@ class AndroidMediaPlayerViewModel(
 		// restore, a locally started mix, a post-edit reconcile). The hub receiver takes the
 		// result-bearing path below instead — see awaitRemoteQueueLoad.
 		viewModelScope.launch {
-			applyRemoteQueue(songs, index, positionMs, play, savedQueueId, savedQueueKind, savedQueueName)
+			applyRemoteQueue(songs, index, positionMs, play, savedQueueId, savedQueueKind, savedQueueName, reconnect = false)
 		}
 	}
 
@@ -1749,17 +1726,12 @@ class AndroidMediaPlayerViewModel(
 		// settling supersedes it, and the older attempt must neither keep waiting on a player
 		// that has moved on nor report a verdict for a queue that is no longer loaded.
 		val gen = ++remoteLoadGen
-		val started = TimeSource.Monotonic.markNow()
-		val applied = applyRemoteQueue(
-			songs, index, positionMs, play, null, "manual", null, reconnectWithinMs = budgetMs
-		)
+		val applied = applyRemoteQueue(songs, index, positionMs, play, null, "manual", null, reconnect = true)
 		if (applied != null) return applied
 		if (gen != remoteLoadGen) return LoadOutcome(false, "superseded by a newer load")
 		val player = controller ?: return LoadOutcome(false, "no player")
 		val idx = if (index in songs.indices) index else 0
-		// What is left of the hub's budget: a reconnect and restore (Q-040) already spent some.
-		val left = (budgetMs - started.elapsedNow().inWholeMilliseconds).coerceAtLeast(0L)
-		return awaitPlayerSettled(player, idx, play, left, gen)
+		return awaitPlayerSettled(player, idx, play, budgetMs, gen)
 	}
 
 	/**
@@ -1778,22 +1750,17 @@ class AndroidMediaPlayerViewModel(
 		savedQueueId: String?,
 		savedQueueKind: String,
 		savedQueueName: String?,
-		reconnectWithinMs: Long? = null
+		reconnect: Boolean
 	): LoadOutcome? {
-		// [reconnectWithinMs] (Q-040): after a swipe released the controller, a hub do:load is
-		// exactly the call that has to bring the playback service back, within its budget. The
-		// fire-and-forget loads do not reconnect: the hub's session adopt runs on every welcome
-		// and session frame, with no UI up, and would rebuild the service the swipe let go of just
-		// to hold a paused queue. With no controller they still land in _uiState below, which
-		// is what the next connect restores.
-		val player = if (reconnectWithinMs != null) {
-			awaitController(reconnectWithinMs) ?: return LoadOutcome(false, "no media controller")
-		} else {
-			controller
-		}
+		// [reconnect] (Q-040): after a swipe released the controller, a hub do:load is exactly the
+		// call that has to bring the playback service back. The fire-and-forget loads do not
+		// reconnect: the hub's session adopt runs on every welcome and session frame, with no UI
+		// up, and would rebuild the service the swipe let go of just to hold a paused queue.
+		val player = (if (reconnect) awaitController() else controller)
+			?: return LoadOutcome(false, "no media controller")
 		if (songs.isEmpty()) return LoadOutcome(false, "nothing to play")
 
-		val mediaItems = if (player == null) emptyList() else try {
+		val mediaItems = try {
 			withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 		} catch (e: Exception) {
 			Logger.e("MediaPlayer", "remote queue conversion failed", e)
@@ -1809,8 +1776,7 @@ class AndroidMediaPlayerViewModel(
 				currentSong = songs.getOrNull(idx),
 				currentCollection = null,
 				currentIndex = idx,
-				// Nothing plays without a controller: the queue is kept, paused, for the restore.
-				isPaused = !play || player == null,
+				isPaused = !play,
 				isLoading = false,
 				// A hub-driven / adopted queue is a transient mirror of the session (savedQueueId
 				// = null), so observeAndSaveState won't overwrite the user's saved-queue row. A
@@ -1826,8 +1792,6 @@ class AndroidMediaPlayerViewModel(
 				} else 0f
 			)
 		}
-
-		if (player == null) return LoadOutcome(false, "no media controller")
 
 		// Media3 is main-thread-only, and awaitRemoteQueueLoad is called from the hub's own
 		// scope rather than viewModelScope.
@@ -1918,13 +1882,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun reconcileRemoteQueue(songs: List<DomainSong>, index: Int) {
 		viewModelScope.launch {
-			val player = controller
-			if (player == null) {
-				// Released after a swipe (Q-040): keep the edit, so the reconnect restores the
-				// session's queue rather than the one from before the swipe.
-				_uiState.update { it.withQueueWhileReleased(songs, index) }
-				return@launch
-			}
+			val player = controller ?: return@launch
 			val currentId = _uiState.value.currentSong?.id
 			val newCurrent = songs.getOrNull(index)
 
@@ -1975,9 +1933,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun setPlayerVolume(volume: Float) {
 		viewModelScope.launch {
-			val level = volume.coerceIn(0f, 1f)
-			// Released (Q-040): held for the next controller rather than dropped.
-			controller?.let { it.volume = level } ?: run { carriedVolume = level }
+			controller?.volume = volume.coerceIn(0f, 1f)
 		}
 	}
 
