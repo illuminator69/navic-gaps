@@ -1,9 +1,7 @@
 package paige.navic.domain.manager.cast
 
 import android.os.SystemClock
-import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
@@ -16,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +38,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.util.Logger
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -170,9 +170,9 @@ internal class CastDeviceBridge(
 	private val onClaimedElsewhere: () -> Unit
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-	private val client = HttpClient {
-		install(WebSockets) { pingIntervalMillis = 10_000 }
-	}
+	// Real protocol pings (B-045): the WebSockets plugin's own pingIntervalMillis sends nothing
+	// on OkHttp. See pingingWebSocketClient.
+	private val client = pingingWebSocketClient()
 
 	val hubDeviceId: String get() = "cast-$deviceId"
 
@@ -185,6 +185,43 @@ internal class CastDeviceBridge(
 	 */
 	private val _connected = MutableStateFlow(false)
 	val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+	/**
+	 * When [connected] last went false, or when this bridge was built, on the elapsedRealtime
+	 * clock. Read by the manager's safety net (B-045, [bridgeIsStale]).
+	 */
+	@Volatile
+	var disconnectedSince: Long = SystemClock.elapsedRealtime()
+		private set
+
+	/** Whether the connect loop is still running. It never restarts by itself ([start]). */
+	val loopAlive: Boolean get() = connectJob?.isActive == true
+
+	/**
+	 * Set just before this bridge hands itself back through [onSuperseded] or [onClaimedElsewhere]:
+	 * its loop ended on purpose, and the manager must leave it to that callback.
+	 */
+	@Volatile
+	var standingDown = false
+		private set
+
+	/** Reset on every `welcome` (B-045): it used to only ever double. */
+	private val backoff = ReconnectBackoff(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS)
+
+	private fun markDisconnected() {
+		if (_connected.value) disconnectedSince = SystemClock.elapsedRealtime()
+		_connected.value = false
+	}
+
+	/**
+	 * Run [onChange] for every value of [connected], for as long as this bridge lives.
+	 *
+	 * On the bridge's own scope, so the watch ends with [destroy]. Collected on the manager's
+	 * scope it outlived every bridge it ever watched, which the B-045 re-claim would multiply.
+	 */
+	fun watchConnected(onChange: (Boolean) -> Unit) {
+		scope.launch { connected.collect { onChange(it) } }
+	}
 
 	@Volatile
 	private var host: String = host
@@ -313,33 +350,38 @@ internal class CastDeviceBridge(
 	// ------------------------------------------------------------------ hub socket
 
 	private suspend fun runLoop() {
-		var backoffMs = INITIAL_BACKOFF_MS
 		while (currentCoroutineContext().isActive && !destroyed) {
 			var superseded = false
 			try {
 				connectOnce()
 			} catch (e: CancellationException) {
-				throw e
+				// Ours (destroy() cancelling the scope): end the loop. Anything else — a cancellation
+				// thrown up out of the socket or a frame handler while this scope is still alive —
+				// used to end it too, for good, since start() never restarts it: a bridge stuck on
+				// "connecting…" for the life of the app (B-045). Now it is one more dropped link.
+				currentCoroutineContext().ensureActive()
+				Logger.w(TAG, "$friendlyName: hub connection cancelled from inside (${e.message}) — reconnecting")
 			} catch (e: Exception) {
 				Logger.w(TAG, "$friendlyName: hub connection error: ${e.message}")
 			}
 			superseded = lastCloseCode?.toInt() == CLOSE_SUPERSEDED
 			ws = null
-			_connected.value = false
+			markDisconnected()
 			if (destroyed) return
 			if (superseded) {
 				// Someone else (almost certainly Feishin's bridge) owns this speaker. Reconnecting
 				// would kick them off, they would kick us back, and the two clients would flap
 				// forever. Stand down and let the manager decide when to try again.
 				Logger.i(TAG, "$friendlyName: superseded by another bridge — standing down")
+				standingDown = true
 				onSuperseded()
 				return
 			}
 			// Jitter matters here in a way it doesn't for HubManager's single socket: every
 			// speaker on the LAN has its own bridge, and they'd otherwise all retry in lockstep.
+			val backoffMs = backoff.next()
 			val jitter = (Random.nextDouble() * 0.3 * backoffMs).toLong()
 			delay(backoffMs + jitter)
-			backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
 			// Back through arbitration, not straight to connectOnce(). The hub closes the previous
 			// socket with 4003 on ANY re-registration of a device id (hub.py `_register`), so a
 			// blind reconnect evicts whoever took the speaker while we were away — which is exactly
@@ -348,6 +390,7 @@ internal class CastDeviceBridge(
 			// Checked AFTER the backoff, so it reads the freshest device list the hub has sent us.
 			if (claimedElsewhere()) {
 				Logger.i(TAG, "$friendlyName: claimed by another client while we were away — standing down")
+				standingDown = true
 				onClaimedElsewhere()
 				return
 			}
@@ -391,7 +434,7 @@ internal class CastDeviceBridge(
 					handleHubFrame(msg)
 				}
 			} finally {
-				_connected.value = false
+				markDisconnected()
 				lastCloseCode = runCatching { closeReason.await()?.code }.getOrNull()
 			}
 		}
@@ -441,6 +484,7 @@ internal class CastDeviceBridge(
 		when (msg["t"]?.jsonPrimitive?.content) {
 			"welcome" -> {
 				_connected.value = true
+				backoff.onWelcome()
 				Logger.i(TAG, "$friendlyName: registered with hub as $hubDeviceId")
 				adopted = false
 				startDeviceStateLoop()

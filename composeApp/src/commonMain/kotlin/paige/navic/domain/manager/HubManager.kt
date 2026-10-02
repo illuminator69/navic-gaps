@@ -1,8 +1,6 @@
 package paige.navic.domain.manager
 
-import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
@@ -129,18 +127,17 @@ class HubManager(
 	private val mediaPlayer: MediaPlayerViewModel,
 	private val savedQueueRepository: SavedQueueRepository,
 	private val lbBotManager: LbBotManager,
-	private val lbIndexSync: LbIndexSync
+	private val lbIndexSync: LbIndexSync,
+	socketClientFactory: HubSocketClientFactory
 ) : RemotePlaybackRouter {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-	private val client = HttpClient {
-		install(WebSockets) {
-			// Protocol-level WS pings so a half-open socket (Wi-Fi→cellular, NAT
-			// timeout) is detected and torn down instead of blocking `incoming`
-			// forever — the app-level `ping`/`pong` only refreshes the hub's
-			// last-seen and can't detect a dead link on its own.
-			pingIntervalMillis = 10_000
-		}
-	}
+	// Protocol-level WS pings, so a half-open socket (Wi-Fi→cellular, a NAT timeout) fails and
+	// the loop reconnects instead of blocking `incoming` forever; the app-level `ping`/`pong` only
+	// refreshes the hub's last-seen. They come from the platform's factory because the
+	// `install(WebSockets) { pingIntervalMillis = 10_000 }` that used to be here sent NOTHING on
+	// Android: Ktor's OkHttp engine ignores it, and only an engine-level pingInterval goes out
+	// (B-045, see HubSocketClientFactory).
+	private val client = socketClientFactory.create()
 
 	private val _connected = MutableStateFlow(false)
 	val connected: StateFlow<Boolean> = _connected.asStateFlow()

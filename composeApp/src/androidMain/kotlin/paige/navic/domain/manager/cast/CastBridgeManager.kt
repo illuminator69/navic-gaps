@@ -1,6 +1,7 @@
 package paige.navic.domain.manager.cast
 
 import android.content.Context
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -95,6 +96,14 @@ class CastBridgeManager(
 	 */
 	private val bridgeStateChanged = MutableStateFlow(0)
 
+	/**
+	 * Since when (elapsedRealtime) this device's own hub socket has been up, or null while it is
+	 * down. The B-045 safety net counts a bridge's time short of the hub only while the hub is
+	 * reachable at all — see [bridgeIsStale].
+	 */
+	@Volatile
+	private var hubUpSince: Long? = null
+
 	private val _speakers = MutableStateFlow<List<CastSpeaker>>(emptyList())
 
 	/** What the picker shows: every speaker we can see, and what we're doing about it. */
@@ -157,6 +166,11 @@ class CastBridgeManager(
 				reconcile(discovery.devices.value)
 			}
 		}
+		scope.launch {
+			hubManager.connected.collect { up ->
+				hubUpSince = if (up) hubUpSince ?: SystemClock.elapsedRealtime() else null
+			}
+		}
 	}
 
 	/**
@@ -217,7 +231,9 @@ class CastBridgeManager(
 		bridgesMutex.withLock {
 			for (device in effective) {
 				val hubId = "cast-${device.id}"
-				val existing = bridges[device.id]
+				// A stale bridge is torn down here and the speaker falls through to be claimed
+				// afresh, through the same stand-down and arbitration checks as a new one.
+				val existing = bridges[device.id]?.takeUnless { dropIfStale(device.id, it) }
 
 				if (existing != null) {
 					// Keep the address current: a speaker that took a new DHCP lease keeps its
@@ -255,6 +271,33 @@ class CastBridgeManager(
 		_speakers.value = effective.map {
 			CastSpeaker(it.id, it.name, states[it.id] ?: CastBridgeState.IDLE)
 		}
+	}
+
+	/**
+	 * The B-045 safety net: tear down a bridge that has stopped trying, or has been short of the hub
+	 * for [BRIDGE_STALE_MS] while the hub itself was reachable. Its own loop is supposed to get it
+	 * back, and when that loop has ended or keeps failing, nothing else ever would: the picker said
+	 * "connecting…" for the life of the app. Called with [bridgesMutex] held.
+	 */
+	private fun dropIfStale(deviceId: String, bridge: CastDeviceBridge): Boolean {
+		val now = SystemClock.elapsedRealtime()
+		val stale = bridgeIsStale(
+			connected = bridge.connected.value,
+			loopAlive = bridge.loopAlive,
+			standingDown = bridge.standingDown,
+			downSinceMs = bridge.disconnectedSince,
+			hubUpSinceMs = hubUpSince,
+			nowMs = now
+		)
+		if (!stale) return false
+		val why = if (bridge.loopAlive) {
+			"no welcome for ${(now - bridge.disconnectedSince) / 1_000}s"
+		} else {
+			"its connect loop has ended"
+		}
+		Logger.i(TAG, "${bridge.friendlyName}: bridge stuck short of the hub ($why) — tearing it down and claiming afresh")
+		bridges.remove(deviceId)?.destroy()
+		return true
 	}
 
 	/**
@@ -328,10 +371,8 @@ class CastBridgeManager(
 			bridges[device.id] = bridge
 			bridge.start()
 			// Nudge reconcile when this bridge's hub link comes up or goes down, so the picker
-			// state above tracks reality instead of intent.
-			scope.launch {
-				bridge.connected.collect { bridgeStateChanged.value = bridgeStateChanged.value + 1 }
-			}
+			// state above tracks reality instead of intent. On the bridge's scope: it ends with it.
+			bridge.watchConnected { bridgeStateChanged.value = bridgeStateChanged.value + 1 }
 		}
 	}
 

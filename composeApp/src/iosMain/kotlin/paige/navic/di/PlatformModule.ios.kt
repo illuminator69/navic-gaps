@@ -1,6 +1,8 @@
 package paige.navic.di
 
 import androidx.room3.Room
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.websocket.WebSockets
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.cinterop.ExperimentalForeignApi
 import org.koin.core.module.dsl.singleOf
@@ -21,6 +23,7 @@ import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.NoopCastBridgeStatus
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.DownloadForegroundController
+import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
@@ -86,6 +89,11 @@ actual val platformModule = module {
 	singleOf(::ConnectivityManager)
 	singleOf(::LogManager)
 	single<CastBridgeStatus> { NoopCastBridgeStatus() }
+	// What HubManager had before B-045 moved its client behind this factory. Untested on iOS:
+	// whether the Darwin engine honours the plugin's ping interval was never checked.
+	single<HubSocketClientFactory> {
+		HubSocketClientFactory { HttpClient { install(WebSockets) { pingIntervalMillis = 10_000 } } }
+	}
 	singleOf(::AppIconManager)
 	singleOf(::PermissionManager)
 	singleOf(::LinkManager)

@@ -23,6 +23,8 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.DownloadForegroundController
+import paige.navic.domain.manager.HubSocketClientFactory
+import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
@@ -98,6 +100,9 @@ actual val platformModule = module {
 	singleOf(::StorageManager)
 	singleOf(::ConnectivityManager)
 	singleOf(::LogManager)
+	// The hub socket's client, with OkHttp-level pings (B-045). HubManager is createdAtStart, so
+	// losing this registration fails every launch rather than silently dropping the pings.
+	single<HubSocketClientFactory> { HubSocketClientFactory { pingingWebSocketClient() } }
 
 	// Eager: discovery has to already be running when the picker opens, and the bridge has to be
 	// up for the speaker to appear in OTHER clients' pickers whether or not this phone's UI is
