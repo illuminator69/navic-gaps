@@ -41,10 +41,12 @@ import navic.composeapp.generated.resources.fresh_bucket_upcoming
 import navic.composeapp.generated.resources.fresh_chip_in_library
 import navic.composeapp.generated.resources.fresh_chip_upcoming
 import navic.composeapp.generated.resources.fresh_empty_all
+import navic.composeapp.generated.resources.fresh_empty_played
 import navic.composeapp.generated.resources.fresh_empty_type
 import navic.composeapp.generated.resources.fresh_empty_yours
 import navic.composeapp.generated.resources.fresh_failed
 import navic.composeapp.generated.resources.fresh_scope_all
+import navic.composeapp.generated.resources.fresh_scope_played
 import navic.composeapp.generated.resources.fresh_scope_yours
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.fresh_sort_artist
@@ -168,6 +170,7 @@ fun FreshScreen(nested: Boolean = false) {
 										state.failed -> Res.string.fresh_failed
 										state.type != FreshType.ALL -> Res.string.fresh_empty_type
 										state.scope == FreshScope.YOURS -> Res.string.fresh_empty_yours
+										state.scope == FreshScope.PLAYED -> Res.string.fresh_empty_played
 										else -> Res.string.fresh_empty_all
 									}
 								)
@@ -304,6 +307,20 @@ private fun FreshFilters(
 				onClick = { onScope(FreshScope.ALL) },
 				label = { Text(stringResource(Res.string.fresh_scope_all) + " (${state.all.size})") }
 			)
+			// Only when the feed carries the listens rider: an older lb-bot sends no
+			// `artistPlays`, and a chip that could only ever be empty is not offered.
+			if (state.playsKnown) {
+				FilterChip(
+					selected = state.scope == FreshScope.PLAYED,
+					onClick = { onScope(FreshScope.PLAYED) },
+					label = {
+						Text(
+							stringResource(Res.string.fresh_scope_played) +
+								" (${state.playedCount})"
+						)
+					}
+				)
+			}
 			WINDOWS.forEach { days ->
 				FilterChip(
 					selected = state.days == days,
@@ -311,16 +328,20 @@ private fun FreshFilters(
 					label = { Text(stringResource(Res.string.fresh_window_days, days)) }
 				)
 			}
-			FilterChip(
-				selected = state.sort == FreshSort.DATE,
-				onClick = { onSort(FreshSort.DATE) },
-				label = { Text(stringResource(Res.string.fresh_sort_date)) }
-			)
-			FilterChip(
-				selected = state.sort == FreshSort.ARTIST,
-				onClick = { onSort(FreshSort.ARTIST) },
-				label = { Text(stringResource(Res.string.fresh_sort_artist)) }
-			)
+			// "Artists you play" has its own order — most played first — so the two sort
+			// chips would be a control that does nothing. Hidden there, not disabled.
+			if (state.scope != FreshScope.PLAYED) {
+				FilterChip(
+					selected = state.sort == FreshSort.DATE,
+					onClick = { onSort(FreshSort.DATE) },
+					label = { Text(stringResource(Res.string.fresh_sort_date)) }
+				)
+				FilterChip(
+					selected = state.sort == FreshSort.ARTIST,
+					onClick = { onSort(FreshSort.ARTIST) },
+					label = { Text(stringResource(Res.string.fresh_sort_artist)) }
+				)
+			}
 		}
 		Row(
 			Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),

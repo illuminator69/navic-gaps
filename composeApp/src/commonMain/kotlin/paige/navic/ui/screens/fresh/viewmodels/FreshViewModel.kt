@@ -17,8 +17,49 @@ import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.PreferenceManager
 
-/** Which releases the page is scoped to. */
-enum class FreshScope { YOURS, ALL }
+/**
+ * Which releases the page is scoped to. [PLAYED] is "Artists you play" (I-006): rows whose artists
+ * have plays in lb-bot's listens mirror, most played first.
+ */
+enum class FreshScope { YOURS, ALL, PLAYED }
+
+/**
+ * Whether the feed carries the listens rider at all. An lb-bot that predates it sends no
+ * `artistPlays` on any row — not the same as every row saying 0, which is what a mirror that is
+ * off or still importing says — and the "Artists you play" scope is then not offered.
+ */
+internal fun freshPlaysKnown(rows: List<LbFreshRelease>): Boolean = rows.any { it.artistPlays != null }
+
+/**
+ * The scope the page actually applies. The stored choice is kept as it is — the rider may be
+ * back on the next read — but a scope the feed cannot answer falls back to the default rather
+ * than rendering an empty page under a chip that is not there.
+ */
+internal fun freshEffectiveScope(scope: FreshScope, playsKnown: Boolean): FreshScope =
+	if (scope == FreshScope.PLAYED && !playsKnown) FreshScope.YOURS else scope
+
+/**
+ * The rows a scope shows.
+ *
+ * "Your artists" is `artistOwned` — the artist being in the library — NOT `releaseOwned`, which
+ * is only this exact release-group being on disk. An owned artist with a brand-new album is
+ * precisely what this page is for, and conflating the two would filter it out.
+ *
+ * "Artists you play" is the only scope that also ORDERS: most played first, then newest, then by
+ * name, so the order is the same on every read.
+ */
+internal fun freshScoped(rows: List<LbFreshRelease>, scope: FreshScope): List<LbFreshRelease> =
+	when (scope) {
+		FreshScope.YOURS -> rows.filter { it.artistOwned }
+		FreshScope.ALL -> rows
+		FreshScope.PLAYED -> rows
+			.filter { (it.artistPlays ?: 0) > 0 }
+			.sortedWith(
+				compareByDescending<LbFreshRelease> { it.artistPlays ?: 0 }
+					.thenByDescending { it.releaseDate }
+					.thenBy { it.releaseName.lowercase() }
+			)
+	}
 
 /** Newest-first (in week buckets) or a flat A-Z by artist. */
 enum class FreshSort { DATE, ARTIST }
@@ -44,6 +85,7 @@ data class FreshUi(
 	/** lb-bot answered but had nothing to say, versus it not answering at all. */
 	val failed: Boolean = false,
 	val days: Int = 30,
+	/** The scope APPLIED — the stored choice, or its fallback when the feed cannot answer it. */
 	val scope: FreshScope = FreshScope.YOURS,
 	val sort: FreshSort = FreshSort.DATE,
 	val type: FreshType = FreshType.ALL,
@@ -56,6 +98,10 @@ data class FreshUi(
 	val truncated: Boolean = false,
 	val groups: List<FreshGroup> = emptyList(),
 	val ownedArtistCount: Int = 0,
+	/** The feed carries `artistPlays`; false from an older lb-bot, and the scope is then hidden. */
+	val playsKnown: Boolean = false,
+	/** Rows whose artists have plays — the "Artists you play" chip's count. */
+	val playedCount: Int = 0,
 	val typeCounts: Map<FreshType, Int> = emptyMap()
 )
 
@@ -73,11 +119,15 @@ class FreshViewModel(
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	private val isOnline = connectivityManager.isOnline
+
+	/** The scope the user chose, as stored. [FreshUi.scope] is what [recompute] makes of it. */
+	private var chosenScope = runCatching { FreshScope.valueOf(preferenceManager.freshScope) }
+		.getOrDefault(FreshScope.YOURS)
+
 	private val _state = MutableStateFlow(
 		FreshUi(
 			days = preferenceManager.freshDays,
-			scope = runCatching { FreshScope.valueOf(preferenceManager.freshScope) }
-				.getOrDefault(FreshScope.YOURS),
+			scope = freshEffectiveScope(chosenScope, playsKnown = false),
 			sort = runCatching { FreshSort.valueOf(preferenceManager.freshSort) }
 				.getOrDefault(FreshSort.DATE),
 			type = runCatching { FreshType.valueOf(preferenceManager.freshType) }
@@ -157,8 +207,9 @@ class FreshViewModel(
 	}
 
 	fun setScope(scope: FreshScope) {
+		chosenScope = scope
 		preferenceManager.freshScope = scope.name
-		_state.value = recompute(_state.value.copy(scope = scope))
+		_state.value = recompute(_state.value)
 	}
 
 	fun setSort(sort: FreshSort) {
@@ -172,19 +223,26 @@ class FreshViewModel(
 	}
 
 	private fun recompute(ui: FreshUi): FreshUi {
-		// "Your artists" is artistOwned — the artist being in the library — NOT
-		// releaseOwned, which is only this exact release-group being on disk. An
-		// owned artist with a brand-new album is precisely what this page is for,
-		// and conflating the two would filter it out.
-		val scoped = if (ui.scope == FreshScope.YOURS) ui.all.filter { it.artistOwned } else ui.all
+		val playsKnown = freshPlaysKnown(ui.all)
+		val scope = freshEffectiveScope(chosenScope, playsKnown)
+		val scoped = freshScoped(ui.all, scope)
 		val counts = FreshType.entries.associateWith { bucket ->
 			if (bucket == FreshType.ALL) scoped.size else scoped.count { typeOf(it) == bucket }
 		}
 		val shown = if (ui.type == FreshType.ALL) scoped else scoped.filter { typeOf(it) == ui.type }
 		return ui.copy(
+			scope = scope,
 			ownedArtistCount = ui.all.count { it.artistOwned },
+			playsKnown = playsKnown,
+			playedCount = ui.all.count { (it.artistPlays ?: 0) > 0 },
 			typeCounts = counts,
-			groups = group(shown, ui.sort)
+			// "Artists you play" is one flat list in [freshScoped]'s own order, most played
+			// first. The sort control does not apply there, and the screen hides it.
+			groups = if (scope == FreshScope.PLAYED) {
+				if (shown.isEmpty()) emptyList() else listOf(FreshGroup(null, shown))
+			} else {
+				group(shown, ui.sort)
+			}
 		)
 	}
 
