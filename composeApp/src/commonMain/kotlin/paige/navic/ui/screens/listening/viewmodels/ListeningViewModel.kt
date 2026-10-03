@@ -193,9 +193,15 @@ class ListeningViewModel(
 			_state.update { it.copy(recentLoading = true, recentFailed = false) }
 			val result = lbBotManager.listeningRecent(before)
 			stillWanted()
-			// The list was read again from the top while this page was in flight: the cursor it
-			// was asked with is gone, and appending it would repeat rows under the new first page.
-			if (_state.value.recentNextBefore != before) return@launch
+			// The list was replaced while this page was in flight: the cursor it was asked with is
+			// gone, and appending it would repeat rows under the new first page. A re-read from
+			// the top cancels this job before it gets here, so this is the list having been
+			// CLEARED (the phase went off, older or back to loading) — nothing will read it again,
+			// and the spinner this page set is this page's to end.
+			if (_state.value.recentNextBefore != before) {
+				_state.update { it.copy(recentLoading = false) }
+				return@launch
+			}
 			when (result) {
 				is LbBotManager.LbResult.Ok -> _state.update {
 					it.copy(
