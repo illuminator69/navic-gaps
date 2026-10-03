@@ -39,6 +39,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
+| lb-bot data, pending actions | `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`), `ui/screens/settings/{LbBotDataSection,PendingActionsScreen}.kt` + their view models, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -530,6 +531,39 @@ still advancing the speaker's queue. It logs one line when it fires.
     hidden in that scope, since its order is its own.
   - `listeningSync()` (`POST /lb/listening/sync`) has no caller yet; the "Sync now" of the lb-bot
     data panel is its consumer. A 405 from it is an lb-bot that predates the route.
+- **The data-management surfaces say only what something said (I-020).** Three surfaces, one
+  rule: a sentence is a claim about lb-bot, and it is only made from a fact lb-bot, the hub or
+  Room actually reported. The sentences are pure functions in `LbBotData.kt`.
+  - **"lb-bot data"** (`LbBotDataSection`, in the navi-connect settings; plain English like its
+    host screen): the override list (artist, MBID, "Navidrome said: …", Remove), the index
+    mirror's numbers, the listening status in words, and one "Sync now". `panelData` decides what
+    a list is — reading (only while a request is in flight), unreachable with nothing loaded,
+    the copy loaded last, or current — from `LbBotManager.artistOverridesLoaded` /
+    `artistOverridesReadFailed`; an empty map alone cannot tell "no overrides" from "never read".
+  - **"Sync now" reports what happened, not what a timeout suggests.** The mirror's line is
+    `LbIndexSync.lastRun`: running, done on which cursor and how many artists changed, skipped
+    and why, failed and with what. **It is a record, never an input** — nothing in `LbIndexSync`
+    reads it, and syncing, retrying and backing off are exactly as they were; the notes are
+    assignments beside the returns they describe. "Up to date" is only said of a pull that
+    finished and changed nothing. The listening half reports the sync request's own answer and
+    then the status it leads to (`listeningSyncOutcome`): the request returns at once, so
+    "synced" needs `lastSyncAt` to have moved, an `error` that was already there is not this
+    sync's, and a 405 is "this lb-bot has no listening history yet", a fact.
+  - **A write made from the panel follows lb-bot's scan decision** (`overrideWriteLine` over
+    `overrideScanToFollow`), exactly as the artist page does. Nothing there starts a scan.
+  - **"Refresh About"** (the artist and album sheets) is `refreshArtistMeta` / `refreshAlbumMeta`:
+    one request with `refresh=1`, which lb-bot and the hub both step past their cached copy for.
+    Only an About replaces what is shown and what is cached — `{"found": false}` is one (lb-bot
+    looked and nothing is written), `{}` is not (`aboutBodyOrNull` checks the key before
+    decoding, because the two decode alike). "Could not reach lb-bot", "lb-bot answered an
+    error" and "lb-bot returned nothing" are three sentences, and each leaves the About alone.
+    It is deliberately not `cachedGet` with `REFRESH`, which can say none of that.
+  - **The pending-actions browser** (`Screen.Settings.PendingActions`, opened from Data &
+    Storage's row) is `SyncActionDao.observePendingActions()`: each queued action in words, its
+    item's title out of Room or else its id, and when it was queued. A per-row remove and
+    `SyncManager.processQueue` do not disturb each other — the drain reads the queue once and
+    deletes each row by id after sending it — but an action the drain has already read may
+    still be sent in the moment after it is removed.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
