@@ -98,6 +98,7 @@ class LbIndexSync(
 	// Worker-only notes for [lastRun], written beside the returns of [sync] that they describe.
 	private var runSerial = 0L
 	private var runApplied = 0
+	private var runCursor = 0L
 	private var runSkip = LbIndexSkip.LB_BOT_DOWN
 	private var runProblem = ""
 
@@ -123,7 +124,7 @@ class LbIndexSync(
 					Outcome.BACKOFF
 				}
 				_lastRun.value = when (outcome) {
-					Outcome.DONE -> LbIndexRun.Done(serial, cursorForRecord(), runApplied)
+					Outcome.DONE -> LbIndexRun.Done(serial, runCursor, runApplied)
 					Outcome.SKIPPED -> LbIndexRun.Skipped(serial, runSkip)
 					Outcome.BACKOFF -> LbIndexRun.Failed(serial, runProblem)
 				}
@@ -219,21 +220,13 @@ class LbIndexSync(
 		}
 	}
 
-	/** The cursor a finished pass ended on, for [lastRun]. A read; a failure of it is "0". */
-	private suspend fun cursorForRecord(): Long = try {
-		dao.getMeta()?.cursor ?: 0L
-	} catch (e: CancellationException) {
-		throw e
-	} catch (e: Exception) {
-		0L
-	}
-
 	/**
 	 * One convergence pass: pull pages until `more` is false, then the drift check — at most one
 	 * drift repair per pass (contract ruling R6).
 	 */
 	private suspend fun sync(why: String): Outcome {
 		runApplied = 0
+		runCursor = 0L
 		runProblem = ""
 		// The note for [lastRun] is set ahead of each return below; it decides nothing.
 		runSkip = LbIndexSkip.NO_FEED
@@ -287,6 +280,10 @@ class LbIndexSync(
 			}
 
 			val plan = dao.applyPage(page, force)
+			// For [lastRun]: the cursor this page left the mirror on ([LbIndexDao.applyPage] writes
+			// exactly this value), so a finished pass is recorded from what it did, with no read
+			// of its own. Every pass that ends DONE has applied a page last.
+			runCursor = plan.newCursor
 			pages++
 			applied += plan.upserts.size + plan.deletes.size
 			if (page.more) {
