@@ -317,7 +317,8 @@ data class HeatCell(val date: String, val count: Int, val level: Int)
 
 /**
  * The 16-week grid: [weeks] columns of seven days, oldest first, the last cell being the newest
- * day lb-bot sent. A null cell is a day lb-bot sent nothing for.
+ * day lb-bot sent. A null cell is padding, and only ever on the OLD side: lb-bot sent fewer than
+ * 112 days, and the grid keeps its shape rather than its start.
  */
 data class ListeningHeatmap(val weeks: List<List<HeatCell?>>, val max: Int)
 
@@ -328,6 +329,10 @@ const val HEATMAP_DAYS = 112
  * Every column is seven consecutive days, so a row is one weekday throughout. Sorted here rather
  * than trusted, cut to the newest 112, and padded on the OLD side when there are fewer, so the
  * newest day is always the last cell.
+ *
+ * The rows are therefore NOT a calendar week: the bottom row is the newest day's weekday and the
+ * top row the weekday after it (history ending on a Saturday reads Sunday to Saturday; ending on
+ * a Wednesday, Thursday to Wednesday). The screen draws no weekday labels for that reason.
  */
 internal fun heatmapGrid(days: List<LbDayCount>): ListeningHeatmap {
 	val newest = days.filter { it.date.isNotBlank() }.sortedBy { it.date }.takeLast(HEATMAP_DAYS)

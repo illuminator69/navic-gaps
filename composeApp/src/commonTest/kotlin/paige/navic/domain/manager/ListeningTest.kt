@@ -1,6 +1,10 @@
 package paige.navic.domain.manager
 
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -213,6 +217,50 @@ class ListeningTest {
 		assertEquals(input.first().date, grid.weeks.first().first()?.date)
 		assertEquals(input.last().date, grid.weeks.last().last()?.date)
 		assertEquals(111, grid.max)
+	}
+
+	/** [n] real consecutive calendar days ending on [end], oldest first — what lb-bot sends. */
+	private fun consecutiveDays(end: LocalDate, n: Int = 112) = List(n) { i ->
+		LbDayCount(end.minus(n - 1 - i, DateTimeUnit.DAY).toString(), i)
+	}
+
+	private fun weekdaysOfRow(grid: ListeningHeatmap, row: Int): Set<DayOfWeek> =
+		grid.weeks.mapNotNull { it[row] }.map { LocalDate.parse(it.date).dayOfWeek }.toSet()
+
+	@Test
+	fun withRealDatesTheNewestDayIsBottomRightAndEveryRowIsOneWeekday() {
+		// 2026-10-03 is a Saturday; 112 days ending on it begin on Sunday 2026-06-14.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
+		assertEquals(16, grid.weeks.size)
+		assertEquals("2026-06-14", grid.weeks[0][0]?.date)
+		assertEquals("2026-10-03", grid.weeks[15][6]?.date)
+		(0..6).forEach { row -> assertEquals(1, weekdaysOfRow(grid, row).size) }
+		assertEquals(setOf(DayOfWeek.SUNDAY), weekdaysOfRow(grid, 0))
+		assertEquals(setOf(DayOfWeek.SATURDAY), weekdaysOfRow(grid, 6))
+		// A column is one run of seven days: the day above the newest is the day before it.
+		assertEquals("2026-10-02", grid.weeks[15][5]?.date)
+		assertEquals("2026-09-26", grid.weeks[14][6]?.date)
+	}
+
+	@Test
+	fun theRowsFollowTheNewestDayNotTheCalendarWeek() {
+		// Ending on a Wednesday (2026-09-30) the bottom row is Wednesdays and the top row is
+		// Thursdays: the newest day is always the last cell, so a row's weekday moves with it.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 9, 30)))
+		assertEquals("2026-09-30", grid.weeks[15][6]?.date)
+		assertEquals(setOf(DayOfWeek.WEDNESDAY), weekdaysOfRow(grid, 6))
+		assertEquals(setOf(DayOfWeek.THURSDAY), weekdaysOfRow(grid, 0))
+	}
+
+	@Test
+	fun aShortRealHistoryStillEndsBottomRightOnItsNewestDay() {
+		// Ten days ending Saturday 2026-10-03: only the last column is full, and the three
+		// days before it sit at the BOTTOM of the column before, on their own weekdays.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3), n = 10))
+		assertEquals("2026-10-03", grid.weeks[15][6]?.date)
+		assertEquals("2026-09-27", grid.weeks[15][0]?.date)
+		assertEquals(listOf(null, null, null, null, "2026-09-24", "2026-09-25", "2026-09-26"), grid.weeks[14].map { it?.date })
+		assertEquals(setOf(DayOfWeek.SATURDAY), weekdaysOfRow(grid, 6))
 	}
 
 	@Test

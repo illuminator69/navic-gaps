@@ -565,7 +565,8 @@ private fun Heatmap(grid: ListeningHeatmap) {
 		val corner = CornerRadius(cell * 0.2f)
 		grid.weeks.forEachIndexed { x, week ->
 			week.forEachIndexed { y, day ->
-				// A null cell is a day lb-bot sent nothing for; it is not drawn as a zero.
+				// A null cell is padding on the old side of a history shorter than the grid:
+				// no day stands there, so nothing is drawn — not even the empty-day square.
 				if (day == null) return@forEachIndexed
 				drawRoundRect(
 					color = if (day.level == 0) off else on.copy(alpha = 0.25f * day.level),
