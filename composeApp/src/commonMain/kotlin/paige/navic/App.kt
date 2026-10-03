@@ -130,6 +130,7 @@ import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.settings.DownloadCenterScreen
+import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
 import paige.navic.ui.screens.settings.SettingsLogsScreen
@@ -627,6 +628,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.DownloadCenter>(metadata = detailPane("settings")) {
 			DownloadCenterScreen()
+		}
+		entry<Screen.Settings.PendingActions>(metadata = detailPane("settings")) {
+			PendingActionsScreen()
 		}
 		entry<Screen.Settings.Fonts> {
 			FontsScreen()

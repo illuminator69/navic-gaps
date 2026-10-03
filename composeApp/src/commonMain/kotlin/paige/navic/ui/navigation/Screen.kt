@@ -273,6 +273,11 @@ sealed interface Screen : NavKey {
 		@Immutable
 		@Serializable
 		data object DownloadCenter : Settings
+
+		/** What is still waiting to be sent to the server, row by row (I-020). */
+		@Immutable
+		@Serializable
+		data object PendingActions : Settings
 		@Immutable
 		@Serializable
 		data object Fonts : Settings

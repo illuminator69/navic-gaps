@@ -50,9 +50,13 @@ class SettingsDataStorageViewModel(
 		loadPendingActions()
 	}
 
+	/**
+	 * Observed, not read once: the row opens the pending-actions browser, where rows can be
+	 * removed one by one, and a count taken when this screen opened would be wrong on the way back.
+	 */
 	private fun loadPendingActions() {
 		viewModelScope.launch(Dispatchers.IO) {
-			pendingActionCount.value = syncDao.getPendingActions().size
+			syncDao.observePendingActions().collect { pendingActionCount.value = it.size }
 		}
 	}
 

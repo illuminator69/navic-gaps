@@ -984,4 +984,23 @@
 	<string name="listening_recent_title">Recent plays</string>
 	<string name="listening_recent_empty">No plays stored yet.</string>
 	<string name="listening_recent_more">Show more</string>
+
+	<!-- navi-connect I-020: the pending-actions browser and Refresh About. -->
+	<string name="info_pending_actions_hint">Changes made while the server could not be reached wait here and are sent in order, oldest first.</string>
+	<string name="info_pending_actions_empty">Nothing is waiting to be sent.</string>
+	<string name="info_pending_actions_offline">Offline. These are sent when the server can be reached.</string>
+	<string name="pending_action_scrobble">Scrobble</string>
+	<string name="pending_action_star">Star</string>
+	<string name="pending_action_unstar">Unstar</string>
+	<string name="pending_action_rate">Rate %1$d</string>
+	<string name="pending_action_delete_playlist">Delete playlist</string>
+	<string name="info_pending_action_queued">Queued %1$s</string>
+	<string name="action_sync_now">Sync now</string>
+	<string name="action_remove_pending_action">Remove from the queue</string>
+	<string name="action_refresh_about">Refresh About</string>
+	<string name="notice_about_refreshed">About refreshed.</string>
+	<string name="notice_about_refreshed_empty">Refreshed. lb-bot found nothing written about this.</string>
+	<string name="notice_about_nothing">lb-bot returned nothing. What is shown is unchanged.</string>
+	<string name="notice_about_unreachable">Couldn't reach lb-bot. What is shown is unchanged.</string>
+	<string name="notice_about_error">lb-bot answered an error. What is shown is unchanged.</string>
 </resources>

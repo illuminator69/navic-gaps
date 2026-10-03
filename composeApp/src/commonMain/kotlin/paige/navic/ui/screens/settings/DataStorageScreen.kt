@@ -328,7 +328,8 @@ fun SettingsDataStorageScreen() {
 
 				FormTitle(stringResource(Res.string.title_cache_management))
 				Form {
-					FormRow {
+					// Opens the queue itself: what each action is, on what, and since when.
+					FormRow(onClick = { backStack.add(Screen.Settings.PendingActions) }) {
 						Column(Modifier.weight(1f)) {
 							Text(stringResource(Res.string.option_pending_actions))
 							Text(
