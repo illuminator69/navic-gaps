@@ -38,6 +38,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -491,6 +492,44 @@ still advancing the speaker's queue. It logs one line when it fires.
   consumer of a library artist's MBID that reaches an lb-bot call or a MusicBrainz link goes
   through `LbBotManager.effectiveArtistMbid(ndId, tag)`; ids that came FROM lb-bot (a Fresh row,
   a lookup hit, a mirrored artist row, the external pages' route key) are already the right ones.
+- **My Listening shows lb-bot's numbers and computes none (I-006).** lb-bot mirrors the user's
+  ListenBrainz listens and serves the aggregates; every figure on `ListeningScreen` is a field of
+  its answer, and every decision about those answers is a pure function in `Listening.kt`. Three
+  reads of three kinds: the **status** (`/lb/listening/status`, never cached) decides what the page
+  is at all — `ListeningPhase`: off, importing, ready, the last sync failed, lb-bot unreachable, or
+  an lb-bot **older** than the routes (a 404, said in one quiet sentence, not as an error) — and
+  is the only thing polled, every 5 s, **only while importing and only while the screen is
+  started** (`repeatOnLifecycle`); the **summary** is `cachedGet` (5 min, ownership-stale like
+  Fresh), so the last body for a period and zone paints first and offline; the **unowned** list
+  and **recent plays** are plain reads. `tz` is the device's IANA zone on every summary request,
+  because lb-bot's container runs in UTC.
+  - **A summary read mid-import is partial, and its age does not say so.** `importFinished` is the
+    cue to re-read the summary and the unowned list when the phase leaves "importing";
+    `summaryNeedsRefresh` (the body's `generatedAt` older than the status's `lastSyncAt`) catches
+    the same body across a relaunch, when there is no phase change left to see. The hub keeps its
+    own 60 s copy of the summary, which a sync landing on lb-bot does not flush, so a re-read can
+    be handed the body it meant to replace: one more read follows 65 s later when it was.
+  - **Nothing is not an answer.** A summary with no `period` (`isAnswer`) is never stored or
+    painted — `{}` decodes to zeros, and zeros read as an empty history — and a status with no
+    `state` reads as unreachable. No cached summary and none from the network is a failure line
+    with a Retry, never a blank page and never the empty-history wording.
+  - **The gate is strict and remembered.** `LbBotManager.listeningSupported` is true only when the
+    advert **lists** `GET /lb/listening/summary` — an empty advert is not "capable" here, unlike
+    `advertisesRoute` — and is seeded from `PreferenceManager.lbListeningAdvertised`, the last
+    advert's verdict, so the entry exists on a cold offline start and the cached page is reachable.
+  - **Rows link out and never download.** `albumTarget` / `artistTarget` take the ids Room holds:
+    lb-bot's `ndAlbumId` / `ndArtistId` are authoritative but an id is not a page that exists
+    (above). What the library holds opens its page; what it does not opens `Screen.ExternalAlbum` /
+    `Screen.ExternalArtist`, where the reviewed acquire flow already lives. A recent-plays row's
+    lazy-list key carries its index (`recentPlayKey`): two identical scrobbles are two rows, and a
+    duplicate key is a crash.
+  - **Fresh's "Artists you play"** is the rows with `artistPlays > 0`, most played first
+    (`freshScoped`). `artistPlays` is **nullable**: an lb-bot that predates the rider sends no
+    field, which is not 0, and the chip is then not offered (`freshPlaysKnown`); a stored choice
+    of that scope falls back to "Your artists" without being overwritten. The sort chips are
+    hidden in that scope, since its order is its own.
+  - `listeningSync()` (`POST /lb/listening/sync`) has no caller yet; the "Sync now" of the lb-bot
+    data panel is its consumer. A 405 from it is an lb-bot that predates the route.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
@@ -876,7 +915,9 @@ true of invented *album art*, and not of an icon naming the kind.
   library's own stack, so each destination carries `nested = true` or it renders `RootTopBar` with
   no back arrow. The list is padded back out of Recently added / Starred / Frequently played until
   it is four long, because an odd count leaves a hole in the two-column grid and a home page with
-  no library shortcuts has lost something it used to do.
+  no library shortcuts has lost something it used to do. My Listening is a fifth possible button
+  (gated on `listeningSupported`, not on lb-bot being up — its page works from cache), and
+  `overviewButtonCount` then makes the home six long rather than pushing Random off it.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way
