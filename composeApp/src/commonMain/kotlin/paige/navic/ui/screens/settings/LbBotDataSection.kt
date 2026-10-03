@@ -26,7 +26,7 @@ import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbMatchToCheck
 import paige.navic.domain.manager.MATCHES_TO_CHECK_BLURB
 import paige.navic.domain.manager.matchCanKeep
-import paige.navic.domain.manager.matchReason
+import paige.navic.domain.manager.matchDetail
 import paige.navic.domain.manager.matchesNote
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.indexRunLine
@@ -206,8 +206,9 @@ private fun Muted(text: String) {
 }
 
 /**
- * One artist to check (I-021): the name (a link to their page when there is one), how many
- * albums and what was measured, "Choose…", and "Keep this match" where lb-bot has a guess to keep.
+ * One artist to check (I-021): the name (a link to their page when there is one), what was
+ * measured and how many albums they have (`matchDetail`), "Choose…", and "Keep this match" where
+ * lb-bot has a guess to keep.
  */
 @Composable
 private fun MatchRow(
@@ -227,7 +228,7 @@ private fun MatchRow(
 			overflow = TextOverflow.Ellipsis,
 			modifier = if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier
 		)
-		Muted(matchReason(row))
+		Muted(matchDetail(row))
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			OutlinedButton(enabled = enabled, onClick = onChoose) { Text("Choose…") }
 			if (onKeep != null) {

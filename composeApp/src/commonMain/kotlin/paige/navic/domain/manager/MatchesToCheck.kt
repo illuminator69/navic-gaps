@@ -61,12 +61,28 @@ internal fun matchCanKeep(row: LbMatchToCheck): Boolean =
 
 /**
  * What is the matter with a row, in words. A kind this build has never heard of is worded by
- * what it carries: a guess, or none.
+ * what it carries: a guess, or none. lb-bot only lists an artist with at least one album, so a
+ * count of 0 is a field that did not arrive, and is not said as a number.
  */
 internal fun matchReason(row: LbMatchToCheck): String = when {
 	row.mbid.isBlank() -> "No MusicBrainz artist found"
+	row.albums <= 0 -> "lb-bot guessed a MusicBrainz artist that matches none of your albums"
 	row.albums == 1 -> "lb-bot guessed a MusicBrainz artist that does not match your 1 album"
 	else -> "lb-bot guessed a MusicBrainz artist that matches none of your ${row.albums} albums"
+}
+
+/**
+ * The line under a row's name: what was measured, and how many albums the artist has. A guess's
+ * sentence carries the count itself; "No MusicBrainz artist found" does not, so the count
+ * follows it (the same line the desktop client shows).
+ */
+internal fun matchDetail(row: LbMatchToCheck): String {
+	val reason = matchReason(row)
+	return if (row.mbid.isBlank() && row.albums > 0) {
+		"$reason · ${row.albums} ${if (row.albums == 1) "album" else "albums"}"
+	} else {
+		reason
+	}
 }
 
 /**

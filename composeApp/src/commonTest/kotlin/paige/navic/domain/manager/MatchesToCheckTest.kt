@@ -100,6 +100,28 @@ class MatchesToCheckTest {
 	}
 
 	@Test
+	fun everyRowSaysHowManyAlbumsTheArtistHas() {
+		// A guess: the count is in the sentence itself.
+		assertEquals(
+			"lb-bot guessed a MusicBrainz artist that matches none of your 7 albums",
+			matchDetail(unmatched("ar-1", albums = 7))
+		)
+		// No guess: the sentence has no count, so it follows it.
+		assertEquals("No MusicBrainz artist found · 3 albums", matchDetail(unresolved("ar-2", albums = 3)))
+		assertEquals("No MusicBrainz artist found · 1 album", matchDetail(unresolved("ar-2", albums = 1)))
+	}
+
+	@Test
+	fun aCountThatDidNotArriveIsNotZeroAlbums() {
+		// lb-bot only lists artists with at least one album, so 0 is a field that was not sent.
+		assertEquals("No MusicBrainz artist found", matchDetail(unresolved("ar-2", albums = 0)))
+		assertEquals(
+			"lb-bot guessed a MusicBrainz artist that matches none of your albums",
+			matchDetail(unmatched("ar-1", albums = 0))
+		)
+	}
+
+	@Test
 	fun onlyAnUnmatchedRowWithAGuessCanBeKept() {
 		assertTrue(matchCanKeep(unmatched("ar-1")))
 		assertFalse(matchCanKeep(unresolved("ar-2")))

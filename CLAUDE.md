@@ -579,8 +579,11 @@ still advancing the speaker's queue. It logs one line when it fires.
   shows "Nothing to check" (`matchesSectionShown`, `MatchesToCheck.kt`, `MatchesToCheckTest`).
   `matchesToShow` also drops an artist the map already has an override for, so a set takes the
   row out at once. The copy says "worth a look, not necessarily wrong" — an untagged artist with
-  a non-Latin name is often listed although the guess is right. "Keep this match" is an ordinary
-  set of the guessed MBID; "Choose…" is the artist page's own picker, opened with no id in force.
+  a non-Latin name is often listed although the guess is right. Every row says how many albums
+  the artist has (`matchDetail`): inside the sentence for a guess, after "No MusicBrainz artist
+  found" for none — and a count of 0 is a field that did not arrive, never "0 albums". "Keep this
+  match" is an ordinary set of the guessed MBID; "Choose…" is the artist page's own picker,
+  opened with no id in force.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
