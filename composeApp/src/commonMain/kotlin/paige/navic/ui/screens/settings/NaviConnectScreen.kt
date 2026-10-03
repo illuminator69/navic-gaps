@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.layouts.NestedTopBar
 
@@ -40,6 +41,7 @@ import paige.navic.ui.components.layouts.NestedTopBar
 fun NaviConnectScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val hubManager = koinInject<HubManager>()
+	val lbBotManager = koinInject<LbBotManager>()
 
 	val connected by hubManager.connected.collectAsState()
 	val devices by hubManager.devices.collectAsState()
@@ -166,6 +168,11 @@ fun NaviConnectScreen() {
 			Button(onClick = { saveAudioMuse() }) {
 				Text("Save AudioMuse")
 			}
+
+			// What this device holds of lb-bot's, and "Sync now" (I-020). Keyed on the hub's
+			// route configuration: the switch and the fields above decide whether the lb-bot
+			// layer exists, and they are plain preferences with no Flow to observe.
+			LbBotDataSection(lbBotManager.routeSignature)
 
 			Text("Devices", style = MaterialTheme.typography.titleMedium)
 			if (devices.isEmpty()) {
