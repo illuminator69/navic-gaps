@@ -1016,6 +1016,64 @@ class LbBotManager(
 	}
 
 	/**
+	 * "Refresh About" for an artist (I-020): ask lb-bot to look the About up again and say what
+	 * came of it. Not [artistMeta] with [LbCachePolicy.REFRESH], for two reasons that are the
+	 * whole point of the button: `cachedGet` cannot tell "could not reach lb-bot" from "lb-bot
+	 * answered an error" from "lb-bot answered nothing", and it never lets a sparse answer
+	 * replace a body — where a refresh that finds nothing written must be able to say so.
+	 *
+	 * `refresh=1` is what makes it a refresh at all: lb-bot keeps an About for a month and the
+	 * hub keeps its own copy for hours, and both step past theirs for that parameter.
+	 */
+	suspend fun refreshArtistMeta(mbid: String?, name: String?): LbMetaRefresh {
+		if (mbid.isNullOrBlank() && name.isNullOrBlank()) return LbMetaRefresh.Nothing
+		return refreshMeta(
+			"/lb/meta/artist",
+			if (!mbid.isNullOrBlank()) listOf("mbid" to mbid) else listOf("name" to (name ?: ""))
+		)
+	}
+
+	/** As [refreshArtistMeta], for a release-group. The params are [albumMeta]'s, so is the key. */
+	suspend fun refreshAlbumMeta(rgid: String, releaseMbid: String? = null): LbMetaRefresh {
+		if (rgid.isBlank()) return LbMetaRefresh.Nothing
+		return refreshMeta(
+			"/lb/meta/album",
+			buildList {
+				add("rgid" to rgid)
+				if (!releaseMbid.isNullOrBlank()) add("release_mbid" to releaseMbid)
+			}
+		)
+	}
+
+	/**
+	 * [params] are the ordinary read's, so an About that comes back is stored under the key that
+	 * read uses and is what the page paints next time — a sparse `found: false` included, which
+	 * `cachedGet` itself never stores. Anything that is not an About ([aboutBodyOrNull]) and every
+	 * failure leaves the cached body, and what is on screen, exactly as it was.
+	 */
+	private suspend fun refreshMeta(route: String, params: List<Pair<String, String>>): LbMetaRefresh {
+		val startedAt = nowMs()
+		val result = getText(route, params + ("refresh" to "1"))
+		val outcome = metaRefreshOf(result)
+		if (outcome is LbMetaRefresh.Replaced && result is LbResult.Ok) {
+			try {
+				responseCache.putCachedResponse(
+					LbResponseCacheEntity(
+						key = cacheKey(route, params, staleOnLibrary = false),
+						body = result.value,
+						fetchedAt = startedAt
+					)
+				)
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				Logger.w("LbBotManager", "response cache write failed for $route", e)
+			}
+		}
+		return outcome
+	}
+
+	/**
 	 * "Similar albums" for an album page — one record per similar artist, all drawn
 	 * from **your own library**, so it is a rediscovery shelf and not a shopping list.
 	 *
@@ -1210,6 +1268,19 @@ class LbBotManager(
 	val artistOverridesSupported: StateFlow<Boolean> = _artistOverridesSupported.asStateFlow()
 
 	/**
+	 * Two facts about [artistOverrides] that the map alone cannot say, for the "lb-bot data"
+	 * panel (I-020): whether a body has been applied at all — from the cache or the network —
+	 * and whether the last read from lb-bot failed. An empty map means "no overrides" only when
+	 * the first is true; with the second true it is the copy this device loaded last. Without
+	 * them the panel could only show a blank, or "Loading…" over a read nobody is making.
+	 */
+	private val _artistOverridesLoaded = MutableStateFlow(false)
+	val artistOverridesLoaded: StateFlow<Boolean> = _artistOverridesLoaded.asStateFlow()
+
+	private val _artistOverridesReadFailed = MutableStateFlow(false)
+	val artistOverridesReadFailed: StateFlow<Boolean> = _artistOverridesReadFailed.asStateFlow()
+
+	/**
 	 * lb-bot answered 404 for an override route the hub proxies: it is older than the hub. The
 	 * surfaces hide — never an error — and `index` frames stop asking, until the next advert sets
 	 * [overrideRecheck]. In memory only, like [hubProxyOff].
@@ -1286,7 +1357,10 @@ class LbBotManager(
 			null
 		}
 		val map = cached?.let { overrideMap(it) } ?: return
-		overridesLock.withLock { _artistOverrides.value = map }
+		overridesLock.withLock {
+			_artistOverrides.value = map
+			_artistOverridesLoaded.value = true
+		}
 	}
 
 	/**
@@ -1325,7 +1399,13 @@ class LbBotManager(
 			onFailure = { error -> if (error == LbError.RouteUnknown) overrideRoutesMissing = true }
 		)
 		val map = body?.let { overrideMap(it) }
-		if (map != null) _artistOverrides.value = map
+		if (map != null) {
+			_artistOverrides.value = map
+			_artistOverridesLoaded.value = true
+		}
+		// Only a read that was actually made can have failed: the early return above (no hub,
+		// no such route) leaves this as it was.
+		_artistOverridesReadFailed.value = map == null
 		publishOverrideSupport()
 		return map != null
 	}
