@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.time.Clock
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_choose_musicbrainz_artist
 import navic.composeapp.generated.resources.action_index_artist
 import navic.composeapp.generated.resources.action_rescan_discography
 import navic.composeapp.generated.resources.info_index_needs_mbid
@@ -82,7 +83,10 @@ fun DiscographyShelf(
 	canIndex: Boolean,
 	onIndex: () -> Unit,
 	onOpenEntry: (DiscographyEntry) -> Unit,
-	onSelectEntry: (DiscographyEntry) -> Unit
+	onSelectEntry: (DiscographyEntry) -> Unit,
+	/** Opens the MusicBrainz match picker. Null where there is none to open: an artist off the
+	 *  library, or a hub that cannot store an override. Only offered when [canIndex] is false. */
+	onChooseMbid: (() -> Unit)? = null
 ) {
 	if (!ui.available) return
 
@@ -94,7 +98,13 @@ fun DiscographyShelf(
 		// needs `mbid` *and* `name`, so this artist genuinely cannot be scanned —
 		// which is a real limitation to state, not a reason to make the control
 		// vanish and leave the user wondering where the feature went.
-		IndexAction(ui, onIndex, Res.string.action_index_artist, enabled = canIndex)
+		IndexAction(
+			ui = ui,
+			onIndex = onIndex,
+			label = Res.string.action_index_artist,
+			enabled = canIndex,
+			onChooseMbid = onChooseMbid
+		)
 		return
 	}
 
@@ -121,7 +131,8 @@ fun DiscographyShelf(
 		onIndex = onIndex,
 		label = if (ui.sections.isEmpty()) Res.string.action_index_artist
 		else Res.string.action_rescan_discography,
-		enabled = canIndex
+		enabled = canIndex,
+		onChooseMbid = onChooseMbid
 	)
 }
 
@@ -130,7 +141,8 @@ private fun IndexAction(
 	ui: DiscographyUi,
 	onIndex: () -> Unit,
 	label: StringResource,
-	enabled: Boolean
+	enabled: Boolean,
+	onChooseMbid: (() -> Unit)?
 ) {
 	Column(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -147,7 +159,15 @@ private fun IndexAction(
 			}
 			return@Column
 		}
-		Button(onClick = onIndex, enabled = enabled) { Text(stringResource(label)) }
+		if (!enabled && onChooseMbid != null) {
+			// No MusicBrainz id to scan under, and the hub can store one: offer to choose it
+			// (I-019) in place of a button that could only ever be disabled.
+			Button(onClick = onChooseMbid) {
+				Text(stringResource(Res.string.action_choose_musicbrainz_artist))
+			}
+		} else {
+			Button(onClick = onIndex, enabled = enabled) { Text(stringResource(label)) }
+		}
 		// The scan failed and lb-bot kept what it had. Its sentence, verbatim: it names
 		// the cause ("MusicBrainz did not answer (HTTP 503)"), which a paraphrase loses.
 		if (ui.scanError.isNotBlank()) {

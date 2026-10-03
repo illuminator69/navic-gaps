@@ -102,6 +102,7 @@ import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.components.sheets.GapFillSheet
+import paige.navic.ui.components.sheets.MbidMatchSheet
 import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.screens.artist.components.DiscographyShelf
 import paige.navic.ui.core.UiState
@@ -158,6 +159,9 @@ fun ArtistDetailScreen(
 	val selectedRelease by viewModel.selectedRelease.collectAsStateWithLifecycle()
 	val selectedReleaseReadOnly by viewModel.selectedReleaseReadOnly.collectAsStateWithLifecycle()
 	val selectedGap by viewModel.selectedGap.collectAsStateWithLifecycle()
+	// Which MusicBrainz artist lb-bot is asked about, and the picker that changes it (I-019).
+	val artistMbid by viewModel.artistMbid.collectAsStateWithLifecycle()
+	val mbidMatch by viewModel.mbidMatch.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
 
@@ -221,6 +225,7 @@ fun ArtistDetailScreen(
 				artistState = artistState,
 				starred = starred,
 				onSetStarred = { viewModel.starArtist(it) },
+				onFixMusicBrainzMatch = { viewModel.openMbidMatch() },
 			)
 		},
 		bottomBar = {
@@ -504,8 +509,14 @@ fun ArtistDetailScreen(
 							DiscographyShelf(
 								ui = discography,
 								artistName = state.artist.name,
-								canIndex = !state.artist.musicBrainzId.isNullOrBlank(),
+								// The override when the user has set one, else Navidrome's tag.
+								canIndex = artistMbid.effective.isNotBlank(),
 								onIndex = { viewModel.indexArtist() },
+								onChooseMbid = if (artistMbid.canOverride) {
+									{ viewModel.openMbidMatch() }
+								} else {
+									null
+								},
 								onOpenEntry = { entry ->
 									when {
 										// Tapping an album you own opens it — including
@@ -652,6 +663,23 @@ fun ArtistDetailScreen(
 			onDismissRequest = { viewModel.selectRelease(null) },
 			readOnly = selectedReleaseReadOnly
 		)
+	}
+
+	mbidMatch?.let { match ->
+		artistState.data?.artist?.let { artist ->
+			MbidMatchSheet(
+				artistName = artist.name,
+				coverArtId = artist.coverArtId,
+				tagMbid = artistMbid.tag,
+				currentMbid = artistMbid.effective,
+				overridden = artistMbid.overridden,
+				working = match.working,
+				error = match.error,
+				onPick = { viewModel.setMbidOverride(it) },
+				onRemoveOverride = { viewModel.removeMbidOverride() },
+				onDismissRequest = { viewModel.dismissMbidMatch() }
+			)
+		}
 	}
 
 	selectedGap?.let { entry ->

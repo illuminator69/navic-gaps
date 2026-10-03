@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
@@ -30,6 +32,7 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
+import navic.composeapp.generated.resources.notice_mbid_match_failed
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.DownloadStatus
@@ -51,6 +54,7 @@ import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbLibraryEvent
 import paige.navic.domain.manager.LbMeta
+import paige.navic.domain.manager.LbOverrideWrite
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.NativeApiManager
@@ -136,6 +140,29 @@ data class DiscographyUi(
 	/** Why the last scan this page started failed, in lb-bot's words; blank otherwise. */
 	val scanError: String = "",
 	val sections: List<DiscographySection> = emptyList()
+)
+
+/**
+ * Which MusicBrainz artist this page asks lb-bot about (I-019).
+ *
+ * [effective] is the user's override when they have set one, else Navidrome's [tag]; blank means
+ * there is neither, and lb-bot then has nothing to scan. [overridden] is true even when the
+ * override names the same id as the tag. [canOverride] false means no override UI at all: no
+ * hub, or a hub or an lb-bot too old to store one.
+ */
+@Immutable
+data class ArtistMbidUi(
+	val effective: String = "",
+	val tag: String = "",
+	val overridden: Boolean = false,
+	val canOverride: Boolean = false
+)
+
+/** The MusicBrainz match picker while it is open: a write in flight, or why the last one failed. */
+@Immutable
+data class MbidMatchUi(
+	val working: Boolean = false,
+	val error: LbBotManager.LbError? = null
 )
 
 class ArtistDetailViewModel(
@@ -242,6 +269,37 @@ class ArtistDetailViewModel(
 	private val discographyLock = Mutex()
 	private var mirrorJob: Job? = null
 
+	// ----- which MusicBrainz artist this is (I-019) ------------------------------------------- //
+	//
+	// Resolved when the artist loads, before anything asks lb-bot, and again whenever the
+	// override map moves — a pick made here, or one made on another client and heard through the
+	// hub. Every lb-bot read and write below takes the id from [_artistMbid], never from
+	// `artist.musicBrainzId`: that is only Navidrome's tag, and the tag is what an override is for.
+
+	private val _artistMbid = MutableStateFlow(ArtistMbidUi())
+	val artistMbid = _artistMbid.asStateFlow()
+
+	/** The match picker; null while it is closed. */
+	private val _mbidMatch = MutableStateFlow<MbidMatchUi?>(null)
+	val mbidMatch = _mbidMatch.asStateFlow()
+
+	/**
+	 * The id this page asked with until the last change, blank before any. lb-bot re-files the
+	 * artist under the new id, but the local mirror still holds the old row until its next pull —
+	 * and the mirror lookup's Navidrome-id fallback finds exactly that row. See [observeMirror].
+	 */
+	private var leftMbid = ""
+
+	private var overridesJob: Job? = null
+	private var overrideWriteJob: Job? = null
+	/**
+	 * The one scan this page is waiting on, whoever started it — the button, or lb-bot after an
+	 * override write. One at a time: a wait for the id the page has left must neither paint its
+	 * answer nor clear the spinner of the wait that replaced it.
+	 */
+	private var scanJob: Job? = null
+	private var metaJob: Job? = null
+
 	init {
 		loadArtistData()
 		// A fill landing — here or on another client — changes two answers at once:
@@ -337,13 +395,16 @@ class ArtistDetailViewModel(
 
 				starred.value = artistRepository.isArtistStarred(domainArtist)
 
+				// Which MusicBrainz artist this is, before the first lb-bot read keys on it.
+				resolveMbid(domainArtist)
+
 				// lb-bot's discography, from the local index mirror — a Room read, no network,
 				// no availability probe — and built into typed sections in the SAME pass,
 				// BEFORE the page goes to Success. The screen's first Success frame therefore
 				// already has the shelf, and the legacy album carousel (which renders only
 				// while there is no shelf) is never shown and then swapped out: the "jump"
 				// this page used to do as the rows spliced in after a probe and a fetch.
-				val mirrored = readMirror(domainArtist)
+				val mirrored = readMirror()
 				if (mirrored != null) {
 					val sections = buildSections(domainAlbums, mirrored.releases)
 					discographyLock.withLock {
@@ -364,7 +425,8 @@ class ArtistDetailViewModel(
 				)
 				// The mirror keeps answering for as long as the page lives: a sync that
 				// changes this artist re-emits, with no refetch and no bump involved.
-				observeMirror(domainArtist)
+				observeMirror()
+				observeOverrides()
 
 				// Fire-and-forget, and strictly after the page has its own data: the
 				// discography shelf is an enhancement, and an artist page must render
@@ -459,15 +521,20 @@ class ArtistDetailViewModel(
 	 * grid must look exactly as they do today while this is in flight, and
 	 * exactly as they do today forever if it never answers.
 	 *
-	 * The MBID is sent when Navidrome carries one. Without it lb-bot falls back to
-	 * a MusicBrainz name search and takes the top hit, which for a generically
-	 * named artist is a coin toss — so the name is the fallback, not the default.
+	 * The MBID is sent when there is one — the user's override, else Navidrome's tag.
+	 * Without it lb-bot falls back to a MusicBrainz name search and takes the top hit,
+	 * which for a generically named artist is a coin toss — so the name is the
+	 * fallback, not the default.
+	 *
+	 * One at a time: it runs again when the MBID changes, and an answer for the id
+	 * the page no longer asks about must not land after the one for the id it does.
 	 */
 	fun loadMeta() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
-		viewModelScope.launch {
+		metaJob?.cancel()
+		metaJob = viewModelScope.launch {
 			if (!lbBotManager.isConfigured) return@launch
-			val mbid = state.artist.musicBrainzId
+			val mbid = _artistMbid.value.effective.ifBlank { null }
 			val name = state.artist.name
 			// The About this device last saw, from Room — no probe, no network, offline too —
 			// so a revisited artist has it in the page's first frames rather than after a
@@ -502,13 +569,16 @@ class ArtistDetailViewModel(
 	 * hub is configured at all ([LbBotManager.isConfigured]): the mirror answers offline and
 	 * with lb-bot down, which is its point, but not for a user who has switched the layer off.
 	 * Looked up exactly as lb-bot looks up the network read (MBID key first, then the Navidrome
-	 * id — contract §1a), so both sources name the same artist.
+	 * id — contract §1a), so both sources name the same artist. The MBID is the effective one:
+	 * after an override lb-bot files the artist under the id the user picked.
 	 */
-	private suspend fun readMirror(artist: DomainArtist): LbDiscography? {
+	private suspend fun readMirror(): LbDiscography? {
 		if (!lbBotManager.isConfigured) return null
-		return runCatching { lbIndexSync.discography(artistId, artist.musicBrainzId) }
+		return runCatching { lbIndexSync.discography(artistId, _artistMbid.value.effective) }
 			.onFailure { Logger.w("ArtistDetailViewModel", "index mirror read failed", it) }
 			.getOrNull()
+			// As [observeMirror]: not the row for the id this page has just left.
+			?.takeUnless { leftMbid.isNotBlank() && it.artistMbid == leftMbid }
 	}
 
 	/**
@@ -519,15 +589,21 @@ class ArtistDetailViewModel(
 	 * the shelf in place. A null (not mirrored, or wiped by a `resync` and not re-pulled yet)
 	 * leaves whatever is shown alone rather than blanking the shelf under the user.
 	 *
-	 * Started once: [loadArtistData] runs again after a star/unstar.
+	 * Started once per MBID: [loadArtistData] runs again after a star/unstar, and
+	 * [mbidChanged] drops the job so the next call keys the lookup on the new id.
 	 */
-	private fun observeMirror(artist: DomainArtist) {
+	private fun observeMirror() {
 		if (mirrorJob != null) return
+		val mbid = _artistMbid.value.effective
+		val left = leftMbid
 		mirrorJob = viewModelScope.launch {
-			lbIndexSync.observeDiscography(artistId, artist.musicBrainzId)
+			lbIndexSync.observeDiscography(artistId, mbid)
 				.catch { Logger.w("ArtistDetailViewModel", "index mirror observe failed", it) }
 				.collect { data ->
 					if (data == null || !lbBotManager.isConfigured) return@collect
+					// Still the row for the id this page has just stopped asking with: the
+					// mirror has not pulled the override's re-file yet. Not this artist any more.
+					if (left.isNotBlank() && data.artistMbid == left) return@collect
 					applyLbData(data, mirror = true)
 				}
 		}
@@ -546,7 +622,10 @@ class ArtistDetailViewModel(
 				markUnavailable()
 				return@launch
 			}
-			val data = lbBotManager.discography(state.artist.id, state.artist.musicBrainzId)
+			val mbid = _artistMbid.value.effective
+			val data = lbBotManager.discography(state.artist.id, mbid)
+			// Answered for an id the page stopped asking with while this was in flight.
+			if (mbid != _artistMbid.value.effective) return@launch
 			if (data == null) {
 				markUnavailable()
 				return@launch
@@ -618,28 +697,21 @@ class ArtistDetailViewModel(
 	/**
 	 * Start the (slow, rate-limited) MusicBrainz walk, then wait for the index to fill.
 	 *
-	 * The wait is a race. The mirror is the feedback: lb-bot stores the scan, pushes an `index`
-	 * frame, [LbIndexSync] pulls, and this artist's mirror Flow emits a newer `scannedAt` —
-	 * seconds after the walk ends. [LbBotManager.awaitArtistScan] is the fallback, a 15 s poll
-	 * (woken early by lb-bot's `artistScanned` frame) that is also the only thing able to say the
-	 * scan FAILED, since the scan record is not index state. Whichever answers first wins.
+	 * Under the effective MBID: the user's override when there is one, else Navidrome's tag.
+	 * With neither there is nothing to scan, and the shelf offers the picker instead.
 	 */
 	fun indexArtist() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
-		val mbid = state.artist.musicBrainzId
-		if (mbid.isNullOrBlank()) return
-		viewModelScope.launch {
+		val mbid = _artistMbid.value.effective
+		if (mbid.isBlank()) return
+		scanJob?.cancel()
+		scanJob = viewModelScope.launch {
 			_discography.value = _discography.value.copy(indexing = true, scanError = "")
-			// Watch `scanned_at`, not `indexed`. For an already-indexed artist `indexed` is true on
-			// the very first tick, so the spinner cleared while the walk was still running — in
-			// exactly the case a rescan button exists for. A first scan reads 0 here, so the same
-			// "it moved" rule covers both. The float as lb-bot wrote it — from whichever source the
-			// shelf is showing, else asked — never the page's millisecond copy, whose truncation
-			// would read as "it moved" on an unchanged scan.
-			val scannedAtBefore = lbData?.takeIf { it.indexed }?.scannedAt
-				?: lbBotManager.discography(state.artist.id, mbid)?.scannedAt
-				?: 0.0
+			val scannedAtBefore = scannedAtShown(mbid)
 			val taskId = lbBotManager.indexArtist(mbid, state.artist.name, state.artist.id)
+			// The manager answers a cancelled request as a failure; a wait that an override
+			// write has just replaced must not report "did not start" over the new one.
+			ensureActive()
 			if (taskId == null) {
 				_discography.value = _discography.value.copy(
 					indexing = false,
@@ -647,48 +719,235 @@ class ArtistDetailViewModel(
 				)
 				return@launch
 			}
-			// A big discography takes 10-60s at MusicBrainz's one request a second.
-			val outcome = coroutineScope {
-				val viaMirror = async<LbScanOutcome> {
-					try {
-						LbScanOutcome.Done(
-							lbIndexSync.observeDiscography(state.artist.id, mbid)
-								.filterNotNull()
-								.first { it.indexed && it.scannedAt > scannedAtBefore }
-						)
-					} catch (e: CancellationException) {
-						throw e
-					} catch (e: Exception) {
-						// A Room failure must not take the scan down with it: leave the
-						// race to the poll.
-						Logger.w("ArtistDetailViewModel", "index mirror watch failed", e)
-						awaitCancellation()
-					}
-				}
-				val viaPoll = async {
-					lbBotManager.awaitArtistScan(state.artist.id, mbid, taskId, scannedAtBefore)
-				}
-				select<LbScanOutcome> {
-					viaMirror.onAwait { it }
-					viaPoll.onAwait { it }
-				}.also {
-					viaMirror.cancel()
-					viaPoll.cancel()
+			followScan(mbid, taskId, scannedAtBefore)
+		}
+	}
+
+	/**
+	 * `scanned_at` for this artist as it stands — the "before" a scan is measured against.
+	 *
+	 * Watch `scanned_at`, not `indexed`. For an already-indexed artist `indexed` is true on the
+	 * very first tick, so the spinner cleared while the walk was still running — in exactly the
+	 * case a rescan button exists for. A first scan reads 0 here, so the same "it moved" rule
+	 * covers both. The float as lb-bot wrote it — from whichever source the shelf is showing, else
+	 * asked — never the page's millisecond copy, whose truncation would read as "it moved" on an
+	 * unchanged scan.
+	 */
+	private suspend fun scannedAtShown(mbid: String): Double =
+		lbData?.takeIf { it.indexed }?.scannedAt
+			?: lbBotManager.discography(artistId, mbid)?.scannedAt
+			?: 0.0
+
+	/**
+	 * Wait for the scan [taskId] to land, then paint it.
+	 *
+	 * The wait is a race. The mirror is the feedback: lb-bot stores the scan, pushes an `index`
+	 * frame, [LbIndexSync] pulls, and this artist's mirror Flow emits a newer `scannedAt` —
+	 * seconds after the walk ends. [LbBotManager.awaitArtistScan] is the fallback, a 15 s poll
+	 * (woken early by lb-bot's `artistScanned` frame) that is also the only thing able to say the
+	 * scan FAILED, since the scan record is not index state. Whichever answers first wins.
+	 *
+	 * The caller has already set `indexing`. Shared by the Rescan button, which started the scan
+	 * itself, and an override write, where lb-bot started it and answered with its task id.
+	 */
+	private suspend fun followScan(mbid: String, taskId: String, scannedAtBefore: Double) {
+		// A big discography takes 10-60s at MusicBrainz's one request a second.
+		val outcome = coroutineScope {
+			val viaMirror = async<LbScanOutcome> {
+				try {
+					LbScanOutcome.Done(
+						lbIndexSync.observeDiscography(artistId, mbid)
+							.filterNotNull()
+							.first { it.indexed && it.scannedAt > scannedAtBefore }
+					)
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					// A Room failure must not take the scan down with it: leave the
+					// race to the poll.
+					Logger.w("ArtistDetailViewModel", "index mirror watch failed", e)
+					awaitCancellation()
 				}
 			}
-			when (outcome) {
-				is LbScanOutcome.Done -> {
-					_discography.value = _discography.value.copy(indexing = false)
-					// The mirror Flow may already have painted this; applyLbData skips it then.
-					// A network Done for an artist the mirror does not hold yet is the one case
-					// where this paints the result.
-					applyLbData(outcome.data, mirror = fromMirror)
+			val viaPoll = async {
+				lbBotManager.awaitArtistScan(artistId, mbid, taskId, scannedAtBefore)
+			}
+			select<LbScanOutcome> {
+				viaMirror.onAwait { it }
+				viaPoll.onAwait { it }
+			}.also {
+				viaMirror.cancel()
+				viaPoll.cancel()
+			}
+		}
+		when (outcome) {
+			is LbScanOutcome.Done -> {
+				_discography.value = _discography.value.copy(indexing = false)
+				// The mirror Flow may already have painted this; applyLbData skips it then.
+				// A network Done for an artist the mirror does not hold yet is the one case
+				// where this paints the result.
+				applyLbData(outcome.data, mirror = fromMirror)
+			}
+			is LbScanOutcome.Failed -> _discography.value = _discography.value.copy(
+				indexing = false,
+				scanError = outcome.error
+			)
+			LbScanOutcome.TimedOut -> _discography.value = _discography.value.copy(indexing = false)
+		}
+	}
+
+	// ------------------------------------------------------------------ //
+	// The MusicBrainz match (I-019)
+	// ------------------------------------------------------------------ //
+
+	/**
+	 * Work out [ArtistMbidUi] for [artist] from the override map as it stands now. True when the
+	 * id lb-bot is asked with changed, which is the caller's cue for [mbidChanged].
+	 */
+	private fun resolveMbid(artist: DomainArtist): Boolean {
+		val previous = _artistMbid.value
+		val next = ArtistMbidUi(
+			effective = lbBotManager.effectiveArtistMbid(artist.id, artist.musicBrainzId),
+			tag = artist.musicBrainzId.orEmpty(),
+			overridden = lbBotManager.artistOverride(artist.id) != null,
+			// The flow is the hub's word, as of its last advert; the hub toggle is read live.
+			canOverride = lbBotManager.artistOverridesSupported.value && lbBotManager.isConfigured
+		)
+		_artistMbid.value = next
+		if (next.effective == previous.effective) return false
+		leftMbid = previous.effective
+		return true
+	}
+
+	/**
+	 * Follow the override map for the life of the page: a pick made here, one made on another
+	 * client and heard through the hub, and the hub (or the 404 of an lb-bot older than it)
+	 * deciding whether overrides can be offered at all. Started once, like [observeMirror].
+	 */
+	private fun observeOverrides() {
+		if (overridesJob != null) return
+		overridesJob = viewModelScope.launch {
+			combine(lbBotManager.artistOverrides, lbBotManager.artistOverridesSupported) { _, _ -> }
+				.collect {
+					val artist = (artistState.value as? UiState.Success)?.data?.artist
+						?: return@collect
+					if (resolveMbid(artist)) mbidChanged()
+					// No override UI at all once the hub cannot store one.
+					if (!_artistMbid.value.canOverride) _mbidMatch.value = null
 				}
-				is LbScanOutcome.Failed -> _discography.value = _discography.value.copy(
-					indexing = false,
-					scanError = outcome.error
-				)
-				LbScanOutcome.TimedOut -> _discography.value = _discography.value.copy(indexing = false)
+		}
+	}
+
+	/**
+	 * The id lb-bot is asked with moved, so everything read under the old one is about somebody
+	 * else: the mirror observer is re-keyed, the About is dropped and asked for again, and the
+	 * shelf's data is forgotten and re-read — from the mirror if it already holds the new id,
+	 * else from lb-bot, which answers "not scanned yet" while the scan an override starts is
+	 * still running. An id that went blank (an override removed from an untagged artist) takes
+	 * the same path: lb-bot is asked by Navidrome id alone and says what it has left.
+	 */
+	private fun mbidChanged() {
+		mirrorJob?.cancel()
+		mirrorJob = null
+		// A scan the page was waiting on was for the old id; its answer is not this artist's.
+		scanJob?.cancel()
+		_discography.value = _discography.value.copy(indexing = false, scanError = "")
+		_meta.value = null
+		viewModelScope.launch {
+			discographyLock.withLock {
+				fromMirror = false
+				lbData = null
+				builtAlbums = null
+			}
+			observeMirror()
+			loadMeta()
+			loadDiscographyFromNetwork()
+		}
+	}
+
+	fun openMbidMatch() {
+		if (!_artistMbid.value.canOverride) return
+		// A write the user walked away from is still running: reopen onto it, not beside it.
+		_mbidMatch.value = MbidMatchUi(working = overrideWriteJob?.isActive == true)
+	}
+
+	fun dismissMbidMatch() {
+		_mbidMatch.value = null
+	}
+
+	/** Point this artist at the MusicBrainz artist [mbid] — a picked candidate or a pasted id. */
+	fun setMbidOverride(mbid: String) {
+		val artist = (artistState.value as? UiState.Success)?.data?.artist ?: return
+		writeMbidOverride(mbid) { lbBotManager.setArtistOverride(artist.id, mbid, artist.name) }
+	}
+
+	/** Back to Navidrome's tag, or to no MBID at all when the artist has none. */
+	fun removeMbidOverride() {
+		val tag = _artistMbid.value.tag
+		writeMbidOverride(tag) { lbBotManager.removeArtistOverride(artistId) }
+	}
+
+	/**
+	 * One override write, then the scan that follows it. [nextMbid] is the id the artist will be
+	 * filed under afterwards.
+	 *
+	 * In `viewModelScope`, and the write itself in the manager's own scope: closing the picker
+	 * neither cancels it nor loses the scan. A failure with the picker closed is said in a
+	 * snackbar, since the line it would have shown on is gone.
+	 *
+	 * The wait on the scan is its own job ([scanJob]). The write is over in seconds and the scan
+	 * can take minutes; a picker reopened meanwhile — to correct a wrong pick — must not read as
+	 * still saving, and must be able to write again.
+	 */
+	private fun writeMbidOverride(
+		nextMbid: String,
+		write: suspend () -> LbBotManager.LbResult<LbOverrideWrite>
+	) {
+		val artist = (artistState.value as? UiState.Success)?.data?.artist ?: return
+		if (overrideWriteJob?.isActive == true) return
+		_mbidMatch.value = MbidMatchUi(working = true)
+		overrideWriteJob = viewModelScope.launch {
+			// The "before" of the scan the write starts, taken ahead of the write that moves it,
+			// and from what this device already holds — no request stands between the tap and the
+			// write. Two rows count: the one on the shelf (0 when the shelf shows no index), and
+			// the one for the id the artist is about to be filed under, which the mirror may hold
+			// from an earlier scan as an artist off the library. That row must not read as this
+			// scan having landed.
+			val scannedAtBefore = maxOf(
+				lbData?.takeIf { it.indexed }?.scannedAt ?: 0.0,
+				if (nextMbid.isBlank()) 0.0
+				else runCatching { lbIndexSync.discography("", nextMbid)?.scannedAt }.getOrNull() ?: 0.0
+			)
+			when (val result = write()) {
+				is LbBotManager.LbResult.Ok -> {
+					_mbidMatch.value = null
+					// The manager's map already holds the write; don't wait for the collector.
+					if (resolveMbid(artist)) mbidChanged()
+					// A scan already being waited on is superseded by the one this write started,
+					// also when the id did not move (an override equal to the tag).
+					scanJob?.cancel()
+					_discography.value = _discography.value.copy(indexing = false, scanError = "")
+					val taskId = result.value.taskId
+					if (taskId.isBlank()) {
+						// lb-bot started no scan of its own: ask for one, as the button would.
+						// (Nothing to ask with when an override was removed from an untagged
+						// artist — the shelf then offers the picker again.)
+						indexArtist()
+					} else {
+						val mbid = _artistMbid.value.effective
+						_discography.value = _discography.value.copy(indexing = true)
+						scanJob = viewModelScope.launch {
+							followScan(mbid, taskId, scannedAtBefore)
+						}
+					}
+				}
+				is LbBotManager.LbResult.Failed -> when {
+					// lb-bot is older than the hub. The manager has withdrawn the surface and
+					// that is the whole answer — never an error.
+					result.error == LbBotManager.LbError.RouteUnknown -> _mbidMatch.value = null
+					_mbidMatch.value != null -> _mbidMatch.value = MbidMatchUi(error = result.error)
+					else -> snackBarManager.notify(Res.string.notice_mbid_match_failed)
+				}
 			}
 		}
 	}

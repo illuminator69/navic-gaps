@@ -39,6 +39,7 @@ fun ArtistDetailScreenTopBar(
 	artistState: UiState<ArtistState>,
 	starred: Boolean? = null,
 	onSetStarred: ((Boolean) -> Unit)? = null,
+	onFixMusicBrainzMatch: (() -> Unit)? = null,
 ) {
 	val state = (artistState as? UiState.Success)?.data
 	val alpha by animateFloatAsState(
@@ -92,7 +93,8 @@ fun ArtistDetailScreenTopBar(
 								playlistDialogShown = true
 							},
 							starred = starred,
-							onSetStarred = onSetStarred
+							onSetStarred = onSetStarred,
+							onFixMusicBrainzMatch = onFixMusicBrainzMatch
 						)
 					}
 				}

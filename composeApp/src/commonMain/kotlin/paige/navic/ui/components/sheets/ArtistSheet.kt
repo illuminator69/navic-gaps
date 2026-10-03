@@ -19,6 +19,9 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -28,6 +31,7 @@ import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
+import navic.composeapp.generated.resources.action_fix_musicbrainz_match
 import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_star
@@ -41,6 +45,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtist
 import paige.navic.icons.Icons
@@ -77,8 +82,18 @@ fun ArtistSheet(
 	onDownloadAll: (() -> Unit)? = null,
 	onCancelDownloadAll: (() -> Unit)? = null,
 	onDeleteDownloadAll: (() -> Unit)? = null,
+	/** Opens the MusicBrainz match picker; the row shows only where the hub can store an override. */
+	onFixMusicBrainzMatch: (() -> Unit)? = null,
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	// The MusicBrainz artist this is: the user's override when they set one, else Navidrome's
+	// tag (I-019). Collected, so the link follows a pick made while the sheet is open.
+	val lbBot = koinInject<LbBotManager>()
+	val overrides by lbBot.artistOverrides.collectAsState()
+	val musicBrainzId = remember(overrides, artist.id, artist.musicBrainzId) {
+		lbBot.effectiveArtistMbid(artist.id, artist.musicBrainzId)
+	}
+	val canFixMatch by lbBot.artistOverridesSupported.collectAsState()
 	val platformContext = LocalPlatformContext.current
 	val contentPadding = PaddingValues(horizontal = 16.dp)
 	// Cover-scheme row colours (not the outer app/system theme) — see CollectionSheet.
@@ -158,13 +173,27 @@ fun ArtistSheet(
 				)
 			}
 
-			if (onViewOnMusicBrainz != null && artist.musicBrainzId != null) {
+			if (onViewOnMusicBrainz != null && musicBrainzId.isNotBlank()) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_view_on_musicbrainz)) },
 					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
 					onClick = {
 						platformContext.clickSound()
-						onViewOnMusicBrainz(artist.musicBrainzId)
+						onViewOnMusicBrainz(musicBrainzId)
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onFixMusicBrainzMatch != null && canFixMatch && lbBot.isConfigured) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_fix_musicbrainz_match)) },
+					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
+					onClick = {
+						platformContext.clickSound()
+						onFixMusicBrainzMatch()
 						onDismissRequest()
 					},
 					colors = colors,

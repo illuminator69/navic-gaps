@@ -642,6 +642,9 @@ class DiscoverViewModel(
 		if (artists.isEmpty()) return null
 		val day = (kotlin.time.Clock.System.now().toEpochMilliseconds() / 86_400_000L).toInt()
 		val picked = artists[(day % artists.size + artists.size) % artists.size]
-		return picked.name to picked.musicBrainzId
+		// The user's MusicBrainz override when they set one, else Navidrome's tag (I-019): a seed
+		// sent under a wrong tag would be "fans of" somebody else.
+		val mbid = lbBotManager.effectiveArtistMbid(picked.artistId, picked.musicBrainzId)
+		return picked.name to mbid.ifBlank { null }
 	}
 }
