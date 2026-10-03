@@ -9,8 +9,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.entities.LbIndexMetaEntity
@@ -82,6 +86,21 @@ class LbIndexSync(
 
 	private enum class Outcome { DONE, SKIPPED, BACKOFF }
 
+	/**
+	 * What the last pass did, for the one screen that lets the user ask for a pull (the
+	 * "lb-bot data" panel's "Sync now") and then has to say what came of it — a claim that used
+	 * to be guessed from a timeout. **A record, never an input**: nothing in this class reads it,
+	 * and how the mirror syncs, retries and backs off is exactly as it was.
+	 */
+	private val _lastRun = MutableStateFlow<LbIndexRun>(LbIndexRun.Idle)
+	val lastRun: StateFlow<LbIndexRun> = _lastRun.asStateFlow()
+
+	// Worker-only notes for [lastRun], written beside the returns of [sync] that they describe.
+	private var runSerial = 0L
+	private var runApplied = 0
+	private var runSkip = LbIndexSkip.LB_BOT_DOWN
+	private var runProblem = ""
+
 	init {
 		scope.launch {
 			for (why in triggers) {
@@ -90,6 +109,8 @@ class LbIndexSync(
 					consecutiveFailures = 0
 					feedMissing = false
 				}
+				val serial = ++runSerial
+				_lastRun.value = LbIndexRun.Running(serial)
 				val outcome = try {
 					sync(why)
 				} catch (e: CancellationException) {
@@ -98,7 +119,13 @@ class LbIndexSync(
 					// A Room failure mid-page rolls the page's transaction back; the cursor did
 					// not move, so the retry resumes exactly where this one stopped.
 					Logger.e(TAG, "index sync ($why) failed", e)
+					runProblem = "the mirror could not be written"
 					Outcome.BACKOFF
+				}
+				_lastRun.value = when (outcome) {
+					Outcome.DONE -> LbIndexRun.Done(serial, cursorForRecord(), runApplied)
+					Outcome.SKIPPED -> LbIndexRun.Skipped(serial, runSkip)
+					Outcome.BACKOFF -> LbIndexRun.Failed(serial, runProblem)
 				}
 				when (outcome) {
 					Outcome.DONE -> {
@@ -168,19 +195,37 @@ class LbIndexSync(
 		}
 	}
 
-	private fun outcomeFor(error: LbBotManager.LbError, what: String): Outcome = when (error) {
-		// No hub, or a hub too old to proxy the feed: the mirror is simply not available.
-		LbBotManager.LbError.NotConfigured -> Outcome.SKIPPED
-		LbBotManager.LbError.RouteUnknown -> {
-			Logger.i(TAG, "$what: the hub has no index feed; the network path stays in use")
-			Outcome.SKIPPED
+	private fun outcomeFor(error: LbBotManager.LbError, what: String): Outcome {
+		// For [lastRun] only: why this pass ends here, in the panel's words.
+		runProblem = indexFailureDetail(error)
+		runSkip = when (error) {
+			LbBotManager.LbError.NotConfigured -> LbIndexSkip.NOT_SET_UP
+			LbBotManager.LbError.RouteUnknown -> LbIndexSkip.NO_FEED
+			else -> LbIndexSkip.REFUSED
 		}
-		LbBotManager.LbError.Busy -> Outcome.BACKOFF
-		is LbBotManager.LbError.Unreachable -> Outcome.BACKOFF
-		// 503 is the hub's `{"busy": true}` for its single sync slot — or lb-bot refusing to
-		// hand out a seq it could not make durable. Both mean "later", never "wrong".
-		is LbBotManager.LbError.Rejected ->
-			if (error.status >= 500) Outcome.BACKOFF else Outcome.SKIPPED
+		return when (error) {
+			// No hub, or a hub too old to proxy the feed: the mirror is simply not available.
+			LbBotManager.LbError.NotConfigured -> Outcome.SKIPPED
+			LbBotManager.LbError.RouteUnknown -> {
+				Logger.i(TAG, "$what: the hub has no index feed; the network path stays in use")
+				Outcome.SKIPPED
+			}
+			LbBotManager.LbError.Busy -> Outcome.BACKOFF
+			is LbBotManager.LbError.Unreachable -> Outcome.BACKOFF
+			// 503 is the hub's `{"busy": true}` for its single sync slot — or lb-bot refusing to
+			// hand out a seq it could not make durable. Both mean "later", never "wrong".
+			is LbBotManager.LbError.Rejected ->
+				if (error.status >= 500) Outcome.BACKOFF else Outcome.SKIPPED
+		}
+	}
+
+	/** The cursor a finished pass ended on, for [lastRun]. A read; a failure of it is "0". */
+	private suspend fun cursorForRecord(): Long = try {
+		dao.getMeta()?.cursor ?: 0L
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: Exception) {
+		0L
 	}
 
 	/**
@@ -188,12 +233,18 @@ class LbIndexSync(
 	 * drift repair per pass (contract ruling R6).
 	 */
 	private suspend fun sync(why: String): Outcome {
+		runApplied = 0
+		runProblem = ""
+		// The note for [lastRun] is set ahead of each return below; it decides nothing.
+		runSkip = LbIndexSkip.NO_FEED
 		if (!lbBotManager.supportsIndexMirror) return Outcome.SKIPPED
 		val proven = lbProvenAlive
 		lbProvenAlive = false
 		if (proven) feedMissing = false
 		if (feedMissing) return Outcome.SKIPPED
+		runSkip = if (lbBotManager.isConfigured) LbIndexSkip.LB_BOT_DOWN else LbIndexSkip.NOT_SET_UP
 		if (!proven && !lbBotManager.ensureAvailability()) return Outcome.SKIPPED
+		runSkip = LbIndexSkip.NO_FEED
 		// Asked AGAIN, after the probe (review ruling R20a). On a hub too old to send `welcome.lb`
 		// nothing has filled the route list before the first probe, and an empty list means
 		// "advertises everything" — so the check above passed vacuously and every trigger sent one
@@ -226,6 +277,7 @@ class LbIndexSync(
 			if (page.resync || foreignEpoch) {
 				if (++resyncs > MAX_RESYNCS) {
 					Logger.w(TAG, "lb-bot keeps answering resync; giving up this pass")
+					runProblem = "lb-bot kept asking for a full resync"
 					return Outcome.BACKOFF
 				}
 				Logger.i(TAG, "index resync: epoch ${meta.epoch.ifBlank { "-" }} -> ${page.epoch}")
@@ -241,6 +293,7 @@ class LbIndexSync(
 				// A server that says "more" without moving the cursor would spin this loop forever.
 				if (plan.newCursor <= since) {
 					Logger.w(TAG, "index page did not advance past $since; stopping this pass")
+					runProblem = "lb-bot's change feed did not advance"
 					return Outcome.BACKOFF
 				}
 				continue
@@ -278,8 +331,23 @@ class LbIndexSync(
 		if (applied > 0 || pages > 1) {
 			Logger.i(TAG, "index sync ($why): $applied artist change(s) over $pages page(s)")
 		}
+		runApplied = applied
 		return Outcome.DONE
 	}
+
+	/**
+	 * The mirror's own numbers, for the "lb-bot data" panel: how many artists it holds, and the
+	 * cursor and epoch it is at. Re-emitted whenever a sync writes the meta row, which every
+	 * page of every pass does in the same transaction as its artists.
+	 */
+	fun observeMirrorInfo(): Flow<LbMirrorInfo> =
+		dao.observeMeta().map { meta ->
+			LbMirrorInfo(
+				artists = dao.getTotals().artistCount,
+				cursor = meta?.cursor ?: 0L,
+				epoch = meta?.epoch.orEmpty()
+			)
+		}.distinctUntilChanged()
 
 	// ----- reads, for the pages that render lb-bot's discography ----------------------------- //
 
@@ -364,6 +432,13 @@ class LbIndexSync(
 		const val DEFAULT_TTL_DAYS = 30.0
 	}
 }
+
+/** What the index mirror holds: artist count, the change it is at, and the epoch it belongs to. */
+data class LbMirrorInfo(
+	val artists: Long = 0L,
+	val cursor: Long = 0L,
+	val epoch: String = ""
+)
 
 /** One mirrored release-group row with the mirrored artist it is filed under (null only if the
  *  artist row vanished between the two reads — a sync landing mid-lookup). */
