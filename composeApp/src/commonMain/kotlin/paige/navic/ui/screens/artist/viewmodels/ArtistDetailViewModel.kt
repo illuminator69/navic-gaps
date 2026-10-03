@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
 import navic.composeapp.generated.resources.notice_mbid_match_failed
+import navic.composeapp.generated.resources.notice_mbid_match_unsupported
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.DownloadStatus
@@ -58,6 +59,7 @@ import paige.navic.domain.manager.LbOverrideWrite
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.NativeApiManager
+import paige.navic.domain.manager.overrideScanToFollow
 import paige.navic.util.Logger
 import paige.navic.util.albumTitleKey
 import paige.navic.shared.MediaPlayerViewModel
@@ -638,7 +640,14 @@ class ArtistDetailViewModel(
 	private suspend fun markUnavailable() {
 		discographyLock.withLock {
 			if (fromMirror) return
-			_discography.value = DiscographyUi(available = false)
+			// Unless this page is waiting on a scan: the re-read an MBID change triggers can
+			// fail while the scan lb-bot started for it runs on, and the wait is owed its
+			// spinner. The shelf then shows as not-yet-scanned until the scan lands.
+			_discography.value = if (_discography.value.indexing) {
+				DiscographyUi(available = true, indexed = false, indexing = true)
+			} else {
+				DiscographyUi(available = false)
+			}
 		}
 	}
 
@@ -888,8 +897,14 @@ class ArtistDetailViewModel(
 	}
 
 	/**
-	 * One override write, then the scan that follows it. [nextMbid] is the id the artist will be
-	 * filed under afterwards.
+	 * One override write, then the scan lb-bot started for it — if it started one. [nextMbid] is
+	 * the id the artist will be filed under afterwards.
+	 *
+	 * **This page never starts a scan after a write.** lb-bot does, and answers its task id; a
+	 * blank id is lb-bot deciding not to ([overrideScanToFollow]) — the picked MBID's discography
+	 * is already another library artist's, or a remove left nothing to resolve. The page then
+	 * closes the picker, re-reads under the new id and shows whatever lb-bot holds for it, with
+	 * no spinner.
 	 *
 	 * In `viewModelScope`, and the write itself in the manager's own scope: closing the picker
 	 * neither cancels it nor loses the scan. A failure with the picker closed is said in a
@@ -923,28 +938,29 @@ class ArtistDetailViewModel(
 					_mbidMatch.value = null
 					// The manager's map already holds the write; don't wait for the collector.
 					if (resolveMbid(artist)) mbidChanged()
-					// A scan already being waited on is superseded by the one this write started,
-					// also when the id did not move (an override equal to the tag).
-					scanJob?.cancel()
-					_discography.value = _discography.value.copy(indexing = false, scanError = "")
-					val taskId = result.value.taskId
-					if (taskId.isBlank()) {
-						// lb-bot started no scan of its own: ask for one, as the button would.
-						// (Nothing to ask with when an override was removed from an untagged
-						// artist — the shelf then offers the picker again.)
-						indexArtist()
-					} else {
+					val taskId = overrideScanToFollow(result.value)
+					if (taskId != null) {
+						// A scan already being waited on is superseded by the one this write
+						// started, also when the id did not move (an override equal to the tag).
+						scanJob?.cancel()
 						val mbid = _artistMbid.value.effective
-						_discography.value = _discography.value.copy(indexing = true)
+						_discography.value = _discography.value.copy(indexing = true, scanError = "")
 						scanJob = viewModelScope.launch {
 							followScan(mbid, taskId, scannedAtBefore)
 						}
 					}
+					// No task id: lb-bot started no scan on purpose, and neither does this page.
+					// `indexing` stays false; [mbidChanged] has already asked for what lb-bot
+					// holds under the new id.
 				}
 				is LbBotManager.LbResult.Failed -> when {
-					// lb-bot is older than the hub. The manager has withdrawn the surface and
-					// that is the whole answer — never an error.
-					result.error == LbBotManager.LbError.RouteUnknown -> _mbidMatch.value = null
+					// lb-bot is older than the hub and has no such route. The manager has
+					// withdrawn the surface; the tap is still owed a sentence, or a sheet that
+					// closes by itself reads as the pick having been saved.
+					result.error == LbBotManager.LbError.RouteUnknown -> {
+						_mbidMatch.value = null
+						snackBarManager.notify(Res.string.notice_mbid_match_unsupported)
+					}
 					_mbidMatch.value != null -> _mbidMatch.value = MbidMatchUi(error = result.error)
 					else -> snackBarManager.notify(Res.string.notice_mbid_match_failed)
 				}

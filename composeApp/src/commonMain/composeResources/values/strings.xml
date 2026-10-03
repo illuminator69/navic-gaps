@@ -730,6 +730,7 @@
 	<string name="info_mbid_match_remove_tagged">Removing it goes back to the MusicBrainz ID in Navidrome.</string>
 	<string name="info_mbid_match_remove_untagged">Removing it leaves this artist with no MusicBrainz ID.</string>
 	<string name="notice_mbid_match_failed">Couldn't change the MusicBrainz match.</string>
+	<string name="notice_mbid_match_unsupported">This lb-bot is older and can't store a MusicBrainz match yet. Nothing was changed.</string>
 
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>

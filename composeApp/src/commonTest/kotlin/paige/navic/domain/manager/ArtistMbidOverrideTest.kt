@@ -1,5 +1,6 @@
 package paige.navic.domain.manager
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -196,5 +197,53 @@ class ArtistMbidOverrideTest {
 			LbBotManager.LbError.Rejected(400, "mbid is not a UUID"),
 			overrideWriteError(400, "", "mbid is not a UUID", retryable = false)
 		)
+	}
+
+	// --- overrideScanToFollow --------------------------------------------------------------
+	//
+	// lb-bot starts the scan and answers its id. It answers "" on purpose — a set onto an MBID
+	// whose discography another library artist already holds (a scan from this artist would
+	// rewrite that artist's row against the wrong albums), and a remove after which nothing
+	// resolves — and the client must then start none of its own.
+
+	private val wire = Json { ignoreUnknownKeys = true }
+
+	@Test
+	fun aSetThatStartedAScanFollowsIt() {
+		assertEquals(
+			"task-1",
+			overrideScanToFollow(LbOverrideWrite(ok = true, mbid = pick, name = "A", taskId = "task-1"))
+		)
+	}
+
+	@Test
+	fun aSetThatStartedNoScanStartsNoneEither() {
+		assertNull(overrideScanToFollow(LbOverrideWrite(ok = true, mbid = pick, name = "A", taskId = "")))
+	}
+
+	@Test
+	fun aRemoveThatStartedAScanFollowsIt() {
+		assertEquals("task-2", overrideScanToFollow(LbOverrideWrite(ok = true, taskId = "task-2")))
+	}
+
+	@Test
+	fun aRemoveThatLeftNothingToScanStartsNone() {
+		assertNull(overrideScanToFollow(LbOverrideWrite(ok = true, taskId = "")))
+	}
+
+	@Test
+	fun theTaskIdIsReadOffTheWireAsLbBotSpellsIt() {
+		val set = wire.decodeFromString<LbOverrideWrite>(
+			"""{"ok":true,"mbid":"$pick","name":"A","task_id":"task-3"}"""
+		)
+		assertEquals("task-3", overrideScanToFollow(set))
+		// The answered MBID is the one to use: MusicBrainz merges artists.
+		assertEquals(pick, set.mbid)
+	}
+
+	@Test
+	fun aMissingTaskIdFieldIsTheSameAsABlankOne() {
+		assertNull(overrideScanToFollow(wire.decodeFromString<LbOverrideWrite>("""{"ok":true}""")))
+		assertNull(overrideScanToFollow(wire.decodeFromString<LbOverrideWrite>("""{"ok":true,"task_id":"  "}""")))
 	}
 }

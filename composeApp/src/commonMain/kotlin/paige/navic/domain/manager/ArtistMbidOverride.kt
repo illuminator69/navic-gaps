@@ -43,8 +43,9 @@ data class LbArtistOverride(
 
 /**
  * What `POST /lb/artist/override` and its `/remove` twin answer. [taskId] is the discography scan
- * lb-bot started for the artist's new identity, "" when it started none; [mbid] and [name] are
- * only on a set.
+ * lb-bot started for the artist's new identity, "" when it started none (see
+ * [overrideScanToFollow]). [mbid] and [name] are only on a set, and [mbid] is the one to keep: it
+ * may differ from the id sent, because MusicBrainz merges artists.
  */
 @Serializable
 data class LbOverrideWrite(
@@ -53,6 +54,18 @@ data class LbOverrideWrite(
 	val name: String = "",
 	@SerialName("task_id") val taskId: String = ""
 )
+
+/**
+ * The scan to wait on after an override write: lb-bot's task id, or null when it started none —
+ * **and then the client starts none either.**
+ *
+ * lb-bot starts the scan itself. A blank id is deliberate: a set onto an MBID whose discography
+ * another library artist already holds (a scan from this artist would rewrite that artist's row
+ * against the wrong albums), or a remove after which nothing resolves. A missing field reads the
+ * same as a blank one.
+ */
+internal fun overrideScanToFollow(written: LbOverrideWrite): String? =
+	written.taskId.takeIf { it.isNotBlank() }
 
 /**
  * The overrides keyed by Navidrome artist id, which is how every reader asks. A row naming no

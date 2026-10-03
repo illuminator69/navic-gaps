@@ -474,12 +474,18 @@ still advancing the speaker's queue. It logs one line when it fires.
   `ArtistDetailViewModel` resolves the id when the artist loads and again whenever the map moves
   (a pick here, or one made on another client): `mbidChanged` re-keys the mirror observer, drops
   the About, re-reads the shelf, and ignores mirror rows still filed under the id it just left —
-  the mirror lookup's Navidrome-id fallback finds exactly that row until the next pull. The
+  the mirror lookup's Navidrome-id fallback finds exactly that row until the next pull.
+  **The page never starts a scan after a write.** lb-bot does, and answers its `task_id`, which
+  the page waits on like any other scan; a blank `task_id` is lb-bot deciding not to
+  (`overrideScanToFollow`) — the picked MBID's discography is already another library artist's
+  row, which a scan from this artist would rewrite against the wrong albums, or a remove left
+  nothing to resolve — and the page then shows what lb-bot holds under the new id, no spinner. The
   surfaces (the artist sheet's "Fix MusicBrainz match"; the shelf's "Choose MusicBrainz artist"
   where there is no id to scan under) show only while `artistOverridesSupported`: the hub
   advertises `POST /lb/artist/override` and lb-bot has not answered 404 for it. A **bare** 404 —
   and a 405 on the POST, since lb-bot's SPA fallback is a GET-only catch-all — is an lb-bot older
-  than the hub and hides them, never an error. A 404 **with a `code`** (`unknown_mbid`,
+  than the hub and hides them; when it answers a tap, a snackbar says so in plain words, never the
+  raw status text. A 404 **with a `code`** (`unknown_mbid`,
   `no_override`) and a 502 with `retryable` are lb-bot's own refusals and are shown in its words
   (`overrideWriteError`; the general `failureFor` reads them as "hub too old" and "busy"). A new
   consumer of a library artist's MBID that reaches an lb-bot call or a MusicBrainz link goes
