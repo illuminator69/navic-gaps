@@ -35,6 +35,7 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_fresh
+import navic.composeapp.generated.resources.title_listening
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -47,6 +48,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
+import paige.navic.icons.filled.Headphones
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Route
 import paige.navic.icons.outlined.Shuffle
@@ -125,7 +127,14 @@ data class OverviewButtonSpec(
 )
 
 /**
- * The home page's four buttons.
+ * How many buttons the home page shows: four, or six once there are five to show. Always even —
+ * an odd count leaves a hole in the two-column grid — and never fewer than the primaries, so a
+ * fifth button (My Listening) adds a row rather than pushing Random off the page.
+ */
+internal fun overviewButtonCount(primary: Int): Int = if (primary <= 4) 4 else 6
+
+/**
+ * The home page's four buttons — six where My Listening is offered too.
  *
  * Discover, Mixed for You and Fresh live here instead of on the bottom bar. They
  * are gated on exactly what `rememberVisibleNavigationTabs()` gates the matching
@@ -140,6 +149,10 @@ data class OverviewButtonSpec(
  * until it is four long and even. Four, because an odd count leaves a hole in a
  * two-column grid; from those three, because a home page that answers "nothing is
  * configured" with two buttons has lost something it used to do.
+ *
+ * My Listening is a fifth: gated on the hub ADVERTISING the listening routes rather than on
+ * lb-bot answering right now, since its page works from cache. With all five the home is six
+ * long ([overviewButtonCount]) — a row more, never Random pushed off.
  */
 @Composable
 fun rememberOverviewButtons(): List<OverviewButtonSpec> {
@@ -151,8 +164,13 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
 	val hubConfigured = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
+	// My Listening (I-006) exists only where the hub advertises the listening routes. Not gated
+	// on lb-bot being reachable right now, unlike Fresh: the screen paints its cached summary
+	// with lb-bot down or the device offline, and says which it is.
+	val listeningAdvertised by lbBot.listeningSupported.collectAsState()
+	val listening = listeningAdvertised && lbBot.isConfigured
 
-	return remember(lbBotAvailable, discoverHasSources, hubConfigured) {
+	return remember(lbBotAvailable, discoverHasSources, hubConfigured, listening) {
 		val primary = buildList {
 			if (discoverHasSources) {
 				add(
@@ -186,6 +204,15 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 					)
 				)
 			}
+			if (listening) {
+				add(
+					OverviewButtonSpec(
+						Icons.Filled.Headphones,
+						Res.string.title_listening,
+						Screen.Listening
+					)
+				)
+			}
 			add(
 				OverviewButtonSpec(
 					Icons.Outlined.Shuffle,
@@ -211,7 +238,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 1..4 long and `filler` is 3, so this is always exactly four.
-		(primary + filler).take(4)
+		// `primary` is 1..5 long and `filler` is 3, so there is always enough to fill the count.
+		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }

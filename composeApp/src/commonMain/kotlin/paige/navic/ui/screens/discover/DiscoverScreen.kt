@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.because_discover_fresh
+import navic.composeapp.generated.resources.because_listening
+import navic.composeapp.generated.resources.title_listening
 import navic.composeapp.generated.resources.because_discover_charts
 import navic.composeapp.generated.resources.browse_unresolved
 import navic.composeapp.generated.resources.because_discover_editorial
@@ -83,6 +85,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.common.AcquireButton
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.sheets.MoodSearchSheet
 import paige.navic.domain.manager.RediscoveryPlaylists
@@ -138,6 +141,12 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	// My Listening (I-006) is a link here, not a row of the catalogue: it has no tiles of its
+	// own to show, and DISCOVER_ROWS is mirrored in Feishin, which reaches it from its sidebar.
+	// Offered only where the hub advertises the listening routes.
+	val lbBot = koinInject<LbBotManager>()
+	val listeningAdvertised by lbBot.listeningSupported.collectAsStateWithLifecycle()
+	val showListening = listeningAdvertised && lbBot.isConfigured
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	// Every visit, not only the ViewModel's first: a root tab keeps it for the process. Room
 	// reads, plus a request only for a row whose cached answer has gone stale.
@@ -160,6 +169,8 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val becauseCharts = stringResource(Res.string.because_discover_charts)
 	val becauseEditorial = stringResource(Res.string.because_discover_editorial)
 	val titleMood = stringResource(Res.string.title_discover_mood)
+	val titleListening = stringResource(Res.string.title_listening)
+	val becauseListening = stringResource(Res.string.because_listening)
 	// The six prompts are the row's whole point: it is not a list of results but a
 	// statement of what the search can be asked. Mirrors Feishin's `mood-row.tsx`
 	// verbatim — same six, so the two clients teach the feature the same way.
@@ -291,7 +302,8 @@ fun DiscoverScreen(nested: Boolean = false) {
 					state.editorial.isNotEmpty() ||
 					state.listenBrainz.isNotEmpty() ||
 					state.rediscovery.isNotEmpty() ||
-					DiscoverRowId.MOOD in state.supported
+					DiscoverRowId.MOOD in state.supported ||
+					showListening
 				if (!state.loading && !anyContent) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
 						Text(
@@ -300,6 +312,25 @@ fun DiscoverScreen(nested: Boolean = false) {
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.padding(16.dp)
 						)
+					}
+				}
+
+				if (showListening) {
+					item(span = { GridItemSpan(maxLineSpan) }) {
+						FormRow(
+							modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+							rounding = 14.dp,
+							onClick = { backStack.add(Screen.Listening) }
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(titleListening, style = MaterialTheme.typography.titleMedium)
+								Text(
+									becauseListening,
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+						}
 					}
 				}
 

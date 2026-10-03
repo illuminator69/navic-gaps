@@ -19,6 +19,7 @@ import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
 import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
+import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
 import paige.navic.ui.screens.wishlist.viewmodels.WishlistViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
@@ -49,6 +50,7 @@ val viewModelModule = module {
 	viewModelOf(::DiscoverViewModel)
 	viewModelOf(::MixListViewModel)
 	viewModelOf(::WishlistViewModel)
+	viewModelOf(::ListeningViewModel)
 
 	// Parameterised on their route keys — a MusicBrainz artist mbid and a
 	// release-group id, neither of which is resolvable from the graph.

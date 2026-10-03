@@ -162,6 +162,15 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data object Wishlist : Screen
+
+	/**
+	 * My Listening (I-006): aggregates over the user's ListenBrainz history, mirrored and
+	 * computed by lb-bot. A pushed page, not a tab — reached from the library home and from
+	 * Discover, and only while the hub advertises the listening routes.
+	 */
+	@Immutable
+	@Serializable
+	data object Listening : Screen
 	@Immutable
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen
