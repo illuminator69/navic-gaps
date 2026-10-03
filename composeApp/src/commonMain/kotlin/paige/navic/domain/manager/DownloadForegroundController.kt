@@ -16,17 +16,24 @@ package paige.navic.domain.manager
  * `setOngoing(true)` on the progress notification confers no process priority
  * whatsoever; only `startForeground` does.
  *
+ * The full library sync holds it too ([ForegroundReason.SYNC]), for the same reason: a
+ * pull left behind when the app was backgrounded froze mid-walk under a notification that
+ * went on claiming it was running.
+ *
  * An `expect` rather than something in `DownloadManager`, because that class is
  * `commonMain` and a foreground service is an Android concept. iOS gets a no-op:
  * `commonMain` only has to *compile* there.
  */
 expect class DownloadForegroundController {
 	/**
-	 * Called when the queue goes from empty to non-empty. Must be idempotent — the
-	 * counters that drive it move on every claimed job.
+	 * [reason] has work in flight. Must be idempotent: the counters that drive the
+	 * download side move on every claimed job. The service runs while any reason is held.
 	 */
-	fun start()
+	fun start(reason: ForegroundReason)
 
-	/** Called when the queue drains, or is cancelled wholesale. Also idempotent. */
-	fun stop()
+	/** [reason] has nothing left to protect. Also idempotent. */
+	fun stop(reason: ForegroundReason)
 }
+
+/** Who is keeping the process in the foreground. */
+enum class ForegroundReason { DOWNLOADS, SYNC }

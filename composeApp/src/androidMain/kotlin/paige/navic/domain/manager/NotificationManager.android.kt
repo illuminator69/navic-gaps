@@ -64,6 +64,12 @@ actual class NotificationManager(
 			.setOngoing(true)
 			.setOnlyAlertOnce(true)
 			.setProgress(100, (progress * 100).toInt(), indeterminate)
+			// "Ongoing" is a claim that something is running. With no foreground service behind
+			// it the process can be frozen mid-work, and the notification then sat in the shade
+			// until the app was reopened. Each update re-arms this; a stalled one takes itself
+			// down and comes back with the next progress. A foreground service's own
+			// notification is not subject to it.
+			.setTimeoutAfter(STALL_TIMEOUT_MS)
 
 		notificationManager.notify(id, builder.build())
 	}
@@ -75,5 +81,6 @@ actual class NotificationManager(
 	companion object {
 		private const val CHANNEL_SYNC_ID = "library_sync"
 		private const val CHANNEL_DOWNLOAD_ID = "music_downloads"
+		private const val STALL_TIMEOUT_MS = 120_000L
 	}
 }

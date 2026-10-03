@@ -49,6 +49,10 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainArtist
 import paige.navic.util.Logger
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 class DbRepository(
 	private val albumDao: AlbumDao,
@@ -77,6 +81,14 @@ class DbRepository(
 			}
 		}
 
+	/**
+	 * A sync notification outlives the process that posted it. One left by a process that was
+	 * killed mid-sync has nothing behind it, so the next start takes it down.
+	 */
+	fun clearStaleSyncNotification() {
+		notificationManager.cancelNotification(NotificationIds.SYNC_LIBRARY)
+	}
+
 	suspend fun removeEverything(): Result<Unit> = runDbOp {
 		albumDao.clearAllAlbums()
 		playlistDao.clearAllPlaylists()
@@ -102,16 +114,30 @@ class DbRepository(
 		// "- X Synced" lines below carry the actual progress information. Upstream's Logger.i
 		// here is deliberately not taken; its progress NOTIFICATION below is.
 		coroutineScope {
+			// The album phase calls this once per album, tens of times a second. Android drops
+			// notification updates past a few per second, so post on a phase change, and
+			// otherwise on a new whole percent no more often than twice a second.
+			var lastPosted: TimeMark? = null
+			var lastPercent = -1
+			var lastMessage: StringResource? = null
 			val progressCallback = suspend { progress: Float, message: StringResource ->
 				onProgress(progress, message)
 
-				notificationManager.showProgressNotification(
-					id = NotificationIds.SYNC_LIBRARY,
-					title = "${getString(Res.string.title_sync_control)} (${(progress * 100).toInt()}%)",
-					message = getString(message),
-					progress = progress,
-					indeterminate = progress <= 0f
-				)
+				val percent = (progress * 100).toInt()
+				val due = message != lastMessage ||
+					(percent != lastPercent && (lastPosted?.elapsedNow() ?: Duration.INFINITE) >= 500.milliseconds)
+				if (due) {
+					lastPosted = TimeSource.Monotonic.markNow()
+					lastPercent = percent
+					lastMessage = message
+					notificationManager.showProgressNotification(
+						id = NotificationIds.SYNC_LIBRARY,
+						title = "${getString(Res.string.title_sync_control)} ($percent%)",
+						message = getString(message),
+						progress = progress,
+						indeterminate = progress <= 0f
+					)
+				}
 			}
 
 			try {
@@ -470,11 +496,19 @@ class DbRepository(
 		playlistEntities
 	}
 
-	suspend fun syncPlaylistSongs(playlistId: String): Result<Set<String>> = runDbOp {
+	/**
+	 * The playlist's song ids in playlist order. [strict] fails on a playlist that cannot be
+	 * deserialized instead of answering an empty set, for a caller that would otherwise read
+	 * "skipped" as "this playlist is empty" (the download policies).
+	 */
+	suspend fun syncPlaylistSongs(
+		playlistId: String,
+		strict: Boolean = false
+	): Result<Set<String>> = runDbOp {
 		val playlist = try {
 			sessionManager.api.getPlaylist(playlistId)
 		} catch (e: Exception) {
-			if (e is SerializationException) {
+			if (e is SerializationException && !strict) {
 				Logger.e(
 					"DbRepository",
 					"could not deserialize playlist $playlistId; skipping it",

@@ -9,13 +9,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import paige.navic.data.database.dao.PlaylistDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.mappers.toDomainModel
-import paige.navic.data.database.relations.PlaylistSong
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.util.Logger
 
@@ -23,7 +24,10 @@ import paige.navic.util.Logger
 data class PlaylistDownloadPolicy(
 	val playlistId: String,
 	val playlistName: String = "",
-	/** "permanent" keeps the whole playlist; "rolling" keeps the first N (and/or first X bytes). */
+	/**
+	 * "permanent" downloads the whole playlist and never deletes; "rolling" keeps the first N
+	 * (and/or first X bytes) and deletes what leaves that window. See [planPlaylistSync].
+	 */
 	val mode: String = MODE_PERMANENT,
 	val rollingLimit: Int = 50,
 	/**
@@ -47,21 +51,31 @@ data class PlaylistDownloadPolicy(
 
 /**
  * Auto-download for (smart) playlists, Symphonium-style: each playlist can opt
- * into a download policy — permanent (whole playlist) or rolling cache (first
- * N tracks; tracks that leave the playlist are evicted). Combined with
- * server-side smart playlists this gives self-refreshing offline mixes.
+ * into a download policy — permanent (whole playlist, nothing is ever deleted)
+ * or rolling cache (first N tracks; tracks that leave the window are evicted).
+ * Combined with server-side smart playlists this gives self-refreshing offline
+ * mixes.
  *
- * Eviction only ever touches songs this manager downloaded itself (`managed`),
- * never manual downloads, and never songs another policy still wants.
+ * Eviction is rolling-only, and only ever touches songs this manager downloaded
+ * itself (`managed`), never manual downloads, and never songs another policy
+ * still wants. The rules live in [planPlaylistSync]; this class gathers their
+ * inputs and carries the plan out.
  */
 class PlaylistDownloadManager(
 	private val settings: Settings,
 	private val dbRepository: DbRepository,
-	private val playlistDao: PlaylistDao,
+	private val songDao: SongDao,
 	private val downloadManager: DownloadManager
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	private val json = Json { ignoreUnknownKeys = true }
+
+	// One pass at a time: saving a policy starts a pass of its own, which can overlap the
+	// periodic one and would plan against a `managed` list the other is about to rewrite.
+	private val syncMutex = Mutex()
+
+	/** Rolling playlists whose last pass came back empty; see [planPlaylistSync]. In memory only. */
+	private val emptyLastPass = mutableSetOf<String>()
 
 	private val _policies = MutableStateFlow<Map<String, PlaylistDownloadPolicy>>(emptyMap())
 	val policies: StateFlow<Map<String, PlaylistDownloadPolicy>> = _policies.asStateFlow()
@@ -114,49 +128,60 @@ class PlaylistDownloadManager(
 		}
 	}
 
-	suspend fun syncPlaylist(playlistId: String) {
-		val policy = _policies.value[playlistId] ?: return
+	suspend fun syncPlaylist(playlistId: String) = syncMutex.withLock {
+		val policy = _policies.value[playlistId] ?: return@withLock
 
-		// Refresh contents from the server first — for smart playlists this is
-		// where the "dynamically updated" part comes from.
-		runCatching { dbRepository.syncPlaylistSongs(playlistId) }
+		// The server's answer on THIS pass is the only evidence of what the playlist holds. A
+		// fetch that failed (offline, a timeout, sockets that died while the app was frozen)
+		// changes nothing: no eviction, no downloads. Room is not consulted for membership.
+		val orderedIds = dbRepository.syncPlaylistSongs(playlistId, strict = true)
+			.getOrElse {
+				Logger.w(
+					"PlaylistDownloadManager",
+					"${policy.playlistName.ifBlank { playlistId }}: not synced, playlist unreadable: ${it.message}"
+				)
+				return@withLock
+			}
+			.toList()
 
-		val playlist = playlistDao.getPlaylistById(playlistId) ?: return
-		val ordered = playlist.songs.sortedBy { it.crossRef.position }
-		val target = if (policy.mode == PlaylistDownloadPolicy.MODE_ROLLING) {
-			rollingWindow(ordered, policy)
-		} else {
-			ordered
+		val songs = orderedIds.chunked(500)
+			.flatMap { songDao.getSongsByIds(it) }
+			.associateBy { it.songId }
+		// Prefer the real on-disk size for anything already downloaded (any policy), so a byte
+		// budget tracks actual storage rather than an estimate once files exist.
+		val actualSizes = downloadManager.downloadedFileSizes()
+		val ordered = orderedIds.mapNotNull { id ->
+			val song = songs[id] ?: return@mapNotNull null
+			PlaylistSyncCandidate(
+				songId = id,
+				bytes = actualSizes[id]?.takeIf { it > 0 } ?: estimatedBytes(song, policy)
+			)
 		}
-		val targetIds = target.map { it.song.songId }.toSet()
 
-		// Evict managed songs that left the target window — unless some other
-		// policy still manages them.
-		val managedByOthers = _policies.value.values
-			.filter { it.playlistId != playlistId }
-			.flatMap { it.managed }
-			.toSet()
-		val evicted = policy.managed.filter { it !in targetIds && it !in managedByOthers }
-		evicted.forEach { downloadManager.deleteDownload(it) }
-
-		// Download what's missing, at the policy's quality.
-		val downloaded = downloadManager.downloadedSongs.value.keys
-		// A song that has already failed MAX_DOWNLOAD_RETRIES times is left alone until the user
-		// retries it by hand — otherwise a permanently-failing track (deleted server-side, transcode
-		// error, …) is re-queued on every 6h sync forever, draining battery and data.
 		val failedRetryCounts = downloadManager.failedRetryCounts()
-		val toDownload = target.filter { item ->
-			val id = item.song.songId
-			id !in downloaded &&
-				(failedRetryCounts[id] ?: 0) < DownloadManager.MAX_DOWNLOAD_RETRIES
-		}
+		val plan = planPlaylistSync(
+			policy = policy,
+			ordered = ordered,
+			downloadedIds = downloadManager.downloadedSongs.value.keys,
+			failedRetryCounts = failedRetryCounts,
+			managedByOthers = _policies.value.values
+				.filter { it.playlistId != playlistId }
+				.flatMap { it.managed }
+				.toSet(),
+			previousPassEmpty = playlistId in emptyLastPass
+		)
+		if (ordered.isEmpty()) emptyLastPass.add(playlistId) else emptyLastPass.remove(playlistId)
+
+		plan.evict.forEach { downloadManager.deleteDownload(it) }
+
 		val quality = DownloadManager.DownloadQuality(
 			policy.maxBitRate,
 			policy.format.ifBlank { null }
 		)
-		toDownload.forEach {
+		plan.download.forEach { id ->
+			val song = songs[id] ?: return@forEach
 			downloadManager.downloadSong(
-				it.song.toDomainModel(),
+				song.toDomainModel(),
 				// The policy's own quality wins over the global download preference.
 				quality = quality,
 				// Tagged so the download center can show these as playlist-managed rather than
@@ -164,53 +189,19 @@ class PlaylistDownloadManager(
 				source = DownloadSource.PLAYLIST,
 				// A re-attempt of a previously-failed track counts toward the retry cap; a fresh
 				// download does not.
-				incrementRetry = it.song.songId in failedRetryCounts
+				incrementRetry = id in failedRetryCounts
 			)
 		}
 
-		val newManaged =
-			(policy.managed.filter { it in targetIds } + toDownload.map { it.song.songId })
-				.distinct()
 		_policies.value = _policies.value +
-			(playlistId to policy.copy(managed = newManaged))
+			(playlistId to (_policies.value[playlistId] ?: policy).copy(managed = plan.managed))
 		persist()
-		if (evicted.isNotEmpty() || toDownload.isNotEmpty()) {
+		if (plan.evict.isNotEmpty() || plan.download.isNotEmpty()) {
 			Logger.i(
 				"PlaylistDownloadManager",
-				"${policy.playlistName.ifBlank { playlistId }}: +${toDownload.size} -${evicted.size}"
+				"${policy.playlistName.ifBlank { playlistId }}: +${plan.download.size} -${plan.evict.size}"
 			)
 		}
-	}
-
-	/**
-	 * The prefix of [ordered] the rolling policy should keep: playlist order, stopping at whichever
-	 * of the count cap or the byte budget is reached first. At least the first song is always kept,
-	 * even if it alone exceeds the budget — a rolling cache of zero songs is never what's wanted.
-	 */
-	private suspend fun rollingWindow(
-		ordered: List<PlaylistSong>,
-		policy: PlaylistDownloadPolicy
-	): List<PlaylistSong> {
-		val countCap = policy.rollingLimit.coerceAtLeast(1)
-		val byCount = ordered.take(countCap)
-		if (policy.budgetBytes <= 0) return byCount
-
-		// Prefer the real on-disk size for anything already downloaded (any policy), so the budget
-		// tracks actual storage rather than an estimate once files exist.
-		val actualSizes = downloadManager.downloadedFileSizes()
-		val kept = mutableListOf<PlaylistSong>()
-		var used = 0L
-		for (item in byCount) {
-			val size = actualSizes[item.song.songId]?.takeIf { it > 0 }
-				?: estimatedBytes(item.song, policy)
-			if (kept.isEmpty() || used + size <= policy.budgetBytes) {
-				kept.add(item)
-				used += size
-			} else {
-				break
-			}
-		}
-		return kept
 	}
 
 	/**

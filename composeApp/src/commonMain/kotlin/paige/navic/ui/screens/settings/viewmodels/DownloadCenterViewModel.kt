@@ -241,7 +241,7 @@ class DownloadCenterViewModel(
 
 	init {
 		viewModelScope.launch(Dispatchers.IO) {
-			// allDownloads re-emits on every ~1% progress write. Only the ACTIVE/queued rows
+			// allDownloads re-emits on every ~1% progress tick. Only the ACTIVE/queued rows
 			// actually change on a tick, so cache the expensive, whole-library-scale work
 			// (the song-resolution DB query and the terminal-section builds) and rebuild it
 			// only when the relevant SET of downloads changes — not on every progress tick.

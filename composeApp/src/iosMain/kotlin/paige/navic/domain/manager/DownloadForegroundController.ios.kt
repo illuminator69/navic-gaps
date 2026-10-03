@@ -5,6 +5,6 @@ package paige.navic.domain.manager
  * implemented or verified. It exists so `commonMain` compiles for the target.
  */
 actual class DownloadForegroundController {
-	actual fun start() = Unit
-	actual fun stop() = Unit
+	actual fun start(reason: ForegroundReason) = Unit
+	actual fun stop(reason: ForegroundReason) = Unit
 }

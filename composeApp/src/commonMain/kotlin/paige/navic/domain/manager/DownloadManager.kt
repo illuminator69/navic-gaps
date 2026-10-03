@@ -12,7 +12,12 @@ import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import io.ktor.http.contentLength
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -39,10 +45,12 @@ import org.jetbrains.compose.resources.getString
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.LyricDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
+import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
@@ -57,6 +65,7 @@ class DownloadManager(
 	private val imageLoader: ImageLoader,
 	private val downloadDao: DownloadDao,
 	private val albumDao: AlbumDao,
+	private val songDao: SongDao,
 	private val storageManager: StorageManager,
 	private val lyricsRepository: LyricsRepository,
 	private val lyricDao: LyricDao,
@@ -121,13 +130,13 @@ class DownloadManager(
 			completedSongsDownloaded = 0
 			// The queue drained. Nothing left to protect, and a service outliving
 			// its work is a permanent notification over an idle process.
-			foregroundController.stop()
+			foregroundController.stop(ForegroundReason.DOWNLOADS)
 		} else {
 			// Something is in flight. Without this the process is merely *cached*
 			// the moment the last Activity stops, and Android 12+ freezes its
 			// threads — which is the whole "downloads fail when you leave the app"
 			// failure. Idempotent, so calling it per claimed job is fine.
-			foregroundController.start()
+			foregroundController.start(ForegroundReason.DOWNLOADS)
 			val progress = completedSongsDownloaded.toFloat() / totalSongsToDownload.toFloat()
 			val titleStr = getString(Res.string.info_status_downloading)
 			val msgStr = "$completedSongsDownloaded / $totalSongsToDownload"
@@ -144,7 +153,22 @@ class DownloadManager(
 
 	private var libraryDownloadJob: Job? = null
 
-	val allDownloads = downloadDao.getAllDownloads().map { it.toImmutableList() }
+	/**
+	 * Live transfer progress, songId -> 0..1, for rows that are DOWNLOADING. Kept in memory rather
+	 * than written to the row: a write per percent per transfer re-read the whole download table
+	 * into every collector, several times a second for the length of a library download.
+	 */
+	val progress: StateFlow<Map<String, Float>>
+		field = MutableStateFlow(emptyMap())
+
+	/** The table as stored. Emits on a status change only, never on a progress tick. */
+	private val storedDownloads = downloadDao.getAllDownloads()
+
+	/** The table with [progress] laid over the rows in flight, which is what the UI draws. */
+	val allDownloads = combine(storedDownloads, progress) { downloads, live ->
+		if (live.isEmpty()) downloads
+		else downloads.map { row -> live[row.songId]?.let { row.copy(progress = it) } ?: row }
+	}.map { it.toImmutableList() }
 	val downloadCount = downloadDao.getDownloadsCount()
 	/**
 	 * Read from the stored `fileSize` column rather than stat-ing every file on every emission —
@@ -164,7 +188,7 @@ class DownloadManager(
 
 	init {
 		scope.launch {
-			allDownloads.collectLatest { downloads ->
+			storedDownloads.collectLatest { downloads ->
 				downloadedSongs.value = downloads
 					.filter { it.status == DownloadStatus.DOWNLOADED && it.filePath != null }
 					.associate { it.songId to it.filePath!! }
@@ -175,8 +199,10 @@ class DownloadManager(
 			// storage total read as empty for anyone upgrading. Measure them ONCE, in the
 			// background, instead of blocking the migration on a stat of every file.
 			backfillMissingFileSizes()
+		}
+		scope.launch {
 			// Nothing survives a process death mid-transfer: any row still claiming to be active
-			// has no coroutine behind it, so park it as failed and let the user retry.
+			// has no coroutine behind it, so start it again.
 			reconcileInterruptedDownloads()
 		}
 	}
@@ -200,23 +226,56 @@ class DownloadManager(
 		}
 	}
 
+	/**
+	 * Pick up what a process death left behind.
+	 *
+	 * A row still QUEUED or DOWNLOADING at start has no coroutine behind it. It is still wanted,
+	 * so it is queued again with the quality and source it was first asked for. These used to be
+	 * parked `FAILED / "Interrupted"`: a queue of hundreds then needed a manual retry after every
+	 * kill, and for a playlist policy each interruption used up one of its automatic retries.
+	 * Only a row whose song the library no longer holds is failed, since nothing can fetch it.
+	 */
 	private suspend fun reconcileInterruptedDownloads() {
 		try {
 			val stranded = downloadDao.getDownloadsByStatus(DownloadStatus.DOWNLOADING) +
 				downloadDao.getDownloadsByStatus(DownloadStatus.QUEUED)
+			if (stranded.isEmpty()) {
+				// A progress notification outlives the process that posted it.
+				downloadProgressMutex.withLock {
+					if (totalSongsToDownload == 0) {
+						notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+					}
+				}
+				return
+			}
+			val songs = stranded.map { it.songId }.chunked(500)
+				.flatMap { songDao.getSongsByIds(it) }
+				.associateBy { it.songId }
+			var resumed = 0
 			stranded.forEach { download ->
-				downloadDao.insertDownload(
-					download.copy(
-						status = DownloadStatus.FAILED,
-						progress = 0f,
-						error = INTERRUPTED_ERROR,
-						updatedAt = now()
+				val song = songs[download.songId]
+				if (song != null) {
+					downloadSong(
+						song.toDomainModel(),
+						quality = DownloadQuality(download.maxBitRate, download.format),
+						source = download.sourcePolicy
 					)
-				)
+					resumed++
+				} else {
+					downloadDao.insertDownload(
+						download.copy(
+							status = DownloadStatus.FAILED,
+							progress = 0f,
+							error = INTERRUPTED_ERROR,
+							updatedAt = now()
+						)
+					)
+				}
 			}
-			if (stranded.isNotEmpty()) {
-				Logger.i("DownloadManager", "reset ${stranded.size} interrupted downloads to failed")
-			}
+			Logger.i(
+				"DownloadManager",
+				"resumed $resumed interrupted downloads, failed ${stranded.size - resumed} with no song"
+			)
 		} catch (e: Exception) {
 			if (e is CancellationException) throw e
 			Logger.e("DownloadManager", "failed to reconcile interrupted downloads", e)
@@ -283,6 +342,23 @@ class DownloadManager(
 			}
 			if (!claimed) return@launch
 
+			// A complete file is never fetched again, whoever asks. Without this any caller that
+			// had not checked first overwrote the DOWNLOADED row with a QUEUED one and re-fetched.
+			val held = downloadDao.getDownloadById(song.id)
+			if (held?.status == DownloadStatus.DOWNLOADED &&
+				held.filePath?.let { storageManager.getFileSize(it) > 0L } == true
+			) {
+				activeDownloadsMutex.withLock { activeDownloads.remove(song.id) }
+				// The library sweep counted this song into the notification up front.
+				if (!incrementCounter) {
+					downloadProgressMutex.withLock {
+						completedSongsDownloaded++
+						updateDownloadNotification()
+					}
+				}
+				return@launch
+			}
+
 			if (incrementCounter) {
 				downloadProgressMutex.withLock {
 					if (totalSongsToDownload == 0) completedSongsDownloaded = 0
@@ -298,7 +374,7 @@ class DownloadManager(
 			try {
 				// Marked QUEUED *before* asking for a permit, so a 50-track album download shows 50
 				// queued rows and ~10 genuinely transferring — rather than 50 identical spinners.
-				val existing = downloadDao.getDownloadById(song.id)
+				val existing = held
 				downloadDao.insertDownload(
 					DownloadEntity(
 						songId = song.id,
@@ -328,6 +404,7 @@ class DownloadManager(
 				throw e
 			} finally {
 				activeDownloadsMutex.withLock { activeDownloads.remove(song.id) }
+				progress.update { it - song.id }
 				// In `finally`, not duplicated across the success path and the catch as upstream
 				// has it: every job that got past the claim counts exactly once, however it ended.
 				downloadProgressMutex.withLock {
@@ -485,6 +562,13 @@ class DownloadManager(
 	 * reachable only after six hours of continuous transferring.
 	 */
 	suspend fun parkActiveDownloads() {
+		// The library sweep first: its workers would otherwise keep pulling songs off their
+		// channel and starting new transfers behind the park.
+		libraryDownloadJob?.cancel()
+		libraryDownloadJob = null
+		isDownloadingLibrary.value = false
+		libraryDownloadProgress.value = 0f
+
 		val jobsToPark = activeDownloadsMutex.withLock {
 			val copy = activeDownloads.toMap()
 			activeDownloads.clear()
@@ -494,6 +578,7 @@ class DownloadManager(
 			totalSongsToDownload = 0
 			completedSongsDownloaded = 0
 			notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
+			foregroundController.stop(ForegroundReason.DOWNLOADS)
 		}
 		jobsToPark.forEach { (songId, job) ->
 			job.cancel()
@@ -528,7 +613,7 @@ class DownloadManager(
 				// `updateDownloadNotification` is not reached on this path — the
 				// counters are zeroed directly — so the service has to be stopped
 				// here or it survives a cancel-everything with nothing to do.
-				foregroundController.stop()
+				foregroundController.stop(ForegroundReason.DOWNLOADS)
 			}
 
 			val jobsToCancel = activeDownloadsMutex.withLock {
@@ -592,7 +677,7 @@ class DownloadManager(
 	}
 
 	fun getCollectionDownloadStatus(songIds: List<String>): Flow<DownloadStatus> {
-		return allDownloads.map { downloads ->
+		return storedDownloads.map { downloads ->
 			val collectionDownloads = downloads.filter { it.songId in songIds }
 			when {
 				collectionDownloads.isEmpty() -> DownloadStatus.NOT_DOWNLOADED
@@ -727,7 +812,6 @@ class DownloadManager(
 		source: String = DownloadSource.MANUAL
 	) {
 		var lastProgress = 0f
-		var progressJob: Job? = null
 
 		val request = client.prepareRequest(sessionManager.api.getStreamUrl(song.id, bitrate, format)) {
 			method = HttpMethod.Get
@@ -739,20 +823,10 @@ class DownloadManager(
 			timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
 			onDownload { bytesSentTotal, contentLength ->
 				if (contentLength != null && contentLength > 0L) {
-					val progress = (bytesSentTotal.toDouble() / contentLength).toFloat()
-					if (progress - lastProgress >= 0.01f || progress == 1f) {
-						lastProgress = progress
-
-						progressJob?.cancel()
-
-						progressJob = scope.launch {
-							downloadDao.updateProgress(
-								song.id,
-								DownloadStatus.DOWNLOADING,
-								progress,
-								now()
-							)
-						}
+					val fraction = (bytesSentTotal.toDouble() / contentLength).toFloat()
+					if (fraction - lastProgress >= 0.01f || fraction == 1f) {
+						lastProgress = fraction
+						progress.update { it + (song.id to fraction) }
 					}
 				}
 			}
@@ -762,14 +836,38 @@ class DownloadManager(
 		val tempPath = storageManager.getTempDownloadPath(song.id, song.fileExtension.orEmpty())
 
 		try {
+			// The length the server promised, when it promised one and the body is not re-encoded on
+			// the way. An uncached transcode carries none, and nothing can be checked against it.
+			var expectedLength: Long? = null
 			request.execute { response ->
+				// Whatever arrives is not automatically a song. Subsonic reports its errors as
+				// HTTP 200 with a JSON or XML envelope, and a proxy answers a dead upstream with
+				// an HTML page; saved under an audio name either one read as a finished download.
+				if (!response.status.isSuccess()) {
+					throw IllegalStateException("Server answered ${response.status.value}")
+				}
+				val type = response.contentType()
+				if (type != null && NOT_AUDIO.any { type.match(it) }) {
+					throw IllegalStateException("Server sent an error instead of audio")
+				}
+				if (response.headers[HttpHeaders.ContentEncoding] == null) {
+					expectedLength = response.contentLength()?.takeIf { it > 0L }
+				}
 				// Stream to a `.part` file. Until the transfer completes, the REAL path either
 				// doesn't exist or still holds the previous good copy — so a cancel or a crash
 				// can never leave a truncated file that the player treats as a full download.
 				storageManager.saveFile(tempPath, response.bodyAsChannel())
 			}
 
-			progressJob?.cancel()
+			// A body can end early as a clean end-of-stream (a timeout, a reset upstream of a
+			// proxy), which copies without an error and used to be saved as the whole song.
+			val written = storageManager.getFileSize(tempPath)
+			if (written <= 0L) throw IllegalStateException("Server sent an empty file")
+			expectedLength?.let { expected ->
+				if (written != expected) {
+					throw IllegalStateException("Incomplete download ($written of $expected bytes)")
+				}
+			}
 
 			if (!storageManager.finalizeFile(tempPath, path)) {
 				throw IllegalStateException("Could not finalize download file")
@@ -794,7 +892,6 @@ class DownloadManager(
 			)
 			Logger.i("DownloadManager", "wrote download for ${song.id}")
 		} catch (e: Throwable) {
-			progressJob?.cancel()
 			// Cancellation included: never leave the scratch file behind to rot.
 			storageManager.deleteFile(tempPath)
 			throw e
@@ -812,12 +909,20 @@ class DownloadManager(
 		downloadDao.getDownloadsByStatus(DownloadStatus.FAILED).associate { it.songId to it.retryCount }
 
 	companion object {
+		/** Content types that are an error answer, never a song. */
+		private val NOT_AUDIO = listOf(
+			ContentType.Application.Json,
+			ContentType.Application.Xml,
+			ContentType.Text.Xml,
+			ContentType.Text.Html
+		)
+
 		/** Hard ceiling on the user-configurable max-concurrency setting. */
 		const val MAX_CONCURRENCY = 10
 
 		/**
 		 * A row that had no coroutine behind it when the app next started — a real
-		 * process death mid-transfer. Named rather than written twice, because the
+		 * process death mid-transfer — and whose song is gone, so it could not be resumed. Named rather than written twice, because the
 		 * Download Center is the only place a user ever learns which of the two
 		 * happened and the words are the whole signal.
 		 */

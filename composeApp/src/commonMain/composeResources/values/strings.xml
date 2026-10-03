@@ -848,8 +848,8 @@
 	<string name="auto_download_ellipsis">Auto-download…</string>
 	<string name="auto_download_mode">Keep offline</string>
 	<string name="auto_download_mode_off">Off</string>
-	<string name="auto_download_mode_permanent">Everything</string>
-	<string name="auto_download_mode_rolling">Rolling</string>
+	<string name="auto_download_mode_permanent">Everything (never removed)</string>
+	<string name="auto_download_mode_rolling">Rolling (removes what leaves)</string>
 	<string name="auto_download_rolling_limit">Keep first N songs</string>
 	<string name="auto_download_budget">Max size in GB (optional)</string>
 	<string name="auto_download_quality">Quality</string>

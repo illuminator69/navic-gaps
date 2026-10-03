@@ -26,7 +26,7 @@ val managerModule = module {
 	singleOf(::AmbientColorHolder)
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
-		SyncManager(get(), get(), get(), get(), get(), get(), get(), get()).apply {
+		SyncManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply {
 			startPeriodicSync()
 		}
 	}

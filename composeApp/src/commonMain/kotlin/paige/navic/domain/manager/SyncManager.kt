@@ -49,7 +49,8 @@ class SyncManager(
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
 	private val lbBotManager: LbBotManager,
-	private val lbIndexSync: LbIndexSync
+	private val lbIndexSync: LbIndexSync,
+	private val foregroundController: DownloadForegroundController
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var syncJob: Job? = null
@@ -213,6 +214,7 @@ class SyncManager(
 	}
 
 	init {
+		repository.clearStaleSyncNotification()
 		observeLbBotFills()
 		scope.launch {
 			connectivityManager.isOnline.collect { isOnline ->
@@ -284,10 +286,18 @@ class SyncManager(
 					it.copy(isSyncing = true, lastSyncFailed = false)
 				}
 
-				val result = repository.syncEverything { progress, message ->
-					_syncState.update {
-						it.copy(isSyncing = true, progress = progress, message = message)
+				// Held in the foreground for the length of the pull. Without it the process is
+				// frozen as soon as the app is left, and the pull sat half-done under a
+				// notification that still said it was running.
+				foregroundController.start(ForegroundReason.SYNC)
+				val result = try {
+					repository.syncEverything { progress, message ->
+						_syncState.update {
+							it.copy(isSyncing = true, progress = progress, message = message)
+						}
 					}
+				} finally {
+					foregroundController.stop(ForegroundReason.SYNC)
 				}
 
 				if (result.isSuccess) {

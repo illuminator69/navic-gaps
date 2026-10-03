@@ -390,6 +390,12 @@ still advancing the speaker's queue. It logs one line when it fires.
 
 ## 5. Data and sync
 
+- **A parent row with cascading children is upserted, never `REPLACE`d.** `REPLACE` deletes the
+  row before inserting it, and the delete cascades: `PlaylistDao.insertPlaylists` used to empty
+  every playlist's `PlaylistSongCrossRef` rows on every full sync, until the playlist phase refilled
+  them minutes later (or not at all, when the sync failed in between). It is `@Upsert` now.
+  **Upstream's copy is `@Insert(REPLACE)`**, so check this line after a merge that touches
+  `PlaylistDao.kt`.
 - **Don't overwrite a track's artist with its album's.** The library sync used to, which discarded
   the full "A feat. B" credit Navidrome sends and made featured artists invisible app-wide. The
   album artist is a *fallback* for a track that names none.
@@ -768,6 +774,28 @@ true of invented *album art*, and not of an icon naming the kind.
   strings are the only way a user tells them apart. **WorkManager is deliberately not introduced:**
   it is not a dependency anywhere, and `downloadSemaphore` plus `awaitDownloadConstraints` already
   do what `Constraints` would.
+  The service is held per **reason** (`ForegroundReason.DOWNLOADS`, `SYNC`): `SyncManager` holds it
+  around the full library pull too, which otherwise froze half-done under a notification that still
+  said it was running. Its notification id follows the reasons (download while anything downloads,
+  sync when only a sync runs), so each manager's own progress notification updates it in place. The
+  controller keeps no "service is running" flag (it went stale after a timeout or a refused start);
+  the service reports `onServiceGaveUp` instead, and `onTimeout` finishes the park (`NonCancellable`,
+  library sweep included) before it stops. Progress notifications carry `setTimeoutAfter(120 s)`:
+  with no service behind one, a stalled notification removes itself rather than hanging in the shade.
+- **A row left QUEUED / DOWNLOADING by a process death is resumed, not failed.**
+  `reconcileInterruptedDownloads` queues it again at its stored quality and source; `Interrupted` is
+  now only a row whose song Room no longer holds. `downloadSong` returns at once for a row that is
+  `DOWNLOADED` with its file on disk, whoever calls it. A body is only a song if the status is 2xx,
+  the content type is not JSON/XML/HTML (Subsonic errors are HTTP 200 envelopes) and, when a
+  `Content-Length` came with it, the bytes written match. Live progress is the in-memory
+  `DownloadManager.progress` map laid over the rows in `allDownloads`; it is not written to the table,
+  so `DownloadEntity.progress` in the database is 0 or 1.
+- **A playlist download policy acts only on what the server answered on that pass**
+  (`PlaylistSyncPlanner.kt`, `PlaylistSyncPlannerTest`). A failed fetch does nothing; Room's playlist
+  rows are never read for membership. **Permanent never deletes** (a song that leaves the playlist
+  stays on disk and in `managed`); **rolling** deletes what leaves its window, but not on a single
+  empty answer. Before 2026-10-03 both modes evicted against Room, and a pass that met an emptied
+  playlist deleted every managed file and downloaded the lot again.
 - **Navidrome smart playlists are track-scoped, and there is no album mode to ask for.** So
   `AlbumModeSmartPlaylists` builds one by having the *server* evaluate the rules and expanding the
   result locally — create a smart playlist, read its tracks, expand each to its whole album, write a
