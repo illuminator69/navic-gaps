@@ -37,7 +37,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -460,6 +460,31 @@ still advancing the speaker's queue. It logs one line when it fires.
   mirror has it), wishlist, lookups, anything that POSTs. Discover paints its Room rows and every
   cached lb-bot row before the probes, and Discover/Fresh call `revalidate()` on every visit,
   because as root tabs their ViewModels outlive the visit.
+- **A library artist's MusicBrainz id is `effectiveArtistMbid`, never `artist.musicBrainzId`
+  (I-019).** Navidrome's tag is wrong for a mis-tagged artist and absent for an untagged one, who
+  then could not be indexed at all. The user's pick is an **override**, stored by lb-bot and shared
+  by every client (`GET /lb/overrides`, `POST /lb/artist/override`, `…/override/remove`); the rules
+  are the pure functions in `ArtistMbidOverride.kt` (`ArtistMbidOverrideTest`). `LbBotManager`
+  holds the device's copy, `artistOverrides`: restored from `lb_response_cache` at start, re-read
+  on every hub advert, every `index` frame and after a write here. A failed read keeps the map,
+  and a stale one is harmless — the tag is sent and lb-bot swaps to the override on its own side.
+  Reads and writes share `overridesLock`: a refresh in flight must not publish its older answer
+  over a write, and the write's re-read must not join that request. A write applies its own
+  result to the map before re-reading, because the re-read may fail and the write did not.
+  `ArtistDetailViewModel` resolves the id when the artist loads and again whenever the map moves
+  (a pick here, or one made on another client): `mbidChanged` re-keys the mirror observer, drops
+  the About, re-reads the shelf, and ignores mirror rows still filed under the id it just left —
+  the mirror lookup's Navidrome-id fallback finds exactly that row until the next pull. The
+  surfaces (the artist sheet's "Fix MusicBrainz match"; the shelf's "Choose MusicBrainz artist"
+  where there is no id to scan under) show only while `artistOverridesSupported`: the hub
+  advertises `POST /lb/artist/override` and lb-bot has not answered 404 for it. A **bare** 404 —
+  and a 405 on the POST, since lb-bot's SPA fallback is a GET-only catch-all — is an lb-bot older
+  than the hub and hides them, never an error. A 404 **with a `code`** (`unknown_mbid`,
+  `no_override`) and a 502 with `retryable` are lb-bot's own refusals and are shown in its words
+  (`overrideWriteError`; the general `failureFor` reads them as "hub too old" and "busy"). A new
+  consumer of a library artist's MBID that reaches an lb-bot call or a MusicBrainz link goes
+  through `LbBotManager.effectiveArtistMbid(ndId, tag)`; ids that came FROM lb-bot (a Fresh row,
+  a lookup hit, a mirrored artist row, the external pages' route key) are already the right ones.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
