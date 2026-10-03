@@ -540,6 +540,9 @@ still advancing the speaker's queue. It logs one line when it fires.
     a list is — reading (only while a request is in flight), unreachable with nothing loaded,
     the copy loaded last, or current — from `LbBotManager.artistOverridesLoaded` /
     `artistOverridesReadFailed`; an empty map alone cannot tell "no overrides" from "never read".
+    "Reading" is a COUNT of the panel's reads that are out, plus "due" until the first one has
+    started (`panelReading`): the panel opening and "Sync now" each read, and a single flag was
+    cleared by whichever came back first.
     **"This hub is older" and "does not offer" are only said of a hub that answered**
     (`LbBotManager.hubHeard`: an advert, or an answer to `/lb/status`, in this process). Until
     then `artistOverridesSupported` is false and `listeningSupported` is a verdict remembered
@@ -555,13 +558,26 @@ still advancing the speaker's queue. It logs one line when it fires.
     `LbIndexSync.lastRun`: running, done on which cursor and how many artists changed, skipped
     and why, failed and with what. **It is a record, never an input** — nothing in `LbIndexSync`
     reads it, and syncing, retrying and backing off are exactly as they were; the notes are
-    assignments beside the returns they describe. "Up to date" is only said of a pull that
-    finished and changed nothing. The listening half reports the sync request's own answer and
-    then the status it leads to (`listeningSyncOutcome`): the request returns at once, so
-    "synced" needs `lastSyncAt` to have moved, an `error` that was already there is not this
-    sync's, and a 405 is "this lb-bot has no listening history yet", a fact.
+    assignments beside the returns they describe, **with no suspension point of their own**
+    (the cursor is the last applied page's `newCursor`, not a read after the pass). "Up to
+    date" is only said of a pull that finished and changed nothing.
+    **The last run is a verdict on an earlier pull, so after a tap it is not shown as the
+    tap's answer.** The panel notes `LbIndexRun.serial` at the tap; until a pass newer than
+    that has started the line says the pull has been asked for, and after a few seconds with
+    nothing running, that none has started (`indexRunLineAfterTap`). A pass already running
+    at the tap is said as running. The button is disabled, and says "Syncing…", while the
+    sync it started is at work.
+    The listening half reports the sync request's own answer and then the status it leads to
+    (`listeningSyncOutcome`): the request returns at once, so "synced" needs `lastSyncAt` to
+    have moved **past a baseline read immediately before the request** — never past whatever
+    the panel last showed, which would credit a background sync that finished in between to
+    the tap. With no baseline (that read failed) nothing is called finished, or failed; the
+    first status read since stands in for the reads that follow (`listeningSyncBaseline`). An
+    `error` that was already there is not this sync's, and a 405 is "this lb-bot has no
+    listening history yet", a fact.
   - **A write made from the panel follows lb-bot's scan decision** (`overrideWriteLine` over
-    `overrideScanToFollow`), exactly as the artist page does. Nothing there starts a scan.
+    `overrideScanToFollow`), exactly as the artist page does. Nothing there starts a scan. A
+    set and a remove are worded apart: a remove that failed is "Not removed", not "Not saved".
   - **"Refresh About"** (the artist and album sheets) is `refreshArtistMeta` / `refreshAlbumMeta`:
     one request with `refresh=1`, which lb-bot and the hub both step past their cached copy for.
     Only an About replaces what is shown and what is cached — `{"found": false}` is one (lb-bot
@@ -574,7 +590,10 @@ still advancing the speaker's queue. It logs one line when it fires.
     item's title out of Room or else its id, and when it was queued. A per-row remove and
     `SyncManager.processQueue` do not disturb each other — the drain reads the queue once and
     deletes each row by id after sending it — but an action the drain has already read may
-    still be sent in the moment after it is removed.
+    still be sent in the moment after it is removed, and the screen says so in a line, since a
+    row vanishing reads as "cancelled". A remove that could not be written says that too. The
+    queue re-emits on every row a drain deletes, so a title is looked up once per id
+    (`pendingTitlesToLookUp`), not once per emission.
 - **"Matches to check" ride the overrides body (I-021).** lb-bot lists the library artists
   whose MusicBrainz identity is worth a look — no tag in Navidrome, and its own name-search guess
   matched none of their albums (`unmatched`) or found nobody (`unresolved`) — as `toCheck` on
