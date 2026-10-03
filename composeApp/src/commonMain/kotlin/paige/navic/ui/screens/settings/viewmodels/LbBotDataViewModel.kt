@@ -12,12 +12,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbIndexRun
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbListeningStatus
 import paige.navic.domain.manager.LbMatchToCheck
@@ -26,8 +29,10 @@ import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.ListeningPhase
 import paige.navic.domain.manager.ListeningSyncOutcome
 import paige.navic.domain.manager.formatListenedAt
+import paige.navic.domain.manager.indexRunLineAfterTap
 import paige.navic.domain.manager.listeningPhase
 import paige.navic.domain.manager.listeningStatusLine
+import paige.navic.domain.manager.listeningSyncBaseline
 import paige.navic.domain.manager.listeningSyncLine
 import paige.navic.domain.manager.listeningSyncOutcome
 import paige.navic.domain.manager.matchCanKeep
@@ -35,6 +40,7 @@ import paige.navic.domain.manager.matchesSectionShown
 import paige.navic.domain.manager.matchesToShow
 import paige.navic.domain.manager.overrideWriteLine
 import paige.navic.domain.manager.panelData
+import paige.navic.domain.manager.panelReading
 
 /** The overrides list as the panel shows it: what kind of data it is, and the rows. */
 @Immutable
@@ -85,8 +91,23 @@ class LbBotDataViewModel(
 
 	// ----- overrides ------------------------------------------------------------------------ //
 
-	/** A read of the overrides that THIS panel started is in flight. */
-	private val overridesReading = MutableStateFlow(false)
+	/**
+	 * How many reads of the overrides that THIS panel started are out. A count, not a flag:
+	 * the panel opening and "Sync now" can each have one, and the first to come back must not
+	 * end the state for the other.
+	 */
+	private val overrideReads = MutableStateFlow(0)
+
+	/**
+	 * True until the first read of a layer that is there has started. The section asks for that
+	 * read as it appears, a moment after these flows are first collected; without this the list
+	 * would say "lb-bot is not reachable" for the frame in between, about a read not yet made.
+	 */
+	private val overridesReadDue = MutableStateFlow(true)
+
+	private val overridesReading = combine(overrideReads, overridesReadDue) { inFlight, due ->
+		panelReading(inFlight, due)
+	}
 
 	val overrides: StateFlow<OverridesPanel> = combine(
 		lbBotManager.artistOverrides,
@@ -149,8 +170,28 @@ class LbBotDataViewModel(
 	val mirror: StateFlow<LbMirrorInfo> = lbIndexSync.observeMirrorInfo()
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LbMirrorInfo())
 
-	/** The mirror's last pull, live: running, finished on which change, skipped or failed. */
-	val indexRun = lbIndexSync.lastRun
+	/**
+	 * "Sync now" as the mirror's line sees it: the pass serial as it stood at the tap, and
+	 * whether a few seconds have since gone by with no pass running. Null before any tap.
+	 */
+	private data class IndexTap(val serial: Long, val overdue: Boolean = false)
+
+	private val indexTap = MutableStateFlow<IndexTap?>(null)
+	private var indexTapJob: Job? = null
+
+	/**
+	 * The mirror's last pull in words, live. After a tap it is never the EARLIER pass's verdict
+	 * shown as if it answered the tap: until a pass newer than the one seen at the tap has
+	 * started it says the pull has been asked for, and then, if none starts, that none did
+	 * (`indexRunLineAfterTap`, over `LbIndexRun.serial`).
+	 */
+	val indexLine: StateFlow<String> = combine(lbIndexSync.lastRun, indexTap) { run, tap ->
+		indexRunLineAfterTap(run, tap?.serial, tap?.overdue == true)
+	}.stateIn(
+		viewModelScope,
+		SharingStarted.WhileSubscribed(5000),
+		indexRunLineAfterTap(lbIndexSync.lastRun.value, null, false)
+	)
 
 	// ----- listening history ----------------------------------------------------------------- //
 
@@ -180,7 +221,12 @@ class LbBotDataViewModel(
 		if (outcome == null || !advertised) "" else listeningSyncLine(outcome)
 	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
-	private var syncJob: Job? = null
+	/**
+	 * "Sync now" is at work. The button is disabled and says so for as long as this is true —
+	 * a second tap used to be swallowed without a sign for up to a minute.
+	 */
+	private val _syncing = MutableStateFlow(false)
+	val syncing = _syncing.asStateFlow()
 
 	/** The one question [hearHub] has out; both halves of the panel wait on the same one. */
 	private var hubJob: Job? = null
@@ -216,13 +262,18 @@ class LbBotDataViewModel(
 	}
 
 	private suspend fun readOverrides() {
-		if (!lbBotManager.isConfigured) return
-		overridesReading.value = true
+		if (!lbBotManager.isConfigured) {
+			// No layer, nothing to read — and the one that appears next has not been read yet.
+			overridesReadDue.value = true
+			return
+		}
+		overrideReads.update { it + 1 }
+		overridesReadDue.value = false
 		try {
 			hearHub()
 			if (lbBotManager.artistOverridesSupported.value) lbBotManager.refreshArtistOverrides()
 		} finally {
-			overridesReading.value = false
+			overrideReads.update { it - 1 }
 		}
 	}
 
@@ -247,40 +298,69 @@ class LbBotDataViewModel(
 	 * "Sync now": pull the index mirror, re-read the overrides, and ask lb-bot to pull from
 	 * ListenBrainz. What came of each is reported from what happened, not from the tap:
 	 *
-	 * - the mirror's line is [indexRun], which `LbIndexSync` writes as the pull runs and ends;
+	 * - the mirror's line is [indexLine]: what `LbIndexSync` records as the pull runs and ends,
+	 *   and, until a pass this tap can have caused has started, that the pull was asked for;
 	 * - the listening line is the request's own answer, then the status it leads to. The
-	 *   request returns at once, so "synced" is only said once `lastSyncAt` has moved; until
-	 *   then it says the pull was asked for and has not finished. The status is read a bounded
-	 *   number of times, and running out of reads changes no claim — it just stops asking.
+	 *   request returns at once, so "synced" is only said once `lastSyncAt` has moved past a
+	 *   baseline read immediately before the request; until then it says the pull was asked for
+	 *   and has not been seen to finish. The status is read a bounded number of times, and
+	 *   running out of reads changes no claim — it just stops asking.
 	 *
 	 * The pull is requested as a fresh start: a user asking now is as good a reason to stop
 	 * waiting out a backoff as a new connection is.
 	 */
 	fun syncNow() {
-		if (syncJob?.isActive == true) return
+		if (_syncing.value) return
+		_syncing.value = true
+
+		// The serial BEFORE the request, so the pass the request causes is newer than it.
+		val tapSerial = lbIndexSync.lastRun.value.serial
+		indexTap.value = IndexTap(tapSerial)
 		lbIndexSync.requestSync("manual", freshStart = true)
+		indexTapJob?.cancel()
+		indexTapJob = viewModelScope.launch {
+			// The clock starts once nothing is running: a pass already under way at the tap is
+			// not "no pull has started", however long it takes.
+			lbIndexSync.lastRun.first { it.serial > tapSerial || it !is LbIndexRun.Running }
+			delay(PULL_START_WAIT_MS)
+			indexTap.update { tap -> if (tap?.serial == tapSerial) tap.copy(overdue = true) else tap }
+		}
+
 		viewModelScope.launch { readOverrides() }
-		syncJob = viewModelScope.launch {
-			if (!lbBotManager.isConfigured) return@launch
-			hearHub()
-			currentCoroutineContext().ensureActive()
-			if (!lbBotManager.listeningSupported.value) return@launch
-			listeningSync.value = ListeningSyncOutcome.Asking
-			val before = listeningStatus.value
-			val post = lbBotManager.listeningSync()
-			currentCoroutineContext().ensureActive()
-			listeningSync.value = listeningSyncOutcome(before, post, null)
-			if (post !is LbBotManager.LbResult.Ok) return@launch
-			repeat(STATUS_READS) { attempt ->
-				if (attempt > 0) delay(STATUS_READ_GAP_MS)
-				val after = readListeningStatus() ?: return@launch
-				val outcome = listeningSyncOutcome(before, post, after)
-				listeningSync.value = outcome
-				// Anything but "not finished yet" (or a status that could not be read, which
-				// is not an answer) is the answer.
-				if (outcome != ListeningSyncOutcome.Waiting && outcome != ListeningSyncOutcome.AskedUnread) {
-					return@launch
-				}
+		viewModelScope.launch {
+			try {
+				syncListening()
+			} finally {
+				_syncing.value = false
+			}
+		}
+	}
+
+	private suspend fun syncListening() {
+		if (!lbBotManager.isConfigured) return
+		hearHub()
+		currentCoroutineContext().ensureActive()
+		if (!lbBotManager.listeningSupported.value) return
+		listeningSync.value = ListeningSyncOutcome.Asking
+		// The baseline is read NOW, immediately before the request. What the panel last showed
+		// may be minutes old — or was never read — and judging against it would credit a sync
+		// that finished before the tap to the tap. When this read fails there is no baseline,
+		// and nothing is called finished until a later read supplies one.
+		var baseline = listeningSyncBaseline(null, readListeningStatus())
+		val post = lbBotManager.listeningSync()
+		currentCoroutineContext().ensureActive()
+		listeningSync.value = listeningSyncOutcome(baseline, post, null)
+		if (post !is LbBotManager.LbResult.Ok) return
+		repeat(STATUS_READS) { attempt ->
+			if (attempt > 0) delay(STATUS_READ_GAP_MS)
+			val after = readListeningStatus() ?: return
+			val outcome = listeningSyncOutcome(baseline, post, after)
+			listeningSync.value = outcome
+			baseline = listeningSyncBaseline(baseline, after)
+			// Anything but "not seen to finish yet" (or a status that could not be read, which
+			// is not an answer) is the answer.
+			if (outcome != ListeningSyncOutcome.Waiting && outcome != ListeningSyncOutcome.AskedUnread) {
+				return
 			}
 		}
 	}
@@ -295,7 +375,10 @@ class LbBotDataViewModel(
 		_busyOverride.value = ndArtistId
 		viewModelScope.launch {
 			try {
-				_overrideLine.value = overrideWriteLine(lbBotManager.removeArtistOverride(ndArtistId))
+				_overrideLine.value = overrideWriteLine(
+					lbBotManager.removeArtistOverride(ndArtistId),
+					removing = true
+				)
 			} finally {
 				_busyOverride.value = null
 			}
@@ -313,7 +396,8 @@ class LbBotDataViewModel(
 		viewModelScope.launch {
 			try {
 				_overrideLine.value = overrideWriteLine(
-					lbBotManager.setArtistOverride(row.ndArtistId, row.mbid, row.name)
+					lbBotManager.setArtistOverride(row.ndArtistId, row.mbid, row.name),
+					removing = false
 				)
 			} finally {
 				_busyOverride.value = null
@@ -351,7 +435,7 @@ class LbBotDataViewModel(
 					_pick.value = MatchPick(row, working = false, error = result.error)
 				else -> {
 					if (stillOpen) _pick.value = null
-					_overrideLine.value = overrideWriteLine(result)
+					_overrideLine.value = overrideWriteLine(result, removing = false)
 				}
 			}
 		}
@@ -361,5 +445,8 @@ class LbBotDataViewModel(
 		/** How many times the status is read after a sync request, and how far apart. */
 		const val STATUS_READS = 12
 		const val STATUS_READ_GAP_MS = 5_000L
+
+		/** How long after a tap, with nothing running, "no pull has started" is said. */
+		const val PULL_START_WAIT_MS = 5_000L
 	}
 }

@@ -96,6 +96,28 @@ internal fun indexRunLine(run: LbIndexRun): String = when (run) {
 		"The pull failed: ${run.detail}. It resumes where it stopped and is tried again on its own."
 }
 
+const val INDEX_PULL_ASKED_LINE = "A pull has been asked for…"
+const val INDEX_PULL_NOT_STARTED_LINE = "No pull has started since you asked."
+
+/**
+ * The mirror's line once "Sync now" has been tapped. [serialAtTap] is [LbIndexRun.serial] as it
+ * stood at the tap (null: no tap is being answered), and [overdue] says a few seconds have gone
+ * by with nothing running.
+ *
+ * The last run is a verdict on an EARLIER pull. Between the tap and the pass it causes, showing
+ * it — "Up to date" most of all — would read as the answer to the tap. So until a pass newer
+ * than the one seen at the tap has started, the line says the pull has been asked for, and if
+ * none starts it says that. A pass that was already running at the tap is said as running: that
+ * is no verdict and is true as it stands, and the pull the tap asked for follows it.
+ */
+internal fun indexRunLineAfterTap(run: LbIndexRun, serialAtTap: Long?, overdue: Boolean): String =
+	when {
+		serialAtTap == null || run.serial > serialAtTap -> indexRunLine(run)
+		run is LbIndexRun.Running -> indexRunLine(run)
+		overdue -> INDEX_PULL_NOT_STARTED_LINE
+		else -> INDEX_PULL_ASKED_LINE
+	}
+
 /**
  * The mirror's own numbers. [supported] false is a hub that advertises no change feed: there is
  * no mirror to describe, and the artist page asks lb-bot directly instead.
@@ -183,6 +205,15 @@ internal fun panelData(
 	else -> LbPanelData.UNREACHABLE
 }
 
+/**
+ * Whether a list fed by lb-bot is being read, as [panelData] means it. [inFlight] counts the
+ * reads that are out — the panel opening and "Sync now" can each have one, and the first to
+ * come back must not end the state for the other. [readDue] is true until the panel's first
+ * read has started: the list is about to be asked for, which is "reading" and not "lb-bot is
+ * not reachable" for the frame in between.
+ */
+internal fun panelReading(inFlight: Int, readDue: Boolean): Boolean = readDue || inFlight > 0
+
 const val LB_UNREACHABLE_LINE = "lb-bot is needed for this and is not reachable right now."
 const val LB_STALE_LINE = "Can't reach lb-bot. This is the copy this device loaded last."
 const val LB_READING_LINE = "Asking lb-bot…"
@@ -204,21 +235,29 @@ internal fun overrideTagLine(row: LbArtistOverride): String =
 	"Navidrome said: ${row.tagMbid.ifBlank { "none" }}"
 
 /**
- * What a set or a remove made from the panel did. It follows lb-bot's scan decision exactly as
- * the artist page does ([overrideScanToFollow]): the panel never starts a scan, and only says one
- * is running when lb-bot answered with its task.
+ * What a set or a remove ([removing]) made from the panel did, each in its own words: a remove
+ * that failed removed nothing, and "Not saved" would be a sentence about something else. It
+ * follows lb-bot's scan decision exactly as the artist page does ([overrideScanToFollow]): the
+ * panel never starts a scan, and only says one is running when lb-bot answered with its task.
  */
-internal fun overrideWriteLine(result: LbBotManager.LbResult<LbOverrideWrite>): String =
+internal fun overrideWriteLine(
+	result: LbBotManager.LbResult<LbOverrideWrite>,
+	removing: Boolean
+): String =
 	when (result) {
-		is LbBotManager.LbResult.Ok ->
-			if (overrideScanToFollow(result.value) != null) "Saved. lb-bot is rescanning this artist."
-			else "Saved."
-		is LbBotManager.LbResult.Failed ->
-			if (result.error == LbBotManager.LbError.RouteUnknown) {
+		is LbBotManager.LbResult.Ok -> {
+			val done = if (removing) "Removed." else "Saved."
+			if (overrideScanToFollow(result.value) != null) "$done lb-bot is rescanning this artist."
+			else done
+		}
+		is LbBotManager.LbResult.Failed -> when {
+			result.error != LbBotManager.LbError.RouteUnknown ->
+				"${if (removing) "Not removed" else "Not saved"}: ${lbErrorClause(result.error)}."
+			removing ->
+				"This lb-bot is older and stores no MusicBrainz matches, so there was nothing to remove."
+			else ->
 				"This lb-bot is older and can't store a MusicBrainz match yet. Nothing was changed."
-			} else {
-				"Not saved: ${lbErrorClause(result.error)}."
-			}
+		}
 	}
 
 // ----- listening history --------------------------------------------------------------------------
@@ -271,7 +310,7 @@ sealed interface ListeningSyncOutcome {
 	/** The request itself failed; lb-bot was not asked. */
 	data class NotAsked(val error: LbBotManager.LbError) : ListeningSyncOutcome
 
-	/** lb-bot accepted the request, and its status shows no finished pull since. */
+	/** lb-bot accepted the request, and nothing read since is evidence that the pull finished. */
 	data object Waiting : ListeningSyncOutcome
 
 	/** lb-bot accepted the request, and its status could not be read afterwards. */
@@ -289,12 +328,20 @@ sealed interface ListeningSyncOutcome {
 }
 
 /**
- * [before] is the status read ahead of the request (null when it could not be read), [post] the
- * request's own answer, [after] the status read since (null: not read yet).
+ * [before] is the baseline: the status read **immediately before the request** — never whatever
+ * the panel last showed, which may be minutes old and would credit a background sync that
+ * finished in between to this tap. Null when that read failed. [post] is the request's own
+ * answer, [after] the status read since (null: not read yet).
  *
  * The request answers at once and never waits on ListenBrainz, so its own `ok` says only that the
- * pull was asked for. "Finished" needs evidence: `lastSyncAt` having moved. An `error` state that
- * reads exactly as it did before the request is the OLD failure, with the new pull still to come.
+ * pull was asked for. "Finished" needs evidence: `lastSyncAt` having moved **past the baseline**.
+ * An `error` state that reads exactly as it did before the request is the OLD failure, with the
+ * new pull still to come.
+ *
+ * **With no baseline there is no evidence.** A sync time that is there now may have been there
+ * all along, and so may an error: neither is called this tap's, and the outcome is [Waiting]
+ * (see [listeningSyncBaseline] for how a later read can still supply one). What lb-bot is doing
+ * right now — importing, off — is a fact either way.
  */
 internal fun listeningSyncOutcome(
 	before: LbListeningStatus?,
@@ -310,23 +357,40 @@ internal fun listeningSyncOutcome(
 		is LbBotManager.LbResult.Failed -> return ListeningSyncOutcome.AskedUnread
 		is LbBotManager.LbResult.Ok -> after.value
 	}
-	val moved = status.lastSyncAt != null && status.lastSyncAt != before?.lastSyncAt
+	val moved = before != null && status.lastSyncAt != null && status.lastSyncAt != before.lastSyncAt
 	return when (status.state) {
 		"off" -> ListeningSyncOutcome.Off
 		"importing" -> ListeningSyncOutcome.Importing(status.count, status.total)
-		"error" ->
-			if (before?.state == "error" && before.error == status.error && !moved) ListeningSyncOutcome.Waiting
-			else ListeningSyncOutcome.Failed(status.error)
+		"error" -> when {
+			before == null -> ListeningSyncOutcome.Waiting
+			before.state == "error" && before.error == status.error && !moved -> ListeningSyncOutcome.Waiting
+			else -> ListeningSyncOutcome.Failed(status.error)
+		}
 		"" -> ListeningSyncOutcome.AskedUnread
 		else -> if (moved) ListeningSyncOutcome.Finished(status.count) else ListeningSyncOutcome.Waiting
 	}
 }
 
+/**
+ * The baseline, given the one held so far and a status [read] that has just come back: the one
+ * held is never replaced, and with none held the read becomes it. So the read made immediately
+ * before the request is the baseline when it succeeds; when it fails, the first status that can
+ * be read since stands in. A sync that finishes after THAT read finished after the request too,
+ * so it is still evidence — a baseline taken late can only under-claim. A read that failed, or
+ * answered no `state`, is no baseline.
+ */
+internal fun listeningSyncBaseline(
+	held: LbListeningStatus?,
+	read: LbBotManager.LbResult<LbListeningStatus>?
+): LbListeningStatus? =
+	held ?: (read as? LbBotManager.LbResult.Ok)?.value?.takeIf { it.state.isNotBlank() }
+
 internal fun listeningSyncLine(outcome: ListeningSyncOutcome): String = when (outcome) {
 	ListeningSyncOutcome.Asking -> "Asking lb-bot to pull from ListenBrainz…"
 	ListeningSyncOutcome.Older -> "This lb-bot has no listening history yet."
 	is ListeningSyncOutcome.NotAsked -> "Couldn't ask lb-bot to sync: ${lbErrorClause(outcome.error)}."
-	ListeningSyncOutcome.Waiting -> "lb-bot was asked to pull. No new sync has finished yet."
+	// "Not seen to finish" is all that is known — with no baseline it may even have finished.
+	ListeningSyncOutcome.Waiting -> "lb-bot was asked to pull. It has not been seen to finish yet."
 	ListeningSyncOutcome.AskedUnread -> "lb-bot was asked to pull. Its status could not be read since."
 	is ListeningSyncOutcome.Finished -> "Synced: ${outcome.count} plays stored."
 	is ListeningSyncOutcome.Importing ->
@@ -438,6 +502,14 @@ internal fun pendingActionKind(type: SyncActionType): PendingActionKind = when (
 	SyncActionType.STAR_4 -> PendingActionKind.Rate(4)
 	SyncActionType.STAR_5 -> PendingActionKind.Rate(5)
 }
+
+/**
+ * The ids whose titles still have to be looked up: the queue's, less those already asked for
+ * ([seen], found or not). The queue re-emits on every row a drain deletes, and asking Room for
+ * every title of a long queue each time is a full set of reads per sent action.
+ */
+internal fun pendingTitlesToLookUp(ids: Collection<String>, seen: Set<String>): Set<String> =
+	ids.toSet() - seen
 
 /**
  * What an action is about: the item's title out of the local tables when one of them holds the

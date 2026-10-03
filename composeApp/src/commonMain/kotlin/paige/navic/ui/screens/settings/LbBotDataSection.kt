@@ -30,7 +30,6 @@ import paige.navic.domain.manager.matchCanKeep
 import paige.navic.domain.manager.matchDetail
 import paige.navic.domain.manager.matchesNote
 import paige.navic.domain.manager.LbPanelData
-import paige.navic.domain.manager.indexRunLine
 import paige.navic.domain.manager.lbLayerLine
 import paige.navic.domain.manager.mirrorLine
 import paige.navic.domain.manager.overrideTagLine
@@ -85,11 +84,16 @@ fun LbBotDataSection(
 	val knownArtistIds by viewModel.knownArtistIds.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val mirror by viewModel.mirror.collectAsStateWithLifecycle()
-	val indexRun by viewModel.indexRun.collectAsStateWithLifecycle()
+	val indexLine by viewModel.indexLine.collectAsStateWithLifecycle()
+	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val listeningLine by viewModel.listeningLine.collectAsStateWithLifecycle()
 	val listeningSyncLine by viewModel.listeningSyncLine.collectAsStateWithLifecycle()
 
-	Button(onClick = { viewModel.syncNow() }) { Text("Sync now") }
+	// Disabled, and saying so, while a sync it started is still at work: a second tap would
+	// otherwise do nothing and show nothing.
+	Button(enabled = !syncing, onClick = { viewModel.syncNow() }) {
+		Text(if (syncing) "Syncing…" else "Sync now")
+	}
 
 	// ----- overrides ------------------------------------------------------------------------
 	var overridesOpen by rememberSaveable { mutableStateOf(false) }
@@ -172,7 +176,7 @@ fun LbBotDataSection(
 	// ----- the index mirror -----------------------------------------------------------------
 	Heading("Index mirror")
 	Muted(mirrorLine(viewModel.mirrorSupported, mirror))
-	if (viewModel.mirrorSupported) Muted(indexRunLine(indexRun))
+	if (viewModel.mirrorSupported) Muted(indexLine)
 
 	// ----- listening history ----------------------------------------------------------------
 	Heading("Listening history")

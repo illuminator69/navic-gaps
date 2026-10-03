@@ -54,6 +54,75 @@ class LbBotDataTest {
 	}
 
 	@Test
+	fun afterATapTheEarlierVerdictIsNotShownAsItsAnswer() {
+		// Pass 3 finished "up to date" a while ago. "Sync now" is tapped, and no newer pass has
+		// started yet: the line must not go on saying "Up to date" as if that answered the tap.
+		val earlier = listOf(
+			LbIndexRun.Done(serial = 3, cursor = 412, applied = 0),
+			LbIndexRun.Done(serial = 3, cursor = 412, applied = 5),
+			LbIndexRun.Skipped(3, LbIndexSkip.LB_BOT_DOWN),
+			LbIndexRun.Failed(3, "lb-bot was busy or unreachable")
+		)
+		earlier.forEach { run ->
+			assertEquals("A pull has been asked for…", indexRunLineAfterTap(run, serialAtTap = 3, overdue = false))
+			// A few seconds on and still no pass: say that, never the earlier verdict.
+			assertEquals(
+				"No pull has started since you asked.",
+				indexRunLineAfterTap(run, serialAtTap = 3, overdue = true)
+			)
+		}
+		// The first tap of a process: nothing has run at all.
+		assertEquals("A pull has been asked for…", indexRunLineAfterTap(LbIndexRun.Idle, serialAtTap = 0, overdue = false))
+		assertEquals(
+			"No pull has started since you asked.",
+			indexRunLineAfterTap(LbIndexRun.Idle, serialAtTap = 0, overdue = true)
+		)
+	}
+
+	@Test
+	fun aPassNewerThanTheTapAnswersIt() {
+		// Whatever started after the tap is a fact from after the tap, late or not.
+		listOf(false, true).forEach { overdue ->
+			assertEquals(
+				"Pulling lb-bot's index…",
+				indexRunLineAfterTap(LbIndexRun.Running(4), serialAtTap = 3, overdue = overdue)
+			)
+			assertEquals(
+				"Up to date: the last pull changed nothing (change 412).",
+				indexRunLineAfterTap(LbIndexRun.Done(4, cursor = 412, applied = 0), serialAtTap = 3, overdue = overdue)
+			)
+			assertEquals(
+				"Not pulled: lb-bot is not reachable. The mirror is unchanged.",
+				indexRunLineAfterTap(LbIndexRun.Skipped(4, LbIndexSkip.LB_BOT_DOWN), serialAtTap = 3, overdue = overdue)
+			)
+		}
+	}
+
+	@Test
+	fun aPassAlreadyRunningAtTheTapIsSaidAsRunning() {
+		// Not a verdict, and true as it stands; the pull the tap asked for follows it. It is
+		// never "no pull has started" while one is running.
+		listOf(false, true).forEach { overdue ->
+			assertEquals(
+				"Pulling lb-bot's index…",
+				indexRunLineAfterTap(LbIndexRun.Running(3), serialAtTap = 3, overdue = overdue)
+			)
+		}
+	}
+
+	@Test
+	fun withNoTapTheLineIsTheLastPulls() {
+		listOf(
+			LbIndexRun.Idle,
+			LbIndexRun.Running(2),
+			LbIndexRun.Done(2, cursor = 9, applied = 1),
+			LbIndexRun.Failed(2, "the hub could not be reached")
+		).forEach { run ->
+			assertEquals(indexRunLine(run), indexRunLineAfterTap(run, serialAtTap = null, overdue = false))
+		}
+	}
+
+	@Test
 	fun aRunningAFailedAndAnUnstartedPullEachSaySo() {
 		assertEquals("Not pulled since the app started.", indexRunLine(LbIndexRun.Idle))
 		assertEquals("Pulling lb-bot's index…", indexRunLine(LbIndexRun.Running(1)))
@@ -145,6 +214,18 @@ class LbBotDataTest {
 	}
 
 	@Test
+	fun aListIsReadingUntilItsFirstReadStartsAndWhileAnyReadIsOut() {
+		// Before the first read has started the list is about to be asked for: "reading", not
+		// "unreachable" for the frame in between.
+		assertTrue(panelReading(inFlight = 0, readDue = true))
+		// Two reads at once (the panel opening, and "Sync now"): the first to finish must not
+		// end the state for the one still out.
+		assertTrue(panelReading(inFlight = 2, readDue = false))
+		assertTrue(panelReading(inFlight = 1, readDue = false))
+		assertFalse(panelReading(inFlight = 0, readDue = false))
+	}
+
+	@Test
 	fun aLoadedListStaysOnScreenAndSaysWhenItIsTheLastCopy() {
 		assertEquals(LbPanelData.CURRENT, panelData(hubHeard = true, supported = true, reading = false, loaded = true, readFailed = false))
 		assertEquals(LbPanelData.STALE, panelData(hubHeard = true, supported = true, reading = false, loaded = true, readFailed = true))
@@ -213,31 +294,34 @@ class LbBotDataTest {
 	fun aWriteOnlySaysAScanIsRunningWhenLbBotStartedOne() {
 		assertEquals(
 			"Saved. lb-bot is rescanning this artist.",
-			overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = "task-1")))
+			overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = "task-1")), removing = false)
 		)
 		// A blank task id is lb-bot deciding not to scan; the panel starts none and claims none.
-		assertEquals("Saved.", overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = ""))))
+		assertEquals("Saved.", overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = "")), removing = false))
 	}
 
 	@Test
 	fun aRefusedWriteIsSaidInLbBotsWords() {
 		assertEquals(
 			"Not saved: A download for this artist is running.",
-			overrideWriteLine(failed(LbBotManager.LbError.Rejected(409, "A download for this artist is running")))
+			overrideWriteLine(failed(LbBotManager.LbError.Rejected(409, "A download for this artist is running")), removing = false)
 		)
 		assertEquals(
 			"Not saved: the request failed (400).",
-			overrideWriteLine(failed(LbBotManager.LbError.Rejected(400, "")))
+			overrideWriteLine(failed(LbBotManager.LbError.Rejected(400, "")), removing = false)
 		)
 		assertEquals(
 			"Not saved: lb-bot is busy or unreachable.",
-			overrideWriteLine(failed(LbBotManager.LbError.Busy))
+			overrideWriteLine(failed(LbBotManager.LbError.Busy), removing = false)
 		)
-		assertEquals("Not saved: the hub could not be reached.", overrideWriteLine(failed(unreachable)))
+		assertEquals(
+			"Not saved: the hub could not be reached.",
+			overrideWriteLine(failed(unreachable), removing = false)
+		)
 		// lb-bot's own full stop is not doubled.
 		assertEquals(
 			"Not saved: MusicBrainz has no such artist.",
-			overrideWriteLine(failed(LbBotManager.LbError.Rejected(404, "MusicBrainz has no such artist.")))
+			overrideWriteLine(failed(LbBotManager.LbError.Rejected(404, "MusicBrainz has no such artist.")), removing = false)
 		)
 	}
 
@@ -245,7 +329,36 @@ class LbBotDataTest {
 	fun anOlderLbBotIsNamedNotShownAsAnError() {
 		assertEquals(
 			"This lb-bot is older and can't store a MusicBrainz match yet. Nothing was changed.",
-			overrideWriteLine(failed(LbBotManager.LbError.RouteUnknown))
+			overrideWriteLine(failed(LbBotManager.LbError.RouteUnknown), removing = false)
+		)
+	}
+
+	@Test
+	fun aRemoveIsWordedAsARemove() {
+		assertEquals(
+			"Removed. lb-bot is rescanning this artist.",
+			overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = "task-1")), removing = true)
+		)
+		assertEquals("Removed.", overrideWriteLine(ok(LbOverrideWrite(ok = true, taskId = "")), removing = true))
+		// A remove that failed removed nothing: "Not saved" is the wrong sentence for it.
+		assertEquals(
+			"Not removed: the hub could not be reached.",
+			overrideWriteLine(failed(unreachable), removing = true)
+		)
+		assertEquals(
+			"Not removed: lb-bot is busy or unreachable.",
+			overrideWriteLine(failed(LbBotManager.LbError.Busy), removing = true)
+		)
+		assertEquals(
+			"Not removed: There is no override for this artist.",
+			overrideWriteLine(
+				failed(LbBotManager.LbError.Rejected(404, "There is no override for this artist.")),
+				removing = true
+			)
+		)
+		assertEquals(
+			"This lb-bot is older and stores no MusicBrainz matches, so there was nothing to remove.",
+			overrideWriteLine(failed(LbBotManager.LbError.RouteUnknown), removing = true)
 		)
 	}
 
@@ -360,8 +473,9 @@ class LbBotDataTest {
 			ListeningSyncOutcome.Waiting,
 			listeningSyncOutcome(status("ready", lastSyncAt = 1_000.0), asked, ok(status("ready", lastSyncAt = 1_000.0)))
 		)
+		// "Not seen to finish", which is all that is known — also when there was no baseline.
 		assertEquals(
-			"lb-bot was asked to pull. No new sync has finished yet.",
+			"lb-bot was asked to pull. It has not been seen to finish yet.",
 			listeningSyncLine(ListeningSyncOutcome.Waiting)
 		)
 	}
@@ -381,12 +495,63 @@ class LbBotDataTest {
 				status("ready", lastSyncAt = null), asked, ok(status("ready", count = 5, lastSyncAt = 1_500.0))
 			)
 		)
-		// The status could not be read beforehand: a sync time now is still a finished sync.
+		assertEquals("Synced: 120 plays stored.", listeningSyncLine(ListeningSyncOutcome.Finished(120)))
+	}
+
+	@Test
+	fun withoutABaselineNothingIsCalledFinishedOrFailed() {
+		// The status could not be read just before the request. A sync time that is there now
+		// may have been there all along, and so may an error: neither is this tap's.
 		assertEquals(
-			ListeningSyncOutcome.Finished(5),
+			ListeningSyncOutcome.Waiting,
 			listeningSyncOutcome(null, asked, ok(status("ready", count = 5, lastSyncAt = 1_500.0)))
 		)
-		assertEquals("Synced: 120 plays stored.", listeningSyncLine(ListeningSyncOutcome.Finished(120)))
+		assertEquals(
+			ListeningSyncOutcome.Waiting,
+			listeningSyncOutcome(null, asked, ok(status("error", error = "ListenBrainz said 503")))
+		)
+		// What lb-bot is doing right now is a fact with or without a baseline.
+		assertEquals(
+			ListeningSyncOutcome.Importing(40, 900),
+			listeningSyncOutcome(null, asked, ok(status("importing", count = 40, total = 900)))
+		)
+		assertEquals(ListeningSyncOutcome.Off, listeningSyncOutcome(null, asked, ok(status("off"))))
+		assertEquals(ListeningSyncOutcome.AskedUnread, listeningSyncOutcome(null, asked, failed(unreachable)))
+	}
+
+	@Test
+	fun aSyncThatFinishedBeforeTheTapIsNotCreditedToIt() {
+		// The panel last read the status minutes ago (last sync at 1000). A background sync
+		// finished at 1400, then "Sync now" was tapped. The baseline is the status read
+		// immediately before the request — 1400 — so the same 1400 afterwards is no evidence.
+		val justBefore = status("ready", count = 110, lastSyncAt = 1_400.0)
+		assertEquals(ListeningSyncOutcome.Waiting, listeningSyncOutcome(justBefore, asked, ok(justBefore)))
+		// The pull this tap asked for finishes: the time moves past the baseline.
+		assertEquals(
+			ListeningSyncOutcome.Finished(120),
+			listeningSyncOutcome(justBefore, asked, ok(status("ready", count = 120, lastSyncAt = 1_500.0)))
+		)
+	}
+
+	@Test
+	fun aStatusReadAfterTheRequestCanStandInForAMissingBaseline() {
+		val firstSince = status("ready", count = 110, lastSyncAt = 1_400.0)
+		// No baseline before the request: the first status read since becomes one. A sync that
+		// finishes after THAT read finished after the request too.
+		assertEquals(firstSince, listeningSyncBaseline(null, ok(firstSince)))
+		assertEquals(
+			ListeningSyncOutcome.Finished(120),
+			listeningSyncOutcome(
+				listeningSyncBaseline(null, ok(firstSince)), asked, ok(status("ready", count = 120, lastSyncAt = 1_500.0))
+			)
+		)
+		// A baseline read before the request is never replaced.
+		val before = status("ready", lastSyncAt = 1_000.0)
+		assertEquals(before, listeningSyncBaseline(before, ok(firstSince)))
+		// A read that failed, or answered nothing, is no baseline.
+		assertNull(listeningSyncBaseline(null, failed(unreachable)))
+		assertNull(listeningSyncBaseline(null, ok(status(""))))
+		assertNull(listeningSyncBaseline(null, null))
 	}
 
 	@Test
@@ -521,6 +686,17 @@ class LbBotDataTest {
 		)
 		// Nothing in the enum is left without a kind.
 		assertEquals(SyncActionType.entries.size, SyncActionType.entries.map { pendingActionKind(it) }.size)
+	}
+
+	@Test
+	fun onlyIdsNotLookedUpBeforeAreLookedUp() {
+		// The queue re-emits on every row a drain deletes. An id that was looked up — found or
+		// not — is not asked for again.
+		assertEquals(setOf("so-3"), pendingTitlesToLookUp(listOf("so-1", "so-2", "so-3"), seen = setOf("so-1", "so-2")))
+		assertEquals(emptySet(), pendingTitlesToLookUp(listOf("so-1", "so-2"), seen = setOf("so-1", "so-2", "so-9")))
+		// The first emission: everything, each id once however many actions name it.
+		assertEquals(setOf("so-1", "al-1"), pendingTitlesToLookUp(listOf("so-1", "al-1", "so-1"), seen = emptySet()))
+		assertEquals(emptySet(), pendingTitlesToLookUp(emptyList(), seen = emptySet()))
 	}
 
 	@Test
