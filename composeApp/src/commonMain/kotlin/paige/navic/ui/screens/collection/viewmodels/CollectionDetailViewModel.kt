@@ -156,31 +156,6 @@ class CollectionDetailViewModel(
 		_aboutOpen.value = false
 	}
 
-	/**
-	 * Fire both lb-bot reads once the album is on screen. Strictly after the page
-	 * has its own data, and never on the critical render path.
-	 *
-	 * **`getAlbumInfo2.musicBrainzId` is the RELEASE, not the release-group.** It
-	 * was being passed straight to `/lb/meta/album`, which is keyed by the
-	 * release-group — so every owned album asked lb-bot about an id that does not
-	 * name a release-group, got an empty answer, and rendered the Navidrome notes
-	 * with no article, no attribution and no way out. Verified on Obscured by
-	 * Clouds: Navidrome says `d077cc98…` (release), lb-bot holds a six-paragraph
-	 * article under `a6f0826e…` (release-group). Nothing errored; the answer was
-	 * just always empty, which is indistinguishable from "nobody wrote about this".
-	 *
-	 * So the release-group is resolved from lb-bot's own discography index, which
-	 * already maps release-groups to the Navidrome album ids they landed as. The
-	 * release MBID still rides along as `release_mbid` — that is what it is, and
-	 * it saves lb-bot resolving the canonical release itself.
-	 *
-	 * **That index is local now.** The rgid comes out of the index mirror (Room), so
-	 * the two serial hops that used to stand in front of both requests — a
-	 * `/lb/status` probe, then the artist's whole discography over the network just
-	 * to find one row — are gone, and the two requests go out together. The mirror's
-	 * row also carries the artist's MBID, which similarity is keyed by. The network
-	 * path is kept for an album whose artist the mirror does not hold (yet).
-	 */
 	/** The release-group and release the About was read for; null until they are known. */
 	private var aboutKey: Pair<String, String?>? = null
 	private var metaJob: Job? = null
@@ -207,6 +182,31 @@ class CollectionDetailViewModel(
 		}
 	}
 
+	/**
+	 * Fire both lb-bot reads once the album is on screen. Strictly after the page
+	 * has its own data, and never on the critical render path.
+	 *
+	 * **`getAlbumInfo2.musicBrainzId` is the RELEASE, not the release-group.** It
+	 * was being passed straight to `/lb/meta/album`, which is keyed by the
+	 * release-group — so every owned album asked lb-bot about an id that does not
+	 * name a release-group, got an empty answer, and rendered the Navidrome notes
+	 * with no article, no attribution and no way out. Verified on Obscured by
+	 * Clouds: Navidrome says `d077cc98…` (release), lb-bot holds a six-paragraph
+	 * article under `a6f0826e…` (release-group). Nothing errored; the answer was
+	 * just always empty, which is indistinguishable from "nobody wrote about this".
+	 *
+	 * So the release-group is resolved from lb-bot's own discography index, which
+	 * already maps release-groups to the Navidrome album ids they landed as. The
+	 * release MBID still rides along as `release_mbid` — that is what it is, and
+	 * it saves lb-bot resolving the canonical release itself.
+	 *
+	 * **That index is local now.** The rgid comes out of the index mirror (Room), so
+	 * the two serial hops that used to stand in front of both requests — a
+	 * `/lb/status` probe, then the artist's whole discography over the network just
+	 * to find one row — are gone, and the two requests go out together. The mirror's
+	 * row also carries the artist's MBID, which similarity is keyed by. The network
+	 * path is kept for an album whose artist the mirror does not hold (yet).
+	 */
 	fun loadLbBotExtras(album: DomainAlbum, releaseMbid: String?) {
 		viewModelScope.launch {
 			val fromMirror = mirroredRelease(album)
