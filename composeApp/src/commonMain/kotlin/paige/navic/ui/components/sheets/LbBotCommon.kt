@@ -22,7 +22,14 @@ import navic.composeapp.generated.resources.error_lbbot_hub_outdated
 import navic.composeapp.generated.resources.error_lbbot_not_configured
 import navic.composeapp.generated.resources.error_lbbot_rejected
 import navic.composeapp.generated.resources.error_lbbot_unreachable
+import navic.composeapp.generated.resources.notice_about_error
+import navic.composeapp.generated.resources.notice_about_nothing
+import navic.composeapp.generated.resources.notice_about_refreshed
+import navic.composeapp.generated.resources.notice_about_refreshed_empty
+import navic.composeapp.generated.resources.notice_about_unreachable
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.domain.manager.AboutRefreshNotice
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbSourceFile
 
@@ -43,6 +50,19 @@ fun lbErrorText(error: LbBotManager.LbError): String = when (error) {
 	is LbBotManager.LbError.Unreachable -> stringResource(Res.string.error_lbbot_unreachable)
 	is LbBotManager.LbError.Rejected ->
 		error.message.ifBlank { stringResource(Res.string.error_lbbot_rejected, error.status) }
+}
+
+/**
+ * The sentence a "Refresh About" ends in. Three of the five say that what is shown did not
+ * change, and why — a refresh that failed, or that came back with nothing, never empties the
+ * About on screen.
+ */
+fun aboutRefreshMessage(notice: AboutRefreshNotice): StringResource = when (notice) {
+	AboutRefreshNotice.UPDATED -> Res.string.notice_about_refreshed
+	AboutRefreshNotice.UPDATED_EMPTY -> Res.string.notice_about_refreshed_empty
+	AboutRefreshNotice.NOTHING -> Res.string.notice_about_nothing
+	AboutRefreshNotice.UNREACHABLE -> Res.string.notice_about_unreachable
+	AboutRefreshNotice.ERROR -> Res.string.notice_about_error
 }
 
 @Composable

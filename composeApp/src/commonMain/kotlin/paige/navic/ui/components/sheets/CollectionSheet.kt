@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_play_next
+import navic.composeapp.generated.resources.action_refresh_about
 import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_share
 import navic.composeapp.generated.resources.action_star
@@ -114,7 +115,10 @@ fun CollectionSheet(
 	// discography shelf, where the gap is known; null everywhere else, so the row
 	// hides itself exactly like every other optional action here.
 	missingTrackCount: Int? = null,
-	onFillGaps: (() -> Unit)? = null
+	onFillGaps: (() -> Unit)? = null,
+	// Asks lb-bot to look the album's About up again. Passed only by the album page, and only
+	// once it knows which release-group the album is — there is no About to refresh before that.
+	onRefreshAbout: (() -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
@@ -215,6 +219,20 @@ fun CollectionSheet(
 					onClick = {
 						platformContext.clickSound()
 						onViewOnLastFm(albumInfo.lastFmUrl)
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onRefreshAbout != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_refresh_about)) },
+					leadingContent = { Icon(Icons.Outlined.Refresh, null) },
+					onClick = {
+						platformContext.clickSound()
+						onRefreshAbout()
 						onDismissRequest()
 					},
 					colors = colors,

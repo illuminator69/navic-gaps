@@ -55,6 +55,8 @@ import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbLibraryEvent
 import paige.navic.domain.manager.LbMeta
+import paige.navic.domain.manager.LbMetaRefresh
+import paige.navic.domain.manager.aboutRefreshNotice
 import paige.navic.domain.manager.LbOverrideWrite
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
@@ -63,6 +65,7 @@ import paige.navic.domain.manager.overrideScanToFollow
 import paige.navic.util.Logger
 import paige.navic.util.albumTitleKey
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.sheets.aboutRefreshMessage
 import paige.navic.ui.core.UiState
 import kotlinx.coroutines.flow.StateFlow
 import paige.navic.domain.models.displayName
@@ -555,6 +558,30 @@ class ArtistDetailViewModel(
 			lbBotManager.artistMeta(mbid, name).collect { meta ->
 				if (meta != null || _meta.value == null) _meta.value = meta
 			}
+		}
+	}
+
+	/**
+	 * "Refresh About" (I-020): have lb-bot look the About up again, and say what came of it.
+	 *
+	 * Only an About replaces what is shown — a sparse one included: lb-bot looking again and
+	 * finding nothing written is an answer, and the old text goes. A refresh that could not reach
+	 * lb-bot, that lb-bot answered with an error, or that came back with nothing at all changes
+	 * neither the page nor the cache, and the snackbar says which of the three it was.
+	 */
+	fun refreshAbout() {
+		val state = (artistState.value as? UiState.Success)?.data ?: return
+		viewModelScope.launch {
+			val outcome = lbBotManager.refreshArtistMeta(
+				_artistMbid.value.effective.ifBlank { null },
+				state.artist.name
+			)
+			if (outcome is LbMetaRefresh.Replaced) {
+				// An ordinary read still in flight must not land its older answer on top.
+				metaJob?.cancel()
+				_meta.value = outcome.meta
+			}
+			snackBarManager.notify(aboutRefreshMessage(aboutRefreshNotice(outcome)))
 		}
 	}
 

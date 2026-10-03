@@ -125,6 +125,7 @@ fun CollectionDetailScreen(
 	// answer and null forever when lb-bot is absent, in which case neither renders
 	// — §7: the surface is invisible, never an error.
 	val meta by viewModel.meta.collectAsStateWithLifecycle()
+	val aboutRefreshable by viewModel.aboutRefreshable.collectAsStateWithLifecycle()
 	val similar by viewModel.similar.collectAsStateWithLifecycle()
 	val aboutOpen by viewModel.aboutOpen.collectAsStateWithLifecycle()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
@@ -291,7 +292,12 @@ fun CollectionDetailScreen(
 				refreshCollection = { viewModel.refreshCollection(false) },
 				onAutoDownload = autoDownload,
 				onEditRules = editRules,
-				onRefreshRules = refreshRules
+				onRefreshRules = refreshRules,
+				onRefreshAbout = if (aboutRefreshable) {
+					{ viewModel.refreshAbout() }
+				} else {
+					null
+				}
 			)
 		},
 		bottomBar = {

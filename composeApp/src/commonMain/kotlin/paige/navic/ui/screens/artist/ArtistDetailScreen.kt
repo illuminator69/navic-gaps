@@ -226,6 +226,7 @@ fun ArtistDetailScreen(
 				starred = starred,
 				onSetStarred = { viewModel.starArtist(it) },
 				onFixMusicBrainzMatch = { viewModel.openMbidMatch() },
+				onRefreshAbout = { viewModel.refreshAbout() },
 			)
 		},
 		bottomBar = {

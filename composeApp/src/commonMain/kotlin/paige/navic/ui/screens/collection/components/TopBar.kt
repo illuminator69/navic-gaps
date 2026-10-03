@@ -62,7 +62,9 @@ fun CollectionDetailScreenTopBar(
 	/** Opens the rule editor. Null unless this really is a smart playlist. */
 	onEditRules: (() -> Unit)? = null,
 	/** Re-runs an album-mode playlist's stored recipe. Null for anything else. */
-	onRefreshRules: (() -> Unit)? = null
+	onRefreshRules: (() -> Unit)? = null,
+	/** Asks lb-bot for the album's About again. Null until the album's release-group is known. */
+	onRefreshAbout: (() -> Unit)? = null
 ) {
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
@@ -119,7 +121,8 @@ fun CollectionDetailScreenTopBar(
 						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null,
 						onAutoDownload = onAutoDownload,
 						onEditRules = onEditRules,
-						onRefreshRules = onRefreshRules
+						onRefreshRules = onRefreshRules,
+						onRefreshAbout = onRefreshAbout
 					)
 				}
 			}

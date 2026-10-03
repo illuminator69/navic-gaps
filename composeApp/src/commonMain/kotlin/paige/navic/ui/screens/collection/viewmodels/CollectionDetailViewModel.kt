@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
@@ -26,6 +27,9 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbMeta
+import paige.navic.domain.manager.LbMetaRefresh
+import paige.navic.domain.manager.aboutRefreshNotice
+import paige.navic.ui.components.sheets.aboutRefreshMessage
 import paige.navic.domain.manager.LbSimilarAlbums
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
@@ -177,6 +181,32 @@ class CollectionDetailViewModel(
 	 * row also carries the artist's MBID, which similarity is keyed by. The network
 	 * path is kept for an album whose artist the mirror does not hold (yet).
 	 */
+	/** The release-group and release the About was read for; null until they are known. */
+	private var aboutKey: Pair<String, String?>? = null
+	private var metaJob: Job? = null
+
+	/** Whether "Refresh About" can be offered: only once the album's release-group is known. */
+	private val _aboutRefreshable = MutableStateFlow(false)
+	val aboutRefreshable = _aboutRefreshable.asStateFlow()
+
+	/**
+	 * "Refresh About" (I-020): have lb-bot look the album's About up again, and say what came
+	 * of it. As on the artist page, only an About replaces what is shown — a sparse one
+	 * included — and a refresh that failed or came back with nothing changes nothing and says so.
+	 */
+	fun refreshAbout() {
+		val (rgid, releaseMbid) = aboutKey ?: return
+		viewModelScope.launch {
+			val outcome = lbBotManager.refreshAlbumMeta(rgid, releaseMbid)
+			if (outcome is LbMetaRefresh.Replaced) {
+				// An ordinary read still in flight must not land its older answer on top.
+				metaJob?.cancel()
+				_meta.value = outcome.meta
+			}
+			snackBarManager.notify(aboutRefreshMessage(aboutRefreshNotice(outcome)))
+		}
+	}
+
 	fun loadLbBotExtras(album: DomainAlbum, releaseMbid: String?) {
 		viewModelScope.launch {
 			val fromMirror = mirroredRelease(album)
@@ -191,9 +221,14 @@ class CollectionDetailViewModel(
 				artistMbid = null
 			}
 			if (!rgid.isNullOrBlank()) {
+				// What a "Refresh About" asks with: the same two ids the read below uses, so a
+				// refreshed About lands under the key this page reads.
+				aboutKey = rgid to releaseMbid
+				_aboutRefreshable.value = true
 				// The cached article first (Room), then a revalidation only if it is a month old;
 				// a failure never replaces what was shown.
-				launch {
+				metaJob?.cancel()
+				metaJob = launch {
 					lbBotManager.albumMeta(rgid, releaseMbid).collect { meta ->
 						if (meta != null || _meta.value == null) _meta.value = meta
 					}

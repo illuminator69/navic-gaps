@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_fix_musicbrainz_match
 import navic.composeapp.generated.resources.action_play_next
+import navic.composeapp.generated.resources.action_refresh_about
 import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_star
 import navic.composeapp.generated.resources.action_view_on_lastfm
@@ -60,6 +61,7 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.icons.outlined.Radio
+import paige.navic.icons.outlined.Refresh
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
@@ -84,6 +86,8 @@ fun ArtistSheet(
 	onDeleteDownloadAll: (() -> Unit)? = null,
 	/** Opens the MusicBrainz match picker; the row shows only where the hub can store an override. */
 	onFixMusicBrainzMatch: (() -> Unit)? = null,
+	/** Asks lb-bot to look the About up again. The row shows only with the lb-bot layer on. */
+	onRefreshAbout: (() -> Unit)? = null,
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	// The MusicBrainz artist this is: the user's override when they set one, else Navidrome's
@@ -194,6 +198,20 @@ fun ArtistSheet(
 					onClick = {
 						platformContext.clickSound()
 						onFixMusicBrainzMatch()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onRefreshAbout != null && lbBot.isConfigured) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_refresh_about)) },
+					leadingContent = { Icon(Icons.Outlined.Refresh, null) },
+					onClick = {
+						platformContext.clickSound()
+						onRefreshAbout()
 						onDismissRequest()
 					},
 					colors = colors,
