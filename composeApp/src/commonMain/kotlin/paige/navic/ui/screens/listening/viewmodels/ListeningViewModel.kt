@@ -142,7 +142,11 @@ class ListeningViewModel(
 		val next = phaseAfterPoll(previous, listeningPhase(result))
 		_state.update { it.copy(phase = next) }
 		if (importFinished(previous, next)) {
+			// This replaces whatever [load] was doing — possibly a pull-to-refresh that has
+			// set `loading` and not yet heard back. The status it was waiting for is the one
+			// just read, so the spinner it owns ends here, not at the next pull.
 			loadJob?.cancel()
+			_state.update { it.copy(loading = false) }
 			loadJob = viewModelScope.launch { readContent(next, LbCachePolicy.REFRESH) }
 		}
 	}
@@ -189,6 +193,9 @@ class ListeningViewModel(
 			_state.update { it.copy(recentLoading = true, recentFailed = false) }
 			val result = lbBotManager.listeningRecent(before)
 			stillWanted()
+			// The list was read again from the top while this page was in flight: the cursor it
+			// was asked with is gone, and appending it would repeat rows under the new first page.
+			if (_state.value.recentNextBefore != before) return@launch
 			when (result) {
 				is LbBotManager.LbResult.Ok -> _state.update {
 					it.copy(
@@ -234,12 +241,15 @@ class ListeningViewModel(
 			// lists are live reads and keep whatever they showed.
 			ListeningPhase.Unreachable -> readSummary(LbCachePolicy.CACHE_ONLY)
 			// Three requests at once, under the hub's four shared lb-bot slots.
-			is ListeningPhase.Importing, ListeningPhase.Ready, is ListeningPhase.SyncFailed ->
+			is ListeningPhase.Importing, ListeningPhase.Ready, is ListeningPhase.SyncFailed -> {
+				// A "Show more" page in flight belongs to the list about to be replaced.
+				recentJob?.cancel()
 				coroutineScope {
 					launch { readSummaryFollowingSync(policy) }
 					launch { readUnowned() }
 					launch { readRecent() }
 				}
+			}
 		}
 	}
 
