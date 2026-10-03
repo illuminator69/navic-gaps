@@ -540,6 +540,12 @@ still advancing the speaker's queue. It logs one line when it fires.
     a list is — reading (only while a request is in flight), unreachable with nothing loaded,
     the copy loaded last, or current — from `LbBotManager.artistOverridesLoaded` /
     `artistOverridesReadFailed`; an empty map alone cannot tell "no overrides" from "never read".
+    **"This hub is older" and "does not offer" are only said of a hub that answered**
+    (`LbBotManager.hubHeard`: an advert, or an answer to `/lb/status`, in this process). Until
+    then `artistOverridesSupported` is false and `listeningSupported` is a verdict remembered
+    from an earlier run, and neither is this hub refusing anything — so on a cold start with the
+    hub out of reach the panel asks it once (`hearHub`), says "Asking lb-bot…" while it does, and
+    then "not reachable" (or shows the cached copy as the last one loaded), never "older".
   - **"Sync now" reports what happened, not what a timeout suggests.** The mirror's line is
     `LbIndexSync.lastRun`: running, done on which cursor and how many artists changed, skipped
     and why, failed and with what. **It is a record, never an input** — nothing in `LbIndexSync`

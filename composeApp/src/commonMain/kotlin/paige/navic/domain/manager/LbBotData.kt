@@ -144,16 +144,25 @@ enum class LbPanelData {
 
 /**
  * [loaded]: a body has been applied at least once, from the cache or the network. [readFailed]:
- * the last network read failed. [reading]: one is in flight.
+ * the last network read failed. [reading]: one is in flight. [hubHeard]: the hub has said
+ * anything about its lb-bot proxy in this process (`LbBotManager.hubHeard`).
+ *
+ * **"Older" is a verdict on a hub that answered.** [supported] is false until one has, so on a
+ * cold start with the hub out of reach "not supported" is silence, not a refusal: the list is
+ * then being asked for, out of reach, or the copy this device loaded last — never unsupported.
  */
 internal fun panelData(
+	hubHeard: Boolean,
 	supported: Boolean,
 	reading: Boolean,
 	loaded: Boolean,
 	readFailed: Boolean
 ): LbPanelData = when {
-	!supported -> LbPanelData.UNSUPPORTED
+	hubHeard && !supported -> LbPanelData.UNSUPPORTED
 	loaded && readFailed -> LbPanelData.STALE
+	// The hub has not been heard from and nothing is asking it: the cached copy is all there
+	// is. While the question is still out, the copy is shown without a verdict on it.
+	loaded && !hubHeard && !reading -> LbPanelData.STALE
 	loaded -> LbPanelData.CURRENT
 	reading -> LbPanelData.READING
 	// Nothing loaded and nothing in flight: lb-bot was down when this device last tried, or has
@@ -204,14 +213,21 @@ internal fun overrideWriteLine(result: LbBotManager.LbResult<LbOverrideWrite>): 
 /**
  * The listening mirror's state in words. [lastSync] is `lastSyncAt` already formatted in the
  * device's zone, blank when lb-bot has never synced.
+ *
+ * [advertised] is `LbBotManager.listeningSupported`, which is the LAST advert's verdict until
+ * this process hears one ([hubHeard]) — and `false` is also what an install that never heard an
+ * advert holds. So "this hub does not offer it" is only said of a hub that has spoken; before
+ * that, not advertised is a question still out ([ListeningPhase.Loading]) or lb-bot out of reach.
  */
 internal fun listeningStatusLine(
+	hubHeard: Boolean,
 	advertised: Boolean,
 	phase: ListeningPhase,
 	count: Int,
 	lastSync: String
 ): String = when {
-	!advertised -> "This hub does not offer listening history yet."
+	!advertised && hubHeard -> "This hub does not offer listening history yet."
+	!advertised -> if (phase == ListeningPhase.Loading) LB_READING_LINE else LB_UNREACHABLE_LINE
 	else -> when (phase) {
 		ListeningPhase.Loading -> LB_READING_LINE
 		ListeningPhase.Off -> "Off: lb-bot has no ListenBrainz user set up."

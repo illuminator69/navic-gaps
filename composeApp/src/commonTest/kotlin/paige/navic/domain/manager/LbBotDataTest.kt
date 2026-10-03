@@ -121,25 +121,42 @@ class LbBotDataTest {
 
 	@Test
 	fun aListIsOnlyReadingWhileARequestIsInFlightAndNothingIsLoaded() {
-		assertEquals(LbPanelData.READING, panelData(supported = true, reading = true, loaded = false, readFailed = false))
+		assertEquals(LbPanelData.READING, panelData(hubHeard = true, supported = true, reading = true, loaded = false, readFailed = false))
 		// Not loading, nothing loaded: lb-bot could not be asked. Never "Loading…".
-		assertEquals(LbPanelData.UNREACHABLE, panelData(supported = true, reading = false, loaded = false, readFailed = true))
-		assertEquals(LbPanelData.UNREACHABLE, panelData(supported = true, reading = false, loaded = false, readFailed = false))
+		assertEquals(LbPanelData.UNREACHABLE, panelData(hubHeard = true, supported = true, reading = false, loaded = false, readFailed = true))
+		assertEquals(LbPanelData.UNREACHABLE, panelData(hubHeard = true, supported = true, reading = false, loaded = false, readFailed = false))
 	}
 
 	@Test
 	fun aLoadedListStaysOnScreenAndSaysWhenItIsTheLastCopy() {
-		assertEquals(LbPanelData.CURRENT, panelData(supported = true, reading = false, loaded = true, readFailed = false))
-		assertEquals(LbPanelData.STALE, panelData(supported = true, reading = false, loaded = true, readFailed = true))
+		assertEquals(LbPanelData.CURRENT, panelData(hubHeard = true, supported = true, reading = false, loaded = true, readFailed = false))
+		assertEquals(LbPanelData.STALE, panelData(hubHeard = true, supported = true, reading = false, loaded = true, readFailed = true))
 		// A re-read in flight does not turn a list that is on screen back into "reading".
-		assertEquals(LbPanelData.CURRENT, panelData(supported = true, reading = true, loaded = true, readFailed = false))
-		assertEquals(LbPanelData.STALE, panelData(supported = true, reading = true, loaded = true, readFailed = true))
+		assertEquals(LbPanelData.CURRENT, panelData(hubHeard = true, supported = true, reading = true, loaded = true, readFailed = false))
+		assertEquals(LbPanelData.STALE, panelData(hubHeard = true, supported = true, reading = true, loaded = true, readFailed = true))
 	}
 
 	@Test
 	fun anOlderHubOrLbBotIsUnsupportedWhateverElseIsTrue() {
-		assertEquals(LbPanelData.UNSUPPORTED, panelData(supported = false, reading = true, loaded = true, readFailed = false))
-		assertEquals(LbPanelData.UNSUPPORTED, panelData(supported = false, reading = false, loaded = false, readFailed = true))
+		assertEquals(LbPanelData.UNSUPPORTED, panelData(hubHeard = true, supported = false, reading = true, loaded = true, readFailed = false))
+		assertEquals(LbPanelData.UNSUPPORTED, panelData(hubHeard = true, supported = false, reading = false, loaded = false, readFailed = true))
+	}
+
+	@Test
+	fun aHubThatHasNotSpokenIsNeverCalledOlder() {
+		// A cold start with the hub out of reach: no advert and no status answer in this process,
+		// so nothing has said the route is missing. "Older" is a verdict on a hub that answered.
+		fun silent(reading: Boolean, loaded: Boolean, readFailed: Boolean = false) =
+			panelData(hubHeard = false, supported = false, reading = reading, loaded = loaded, readFailed = readFailed)
+		// The panel is asking the hub: that is a read in flight.
+		assertEquals(LbPanelData.READING, silent(reading = true, loaded = false))
+		// It asked and nothing answered, and nothing was loaded before.
+		assertEquals(LbPanelData.UNREACHABLE, silent(reading = false, loaded = false))
+		// The copy restored from this device's cache stays on screen, and is called the last copy
+		// once nothing is asking any more — but not while the question is still out.
+		assertEquals(LbPanelData.CURRENT, silent(reading = true, loaded = true))
+		assertEquals(LbPanelData.STALE, silent(reading = false, loaded = true))
+		assertEquals(LbPanelData.STALE, silent(reading = true, loaded = true, readFailed = true))
 	}
 
 	@Test
@@ -220,7 +237,7 @@ class LbBotDataTest {
 	@Test
 	fun theListeningStatusIsSaidForEveryState() {
 		fun line(phase: ListeningPhase, count: Int = 0, lastSync: String = "") =
-			listeningStatusLine(advertised = true, phase = phase, count = count, lastSync = lastSync)
+			listeningStatusLine(hubHeard = true, advertised = true, phase = phase, count = count, lastSync = lastSync)
 		assertEquals("Asking lb-bot…", line(ListeningPhase.Loading))
 		assertEquals("Off: lb-bot has no ListenBrainz user set up.", line(ListeningPhase.Off))
 		assertEquals("This lb-bot has no listening history yet.", line(ListeningPhase.Older))
@@ -254,8 +271,31 @@ class LbBotDataTest {
 	fun aHubThatDoesNotAdvertiseListeningSaysSoWhateverThePhase() {
 		assertEquals(
 			"This hub does not offer listening history yet.",
-			listeningStatusLine(advertised = false, phase = ListeningPhase.Ready, count = 5, lastSync = "x")
+			listeningStatusLine(hubHeard = true, advertised = false, phase = ListeningPhase.Ready, count = 5, lastSync = "x")
 		)
+	}
+
+	@Test
+	fun aHubThatHasNotSpokenIsNotSaidToLackListening() {
+		fun silent(advertised: Boolean, phase: ListeningPhase, count: Int = 0) =
+			listeningStatusLine(hubHeard = false, advertised = advertised, phase = phase, count = count, lastSync = "")
+		// "Not advertised" with no advert heard may be the default of an install that never
+		// heard one. While the hub is being asked that is a read; after, lb-bot is out of reach.
+		assertEquals("Asking lb-bot…", silent(advertised = false, phase = ListeningPhase.Loading))
+		assertEquals(
+			"lb-bot is needed for this and is not reachable right now.",
+			silent(advertised = false, phase = ListeningPhase.Unreachable)
+		)
+		assertEquals(
+			"lb-bot is needed for this and is not reachable right now.",
+			silent(advertised = false, phase = ListeningPhase.Ready, count = 5)
+		)
+		// A remembered "advertised" lets the status be asked, and the phase then speaks as usual.
+		assertEquals(
+			"lb-bot is needed for this and is not reachable right now.",
+			silent(advertised = true, phase = ListeningPhase.Unreachable)
+		)
+		assertEquals("Ready: 5 plays stored.", silent(advertised = true, phase = ListeningPhase.Ready, count = 5))
 	}
 
 	// --- "Sync now", the listening half ----------------------------------------------------

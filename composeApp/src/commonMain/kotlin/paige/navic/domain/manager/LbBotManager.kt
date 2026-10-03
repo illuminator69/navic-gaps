@@ -668,6 +668,7 @@ class LbBotManager(
 			return false
 		}
 		_hubRoutes.value = probe.routes
+		_hubHeard.value = true
 		_webUrl.value = cleanWebUrl(probe.webUrl)
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
@@ -729,6 +730,7 @@ class LbBotManager(
 	 */
 	fun applyHubAdvert(available: Boolean, routes: List<String>, webUrl: String = "") {
 		_hubRoutes.value = routes
+		_hubHeard.value = true
 		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()
@@ -781,6 +783,17 @@ class LbBotManager(
 	 * failed", which otherwise look identical from here.
 	 */
 	private val _hubRoutes = MutableStateFlow<List<String>>(emptyList())
+
+	/**
+	 * Whether the hub has said anything about its lb-bot proxy in this process: an advert on the
+	 * socket ([applyHubAdvert]) or an answer to `/lb/status` ([probeAvailable]). Until then
+	 * [artistOverridesSupported] is false and [listeningSupported] is the verdict remembered
+	 * from an earlier run, and neither is this hub saying "I do not do that". The "lb-bot data"
+	 * panel (I-020) puts those capabilities into words, and "this hub is older" is a claim about
+	 * a hub that answered — on a cold start with it out of reach, nothing has.
+	 */
+	private val _hubHeard = MutableStateFlow(false)
+	val hubHeard: StateFlow<Boolean> = _hubHeard.asStateFlow()
 
 	/**
 	 * Whether the hub in front of lb-bot proxies a given route.

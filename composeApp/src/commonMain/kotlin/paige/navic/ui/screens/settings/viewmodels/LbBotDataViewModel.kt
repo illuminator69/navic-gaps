@@ -85,13 +85,14 @@ class LbBotDataViewModel(
 
 	val overrides: StateFlow<OverridesPanel> = combine(
 		lbBotManager.artistOverrides,
-		lbBotManager.artistOverridesSupported,
+		// "Not supported" is only a verdict once the hub has spoken; the two travel together.
+		combine(lbBotManager.hubHeard, lbBotManager.artistOverridesSupported, ::Pair),
 		lbBotManager.artistOverridesLoaded,
 		lbBotManager.artistOverridesReadFailed,
 		overridesReading
-	) { map, supported, loaded, readFailed, reading ->
+	) { map, (hubHeard, supported), loaded, readFailed, reading ->
 		OverridesPanel(
-			data = panelData(supported, reading, loaded, readFailed),
+			data = panelData(hubHeard, supported, reading, loaded, readFailed),
 			// By name: the map's own order is the order lb-bot happened to list them in.
 			rows = map.values.sortedBy { it.name.lowercase() }
 		)
@@ -152,11 +153,13 @@ class LbBotDataViewModel(
 	private val listeningStatus = MutableStateFlow<LbListeningStatus?>(null)
 
 	val listeningLine: StateFlow<String> = combine(
+		lbBotManager.hubHeard,
 		lbBotManager.listeningSupported,
 		listeningPhase,
 		listeningStatus
-	) { advertised, phase, status ->
+	) { hubHeard, advertised, phase, status ->
 		listeningStatusLine(
+			hubHeard = hubHeard,
 			advertised = advertised,
 			phase = phase,
 			count = status?.count ?: 0,
@@ -174,6 +177,9 @@ class LbBotDataViewModel(
 
 	private var syncJob: Job? = null
 
+	/** The one question [hearHub] has out; both halves of the panel wait on the same one. */
+	private var hubJob: Job? = null
+
 	init { read() }
 
 	/** Read what lb-bot holds, as the panel opens. Never a sync: nothing is asked to pull. */
@@ -186,18 +192,40 @@ class LbBotDataViewModel(
 		}
 	}
 
+	/**
+	 * Ask the hub what it proxies, when it has not said so in this process — a cold start with
+	 * the socket not up yet, or the hub out of reach. Without this the panel would read that
+	 * silence as "this hub is older", which nothing said. One `/lb/status`, shared by whoever
+	 * asks while it is out; a hub that has spoken is not asked again.
+	 */
+	private suspend fun hearHub() {
+		if (lbBotManager.hubHeard.value) return
+		val asking = hubJob?.takeIf { it.isActive }
+			?: viewModelScope.launch { lbBotManager.ensureAvailability() }.also { hubJob = it }
+		asking.join()
+	}
+
 	private suspend fun readOverrides() {
-		if (!lbBotManager.isConfigured || !lbBotManager.artistOverridesSupported.value) return
+		if (!lbBotManager.isConfigured) return
 		overridesReading.value = true
 		try {
-			lbBotManager.refreshArtistOverrides()
+			hearHub()
+			if (lbBotManager.artistOverridesSupported.value) lbBotManager.refreshArtistOverrides()
 		} finally {
 			overridesReading.value = false
 		}
 	}
 
 	private suspend fun readListeningStatus(): LbBotManager.LbResult<LbListeningStatus>? {
-		if (!lbBotManager.isConfigured || !lbBotManager.listeningSupported.value) return null
+		if (!lbBotManager.isConfigured) return null
+		hearHub()
+		currentCoroutineContext().ensureActive()
+		if (!lbBotManager.listeningSupported.value) {
+			// Nothing to read. With the hub heard the line names that; with it still silent the
+			// question has been asked and went unanswered, which must not stay "Asking lb-bot…".
+			listeningPhase.value = ListeningPhase.Unreachable
+			return null
+		}
 		val result = lbBotManager.listeningStatus()
 		currentCoroutineContext().ensureActive()
 		(result as? LbBotManager.LbResult.Ok)?.let { listeningStatus.value = it.value }
@@ -223,7 +251,10 @@ class LbBotDataViewModel(
 		lbIndexSync.requestSync("manual", freshStart = true)
 		viewModelScope.launch { readOverrides() }
 		syncJob = viewModelScope.launch {
-			if (!lbBotManager.isConfigured || !lbBotManager.listeningSupported.value) return@launch
+			if (!lbBotManager.isConfigured) return@launch
+			hearHub()
+			currentCoroutineContext().ensureActive()
+			if (!lbBotManager.listeningSupported.value) return@launch
 			listeningSync.value = ListeningSyncOutcome.Asking
 			val before = listeningStatus.value
 			val post = lbBotManager.listeningSync()
