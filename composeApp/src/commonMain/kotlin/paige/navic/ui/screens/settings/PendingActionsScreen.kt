@@ -27,9 +27,11 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_remove_pending_action
 import navic.composeapp.generated.resources.action_sync_now
 import navic.composeapp.generated.resources.info_pending_action_queued
+import navic.composeapp.generated.resources.info_pending_action_remove_failed
 import navic.composeapp.generated.resources.info_pending_actions_empty
 import navic.composeapp.generated.resources.info_pending_actions_hint
 import navic.composeapp.generated.resources.info_pending_actions_offline
+import navic.composeapp.generated.resources.info_pending_actions_remove_note
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.pending_action_delete_playlist
 import navic.composeapp.generated.resources.pending_action_rate
@@ -58,6 +60,7 @@ fun PendingActionsScreen() {
 	val viewModel = koinViewModel<PendingActionsViewModel>()
 	val rows by viewModel.rows.collectAsStateWithLifecycle()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+	val removeFailed by viewModel.removeFailed.collectAsStateWithLifecycle()
 
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.option_pending_actions)) }) }
@@ -79,6 +82,25 @@ fun PendingActionsScreen() {
 						color = MaterialTheme.colorScheme.onSurfaceVariant
 					)
 					val queue = rows
+					if (!queue.isNullOrEmpty()) {
+						// A removed row vanishes, which reads as "cancelled". It is, unless a sync
+						// was already sending it at that moment — said here, since nothing else
+						// on the screen can show it.
+						Text(
+							stringResource(Res.string.info_pending_actions_remove_note),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(top = 8.dp)
+						)
+					}
+					if (removeFailed) {
+						Text(
+							stringResource(Res.string.info_pending_action_remove_failed),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+							modifier = Modifier.padding(top = 8.dp)
+						)
+					}
 					if (!queue.isNullOrEmpty()) {
 						// Sending needs the server. Offline the button would do nothing, so it
 						// says why instead of looking pressable.

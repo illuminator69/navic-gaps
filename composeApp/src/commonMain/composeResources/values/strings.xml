@@ -989,6 +989,8 @@
 	<string name="info_pending_actions_hint">Changes made while the server could not be reached wait here and are sent in order, oldest first.</string>
 	<string name="info_pending_actions_empty">Nothing is waiting to be sent.</string>
 	<string name="info_pending_actions_offline">Offline. These are sent when the server can be reached.</string>
+	<string name="info_pending_actions_remove_note">Removing an action takes it out of this queue. One that is already being sent may still go through.</string>
+	<string name="info_pending_action_remove_failed">Couldn't remove that action. It is still in the queue.</string>
 	<string name="pending_action_scrobble">Scrobble</string>
 	<string name="pending_action_star">Star</string>
 	<string name="pending_action_unstar">Unstar</string>

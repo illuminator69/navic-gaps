@@ -5,12 +5,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.TimeZone
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
@@ -25,6 +29,7 @@ import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.pendingActionKind
 import paige.navic.domain.manager.pendingActionTitle
+import paige.navic.domain.manager.pendingTitlesToLookUp
 import paige.navic.util.Logger
 
 /** One queued action as the browser shows it. [id] is the queue row's own key. */
@@ -51,7 +56,8 @@ data class PendingActionRow(
  * by id after it is sent. A delete from here is the same statement on one id: it cannot fail the
  * drain's delete of that row (deleting an absent id is a no-op), reorder what the drain holds, or
  * skip a row. The one consequence worth knowing: an action the drain has already read may still
- * be sent in the moment after it is removed here.
+ * be sent in the moment after it is removed here — the screen says so in a line, since a row
+ * vanishing reads as "cancelled".
  */
 class PendingActionsViewModel(
 	private val syncDao: SyncActionDao,
@@ -70,14 +76,28 @@ class PendingActionsViewModel(
 		.flowOn(Dispatchers.IO)
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+	/**
+	 * Titles looked up so far, and every id that has been asked for, found or not. The queue
+	 * re-emits on every row a drain deletes; without these each sent action cost the chunked
+	 * Room reads for the whole queue again. Under [titlesLock]: the flow maps one emission at a
+	 * time, but a restarted collection can overlap the one it replaces for a moment.
+	 */
+	private val titles = mutableMapOf<String, String>()
+	private val titleIdsSeen = mutableSetOf<String>()
+	private val titlesLock = Mutex()
+
+	/** The last remove could not be written: the action is still queued, and the screen says so. */
+	private val _removeFailed = MutableStateFlow(false)
+	val removeFailed = _removeFailed.asStateFlow()
+
 	private suspend fun rowsFor(actions: List<SyncActionEntity>): List<PendingActionRow> {
-		val titles = titlesFor(actions)
+		val resolved = titlesFor(actions)
 		val zone = TimeZone.currentSystemDefault()
 		return actions.map { action ->
 			PendingActionRow(
 				id = action.id,
 				kind = pendingActionKind(action.actionType),
-				title = pendingActionTitle(action.itemId, titles),
+				title = pendingActionTitle(action.itemId, resolved),
 				queuedAt = formatListenedAt(action.time.epochSeconds.toDouble(), zone)
 			)
 		}
@@ -87,13 +107,19 @@ class PendingActionsViewModel(
 	 * Titles for the ids in the queue, from whichever local table holds each. A star or a rating
 	 * can be on a song, an album or an artist, and the queue row does not say which, so each id
 	 * is looked for in that order. A scrobble is always a song, a delete always a playlist.
+	 *
+	 * Only ids not asked for before are looked up (`pendingTitlesToLookUp`); the rest come from
+	 * what earlier emissions resolved. An id is marked as asked only once its lookups ran, so a
+	 * failed read is tried again on the next emission.
 	 */
-	private suspend fun titlesFor(actions: List<SyncActionEntity>): Map<String, String> {
-		val titles = mutableMapOf<String, String>()
+	private suspend fun titlesFor(actions: List<SyncActionEntity>): Map<String, String> = titlesLock.withLock {
+		val wanted = pendingTitlesToLookUp(actions.map { it.itemId }, titleIdsSeen)
+		if (wanted.isEmpty()) return@withLock titles.toMap()
 		val playlistIds = actions
 			.filter { it.actionType == SyncActionType.DELETE_PLAYLIST }
 			.mapTo(mutableSetOf()) { it.itemId }
-		var unresolved = actions.mapTo(mutableSetOf()) { it.itemId } - playlistIds
+			.intersect(wanted)
+		var unresolved = wanted - playlistIds
 		try {
 			// Chunked: a queue grown over a long time offline can pass SQLite's variable limit.
 			unresolved.chunked(ID_CHUNK).forEach { chunk ->
@@ -113,18 +139,33 @@ class PendingActionsViewModel(
 			playlistIds.forEach { id ->
 				playlistDao.getPlaylistById(id)?.let { titles[id] = it.playlist.name.orEmpty() }
 			}
+			titleIdsSeen += wanted
 		} catch (e: kotlin.coroutines.cancellation.CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			// The rows still render, by id.
+			// The rows still render, by id, and these ids are asked for again next time.
 			Logger.w("PendingActionsViewModel", "title lookup failed", e)
 		}
-		return titles
+		titles.toMap()
 	}
 
-	/** Take one action out of the queue. It is not sent; see the class note on a running sync. */
+	/**
+	 * Take one action out of the queue. It is not sent; see the class note on a running sync.
+	 * A delete that fails leaves the action queued, and [removeFailed] makes the screen say so
+	 * rather than leave a tap with no visible result.
+	 */
 	fun remove(id: Int) {
-		viewModelScope.launch(Dispatchers.IO) { syncDao.removeAction(id) }
+		viewModelScope.launch(Dispatchers.IO) {
+			_removeFailed.value = try {
+				syncDao.removeAction(id)
+				false
+			} catch (e: kotlin.coroutines.cancellation.CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				Logger.w("PendingActionsViewModel", "could not remove a queued action", e)
+				true
+			}
+		}
 	}
 
 	/** Send what is waiting now (and, as on Data & Storage, re-sync the library). */
