@@ -139,6 +139,13 @@ class LbBotManager(
 		get() = hubBase() != null && !hubProxyOff
 
 	/**
+	 * The first half of [isConfigured] on its own: a hub is set, enabled and has a token. For
+	 * the one surface that has to say WHICH half is missing (the "lb-bot data" panel).
+	 */
+	val hubSet: Boolean
+		get() = hubBase() != null
+
+	/**
 	 * The hub has said its lb-bot proxy is switched OFF — `/lb/status` answering
 	 * `configured: false`, or an advert of `available: false` with no routes (a hub proxies
 	 * nothing then, and says so with an empty list). That is the hub-side twin of the user
@@ -148,9 +155,17 @@ class LbBotManager(
 	 * [advertisesRoute], where empty means "a hub too old to say", i.e. everything.
 	 *
 	 * In memory only: the next welcome restates it within a moment of every connect.
+	 *
+	 * Held in a StateFlow ([hubSaysNoLbBot]) so the panel that words it is redrawn when the hub
+	 * changes its mind; everything in this class reads and writes it as the plain flag it was.
 	 */
-	@Volatile
-	private var hubProxyOff = false
+	private val _hubSaysNoLbBot = MutableStateFlow(false)
+	val hubSaysNoLbBot: StateFlow<Boolean> = _hubSaysNoLbBot.asStateFlow()
+	private var hubProxyOff: Boolean
+		get() = _hubSaysNoLbBot.value
+		set(value) {
+			_hubSaysNoLbBot.value = value
+		}
 
 	/**
 	 * Changes whenever the route configuration does, so a `LaunchedEffect` keyed on it

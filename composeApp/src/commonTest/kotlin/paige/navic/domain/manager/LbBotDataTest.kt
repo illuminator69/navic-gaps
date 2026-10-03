@@ -117,6 +117,23 @@ class LbBotDataTest {
 		)
 	}
 
+	// --- whether there is an lb-bot layer at all --------------------------------------------
+
+	@Test
+	fun theSectionSaysWhichThingIsMissing() {
+		val noHub = "lb-bot is reached through the hub. Set the hub up above to see its data here."
+		assertEquals(noHub, lbLayerLine(hubSet = false, hubSaysNoLbBot = false))
+		// A hub that is switched off now: whatever it said while it was on no longer matters.
+		assertEquals(noHub, lbLayerLine(hubSet = false, hubSaysNoLbBot = true))
+		// A hub that IS set up and says it proxies no lb-bot is not told to "set the hub up".
+		assertEquals(
+			"This hub says it has no lb-bot set up, so there is nothing to show here.",
+			lbLayerLine(hubSet = true, hubSaysNoLbBot = true)
+		)
+		// The layer is there: the lists speak.
+		assertNull(lbLayerLine(hubSet = true, hubSaysNoLbBot = false))
+	}
+
 	// --- what a list fed by lb-bot is ------------------------------------------------------
 
 	@Test

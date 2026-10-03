@@ -75,8 +75,13 @@ class LbBotDataViewModel(
 	private val artistDao: ArtistDao
 ) : ViewModel() {
 
-	/** Whether the lb-bot layer exists at all. Read live: the toggle is on this very screen. */
-	val configured: Boolean get() = lbBotManager.isConfigured
+	/**
+	 * Whether there is an lb-bot layer at all, in its two halves (`lbLayerLine`). The first is a
+	 * preference read, live because the switch and the fields are on this very screen; the second
+	 * is the hub's own word, and a Flow so the section is redrawn when the hub says otherwise.
+	 */
+	val hubSet: Boolean get() = lbBotManager.hubSet
+	val hubSaysNoLbBot = lbBotManager.hubSaysNoLbBot
 
 	// ----- overrides ------------------------------------------------------------------------ //
 
@@ -180,9 +185,14 @@ class LbBotDataViewModel(
 	/** The one question [hearHub] has out; both halves of the panel wait on the same one. */
 	private var hubJob: Job? = null
 
-	init { read() }
-
-	/** Read what lb-bot holds, as the panel opens. Never a sync: nothing is asked to pull. */
+	/**
+	 * Read what lb-bot holds. Never a sync: nothing is asked to pull.
+	 *
+	 * Called by the section when it appears and again whenever the lb-bot layer's configuration
+	 * changes under it — not from `init`: the hub is set up on this very screen, and a view model
+	 * created before that would have read nothing and then sat on "Asking lb-bot…" with nothing
+	 * asking.
+	 */
 	fun read() {
 		viewModelScope.launch { readOverrides() }
 		viewModelScope.launch { readListeningStatus() }

@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,6 +31,7 @@ import paige.navic.domain.manager.matchDetail
 import paige.navic.domain.manager.matchesNote
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.indexRunLine
+import paige.navic.domain.manager.lbLayerLine
 import paige.navic.domain.manager.mirrorLine
 import paige.navic.domain.manager.overrideTagLine
 import paige.navic.domain.manager.overridesNote
@@ -50,20 +52,28 @@ import paige.navic.ui.screens.settings.viewmodels.LbBotDataViewModel
 @Composable
 fun LbBotDataSection(
 	/**
-	 * `LbBotManager.routeSignature`. Not read here: it is what makes this section recompose when
-	 * the hub is switched on or off on the screen around it, since "is the lb-bot layer there"
-	 * is a preference read with no Flow behind it.
+	 * `LbBotManager.routeSignature`: the hub switch, address and token of the screen around this
+	 * section, which are preference reads with no Flow behind them. A change of it is what makes
+	 * the section recompose, ask again whether the lb-bot layer is there, and read again.
 	 */
-	@Suppress("UNUSED_PARAMETER") routeSignature: String
+	routeSignature: String
 ) {
 	val viewModel = koinViewModel<LbBotDataViewModel>()
+	val hubSaysNoLbBot by viewModel.hubSaysNoLbBot.collectAsStateWithLifecycle()
+
+	// Read when the section appears, and again when the hub is set up, changed or switched on
+	// above, or says its lb-bot is back: what was read (or not read) before is about a layer
+	// that is no longer the one on screen.
+	LaunchedEffect(routeSignature, hubSaysNoLbBot) { viewModel.read() }
 
 	Text("lb-bot data", style = MaterialTheme.typography.titleMedium)
 
-	// The hub is the only way to lb-bot. Without one this whole layer is off, and the section
-	// says so in a sentence rather than showing empty lists that look like "you have nothing".
-	if (!viewModel.configured) {
-		Muted("lb-bot is reached through the hub. Set the hub up above to see its data here.")
+	// The hub is the only way to lb-bot. Without one — or with one that says it has no lb-bot
+	// — this whole layer is off, and the section says which in a sentence rather than showing
+	// empty lists that look like "you have nothing".
+	val layerLine = lbLayerLine(viewModel.hubSet, hubSaysNoLbBot)
+	if (layerLine != null) {
+		Muted(layerLine)
 		return
 	}
 

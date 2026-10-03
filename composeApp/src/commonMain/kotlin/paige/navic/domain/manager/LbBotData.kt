@@ -122,6 +122,19 @@ internal fun lbErrorClause(error: LbBotManager.LbError): String = when (error) {
 }
 
 /**
+ * Why the panel has nothing to show, or null when the lb-bot layer is there and its lists speak.
+ * Two different things switch the layer off, and each is said as what it is: no hub (not set,
+ * switched off, or without a token — [hubSet] false), or a hub that is set up and has itself
+ * said it proxies no lb-bot ([hubSaysNoLbBot], `LbBotManager.hubSaysNoLbBot`). Telling the
+ * second user to "set the hub up" would send them to fix the thing that works.
+ */
+internal fun lbLayerLine(hubSet: Boolean, hubSaysNoLbBot: Boolean): String? = when {
+	!hubSet -> "lb-bot is reached through the hub. Set the hub up above to see its data here."
+	hubSaysNoLbBot -> "This hub says it has no lb-bot set up, so there is nothing to show here."
+	else -> null
+}
+
+/**
  * Which of five things a list fed by lb-bot is, so that no section ever says "Loading…" for
  * something that is not loading, or shows a blank where lb-bot simply could not be asked.
  */

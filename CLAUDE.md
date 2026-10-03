@@ -546,6 +546,11 @@ still advancing the speaker's queue. It logs one line when it fires.
     from an earlier run, and neither is this hub refusing anything — so on a cold start with the
     hub out of reach the panel asks it once (`hearHub`), says "Asking lb-bot…" while it does, and
     then "not reachable" (or shows the cached copy as the last one loaded), never "older".
+    The section reads when it appears and again whenever the layer under it changes
+    (`LaunchedEffect(routeSignature, hubSaysNoLbBot)`), **not from the view model's `init`**: the
+    hub is set up on that very screen, and a view model created before that read nothing and
+    then sat on "Asking lb-bot…" with nothing asking. With no layer at all it says which half is
+    missing (`lbLayerLine`): no hub, or a hub that is set up and says it has no lb-bot.
   - **"Sync now" reports what happened, not what a timeout suggests.** The mirror's line is
     `LbIndexSync.lastRun`: running, done on which cursor and how many artists changed, skipped
     and why, failed and with what. **It is a record, never an input** — nothing in `LbIndexSync`
