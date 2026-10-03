@@ -23,7 +23,12 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class LbOverrides(
-	val artists: List<LbArtistOverride>? = null
+	val artists: List<LbArtistOverride>? = null,
+	/**
+	 * "Matches to check" (I-021), nullable for the same reason and one more: an lb-bot that
+	 * predates the list sends no such field, and that is "no list", not "nothing to check".
+	 */
+	val toCheck: List<LbMatchToCheck>? = null
 )
 
 /**

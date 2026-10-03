@@ -564,6 +564,17 @@ still advancing the speaker's queue. It logs one line when it fires.
     `SyncManager.processQueue` do not disturb each other — the drain reads the queue once and
     deletes each row by id after sending it — but an action the drain has already read may
     still be sent in the moment after it is removed.
+- **"Matches to check" ride the overrides body (I-021).** lb-bot lists the library artists
+  whose MusicBrainz identity is worth a look — no tag in Navidrome, and its own name-search guess
+  matched none of their albums (`unmatched`) or found nobody (`unresolved`) — as `toCheck` on
+  `GET /lb/overrides`, so it is restored, re-read and persisted with the override map
+  (`LbBotManager.matchesToCheck`) and costs no request. **Absent is not empty**: the field is
+  nullable, an lb-bot that predates it sends none and the panel shows no section; an empty list
+  shows "Nothing to check" (`matchesSectionShown`, `MatchesToCheck.kt`, `MatchesToCheckTest`).
+  `matchesToShow` also drops an artist the map already has an override for, so a set takes the
+  row out at once. The copy says "worth a look, not necessarily wrong" — an untagged artist with
+  a non-Latin name is often listed although the guess is right. "Keep this match" is an ordinary
+  set of the guessed MBID; "Choose…" is the artist page's own picker, opened with no id in force.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after

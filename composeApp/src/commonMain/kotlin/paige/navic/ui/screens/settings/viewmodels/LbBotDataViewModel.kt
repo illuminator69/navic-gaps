@@ -15,10 +15,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
+import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbListeningStatus
+import paige.navic.domain.manager.LbMatchToCheck
 import paige.navic.domain.manager.LbMirrorInfo
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.ListeningPhase
@@ -28,6 +30,9 @@ import paige.navic.domain.manager.listeningPhase
 import paige.navic.domain.manager.listeningStatusLine
 import paige.navic.domain.manager.listeningSyncLine
 import paige.navic.domain.manager.listeningSyncOutcome
+import paige.navic.domain.manager.matchCanKeep
+import paige.navic.domain.manager.matchesSectionShown
+import paige.navic.domain.manager.matchesToShow
 import paige.navic.domain.manager.overrideWriteLine
 import paige.navic.domain.manager.panelData
 
@@ -36,6 +41,22 @@ import paige.navic.domain.manager.panelData
 data class OverridesPanel(
 	val data: LbPanelData = LbPanelData.READING,
 	val rows: List<LbArtistOverride> = emptyList()
+)
+
+/** "Matches to check" as the panel shows it (I-021). [shown] false: no such section at all. */
+@Immutable
+data class MatchesPanel(
+	val shown: Boolean = false,
+	val data: LbPanelData = LbPanelData.READING,
+	val rows: List<LbMatchToCheck> = emptyList()
+)
+
+/** The MusicBrainz picker opened from a "matches to check" row, and its write's state. */
+@Immutable
+data class MatchPick(
+	val row: LbMatchToCheck,
+	val working: Boolean = false,
+	val error: LbBotManager.LbError? = null
 )
 
 /**
@@ -50,7 +71,8 @@ data class OverridesPanel(
  */
 class LbBotDataViewModel(
 	private val lbBotManager: LbBotManager,
-	private val lbIndexSync: LbIndexSync
+	private val lbIndexSync: LbIndexSync,
+	private val artistDao: ArtistDao
 ) : ViewModel() {
 
 	/** Whether the lb-bot layer exists at all. Read live: the toggle is on this very screen. */
@@ -82,6 +104,36 @@ class LbBotDataViewModel(
 	/** What the last set or remove made from this panel did; blank before any. */
 	private val _overrideLine = MutableStateFlow("")
 	val overrideLine = _overrideLine.asStateFlow()
+
+	// ----- matches to check (I-021) ---------------------------------------------------------- //
+
+	/**
+	 * lb-bot's "matches to check", which arrive in the body the overrides come in — so they are
+	 * exactly as loaded, stale or unreachable as the overrides are, and [overrides]'s verdict
+	 * is theirs. An artist the map already holds an override for has left the list.
+	 */
+	val matches: StateFlow<MatchesPanel> = combine(
+		lbBotManager.matchesToCheck,
+		overrides
+	) { toCheck, panel ->
+		val rows = matchesToShow(toCheck, panel.rows.associateBy { it.ndArtistId })
+		MatchesPanel(
+			shown = matchesSectionShown(panel.data, rows),
+			data = panel.data,
+			rows = rows.orEmpty()
+		)
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MatchesPanel())
+
+	/** The picker a row's "Choose…" opened; null while it is closed. */
+	private val _pick = MutableStateFlow<MatchPick?>(null)
+	val pick = _pick.asStateFlow()
+
+	/**
+	 * The artists Room holds, so a row is only a link to an artist page that exists. The list is
+	 * of library artists, but this device has a page only for the ones it has synced.
+	 */
+	private val _knownArtistIds = MutableStateFlow<Set<String>>(emptySet())
+	val knownArtistIds = _knownArtistIds.asStateFlow()
 
 	// ----- the index mirror ---------------------------------------------------------------- //
 
@@ -128,6 +180,10 @@ class LbBotDataViewModel(
 	fun read() {
 		viewModelScope.launch { readOverrides() }
 		viewModelScope.launch { readListeningStatus() }
+		viewModelScope.launch {
+			runCatching { artistDao.getAllArtistIds().toSet() }
+				.onSuccess { _knownArtistIds.value = it }
+		}
 	}
 
 	private suspend fun readOverrides() {
@@ -201,6 +257,61 @@ class LbBotDataViewModel(
 				_overrideLine.value = overrideWriteLine(lbBotManager.removeArtistOverride(ndArtistId))
 			} finally {
 				_busyOverride.value = null
+			}
+		}
+	}
+
+	/**
+	 * "Keep this match" (I-021): make lb-bot's own guess the user's. An ordinary set of the
+	 * guessed id through the normal route — it becomes "set by you", the row leaves the list, and
+	 * whether a scan follows is lb-bot's decision, as on the artist page.
+	 */
+	fun keepMatch(row: LbMatchToCheck) {
+		if (_busyOverride.value != null || !matchCanKeep(row)) return
+		_busyOverride.value = row.ndArtistId
+		viewModelScope.launch {
+			try {
+				_overrideLine.value = overrideWriteLine(
+					lbBotManager.setArtistOverride(row.ndArtistId, row.mbid, row.name)
+				)
+			} finally {
+				_busyOverride.value = null
+			}
+		}
+	}
+
+	/** "Choose…": the same picker the artist page opens, for this row's artist. */
+	fun choose(row: LbMatchToCheck) {
+		_pick.value = MatchPick(row)
+	}
+
+	fun dismissPick() {
+		// A write in flight is not cancelled by closing the sheet; its outcome is the line
+		// under the lists.
+		_pick.value = null
+	}
+
+	/**
+	 * The picker's pick. An ordinary set, like [keepMatch]. A refusal is shown in the picker
+	 * while it is still open; an lb-bot too old for the route closes it, and the line under the
+	 * lists says so — never a sheet that closes as though it had saved.
+	 */
+	fun pick(mbid: String) {
+		val picking = _pick.value ?: return
+		if (picking.working) return
+		val row = picking.row
+		_pick.value = picking.copy(working = true, error = null)
+		viewModelScope.launch {
+			val result = lbBotManager.setArtistOverride(row.ndArtistId, mbid, row.name)
+			val stillOpen = _pick.value?.row?.ndArtistId == row.ndArtistId
+			when {
+				result is LbBotManager.LbResult.Failed &&
+					result.error != LbBotManager.LbError.RouteUnknown && stillOpen ->
+					_pick.value = MatchPick(row, working = false, error = result.error)
+				else -> {
+					if (stillOpen) _pick.value = null
+					_overrideLine.value = overrideWriteLine(result)
+				}
 			}
 		}
 	}

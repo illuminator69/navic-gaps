@@ -1281,6 +1281,15 @@ class LbBotManager(
 	val artistOverridesReadFailed: StateFlow<Boolean> = _artistOverridesReadFailed.asStateFlow()
 
 	/**
+	 * "Matches to check" (I-021): library artists whose MusicBrainz identity is worth a look,
+	 * computed by lb-bot and sent as `toCheck` in the very body the overrides come in — so it is
+	 * restored, re-read and persisted with them, and needs no request of its own. **Null is "no
+	 * such list"** (an lb-bot that predates it), not an empty one.
+	 */
+	private val _matchesToCheck = MutableStateFlow<List<LbMatchToCheck>?>(null)
+	val matchesToCheck: StateFlow<List<LbMatchToCheck>?> = _matchesToCheck.asStateFlow()
+
+	/**
 	 * lb-bot answered 404 for an override route the hub proxies: it is older than the hub. The
 	 * surfaces hide — never an error — and `index` frames stop asking, until the next advert sets
 	 * [overrideRecheck]. In memory only, like [hubProxyOff].
@@ -1359,6 +1368,7 @@ class LbBotManager(
 		val map = cached?.let { overrideMap(it) } ?: return
 		overridesLock.withLock {
 			_artistOverrides.value = map
+			_matchesToCheck.value = cached.toCheck
 			_artistOverridesLoaded.value = true
 		}
 	}
@@ -1401,6 +1411,8 @@ class LbBotManager(
 		val map = body?.let { overrideMap(it) }
 		if (map != null) {
 			_artistOverrides.value = map
+			// The same answer's list, or its absence: an lb-bot rolled back loses the section.
+			_matchesToCheck.value = body?.toCheck
 			_artistOverridesLoaded.value = true
 		}
 		// Only a read that was actually made can have failed: the early return above (no hub,

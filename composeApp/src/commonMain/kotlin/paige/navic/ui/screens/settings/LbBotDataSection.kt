@@ -21,12 +21,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
+import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbArtistOverride
+import paige.navic.domain.manager.LbMatchToCheck
+import paige.navic.domain.manager.MATCHES_TO_CHECK_BLURB
+import paige.navic.domain.manager.matchCanKeep
+import paige.navic.domain.manager.matchReason
+import paige.navic.domain.manager.matchesNote
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.indexRunLine
 import paige.navic.domain.manager.mirrorLine
 import paige.navic.domain.manager.overrideTagLine
 import paige.navic.domain.manager.overridesNote
+import paige.navic.ui.components.sheets.MbidMatchSheet
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.LbBotDataViewModel
 
 /**
@@ -62,6 +70,10 @@ fun LbBotDataSection(
 	val overrides by viewModel.overrides.collectAsStateWithLifecycle()
 	val busyOverride by viewModel.busyOverride.collectAsStateWithLifecycle()
 	val overrideLine by viewModel.overrideLine.collectAsStateWithLifecycle()
+	val matches by viewModel.matches.collectAsStateWithLifecycle()
+	val pick by viewModel.pick.collectAsStateWithLifecycle()
+	val knownArtistIds by viewModel.knownArtistIds.collectAsStateWithLifecycle()
+	val backStack = LocalNavStack.current
 	val mirror by viewModel.mirror.collectAsStateWithLifecycle()
 	val indexRun by viewModel.indexRun.collectAsStateWithLifecycle()
 	val listeningLine by viewModel.listeningLine.collectAsStateWithLifecycle()
@@ -89,7 +101,63 @@ fun LbBotDataSection(
 			)
 		}
 	}
+	// ----- matches to check (I-021) ---------------------------------------------------------
+	// Shown only when lb-bot sends the list (or when nothing could be loaded at all, to say
+	// so). An lb-bot that predates it sends none, and there is then no section — not an empty
+	// one claiming there is nothing to check.
+	if (matches.shown) {
+		var matchesOpen by rememberSaveable { mutableStateOf(false) }
+		val matchesKnown = matches.data == LbPanelData.CURRENT || matches.data == LbPanelData.STALE
+		Heading(
+			title = if (matchesKnown) "Matches to check (${matches.rows.size})" else "Matches to check",
+			expandable = matchesKnown && matches.rows.isNotEmpty(),
+			open = matchesOpen,
+			onToggle = { matchesOpen = !matchesOpen }
+		)
+		if (matchesKnown) Muted(MATCHES_TO_CHECK_BLURB)
+		matchesNote(matches.data, matches.rows.size)?.let { Muted(it) }
+		if (matchesOpen && matchesKnown) {
+			matches.rows.forEach { row ->
+				MatchRow(
+					row = row,
+					enabled = busyOverride == null,
+					// Only a link when Room has the artist: an id is not a page that exists.
+					onOpen = if (row.ndArtistId in knownArtistIds) {
+						{ backStack.add(Screen.ArtistDetail(row.ndArtistId)) }
+					} else {
+						null
+					},
+					onChoose = { viewModel.choose(row) },
+					onKeep = if (matchCanKeep(row)) {
+						{ viewModel.keepMatch(row) }
+					} else {
+						null
+					}
+				)
+			}
+		}
+	}
+
+	// What the last Remove, Keep or Choose did, in lb-bot's words where it refused.
 	if (overrideLine.isNotBlank()) Muted(overrideLine)
+
+	// The picker "Choose…" opens — the artist page's own. These artists have no tag in
+	// Navidrome and no override (that is what puts them on the list), so there is no id in
+	// force to mark, and lb-bot's guess is as pickable as any other candidate.
+	pick?.let { picking ->
+		MbidMatchSheet(
+			artistName = picking.row.name,
+			coverArtId = null,
+			tagMbid = "",
+			currentMbid = "",
+			overridden = false,
+			working = picking.working,
+			error = picking.error,
+			onPick = { viewModel.pick(it) },
+			onRemoveOverride = {},
+			onDismissRequest = { viewModel.dismissPick() }
+		)
+	}
 
 	// ----- the index mirror -----------------------------------------------------------------
 	Heading("Index mirror")
@@ -135,6 +203,38 @@ private fun Muted(text: String) {
 		style = MaterialTheme.typography.bodySmall,
 		color = MaterialTheme.colorScheme.onSurfaceVariant
 	)
+}
+
+/**
+ * One artist to check (I-021): the name (a link to their page when there is one), how many
+ * albums and what was measured, "Choose…", and "Keep this match" where lb-bot has a guess to keep.
+ */
+@Composable
+private fun MatchRow(
+	row: LbMatchToCheck,
+	enabled: Boolean,
+	onOpen: (() -> Unit)?,
+	onChoose: () -> Unit,
+	onKeep: (() -> Unit)?
+) {
+	Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+		Text(
+			row.name.ifBlank { row.ndArtistId },
+			style = MaterialTheme.typography.bodyLarge,
+			color = if (onOpen != null) MaterialTheme.colorScheme.primary
+			else MaterialTheme.colorScheme.onSurface,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier
+		)
+		Muted(matchReason(row))
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			OutlinedButton(enabled = enabled, onClick = onChoose) { Text("Choose…") }
+			if (onKeep != null) {
+				OutlinedButton(enabled = enabled, onClick = onKeep) { Text("Keep this match") }
+			}
+		}
+	}
 }
 
 /** One override: who, which MusicBrainz artist, what Navidrome had said, and Remove. */
