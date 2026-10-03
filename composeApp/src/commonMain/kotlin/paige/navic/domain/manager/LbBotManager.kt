@@ -674,6 +674,7 @@ class LbBotManager(
 		_available.value = ok
 		_availableAt = nowMs()
 		publishOverrideSupport()
+		publishListeningSupport()
 		return ok
 	}
 
@@ -738,6 +739,7 @@ class LbBotManager(
 		overrideRecheck = true
 		publishOverrideSupport()
 		if (available) requestArtistOverridesRefresh()
+		publishListeningSupport()
 	}
 
 	/**
@@ -1404,6 +1406,101 @@ class LbBotManager(
 			result
 		}
 	}.await()
+
+	// ----- listening analytics ----------------------------------------------- //
+
+	/**
+	 * Whether the My Listening surfaces exist at all (I-006): the hub's advert lists the summary
+	 * route. **Strict**, where [advertisesRoute] reads an empty list as "capable" — a hub too old
+	 * to advertise has no listening routes, and offering a screen that can only 404 is worse than
+	 * not offering it.
+	 *
+	 * Seeded from the last advert's verdict ([PreferenceManager.lbListeningAdvertised]), not from
+	 * `false`: the screen paints its cached summary offline, and on a cold start with no hub in
+	 * reach no advert ever arrives to open the way in.
+	 */
+	private val _listeningSupported = MutableStateFlow(preferenceManager.lbListeningAdvertised)
+	val listeningSupported: StateFlow<Boolean> = _listeningSupported.asStateFlow()
+
+	private fun publishListeningSupport() {
+		val supported = !hubProxyOff && _hubRoutes.value.any { it == ROUTE_LISTENING_SUMMARY }
+		_listeningSupported.value = supported
+		if (preferenceManager.lbListeningAdvertised != supported) {
+			preferenceManager.lbListeningAdvertised = supported
+		}
+	}
+
+	/**
+	 * The state of lb-bot's ListenBrainz mirror: off, importing, ready, or its last sync failed.
+	 * Never cached — it is what the screen polls while the first import runs — and on the poll
+	 * routes' short timeout for the same reason they have one. [LbError.RouteUnknown] is an
+	 * lb-bot older than the hub, which the screen says quietly rather than as an error.
+	 */
+	suspend fun listeningStatus(): LbResult<LbListeningStatus> =
+		getJson("/lb/listening/status", emptyList(), timeoutMs = POLL_TIMEOUT_MS)
+
+	/**
+	 * The My Listening screen in one body, stale-while-revalidate: the body last seen for this
+	 * period and zone paints first, offline too, and a request follows when it is older than
+	 * [CACHE_LISTENING_MS]. [tz] is the device's IANA zone — lb-bot's container runs in UTC, so
+	 * every day boundary in the answer (the heatmap, the streak, the hours) is the client's to name.
+	 *
+	 * A body that is not a summary ([isAnswer]) is never stored, so a stray `{}` cannot become
+	 * the "history" painted on the next open.
+	 */
+	fun listeningSummary(
+		period: ListeningPeriod,
+		tz: String,
+		policy: LbCachePolicy = LbCachePolicy.NORMAL
+	): Flow<LbListeningSummary?> =
+		cachedGet<LbListeningSummary>(
+			"/lb/listening/summary",
+			listOf("period" to period.wire, "tz" to tz),
+			CACHE_LISTENING_MS,
+			staleOnLibrary = true,        // `owned` / `ndAlbumId` / `ndArtistId` on the top lists
+			policy = policy
+		) { it.isAnswer }
+
+	/**
+	 * What was played most and the library does not hold — albums, or artists. Not cached here:
+	 * the premise of every row is "not owned", which a landing falsifies. The rows link out;
+	 * nothing in this feature starts a download.
+	 */
+	suspend fun listeningUnowned(
+		period: ListeningPeriod,
+		kind: String,
+		limit: Int = LISTENING_UNOWNED_LIMIT
+	): LbResult<LbListeningUnowned> =
+		getJson(
+			"/lb/listening/unowned",
+			listOf("period" to period.wire, "kind" to kind, "limit" to limit.toString())
+		)
+
+	/** One page of recent plays, newest first. [before] is the previous page's `nextBefore`. */
+	suspend fun listeningRecent(
+		before: Double? = null,
+		limit: Int = LISTENING_RECENT_LIMIT
+	): LbResult<LbListeningRecent> =
+		getJson(
+			"/lb/listening/recent",
+			listOf("before" to before?.let { beforeParam(it) }.orEmpty(), "limit" to limit.toString())
+		)
+
+	/**
+	 * Ask lb-bot's worker to pull from ListenBrainz now. It answers at once and never waits on
+	 * ListenBrainz, so the answer says the pull was asked for, not that it landed — read
+	 * [listeningStatus] for that. A 405 is an lb-bot that predates the route (its catch-all is
+	 * GET-only) and reads as [LbError.RouteUnknown], like a 404.
+	 */
+	suspend fun listeningSync(): LbResult<LbListeningSync> =
+		postJson<_, LbListeningSync>(
+			"/lb/listening/sync",
+			// An empty object, not an empty body: the hub answers 400 to a POST it cannot parse.
+			JsonObject(emptyMap()),
+			failure = { status, path, raw ->
+				if (status == 405) LbResult.Failed(LbError.RouteUnknown) else failureFor(status, path, raw)
+			}
+		)
 
 	// ----- wishlist ---------------------------------------------------------- //
 
@@ -2746,6 +2843,17 @@ class LbBotManager(
 		/** [cacheKey]'s tag for an ownership-bearing answer. */
 		private const val LIBRARY_KEY_PREFIX = "lib:"
 
+		// Listening analytics (I-006). The summary route's advert string is the gate.
+		private const val ROUTE_LISTENING_SUMMARY = "GET /lb/listening/summary"
+
+		/** How old a cached summary may be before it is read again. The hub keeps its own copy
+		 *  for a minute, so anything much shorter only re-reads that copy. */
+		private const val CACHE_LISTENING_MS = 5 * MINUTE_MS
+
+		/** lb-bot's own defaults for the two lists; its maximum for both is 100. */
+		private const val LISTENING_UNOWNED_LIMIT = 30
+		private const val LISTENING_RECENT_LIMIT = 50
+
 		// Artist MBID overrides (I-019). The advert string is the gate; the paths are the routes.
 		private const val ROUTE_OVERRIDE_SET = "POST /lb/artist/override"
 		private const val PATH_OVERRIDES = "/lb/overrides"
@@ -3155,7 +3263,14 @@ data class LbFreshRelease(
 	 *  external album page's own redirect cannot stand in for it: that reads the
 	 *  index's `navidromeAlbumIds`, which an album lb-bot filled itself does not
 	 *  have — placement flips the row to `present` and cannot write them. */
-	val releaseAlbumId: String = ""
+	val releaseAlbumId: String = "",
+	/**
+	 * All-time plays of this row's artists in lb-bot's listens mirror (I-006). 0 when there are
+	 * none, or while the mirror is off or still importing. **Null is not 0**: an lb-bot that
+	 * predates the rider sends no such field, and the "Artists you play" scope is then not
+	 * offered at all rather than offered empty.
+	 */
+	val artistPlays: Int? = null
 )
 
 @Serializable
