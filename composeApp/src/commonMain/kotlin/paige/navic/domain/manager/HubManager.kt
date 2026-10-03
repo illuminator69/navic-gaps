@@ -1207,7 +1207,12 @@ class HubManager(
 			// mirror pulls the change feed from its own cursor. The frame's seq/epoch are not
 			// needed for that; the pull answers both authoritatively.
 			// The frame is also proof lb-bot is up, whatever a cached availability says.
-			"index" -> lbIndexSync.requestSync("index frame", lbAlive = true)
+			// An artist MBID override set on another client moves the index too (lb-bot re-keys
+			// the artist and rescans), so the same frame re-reads the override map (I-019).
+			"index" -> {
+				lbIndexSync.requestSync("index frame", lbAlive = true)
+				lbBotManager.requestArtistOverridesRefresh()
+			}
 
 			// The hub's lb-bot verdict CHANGED (ruling R18): `{available, routes}`, the very object
 			// `welcome.lb` carries, sent whenever the hub's own probe flips. Applied exactly as the

@@ -317,6 +317,25 @@ class LbBotManager(
 		)
 	}
 
+	/** An override write's refusal: lb-bot's sentence, with the `code` and `retryable` beside it. */
+	@Serializable
+	private data class LbOverrideRefusal(
+		val error: String = "",
+		val code: String = "",
+		val retryable: Boolean = false
+	)
+
+	/** [failureFor] for the two override writes; the rules are [overrideWriteError]'s. */
+	private fun overrideFailureFor(status: Int, path: String, raw: String): LbResult.Failed {
+		val body = try {
+			json.decodeFromString<LbOverrideRefusal>(raw)
+		} catch (e: Exception) {
+			LbOverrideRefusal()
+		}
+		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
+	}
+
 	/**
 	 * @param timeoutMs overrides the client's 60 s for one call. Only the two polled
 	 *   routes pass it: they run every five seconds, so a tick that hasn't answered in
@@ -348,9 +367,14 @@ class LbBotManager(
 		}
 	}
 
+	/**
+	 * @param failure how a non-2xx answer reads. [failureFor] for every route but the override
+	 *   writes, whose 404 and 502 mean something else — see [overrideFailureFor].
+	 */
 	private suspend inline fun <reified B, reified T> postJson(
 		path: String,
-		body: B
+		body: B,
+		failure: (status: Int, path: String, raw: String) -> LbResult.Failed = ::failureFor
 	): LbResult<T> {
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
@@ -360,7 +384,7 @@ class LbBotManager(
 				setBody(body)
 			}
 			if (!response.status.isSuccess()) {
-				return failureFor(response.status.value, "POST $path", response.bodyAsText())
+				return failure(response.status.value, "POST $path", response.bodyAsText())
 			}
 			val parsed = response.body<T>()
 			// lb-bot answers 200 with `{"ok": false}` for some refusals, so the
@@ -553,6 +577,9 @@ class LbBotManager(
 	 * The network half of [cachedGet]: join the request already in flight for [key], or start
 	 * one in [scope]. A request that started at or before the last library change is not joined
 	 * by an ownership-bearing read — its answer may predate the landing — and a fresh one starts.
+	 *
+	 * [onFailure] hears why the request failed, for the one caller that must tell "this route does
+	 * not exist" from "nothing came back" ([fetchArtistOverrides]). Everyone else only needs null.
 	 */
 	@Suppress("UNCHECKED_CAST")
 	private suspend fun <T : Any> revalidate(
@@ -561,7 +588,8 @@ class LbBotManager(
 		params: List<Pair<String, String>>,
 		serializer: KSerializer<T>,
 		staleOnLibrary: Boolean,
-		keep: (T) -> Boolean
+		keep: (T) -> Boolean,
+		onFailure: (LbError) -> Unit = {}
 	): T? {
 		val running = revalidationLock.withLock {
 			revalidations[key]
@@ -570,7 +598,13 @@ class LbBotManager(
 				?: run {
 					val startedAt = nowMs()
 					val deferred = scope.async {
-						val text = getText(route, params).valueOrNull() ?: return@async null
+						val text = when (val got = getText(route, params)) {
+							is LbResult.Ok -> got.value
+							is LbResult.Failed -> {
+								onFailure(got.error)
+								return@async null
+							}
+						}
 						val decoded = decodeOrNull(serializer, text) ?: return@async null
 						if (keep(decoded)) {
 							try {
@@ -639,6 +673,7 @@ class LbBotManager(
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
 		_availableAt = nowMs()
+		publishOverrideSupport()
 		return ok
 	}
 
@@ -697,6 +732,12 @@ class LbBotManager(
 		_available.value = available
 		_availableAt = nowMs()
 		_webUrl.value = cleanWebUrl(webUrl)
+		// The artist MBID overrides ride every advert: an override set from another client while
+		// this socket was down is otherwise unknown here until the next `index` frame. A new
+		// advert is also the only way an lb-bot that answered 404 for them gets newer.
+		overrideRecheck = true
+		publishOverrideSupport()
+		if (available) requestArtistOverridesRefresh()
 	}
 
 	/**
@@ -1141,6 +1182,229 @@ class LbBotManager(
 			.valueOrNull()
 	}
 
+	// ----- artist MBID overrides ------------------------------------------- //
+
+	/**
+	 * The user's MusicBrainz match for each library artist they have corrected, keyed by
+	 * Navidrome artist id (I-019; the rules are in `ArtistMbidOverride.kt`). lb-bot owns the list
+	 * — every client shares it and lb-bot's own auto-indexer reads it — and this is the device's
+	 * copy: restored from `lb_response_cache` at start, then re-read on every hub advert, on every
+	 * `index` frame and after a write made here.
+	 *
+	 * **A failed read keeps the last map.** A stale copy is harmless by design: Navidrome's tag is
+	 * sent instead, and lb-bot swaps to the override on its own side of the read.
+	 */
+	private val _artistOverrides = MutableStateFlow<Map<String, LbArtistOverride>>(emptyMap())
+	val artistOverrides: StateFlow<Map<String, LbArtistOverride>> = _artistOverrides.asStateFlow()
+
+	/**
+	 * Whether the override surfaces may show at all: a hub is configured, it proxies the write
+	 * route, and lb-bot has not answered 404 for it. False until the hub has said anything.
+	 *
+	 * A StateFlow where [supportsGapFilling] and its siblings are getters, because an artist page
+	 * is usually already open when the advert — or the 404 — that decides this arrives.
+	 */
+	private val _artistOverridesSupported = MutableStateFlow(false)
+	val artistOverridesSupported: StateFlow<Boolean> = _artistOverridesSupported.asStateFlow()
+
+	/**
+	 * lb-bot answered 404 for an override route the hub proxies: it is older than the hub. The
+	 * surfaces hide — never an error — and `index` frames stop asking, until the next advert sets
+	 * [overrideRecheck]. In memory only, like [hubProxyOff].
+	 */
+	@Volatile
+	private var overrideRoutesMissing = false
+
+	/** Set by an advert, consumed by the next read: ask again even after a 404. */
+	@Volatile
+	private var overrideRecheck = false
+
+	/**
+	 * Every read and write of the map goes through this. Without it a refresh already in flight
+	 * when a write lands would publish its older answer over the write's — and the write's own
+	 * re-read would join that very request ([revalidate] shares one per key) instead of starting
+	 * a new one.
+	 */
+	private val overridesLock = Mutex()
+
+	/** Refresh triggers, conflated: one read in flight and at most one more waiting behind it. */
+	private val overrideRefreshes = Channel<Unit>(Channel.CONFLATED)
+
+	init {
+		scope.launch {
+			restoreArtistOverrides()
+			for (trigger in overrideRefreshes) {
+				try {
+					refreshArtistOverrides()
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					Logger.w("LbBotManager", "artist override refresh failed", e)
+				}
+			}
+		}
+	}
+
+	/**
+	 * `update`, not a plain write: this runs on the frame handler's thread (an advert) and on
+	 * this manager's own (a read that 404'd) alike, and a verdict computed before the other
+	 * side's write must not be the one that lands after it.
+	 */
+	private fun publishOverrideSupport() {
+		_artistOverridesSupported.update {
+			isConfigured && !overrideRoutesMissing && advertisesRoute(ROUTE_OVERRIDE_SET)
+		}
+	}
+
+	/**
+	 * The MusicBrainz artist id to use for a library artist: the user's override, else
+	 * [tagMbid] (Navidrome's own). Blank when there is neither. With the hub switched off this
+	 * is always the tag — the override is part of the lb-bot layer, and that layer is off.
+	 */
+	fun effectiveArtistMbid(ndId: String, tagMbid: String?): String =
+		effectiveArtistMbid(if (isConfigured) _artistOverrides.value else emptyMap(), ndId, tagMbid)
+
+	/** The override in force for a library artist, or null when the tag (or nothing) is. */
+	fun artistOverride(ndId: String): LbArtistOverride? =
+		if (isConfigured) _artistOverrides.value[ndId] else null
+
+	/** The persisted copy, so the first artist page of a cold or offline start already follows it. */
+	private suspend fun restoreArtistOverrides() {
+		val cached = try {
+			cachedGet<LbOverrides>(
+				PATH_OVERRIDES,
+				emptyList(),
+				maxAgeMs = 0L,
+				policy = LbCachePolicy.CACHE_ONLY
+			).first()
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w("LbBotManager", "artist override restore failed", e)
+			null
+		}
+		val map = cached?.let { overrideMap(it) } ?: return
+		overridesLock.withLock { _artistOverrides.value = map }
+	}
+
+	/**
+	 * Ask for the map to be re-read. Never blocks; safe from a frame handler. From an `index`
+	 * frame: an override set on another client rescans the artist, and the frame that announces
+	 * the rescan is how this device learns the artist's MBID changed.
+	 */
+	fun requestArtistOverridesRefresh() {
+		overrideRefreshes.trySend(Unit)
+	}
+
+	/** Re-read the map from lb-bot now. False when nothing came back; the map is then unchanged. */
+	suspend fun refreshArtistOverrides(): Boolean = overridesLock.withLock { fetchArtistOverrides() }
+
+	/**
+	 * The read itself, under [overridesLock]. Through [revalidate], so the answer is stored in
+	 * `lb_response_cache` exactly as a [cachedGet] body is.
+	 */
+	private suspend fun fetchArtistOverrides(): Boolean {
+		if (overrideRecheck) {
+			overrideRecheck = false
+			overrideRoutesMissing = false
+		}
+		if (!isConfigured || overrideRoutesMissing || !advertisesRoute(ROUTE_OVERRIDE_SET)) {
+			publishOverrideSupport()
+			return false
+		}
+		val body = revalidate(
+			key = cacheKey(PATH_OVERRIDES, emptyList(), staleOnLibrary = false),
+			route = PATH_OVERRIDES,
+			params = emptyList(),
+			serializer = serializer<LbOverrides>(),
+			staleOnLibrary = false,
+			// An empty list is kept: it is the answer once the last override is removed.
+			keep = { it.artists != null },
+			onFailure = { error -> if (error == LbError.RouteUnknown) overrideRoutesMissing = true }
+		)
+		val map = body?.let { overrideMap(it) }
+		if (map != null) _artistOverrides.value = map
+		publishOverrideSupport()
+		return map != null
+	}
+
+	/**
+	 * Point a library artist at the MusicBrainz artist the user picked. lb-bot checks the id
+	 * against MusicBrainz, stores it, drops the rows indexed under the old id and starts a scan
+	 * under the new one — [LbOverrideWrite.taskId], followed like any other scan.
+	 *
+	 * The failure is lb-bot's own sentence wherever it wrote one: `Rejected(400)` a malformed id,
+	 * `Rejected(404)` MusicBrainz has no such artist, `Rejected(409)` a download for this artist
+	 * is running, `Rejected(502)` MusicBrainz was unavailable and nothing was stored.
+	 * [LbError.RouteUnknown] is an lb-bot older than the hub, and hides the surface.
+	 */
+	suspend fun setArtistOverride(ndId: String, mbid: String, name: String): LbResult<LbOverrideWrite> {
+		if (ndId.isBlank() || mbid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return writeArtistOverride(
+			post = {
+				postJson<_, LbOverrideWrite>(
+					PATH_OVERRIDE_SET,
+					LbOverrideSetRequest(ndId, mbid, name),
+					::overrideFailureFor
+				)
+			},
+			change = { map, written ->
+				val row = map[ndId] ?: LbArtistOverride(ndArtistId = ndId)
+				map + (ndId to row.copy(mbid = written.mbid.ifBlank { mbid }, name = name))
+			}
+		)
+	}
+
+	/** Go back to Navidrome's tag. `Rejected(404)` when there was no override to remove. */
+	suspend fun removeArtistOverride(ndId: String): LbResult<LbOverrideWrite> {
+		if (ndId.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return writeArtistOverride(
+			post = {
+				postJson<_, LbOverrideWrite>(
+					PATH_OVERRIDE_REMOVE,
+					LbOverrideRemoveRequest(ndId),
+					::overrideFailureFor
+				)
+			},
+			change = { map, _ -> map - ndId }
+		)
+	}
+
+	/**
+	 * One override write, whole: the POST, the map changed here by what lb-bot accepted, then
+	 * the map re-read from lb-bot. In this manager's scope, so a picker swiped away mid-request
+	 * cannot leave the device's copy behind a write that landed.
+	 *
+	 * The local change comes first because the re-read may fail, and the write did not: without
+	 * it the artist page would go on asking with the old id until the next advert.
+	 */
+	private suspend fun writeArtistOverride(
+		post: suspend () -> LbResult<LbOverrideWrite>,
+		change: (Map<String, LbArtistOverride>, LbOverrideWrite) -> Map<String, LbArtistOverride>
+	): LbResult<LbOverrideWrite> = scope.async {
+		overridesLock.withLock {
+			val result = post()
+			when (result) {
+				is LbResult.Ok -> {
+					_artistOverrides.value = change(_artistOverrides.value, result.value)
+					fetchArtistOverrides()
+				}
+				is LbResult.Failed -> when (val error = result.error) {
+					LbError.RouteUnknown -> {
+						overrideRoutesMissing = true
+						publishOverrideSupport()
+					}
+					// lb-bot and this map disagree about what exists (`no_override`): re-read.
+					is LbError.Rejected -> {
+						if (error.status == 404) fetchArtistOverrides()
+					}
+					else -> Unit
+				}
+			}
+			result
+		}
+	}.await()
+
 	// ----- wishlist ---------------------------------------------------------- //
 
 	/**
@@ -1192,10 +1456,19 @@ class LbBotManager(
 	 * index read: call it debounced, and not on every keystroke. Empty list when we
 	 * could not ask, so the section simply does not render.
 	 */
-	suspend fun artistLookup(query: String): List<LbArtistCandidate> {
-		if (query.isBlank()) return emptyList()
-		return getJson<LbArtistLookup>("/lb/artist/lookup", listOf("q" to query))
-			.valueOrNull()?.candidates.orEmpty()
+	suspend fun artistLookup(query: String): List<LbArtistCandidate> =
+		artistLookupResult(query).valueOrNull().orEmpty()
+
+	/**
+	 * [artistLookup] with the failure kept, for the MusicBrainz match picker: there an empty list
+	 * has to mean "MusicBrainz knows nobody by that name", and "lb-bot did not answer" has to say so.
+	 */
+	suspend fun artistLookupResult(query: String): LbResult<List<LbArtistCandidate>> {
+		if (query.isBlank()) return LbResult.Ok(emptyList())
+		return when (val result = getJson<LbArtistLookup>("/lb/artist/lookup", listOf("q" to query))) {
+			is LbResult.Ok -> LbResult.Ok(result.value.candidates)
+			is LbResult.Failed -> result
+		}
 	}
 
 	/**
@@ -2473,6 +2746,12 @@ class LbBotManager(
 		/** [cacheKey]'s tag for an ownership-bearing answer. */
 		private const val LIBRARY_KEY_PREFIX = "lib:"
 
+		// Artist MBID overrides (I-019). The advert string is the gate; the paths are the routes.
+		private const val ROUTE_OVERRIDE_SET = "POST /lb/artist/override"
+		private const val PATH_OVERRIDES = "/lb/overrides"
+		private const val PATH_OVERRIDE_SET = "/lb/artist/override"
+		private const val PATH_OVERRIDE_REMOVE = "/lb/artist/override/remove"
+
 		/** Never let the loop spin: a tick that overran its own interval still waits. */
 		private const val MIN_POLL_GAP_MS = 1_000L
 
@@ -2603,6 +2882,16 @@ private data class LbIndexReleaseRequest(
 	val type: String = "",
 	val year: String = ""
 )
+
+@Serializable
+private data class LbOverrideSetRequest(
+	@SerialName("nd_id") val ndId: String,
+	val mbid: String,
+	val name: String
+)
+
+@Serializable
+private data class LbOverrideRemoveRequest(@SerialName("nd_id") val ndId: String)
 
 @Serializable
 private data class LbGroupRequest(@SerialName("group_id") val groupId: String)
