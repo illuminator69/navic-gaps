@@ -3,7 +3,7 @@ package paige.navic.ui.screens.fresh
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.ui.screens.fresh.viewmodels.FreshScope
 import paige.navic.ui.screens.fresh.viewmodels.freshEffectiveScope
-import paige.navic.ui.screens.fresh.viewmodels.freshPlaysKnown
+import paige.navic.ui.screens.fresh.viewmodels.freshPlayedOffered
 import paige.navic.ui.screens.fresh.viewmodels.freshScoped
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,8 +13,9 @@ import kotlin.test.assertTrue
 /*
  * I-006, the Fresh rider: each row of lb-bot's fresh feed may carry `artistPlays`, the all-time
  * plays of the row's artists in the listens mirror, and a third scope — "Artists you play" — is
- * the rows where it is above zero, most played first. An lb-bot that predates the rider sends no
- * such field at all, which is not the same as sending 0: the scope must then not be offered.
+ * the rows where it is above zero, most played first. The scope is offered only when some row
+ * has plays: an lb-bot that predates the rider sends no field, and a current one sends 0 on
+ * every row while its listens mirror is off or importing — neither is "nothing was released".
  */
 class FreshScopeTest {
 	private fun row(
@@ -32,23 +33,32 @@ class FreshScopeTest {
 	)
 
 	@Test
-	fun theRiderIsKnownOnceAnyRowCarriesTheField() {
-		assertTrue(freshPlaysKnown(listOf(row("a", null), row("b", 0))))
-		assertTrue(freshPlaysKnown(listOf(row("a", 12))))
+	fun theScopeIsOfferedOnlyWhenSomeRowHasPlays() {
+		assertTrue(freshPlayedOffered(listOf(row("a", 12))))
+		assertTrue(freshPlayedOffered(listOf(row("a", 0), row("b", null), row("c", 3))))
 	}
 
 	@Test
-	fun anOlderLbBotSendsNoFieldAndTheRiderIsUnknown() {
-		assertFalse(freshPlaysKnown(listOf(row("a", null), row("b", null))))
-		assertFalse(freshPlaysKnown(emptyList()))
+	fun aFeedWhoseRowsAllSayZeroDoesNotOfferIt() {
+		// A current lb-bot always sends the field, and sends 0 while its listens mirror is off or
+		// still importing. "(0)" under "Artists you play" would say none of them released
+		// anything, which the wire cannot tell from a mirror that is not ready.
+		assertFalse(freshPlayedOffered(listOf(row("a", 0), row("b", 0))))
+		assertFalse(freshPlayedOffered(listOf(row("a", null), row("b", 0))))
 	}
 
 	@Test
-	fun aStoredPlayedScopeFallsBackWhenTheFeedCannotAnswerIt() {
-		assertEquals(FreshScope.YOURS, freshEffectiveScope(FreshScope.PLAYED, playsKnown = false))
-		assertEquals(FreshScope.PLAYED, freshEffectiveScope(FreshScope.PLAYED, playsKnown = true))
-		assertEquals(FreshScope.ALL, freshEffectiveScope(FreshScope.ALL, playsKnown = false))
-		assertEquals(FreshScope.YOURS, freshEffectiveScope(FreshScope.YOURS, playsKnown = true))
+	fun anOlderLbBotSendsNoFieldAndTheScopeIsNotOffered() {
+		assertFalse(freshPlayedOffered(listOf(row("a", null), row("b", null))))
+		assertFalse(freshPlayedOffered(emptyList()))
+	}
+
+	@Test
+	fun aStoredPlayedScopeFallsBackWhenItIsNotOffered() {
+		assertEquals(FreshScope.YOURS, freshEffectiveScope(FreshScope.PLAYED, playedOffered = false))
+		assertEquals(FreshScope.PLAYED, freshEffectiveScope(FreshScope.PLAYED, playedOffered = true))
+		assertEquals(FreshScope.ALL, freshEffectiveScope(FreshScope.ALL, playedOffered = false))
+		assertEquals(FreshScope.YOURS, freshEffectiveScope(FreshScope.YOURS, playedOffered = true))
 	}
 
 	@Test

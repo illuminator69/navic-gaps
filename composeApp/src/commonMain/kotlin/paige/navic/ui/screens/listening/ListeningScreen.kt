@@ -105,6 +105,7 @@ import paige.navic.domain.manager.LbListeningSummary
 import paige.navic.domain.manager.LbRecentPlay
 import paige.navic.domain.manager.LbUnownedRow
 import paige.navic.domain.manager.ListeningHeatmap
+import paige.navic.domain.manager.ListeningListFailure
 import paige.navic.domain.manager.ListeningPeriod
 import paige.navic.domain.manager.ListeningPhase
 import paige.navic.domain.manager.ListeningTarget
@@ -419,12 +420,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.summaryItems(
 							title = album.title,
 							subtitle = album.artist,
 							plays = album.plays,
-							// lb-bot's `owned`, and only that: the same meaning Fresh's badge has.
+							// lb-bot's `owned`, and only that: "the library holds it" — by its
+							// index, or by Navidrome's own album list. Not Fresh's narrower
+							// `releaseOwned`, which is the index alone.
 							note = if (album.owned) null else stringResource(Res.string.label_not_in_library),
+							// An owned album with no page here (lb-bot does not know its id yet,
+							// or this device has not synced it) is plain text, never a link to
+							// the acquire page.
 							onClick = clickFor(
 								albumTarget(
 									album.ndAlbumId, album.rgid, album.artistMbid, album.artist,
-									album.title, state.knownAlbumIds
+									album.title, state.knownAlbumIds, owned = album.owned
 								),
 								open
 							)
@@ -643,11 +649,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.unownedItems(
 					label = { Text(stringResource(Res.string.listening_unowned_artists)) }
 				)
 			}
+			val failure = state.unownedFailure
 			when {
 				state.unowned.isNotEmpty() -> Form {
 					state.unowned.forEach { row -> UnownedRow(row, clickFor(unownedTarget(row, state.knownArtistIds), open)) }
 				}
-				state.unownedFailed -> FailedLine(stringResource(Res.string.listening_list_failed), onRetry)
+				// lb-bot's own sentence when it wrote one (a 503 while Navidrome's lists are
+				// unavailable, a 400); an lb-bot older than the route is said as that, quietly
+				// and without a Retry that could only get the same answer.
+				failure == ListeningListFailure.Older ->
+					Caption(stringResource(Res.string.listening_older), Modifier.padding(bottom = 24.dp))
+				failure is ListeningListFailure.Said -> FailedLine(failure.text, onRetry)
+				failure != null -> FailedLine(stringResource(Res.string.listening_list_failed), onRetry)
 				state.unownedLoading -> SmallSpinner()
 				else -> Caption(stringResource(Res.string.listening_unowned_empty), Modifier.padding(bottom = 24.dp))
 			}

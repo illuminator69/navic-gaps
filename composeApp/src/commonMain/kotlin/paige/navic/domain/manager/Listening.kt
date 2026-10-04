@@ -109,7 +109,14 @@ data class LbTopArtist(
 	val ndArtistId: String = ""
 )
 
-/** [owned] is lb-bot's index holding the release-group — the same meaning as Fresh's `releaseOwned`. */
+/**
+ * [owned] is "the library holds it": lb-bot's index holds the release-group as owned, **or**
+ * Navidrome's album list has an album with the listen's release MBID, or one by the same artist
+ * with the same title. Wider than Fresh's `releaseOwned` (the index alone) on purpose — nearly
+ * everything in a listening history is owned, and an artist lb-bot never scanned would otherwise
+ * have their albums listed as "not in your library". [ndAlbumId] can be blank on an owned row
+ * (a filled album still syncing): such a row is plain text, never a link to the acquire page.
+ */
 @Serializable
 data class LbTopAlbum(
 	val title: String = "",
@@ -376,6 +383,11 @@ sealed interface ListeningTarget {
  * An album row's destination. [knownAlbumIds] is what Room holds: lb-bot's `ndAlbumId` is
  * authoritative, but an id is not a page that exists — an album Navidrome has and this device
  * has not synced yet opens on the album screen's not-in-the-database error.
+ *
+ * [owned] is lb-bot's "the library holds it". An owned album with no page here — no id yet (a
+ * filled album still syncing), or an id this device has not synced — is **not a tap target**:
+ * the external page is where an album is acquired, and a row only links there when the library
+ * does not hold it.
  */
 internal fun albumTarget(
 	ndAlbumId: String,
@@ -384,11 +396,33 @@ internal fun albumTarget(
 	artist: String,
 	title: String,
 	knownAlbumIds: Set<String>,
-	artistId: String = ""
+	artistId: String = "",
+	owned: Boolean = false
 ): ListeningTarget = when {
 	ndAlbumId.isNotBlank() && ndAlbumId in knownAlbumIds -> ListeningTarget.LibraryAlbum(ndAlbumId)
+	owned -> ListeningTarget.None
 	rgid.isNotBlank() -> ListeningTarget.ExternalAlbum(rgid, artistMbid, artist, title, artistId)
 	else -> ListeningTarget.None
+}
+
+/** Why one of the page's lists could not be read, as the screen words it. */
+sealed interface ListeningListFailure {
+	/** An lb-bot older than the route (404): a fact, said quietly, with nothing to retry. */
+	data object Older : ListeningListFailure
+
+	/** lb-bot's own sentence: a 503 while Navidrome's library lists are unavailable, a 400. */
+	data class Said(val text: String) : ListeningListFailure
+
+	/** Nothing was said: out of reach, busy, or an error with no text. */
+	data object Generic : ListeningListFailure
+}
+
+internal fun listeningListFailure(error: LbBotManager.LbError): ListeningListFailure = when (error) {
+	LbBotManager.LbError.RouteUnknown -> ListeningListFailure.Older
+	is LbBotManager.LbError.Rejected ->
+		error.message.trim().takeIf { it.isNotBlank() }?.let { ListeningListFailure.Said(it) }
+			?: ListeningListFailure.Generic
+	else -> ListeningListFailure.Generic
 }
 
 /** As [albumTarget], for an artist: only album artists have a row in Room, and so a page. */

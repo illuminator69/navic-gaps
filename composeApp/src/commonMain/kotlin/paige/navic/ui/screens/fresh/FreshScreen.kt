@@ -307,9 +307,10 @@ private fun FreshFilters(
 				onClick = { onScope(FreshScope.ALL) },
 				label = { Text(stringResource(Res.string.fresh_scope_all) + " (${state.all.size})") }
 			)
-			// Only when the feed carries the listens rider: an older lb-bot sends no
-			// `artistPlays`, and a chip that could only ever be empty is not offered.
-			if (state.playsKnown) {
+			// Only when some row has plays. A feed whose rows all say 0 is a listens mirror
+			// that is off or still importing as readily as "none of them released anything",
+			// and a chip reading "(0)" would claim the second.
+			if (state.playedOffered) {
 				FilterChip(
 					selected = state.scope == FreshScope.PLAYED,
 					onClick = { onScope(FreshScope.PLAYED) },

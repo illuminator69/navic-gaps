@@ -23,9 +23,11 @@ import paige.navic.domain.manager.LbListeningStatus
 import paige.navic.domain.manager.LbListeningSummary
 import paige.navic.domain.manager.LbRecentPlay
 import paige.navic.domain.manager.LbUnownedRow
+import paige.navic.domain.manager.ListeningListFailure
 import paige.navic.domain.manager.ListeningPeriod
 import paige.navic.domain.manager.ListeningPhase
 import paige.navic.domain.manager.importFinished
+import paige.navic.domain.manager.listeningListFailure
 import paige.navic.domain.manager.listeningPhase
 import paige.navic.domain.manager.phaseAfterPoll
 import paige.navic.domain.manager.summaryNeedsRefresh
@@ -48,7 +50,12 @@ data class ListeningUi(
 	val unownedKind: String = LISTENING_KIND_ALBUM,
 	val unowned: List<LbUnownedRow> = emptyList(),
 	val unownedLoading: Boolean = false,
-	val unownedFailed: Boolean = false,
+	/**
+	 * Why the unowned list could not be read, or null. Not a flag: lb-bot says why it refused
+	 * (a 503 while Navidrome's lists are unavailable, a 400), and an lb-bot older than the route
+	 * is a fact, not a failure to retry (`listeningListFailure`).
+	 */
+	val unownedFailure: ListeningListFailure? = null,
 	val recent: List<LbRecentPlay> = emptyList(),
 	/** `before` for the next page of [recent]; null on the last page. */
 	val recentNextBefore: Double? = null,
@@ -194,10 +201,9 @@ class ListeningViewModel(
 			val result = lbBotManager.listeningRecent(before)
 			stillWanted()
 			// The list was replaced while this page was in flight: the cursor it was asked with is
-			// gone, and appending it would repeat rows under the new first page. A re-read from
-			// the top cancels this job before it gets here, so this is the list having been
-			// CLEARED (the phase went off, older or back to loading) — nothing will read it again,
-			// and the spinner this page set is this page's to end.
+			// gone, and appending it would repeat rows under the new first page. Every path that
+			// re-reads or clears the list cancels this job first, so this is a safety net — and
+			// a page that is dropped here ends the spinner it set, since nothing else would.
 			if (_state.value.recentNextBefore != before) {
 				_state.update { it.copy(recentLoading = false) }
 				return@launch
@@ -236,24 +242,41 @@ class ListeningViewModel(
 	private suspend fun readContent(phase: ListeningPhase, policy: LbCachePolicy) {
 		when (phase) {
 			// Nothing to show and nothing to ask: no ListenBrainz user, or no such routes.
-			ListeningPhase.Off, ListeningPhase.Older, ListeningPhase.Loading -> _state.update {
-				it.copy(
-					summary = null, summaryFailed = false, summaryLoading = false,
-					unowned = emptyList(), unownedFailed = false,
-					recent = emptyList(), recentNextBefore = null, recentFailed = false
-				)
+			ListeningPhase.Off, ListeningPhase.Older, ListeningPhase.Loading -> {
+				// The recent list's read is its own job now, so the load being replaced no
+				// longer stops it: a page still in flight must not land rows on a page that
+				// has just been emptied, or leave its spinner behind.
+				recentJob?.cancel()
+				_state.update {
+					it.copy(
+						summary = null, summaryFailed = false, summaryLoading = false,
+						unowned = emptyList(), unownedFailure = null,
+						recent = emptyList(), recentNextBefore = null, recentFailed = false,
+						recentLoading = false
+					)
+				}
 			}
 			// lb-bot did not answer: the summary this device last saw, and only that. The two
 			// lists are live reads and keep whatever they showed.
 			ListeningPhase.Unreachable -> readSummary(LbCachePolicy.CACHE_ONLY)
 			// Three requests at once, under the hub's four shared lb-bot slots.
 			is ListeningPhase.Importing, ListeningPhase.Ready, is ListeningPhase.SyncFailed -> {
-				// A "Show more" page in flight belongs to the list about to be replaced.
+				// The recent list does not depend on the period, so its first page is NOT this
+				// load's child. As one, a period change — which cancels the load and re-reads
+				// only what the period decides — cancelled it halfway, after it had set
+				// `recentLoading`, and nothing cleared the spinner or read the list again. It
+				// runs under [recentJob], which only a re-read of the list itself replaces (and
+				// which a "Show more" page in flight, belonging to the list about to be
+				// replaced, gives way to here).
 				recentJob?.cancel()
+				val firstPage = viewModelScope.launch { readRecent() }
+				recentJob = firstPage
 				coroutineScope {
 					launch { readSummaryFollowingSync(policy) }
 					launch { readUnowned() }
-					launch { readRecent() }
+					// The load still ends when all three have; cancelling the load only stops
+					// the wait, not the read.
+					launch { firstPage.join() }
 				}
 			}
 		}
@@ -264,10 +287,12 @@ class ListeningViewModel(
 	 * ([summaryNeedsRefresh]) — a body cached mid-import, or before the latest pull, is missing
 	 * listens the mirror now holds, and its age alone does not say so.
 	 *
-	 * The hub keeps its own copy of the summary for a minute and a sync landing on lb-bot does
-	 * not flush it, so the re-read can be handed the very body it was meant to replace. When it
-	 * is still older than the sync, one more read is made once that copy has expired, and the
-	 * unowned list (cached the same way) with it.
+	 * A current hub passes the summary straight through, and the re-read then gets lb-bot's
+	 * own answer. **The second read below is a fallback for an older hub**, which kept its own
+	 * copy of the summary (and of the unowned list) for a minute that a sync landing on lb-bot
+	 * did not flush: there the re-read can be handed the very body it was meant to replace, so
+	 * when the answer is still older than the sync one more read is made once that copy has
+	 * expired. Against a current hub the first re-read is already newer and this returns.
 	 */
 	private suspend fun readSummaryFollowingSync(policy: LbCachePolicy) {
 		var summary = readSummary(policy) ?: return
@@ -309,15 +334,16 @@ class ListeningViewModel(
 	private suspend fun readUnowned() {
 		val period = _state.value.period
 		val kind = _state.value.unownedKind
-		_state.update { it.copy(unownedLoading = true, unownedFailed = false) }
+		_state.update { it.copy(unownedLoading = true, unownedFailure = null) }
 		val result = lbBotManager.listeningUnowned(period, kind)
 		stillWanted()
 		if (_state.value.period != period || _state.value.unownedKind != kind) return
 		when (result) {
 			is LbBotManager.LbResult.Ok ->
 				_state.update { it.copy(unowned = result.value.rows, unownedLoading = false) }
-			is LbBotManager.LbResult.Failed ->
-				_state.update { it.copy(unownedLoading = false, unownedFailed = true) }
+			is LbBotManager.LbResult.Failed -> _state.update {
+				it.copy(unownedLoading = false, unownedFailure = listeningListFailure(result.error))
+			}
 		}
 	}
 
@@ -366,7 +392,10 @@ class ListeningViewModel(
 	}
 
 	private companion object {
-		/** The hub's lb-bot result cache lives 60 s; a little past that, its copy is gone. */
+		/**
+		 * An OLDER hub's lb-bot result cache lived 60 s; a little past that, its copy is gone.
+		 * A current hub does not cache the listening routes at all, and never gets this far.
+		 */
 		const val HUB_CACHE_EXPIRY_MS = 65_000L
 	}
 }

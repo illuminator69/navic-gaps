@@ -24,19 +24,25 @@ import paige.navic.domain.manager.PreferenceManager
 enum class FreshScope { YOURS, ALL, PLAYED }
 
 /**
- * Whether the feed carries the listens rider at all. An lb-bot that predates it sends no
- * `artistPlays` on any row — not the same as every row saying 0, which is what a mirror that is
- * off or still importing says — and the "Artists you play" scope is then not offered.
+ * Whether the "Artists you play" scope is offered: only when some row HAS plays.
+ *
+ * Not "when the feed carries the rider". A current lb-bot always sends `artistPlays`, and sends
+ * 0 on every row while its listens mirror is off or still importing — so a scope offered on the
+ * field alone showed "(0)" over a sentence saying none of the artists you play released
+ * anything, which nothing had said. The wire cannot tell that from a mirror that is not ready,
+ * so an empty scope is never offered with a claim about either. An older lb-bot sends no field
+ * at all, and falls out of the same rule.
  */
-internal fun freshPlaysKnown(rows: List<LbFreshRelease>): Boolean = rows.any { it.artistPlays != null }
+internal fun freshPlayedOffered(rows: List<LbFreshRelease>): Boolean =
+	rows.any { (it.artistPlays ?: 0) > 0 }
 
 /**
  * The scope the page actually applies. The stored choice is kept as it is — the rider may be
  * back on the next read — but a scope the feed cannot answer falls back to the default rather
  * than rendering an empty page under a chip that is not there.
  */
-internal fun freshEffectiveScope(scope: FreshScope, playsKnown: Boolean): FreshScope =
-	if (scope == FreshScope.PLAYED && !playsKnown) FreshScope.YOURS else scope
+internal fun freshEffectiveScope(scope: FreshScope, playedOffered: Boolean): FreshScope =
+	if (scope == FreshScope.PLAYED && !playedOffered) FreshScope.YOURS else scope
 
 /**
  * The rows a scope shows.
@@ -98,8 +104,8 @@ data class FreshUi(
 	val truncated: Boolean = false,
 	val groups: List<FreshGroup> = emptyList(),
 	val ownedArtistCount: Int = 0,
-	/** The feed carries `artistPlays`; false from an older lb-bot, and the scope is then hidden. */
-	val playsKnown: Boolean = false,
+	/** Some row has plays (`freshPlayedOffered`); otherwise the "Artists you play" chip is hidden. */
+	val playedOffered: Boolean = false,
 	/** Rows whose artists have plays — the "Artists you play" chip's count. */
 	val playedCount: Int = 0,
 	val typeCounts: Map<FreshType, Int> = emptyMap()
@@ -127,7 +133,7 @@ class FreshViewModel(
 	private val _state = MutableStateFlow(
 		FreshUi(
 			days = preferenceManager.freshDays,
-			scope = freshEffectiveScope(chosenScope, playsKnown = false),
+			scope = freshEffectiveScope(chosenScope, playedOffered = false),
 			sort = runCatching { FreshSort.valueOf(preferenceManager.freshSort) }
 				.getOrDefault(FreshSort.DATE),
 			type = runCatching { FreshType.valueOf(preferenceManager.freshType) }
@@ -223,8 +229,8 @@ class FreshViewModel(
 	}
 
 	private fun recompute(ui: FreshUi): FreshUi {
-		val playsKnown = freshPlaysKnown(ui.all)
-		val scope = freshEffectiveScope(chosenScope, playsKnown)
+		val playedOffered = freshPlayedOffered(ui.all)
+		val scope = freshEffectiveScope(chosenScope, playedOffered)
 		val scoped = freshScoped(ui.all, scope)
 		val counts = FreshType.entries.associateWith { bucket ->
 			if (bucket == FreshType.ALL) scoped.size else scoped.count { typeOf(it) == bucket }
@@ -233,7 +239,7 @@ class FreshViewModel(
 		return ui.copy(
 			scope = scope,
 			ownedArtistCount = ui.all.count { it.artistOwned },
-			playsKnown = playsKnown,
+			playedOffered = playedOffered,
 			playedCount = ui.all.count { (it.artistPlays ?: 0) > 0 },
 			typeCounts = counts,
 			// "Artists you play" is one flat list in [freshScoped]'s own order, most played

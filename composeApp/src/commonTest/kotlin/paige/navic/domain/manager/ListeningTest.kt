@@ -342,6 +342,47 @@ class ListeningTest {
 	}
 
 	@Test
+	fun anOwnedAlbumWithNoPageHereIsPlainTextNeverTheAcquirePage() {
+		// `owned: true` with `ndAlbumId: ""`: a filled album lb-bot does not know the id of yet.
+		assertEquals(
+			ListeningTarget.None,
+			albumTarget("", "rg-1", "mb-a", "Artist", "Title", knownAlbumIds = emptySet(), owned = true)
+		)
+		// Owned, with an id this device has not synced: still not the acquire page.
+		assertEquals(
+			ListeningTarget.None,
+			albumTarget("al-9", "rg-1", "mb-a", "Artist", "Title", knownAlbumIds = setOf("al-1"), owned = true)
+		)
+		// Owned and on this device: its library page, as ever.
+		assertEquals(
+			ListeningTarget.LibraryAlbum("al-1"),
+			albumTarget("al-1", "rg-1", "mb-a", "Artist", "Title", knownAlbumIds = setOf("al-1"), owned = true)
+		)
+	}
+
+	@Test
+	fun theUnownedListSaysWhyItCouldNotBeRead() {
+		// lb-bot's own sentence: a 503 while Navidrome's library lists are unavailable, a 400.
+		assertEquals(
+			ListeningListFailure.Said("Navidrome's album list is unavailable"),
+			listeningListFailure(LbBotManager.LbError.Rejected(503, "Navidrome's album list is unavailable"))
+		)
+		assertEquals(
+			ListeningListFailure.Said("unknown period"),
+			listeningListFailure(LbBotManager.LbError.Rejected(400, "unknown period"))
+		)
+		// An lb-bot older than the route: a fact, said quietly, not something to retry.
+		assertEquals(ListeningListFailure.Older, listeningListFailure(LbBotManager.LbError.RouteUnknown))
+		// Nothing was said: the generic line.
+		assertEquals(ListeningListFailure.Generic, listeningListFailure(LbBotManager.LbError.Rejected(500, " ")))
+		assertEquals(ListeningListFailure.Generic, listeningListFailure(LbBotManager.LbError.Busy))
+		assertEquals(
+			ListeningListFailure.Generic,
+			listeningListFailure(LbBotManager.LbError.Unreachable("timeout"))
+		)
+	}
+
+	@Test
 	fun anAlbumTheLibraryLacksOpensTheExternalPage() {
 		assertEquals(
 			ListeningTarget.ExternalAlbum("rg-1", "mb-a", "Artist", "Title"),

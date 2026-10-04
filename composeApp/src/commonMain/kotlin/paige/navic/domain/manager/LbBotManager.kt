@@ -3023,8 +3023,9 @@ class LbBotManager(
 		// Listening analytics (I-006). The summary route's advert string is the gate.
 		private const val ROUTE_LISTENING_SUMMARY = "GET /lb/listening/summary"
 
-		/** How old a cached summary may be before it is read again. The hub keeps its own copy
-		 *  for a minute, so anything much shorter only re-reads that copy. */
+		/** How old a cached summary may be before it is read again. The hub passes the summary
+		 *  straight through (it stopped keeping its own copy on 2026-10-03; an older hub still
+		 *  holds one for a minute), so this is the only cache between the page and lb-bot. */
 		private const val CACHE_LISTENING_MS = 5 * MINUTE_MS
 
 		/** lb-bot's own defaults for the two lists; its maximum for both is 100. */
