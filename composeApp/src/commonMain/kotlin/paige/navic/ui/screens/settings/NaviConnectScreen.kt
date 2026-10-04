@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,12 +65,20 @@ fun NaviConnectScreen() {
 	var audioMuseUrl by rememberSaveable { mutableStateOf(preferenceManager.audioMuseUrl) }
 	var audioMuseToken by rememberSaveable { mutableStateOf(preferenceManager.audioMuseToken) }
 
+	// Counts the saves. The hub's settings are plain preferences: writing them changes no
+	// Compose state, so with the hub out of reach (nothing else on this screen moves then)
+	// the "lb-bot data" section below went on showing what it had computed before the save —
+	// "Set the hub up above", for a hub that had just been set up. Reading this makes the
+	// screen recompose on every save, and the section read again.
+	var saves by remember { mutableIntStateOf(0) }
+
 	fun applyAndReconnect() {
 		preferenceManager.hubEnabled = enabled
 		preferenceManager.hubUrl = url.trim()
 		preferenceManager.hubToken = token.trim()
 		preferenceManager.hubDeviceName = deviceName.trim().ifBlank { "Navic" }
 		hubManager.restart()
+		saves++
 	}
 
 	fun saveAudioMuse() {
@@ -170,9 +179,10 @@ fun NaviConnectScreen() {
 			}
 
 			// What this device holds of lb-bot's, and "Sync now" (I-020). Keyed on the hub's
-			// route configuration: the switch and the fields above decide whether the lb-bot
-			// layer exists, and they are plain preferences with no Flow to observe.
-			LbBotDataSection(lbBotManager.routeSignature)
+			// route configuration and on the saves above: the switch and the fields decide
+			// whether the lb-bot layer exists, and they are plain preferences with no Flow to
+			// observe — the save is the only moment they change.
+			LbBotDataSection(lbBotManager.routeSignature, saves)
 
 			Text("Devices", style = MaterialTheme.typography.titleMedium)
 			if (devices.isEmpty()) {

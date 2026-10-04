@@ -248,6 +248,9 @@ class LbIndexSync(
 		var driftChecked = false
 		var resyncs = 0
 		var applied = 0
+		// Artists a drift repair removed outright. For [lastRun] only (see the end of this
+		// function): they are not in `applied`, which counts what the pages changed.
+		var repaired = 0
 		var pages = 0
 		while (true) {
 			val meta = dao.getMeta() ?: LbIndexMetaEntity()
@@ -320,7 +323,10 @@ class LbIndexSync(
 			)
 			// Never a wipe: only the keys lb-bot no longer has go, and they go directly, because
 			// the feed will never mention them again.
-			if (drift.deletes.isNotEmpty()) dao.deleteArtists(drift.deletes)
+			if (drift.deletes.isNotEmpty()) {
+				dao.deleteArtists(drift.deletes)
+				repaired += drift.deletes.size
+			}
 			val from = drift.refetchFrom ?: break
 			force = drift.refetch
 			dao.setCursor(from)
@@ -328,7 +334,9 @@ class LbIndexSync(
 		if (applied > 0 || pages > 1) {
 			Logger.i(TAG, "index sync ($why): $applied artist change(s) over $pages page(s)")
 		}
-		runApplied = applied
+		// A repair that deleted artists changed the mirror: without them the record read "the
+		// last pull changed nothing" over a pull that had just removed rows.
+		runApplied = applied + repaired
 		return Outcome.DONE
 	}
 

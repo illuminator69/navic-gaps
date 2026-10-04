@@ -55,7 +55,13 @@ fun LbBotDataSection(
 	 * section, which are preference reads with no Flow behind them. A change of it is what makes
 	 * the section recompose, ask again whether the lb-bot layer is there, and read again.
 	 */
-	routeSignature: String
+	routeSignature: String,
+	/**
+	 * How many times "Save & reconnect" (or the switch) has been used on the screen around this
+	 * section. A save of unchanged values, or one made while the hub is out of reach, moves
+	 * nothing else — and is still the user asking for the panel to look again.
+	 */
+	saves: Int
 ) {
 	val viewModel = koinViewModel<LbBotDataViewModel>()
 	val hubSaysNoLbBot by viewModel.hubSaysNoLbBot.collectAsStateWithLifecycle()
@@ -63,7 +69,7 @@ fun LbBotDataSection(
 	// Read when the section appears, and again when the hub is set up, changed or switched on
 	// above, or says its lb-bot is back: what was read (or not read) before is about a layer
 	// that is no longer the one on screen.
-	LaunchedEffect(routeSignature, hubSaysNoLbBot) { viewModel.read() }
+	LaunchedEffect(routeSignature, hubSaysNoLbBot, saves) { viewModel.read() }
 
 	Text("lb-bot data", style = MaterialTheme.typography.titleMedium)
 
