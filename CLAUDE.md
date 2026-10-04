@@ -481,14 +481,24 @@ still advancing the speaker's queue. It logs one line when it fires.
   the page waits on like any other scan; a blank `task_id` is lb-bot deciding not to
   (`overrideScanToFollow`) — the picked MBID's discography is already another library artist's
   row, which a scan from this artist would rewrite against the wrong albums, or a remove left
-  nothing to resolve — and the page then shows what lb-bot holds under the new id, no spinner. The
+  nothing to resolve — and the page then shows what lb-bot holds under the new id, no spinner.
+  **The Rescan button follows the same rule** (`rescanStart`): `POST /lb/artist/discography` can
+  answer `{"task_id": "", "covered": true}` and start nothing when another library artist holds
+  this artist's discography. A blank id is never followed — it matched no scan record and spun
+  until the scan timeout — and the shelf says the discography is shared in one plain line
+  (`DiscographyUi.scanShared`), not in the error colour. The map is re-read at once on a hub
+  advert and after a write here, but an `index` frame only asks for a read **3 s out, once per
+  burst** (`requestArtistOverridesRefreshSoon`): a bulk index build sends a frame every couple of
+  seconds, and each read is an upstream one. A write that lb-bot answers 200 for is done only
+  when the answer says `ok` (`confirmedWrite`, the listening sync too). The
   surfaces (the artist sheet's "Fix MusicBrainz match"; the shelf's "Choose MusicBrainz artist"
   where there is no id to scan under) show only while `artistOverridesSupported`: the hub
   advertises `POST /lb/artist/override` and lb-bot has not answered 404 for it. A **bare** 404 —
   and a 405 on the POST, since lb-bot's SPA fallback is a GET-only catch-all — is an lb-bot older
   than the hub and hides them; when it answers a tap, a snackbar says so in plain words, never the
   raw status text. A 404 **with a `code`** (`unknown_mbid`,
-  `no_override`) and a 502 with `retryable` are lb-bot's own refusals and are shown in its words
+  `no_override`) and a 502 with `retryable` (MusicBrainz or Navidrome's artist list unavailable,
+  on a set and on a remove alike) are lb-bot's own refusals and are shown in its words
   (`overrideWriteError`; the general `failureFor` reads them as "hub too old" and "busy"). A new
   consumer of a library artist's MBID that reaches an lb-bot call or a MusicBrainz link goes
   through `LbBotManager.effectiveArtistMbid(ndId, tag)`; ids that came FROM lb-bot (a Fresh row,
@@ -507,9 +517,11 @@ still advancing the speaker's queue. It logs one line when it fires.
   - **A summary read mid-import is partial, and its age does not say so.** `importFinished` is the
     cue to re-read the summary and the unowned list when the phase leaves "importing";
     `summaryNeedsRefresh` (the body's `generatedAt` older than the status's `lastSyncAt`) catches
-    the same body across a relaunch, when there is no phase change left to see. The hub keeps its
-    own 60 s copy of the summary, which a sync landing on lb-bot does not flush, so a re-read can
-    be handed the body it meant to replace: one more read follows 65 s later when it was.
+    the same body across a relaunch, when there is no phase change left to see. A current hub
+    passes the summary straight through, so that re-read is lb-bot's own answer. An **older**
+    hub kept its own 60 s copy, which a sync landing on lb-bot did not flush, and could hand the
+    re-read the body it meant to replace: the one more read 65 s later is the fallback for that
+    hub only, and is not reached against a current one.
   - **Nothing is not an answer.** A summary with no `period` (`isAnswer`) is never stored or
     painted — `{}` decodes to zeros, and zeros read as an empty history — and a status with no
     `state` reads as unreachable. No cached summary and none from the network is a failure line
@@ -521,16 +533,26 @@ still advancing the speaker's queue. It logs one line when it fires.
   - **Rows link out and never download.** `albumTarget` / `artistTarget` take the ids Room holds:
     lb-bot's `ndAlbumId` / `ndArtistId` are authoritative but an id is not a page that exists
     (above). What the library holds opens its page; what it does not opens `Screen.ExternalAlbum` /
-    `Screen.ExternalArtist`, where the reviewed acquire flow already lives. A recent-plays row's
+    `Screen.ExternalArtist`, where the reviewed acquire flow already lives. **`owned` is "the
+    library holds it"** — lb-bot's index, or Navidrome's own album list — wider than Fresh's
+    `releaseOwned`, and it can come with no `ndAlbumId` (a filled album still syncing): an owned
+    top album with no page here is plain text, never a link to the acquire page. A recent-plays row's
     lazy-list key carries its index (`recentPlayKey`): two identical scrobbles are two rows, and a
     duplicate key is a crash.
   - **Fresh's "Artists you play"** is the rows with `artistPlays > 0`, most played first
-    (`freshScoped`). `artistPlays` is **nullable**: an lb-bot that predates the rider sends no
-    field, which is not 0, and the chip is then not offered (`freshPlaysKnown`); a stored choice
-    of that scope falls back to "Your artists" without being overwritten. The sort chips are
-    hidden in that scope, since its order is its own.
-  - `listeningSync()` (`POST /lb/listening/sync`) has no caller yet; the "Sync now" of the lb-bot
-    data panel is its consumer. A 405 from it is an lb-bot that predates the route.
+    (`freshScoped`). **The chip is offered only when some row has plays**
+    (`freshPlayedOffered`). A current lb-bot always sends `artistPlays`, and sends 0 on every
+    row while its listens mirror is off or importing; an older one sends no field. Neither is
+    "none of the artists you play released anything", so an empty scope is never offered. A
+    stored choice of that scope falls back to "Your artists" without being overwritten. The sort
+    chips are hidden in that scope, since its order is its own.
+  - **A list that could not be read says why** (`listeningListFailure`): lb-bot's own sentence
+    for a 503 or a 400, the "older lb-bot" line with no Retry for a 404, and the generic line
+    only when nothing was said. The first page of recent plays runs under its own job, not as
+    the load's child: the list does not depend on the period, and a period change that
+    cancelled the load used to cancel it halfway and leave its spinner on.
+  - `listeningSync()` (`POST /lb/listening/sync`) is called by the "Sync now" of the lb-bot data
+    panel, and by nothing else. A 405 from it is an lb-bot that predates the route.
 - **The data-management surfaces say only what something said (I-020).** Three surfaces, one
   rule: a sentence is a claim about lb-bot, and it is only made from a fact lb-bot, the hub or
   Room actually reported. The sentences are pure functions in `LbBotData.kt`.
@@ -552,7 +574,10 @@ still advancing the speaker's queue. It logs one line when it fires.
     The section reads when it appears and again whenever the layer under it changes
     (`LaunchedEffect(routeSignature, hubSaysNoLbBot)`), **not from the view model's `init`**: the
     hub is set up on that very screen, and a view model created before that read nothing and
-    then sat on "Asking lb-bot…" with nothing asking. With no layer at all it says which half is
+    then sat on "Asking lb-bot…" with nothing asking. "Save & reconnect" is a third key
+    (`saves`): the settings are plain preferences, so a save changes no Compose state, and with
+    the hub out of reach nothing else on the screen moved — the section went on saying "Set the
+    hub up above" for a hub just set up. With no layer at all it says which half is
     missing (`lbLayerLine`): no hub, or a hub that is set up and says it has no lb-bot.
   - **"Sync now" reports what happened, not what a timeout suggests.** The mirror's line is
     `LbIndexSync.lastRun`: running, done on which cursor and how many artists changed, skipped
@@ -560,7 +585,8 @@ still advancing the speaker's queue. It logs one line when it fires.
     reads it, and syncing, retrying and backing off are exactly as they were; the notes are
     assignments beside the returns they describe, **with no suspension point of their own**
     (the cursor is the last applied page's `newCursor`, not a read after the pass). "Up to
-    date" is only said of a pull that finished and changed nothing.
+    date" is only said of a pull that finished and changed nothing — and artists a drift
+    repair deleted count as a change, though no page mentioned them.
     **The last run is a verdict on an earlier pull, so after a tap it is not shown as the
     tap's answer.** The panel notes `LbIndexRun.serial` at the tap; until a pass newer than
     that has started the line says the pull has been asked for, and after a few seconds with
@@ -580,11 +606,19 @@ still advancing the speaker's queue. It logs one line when it fires.
     set and a remove are worded apart: a remove that failed is "Not removed", not "Not saved".
   - **"Refresh About"** (the artist and album sheets) is `refreshArtistMeta` / `refreshAlbumMeta`:
     one request with `refresh=1`, which lb-bot and the hub both step past their cached copy for.
-    Only an About replaces what is shown and what is cached — `{"found": false}` is one (lb-bot
-    looked and nothing is written), `{}` is not (`aboutBodyOrNull` checks the key before
-    decoding, because the two decode alike). "Could not reach lb-bot", "lb-bot answered an
-    error" and "lb-bot returned nothing" are three sentences, and each leaves the About alone.
-    It is deliberately not `cachedGet` with `REFRESH`, which can say none of that.
+    **A refresh never destroys a good About** (`aboutRefreshOutcome`, weighed against what the
+    page shows). Only an answer with content (`found`) replaces what is shown, and only such
+    an answer is stored (`aboutRefreshStored`) — a sparse `found: false`, written under the
+    ordinary key, replaced a good About for the cache's whole month, and lb-bot has answered
+    `found: false` for a MusicBrainz or Wikipedia blip as readily as for "nothing written".
+    Over an About with content, `found: false` says "lb-bot found nothing this time. What is
+    shown is unchanged."; with nothing on screen it is shown as "nothing written". An answer
+    equal to what is shown says so, not "refreshed". A failure says which it was and leaves
+    the About alone: "could not reach lb-bot" (the hub's own 502 / 504 included), an error
+    with its status and lb-bot's text (a 502 `retryable` is lb-bot's, kept by
+    `metaRefreshError` where the general mapping drops it), or "returned nothing" for a 200
+    that is not an About (`aboutBodyOrNull`). It is deliberately not `cachedGet` with
+    `REFRESH`, which can say none of that.
   - **The pending-actions browser** (`Screen.Settings.PendingActions`, opened from Data &
     Storage's row) is `SyncActionDao.observePendingActions()`: each queued action in words, its
     item's title out of Room or else its id, and when it was queued. A per-row remove and
