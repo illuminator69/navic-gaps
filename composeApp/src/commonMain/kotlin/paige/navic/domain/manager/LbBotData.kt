@@ -413,9 +413,11 @@ private val aboutJson = Json {
  * A `/lb/meta/…` body as an About, or null when it is not one.
  *
  * lb-bot always says `found`, true or false. A body without it — `{}`, an array, a page of HTML
- * — is not an About, and must not be mistaken for the valid sparse answer `{"found": false}`,
- * which IS content: lb-bot looked, and nobody has written about this. The two decode to the same
- * object, which is why the key is checked before decoding.
+ * — is not an About, and must not be mistaken for the valid sparse answer `{"found": false}`:
+ * lb-bot answered, and has no text. The two are different facts and are said differently
+ * ("returned nothing" / "found nothing"), but they decode to the same object, which is why the
+ * key is checked before decoding. Neither replaces an About that has content
+ * ([aboutRefreshOutcome]).
  */
 internal fun aboutBodyOrNull(raw: String): LbMeta? = try {
 	val body = aboutJson.parseToJsonElement(raw) as? JsonObject
@@ -425,10 +427,10 @@ internal fun aboutBodyOrNull(raw: String): LbMeta? = try {
 	null
 }
 
-/** What a "Refresh About" did. Only [Replaced] changes what is shown, or what is cached. */
+/** What the refresh request itself came to, before it is weighed against what the page shows. */
 sealed interface LbMetaRefresh {
-	/** lb-bot answered with an About — a sparse one (`found: false`) included. */
-	data class Replaced(val meta: LbMeta) : LbMetaRefresh
+	/** lb-bot answered with an About — possibly a sparse one (`found: false`). */
+	data class Answered(val meta: LbMeta) : LbMetaRefresh
 
 	/** A 200 that is not an About. */
 	data object Nothing : LbMetaRefresh
@@ -436,30 +438,118 @@ sealed interface LbMetaRefresh {
 	/** lb-bot (or the hub in front of it) could not be reached. */
 	data object Unreachable : LbMetaRefresh
 
-	/** lb-bot answered an error. */
-	data class Refused(val status: Int) : LbMetaRefresh
+	/** lb-bot answered an error: its status, and its own sentence when it sent one. */
+	data class Refused(val status: Int, val text: String = "") : LbMetaRefresh
+}
+
+/**
+ * How a non-2xx answer to a refresh reads, from its status and lb-bot's `error` / `retryable`.
+ *
+ * The general mapping (`LbBotManager.failureFor`) reads every 502 as "busy" and drops its text,
+ * which is wrong here: lb-bot answers **502 with `retryable`** when a leg of the refresh
+ * (MusicBrainz, Wikipedia) did not answer — it has kept its stored About and says which leg, and
+ * that sentence is the one to show. The hub's own 502 / 504 (lb-bot unreachable, or timed out)
+ * carry no such flag and are "could not reach lb-bot". Every other status keeps lb-bot's text.
+ */
+internal fun metaRefreshError(
+	status: Int,
+	message: String,
+	retryable: Boolean
+): LbBotManager.LbError = when {
+	(status == 502 || status == 504) && !retryable -> LbBotManager.LbError.Busy
+	else -> LbBotManager.LbError.Rejected(status, message)
 }
 
 /** The request's result as a [LbMetaRefresh]; `text` is the body of a 2xx. */
 internal fun metaRefreshOf(result: LbBotManager.LbResult<String>): LbMetaRefresh = when (result) {
 	is LbBotManager.LbResult.Ok ->
-		aboutBodyOrNull(result.value)?.let { LbMetaRefresh.Replaced(it) } ?: LbMetaRefresh.Nothing
+		aboutBodyOrNull(result.value)?.let { LbMetaRefresh.Answered(it) } ?: LbMetaRefresh.Nothing
 	is LbBotManager.LbResult.Failed -> when (val error = result.error) {
 		LbBotManager.LbError.NotConfigured,
 		LbBotManager.LbError.Busy,
 		is LbBotManager.LbError.Unreachable -> LbMetaRefresh.Unreachable
 		LbBotManager.LbError.RouteUnknown -> LbMetaRefresh.Refused(404)
-		is LbBotManager.LbError.Rejected -> LbMetaRefresh.Refused(error.status)
+		is LbBotManager.LbError.Rejected -> LbMetaRefresh.Refused(error.status, error.message)
 	}
+}
+
+/**
+ * Whether the answer is stored as the page's About for next time: only one with content.
+ *
+ * A sparse `found: false` is never stored. Under the ordinary cache key it replaced a good About
+ * for the cache's whole month — and lb-bot has answered `found: false` for a MusicBrainz or
+ * Wikipedia blip as readily as for a true "nothing written".
+ */
+internal fun aboutRefreshStored(refresh: LbMetaRefresh): Boolean =
+	refresh is LbMetaRefresh.Answered && refresh.meta.found
+
+/** What a "Refresh About" came to, weighed against the About the page shows. */
+sealed interface AboutRefreshOutcome {
+	/** An answer with content that differs from what is shown: it replaces it. */
+	data class Updated(val meta: LbMeta) : AboutRefreshOutcome
+
+	/** An answer with content, identical to what is shown. */
+	data object Same : AboutRefreshOutcome
+
+	/** `found: false` while an About with content is shown. What is shown stays. */
+	data object NothingThisTime : AboutRefreshOutcome
+
+	/** `found: false` with no About content on screen: shown as what it is. Never stored. */
+	data class NothingWritten(val meta: LbMeta) : AboutRefreshOutcome
+
+	/** A 200 that is not an About. */
+	data object Nothing : AboutRefreshOutcome
+
+	data object Unreachable : AboutRefreshOutcome
+
+	/** lb-bot answered an error; [text] is its own sentence, blank when it sent none. */
+	data class Refused(val status: Int, val text: String) : AboutRefreshOutcome
+}
+
+/**
+ * [shown] is the About on the page as the answer arrives (null: none).
+ *
+ * **A refresh never destroys a good About.** "Content" is lb-bot's own `found` — a summary or a
+ * Wikidata description. Only an answer with content replaces what is shown; `found: false` over
+ * an About that has content changes nothing and is said as "nothing this time", because that is
+ * all that is known. With no content on screen the sparse answer may stand (it can still carry
+ * links or credits) and is said as "nothing written". An answer equal to what is shown is not
+ * "refreshed".
+ */
+internal fun aboutRefreshOutcome(shown: LbMeta?, refresh: LbMetaRefresh): AboutRefreshOutcome =
+	when (refresh) {
+		is LbMetaRefresh.Answered -> when {
+			!refresh.meta.found ->
+				if (shown?.found == true) AboutRefreshOutcome.NothingThisTime
+				else AboutRefreshOutcome.NothingWritten(refresh.meta)
+			refresh.meta == shown -> AboutRefreshOutcome.Same
+			else -> AboutRefreshOutcome.Updated(refresh.meta)
+		}
+		LbMetaRefresh.Nothing -> AboutRefreshOutcome.Nothing
+		LbMetaRefresh.Unreachable -> AboutRefreshOutcome.Unreachable
+		is LbMetaRefresh.Refused -> AboutRefreshOutcome.Refused(refresh.status, refresh.text)
+	}
+
+/** The About the page shows after a refresh: only two outcomes change it. */
+internal fun aboutAfterRefresh(shown: LbMeta?, outcome: AboutRefreshOutcome): LbMeta? = when (outcome) {
+	is AboutRefreshOutcome.Updated -> outcome.meta
+	is AboutRefreshOutcome.NothingWritten -> outcome.meta
+	else -> shown
 }
 
 /** Which sentence a refresh ends in. The sentences themselves are string resources. */
 enum class AboutRefreshNotice {
-	/** There is a new About on screen. */
+	/** "About refreshed." — said only of an answer with content that changed what is shown. */
 	UPDATED,
 
-	/** lb-bot looked again and found nothing written; the About on screen is gone. */
-	UPDATED_EMPTY,
+	/** "lb-bot's answer is the same as what is shown." */
+	SAME,
+
+	/** "lb-bot found nothing this time. What is shown is unchanged." */
+	NOTHING_THIS_TIME,
+
+	/** "lb-bot found nothing written about this." */
+	NOTHING_WRITTEN,
 
 	/** "lb-bot returned nothing. What is shown is unchanged." */
 	NOTHING,
@@ -467,16 +557,34 @@ enum class AboutRefreshNotice {
 	/** "Couldn't reach lb-bot. What is shown is unchanged." */
 	UNREACHABLE,
 
-	/** "lb-bot answered an error (N). What is shown is unchanged." */
-	ERROR
+	/** "lb-bot answered an error (N). What is shown is unchanged." — its status, no text sent. */
+	ERROR,
+
+	/** "lb-bot answered an error (N): <lb-bot's text>. What is shown is unchanged." */
+	ERROR_SAID
 }
 
-internal fun aboutRefreshNotice(outcome: LbMetaRefresh): AboutRefreshNotice = when (outcome) {
-	is LbMetaRefresh.Replaced ->
-		if (outcome.meta.found) AboutRefreshNotice.UPDATED else AboutRefreshNotice.UPDATED_EMPTY
-	LbMetaRefresh.Nothing -> AboutRefreshNotice.NOTHING
-	LbMetaRefresh.Unreachable -> AboutRefreshNotice.UNREACHABLE
-	is LbMetaRefresh.Refused -> AboutRefreshNotice.ERROR
+internal fun aboutRefreshNotice(outcome: AboutRefreshOutcome): AboutRefreshNotice = when (outcome) {
+	is AboutRefreshOutcome.Updated -> AboutRefreshNotice.UPDATED
+	AboutRefreshOutcome.Same -> AboutRefreshNotice.SAME
+	AboutRefreshOutcome.NothingThisTime -> AboutRefreshNotice.NOTHING_THIS_TIME
+	is AboutRefreshOutcome.NothingWritten -> AboutRefreshNotice.NOTHING_WRITTEN
+	AboutRefreshOutcome.Nothing -> AboutRefreshNotice.NOTHING
+	AboutRefreshOutcome.Unreachable -> AboutRefreshNotice.UNREACHABLE
+	is AboutRefreshOutcome.Refused ->
+		if (outcome.text.isBlank()) AboutRefreshNotice.ERROR else AboutRefreshNotice.ERROR_SAID
+}
+
+/**
+ * The arguments of [aboutRefreshNotice]'s sentence: an error's status, then lb-bot's text when it
+ * sent one — without its own full stop, which the sentence adds.
+ */
+internal fun aboutRefreshArgs(outcome: AboutRefreshOutcome): List<Any> = when (outcome) {
+	is AboutRefreshOutcome.Refused -> {
+		val text = outcome.text.trim().trimEnd('.')
+		if (text.isBlank()) listOf(outcome.status) else listOf(outcome.status, text)
+	}
+	else -> emptyList()
 }
 
 // ----- pending actions ----------------------------------------------------------------------------

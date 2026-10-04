@@ -624,8 +624,8 @@ class LbBotDataTest {
 	}
 
 	@Test
-	fun aSparseAnswerIsContent() {
-		// lb-bot looked and nobody has written about this. That is an answer, and it replaces.
+	fun aSparseAnswerIsAnAboutButNotContent() {
+		// `found: false` is a well-formed About — lb-bot answered — and it carries no text.
 		val sparse = aboutBodyOrNull("""{"found":false,"summary":"","paragraphs":[],"links":[]}""")
 		assertEquals(LbMeta(found = false), sparse)
 		assertEquals(LbMeta(found = false), aboutBodyOrNull("""{"found":false}"""))
@@ -634,39 +634,126 @@ class LbBotDataTest {
 		assertEquals("An English rock band.", full?.summary)
 	}
 
-	@Test
-	fun onlyAnAboutReplacesWhatIsShown() {
-		assertEquals(
-			LbMetaRefresh.Replaced(LbMeta(found = true, summary = "x")),
-			metaRefreshOf(ok("""{"found":true,"summary":"x"}"""))
-		)
-		assertEquals(LbMetaRefresh.Replaced(LbMeta(found = false)), metaRefreshOf(ok("""{"found":false}""")))
-		assertEquals(LbMetaRefresh.Nothing, metaRefreshOf(ok("{}")))
-		assertEquals(LbMetaRefresh.Nothing, metaRefreshOf(ok("not json")))
-	}
+	private val about = LbMeta(found = true, summary = "An English rock band.", paragraphs = listOf("An English rock band."))
+	private val newer = about.copy(summary = "An English rock band formed in 1985.")
+	private val sparse = LbMeta(found = false)
 
 	@Test
-	fun notReachingLbBotAndLbBotAnsweringAnErrorAreDifferentFailures() {
+	fun whatTheRequestCameTo() {
+		assertEquals(LbMetaRefresh.Answered(LbMeta(found = true, summary = "x")), metaRefreshOf(ok("""{"found":true,"summary":"x"}""")))
+		assertEquals(LbMetaRefresh.Answered(sparse), metaRefreshOf(ok("""{"found":false}""")))
+		assertEquals(LbMetaRefresh.Nothing, metaRefreshOf(ok("{}")))
+		assertEquals(LbMetaRefresh.Nothing, metaRefreshOf(ok("not json")))
 		assertEquals(LbMetaRefresh.Unreachable, metaRefreshOf(failed(unreachable)))
 		assertEquals(LbMetaRefresh.Unreachable, metaRefreshOf(failed(LbBotManager.LbError.Busy)))
 		assertEquals(LbMetaRefresh.Unreachable, metaRefreshOf(failed(LbBotManager.LbError.NotConfigured)))
-		assertEquals(LbMetaRefresh.Refused(500), metaRefreshOf(failed(LbBotManager.LbError.Rejected(500, "boom"))))
 		assertEquals(LbMetaRefresh.Refused(404), metaRefreshOf(failed(LbBotManager.LbError.RouteUnknown)))
 	}
 
 	@Test
-	fun everyRefreshOutcomeEndsInItsOwnSentence() {
+	fun anErrorAnswerKeepsItsStatusAndLbBotsText() {
 		assertEquals(
-			AboutRefreshNotice.UPDATED,
-			aboutRefreshNotice(LbMetaRefresh.Replaced(LbMeta(found = true, summary = "x")))
+			LbMetaRefresh.Refused(500, "boom"),
+			metaRefreshOf(failed(LbBotManager.LbError.Rejected(500, "boom")))
 		)
 		assertEquals(
-			AboutRefreshNotice.UPDATED_EMPTY,
-			aboutRefreshNotice(LbMetaRefresh.Replaced(LbMeta(found = false)))
+			LbMetaRefresh.Refused(503, ""),
+			metaRefreshOf(failed(LbBotManager.LbError.Rejected(503, "")))
 		)
-		assertEquals(AboutRefreshNotice.NOTHING, aboutRefreshNotice(LbMetaRefresh.Nothing))
-		assertEquals(AboutRefreshNotice.UNREACHABLE, aboutRefreshNotice(LbMetaRefresh.Unreachable))
-		assertEquals(AboutRefreshNotice.ERROR, aboutRefreshNotice(LbMetaRefresh.Refused(500)))
+	}
+
+	@Test
+	fun aRetryable502IsLbBotsOwnAnswerAndTheHubsOwn502IsNotReachingIt() {
+		// lb-bot: a leg of the refresh did not answer; it kept its stored About and says so.
+		assertEquals(
+			LbBotManager.LbError.Rejected(502, "MusicBrainz did not answer."),
+			metaRefreshError(502, "MusicBrainz did not answer.", retryable = true)
+		)
+		// The hub: lb-bot is unreachable (502) or timed out (504). No such flag.
+		assertEquals(LbBotManager.LbError.Busy, metaRefreshError(502, "lb-bot unreachable", retryable = false))
+		assertEquals(LbBotManager.LbError.Busy, metaRefreshError(504, "lb-bot timed out", retryable = false))
+		assertEquals(LbBotManager.LbError.Rejected(400, "rgid is required"), metaRefreshError(400, "rgid is required", false))
+		assertEquals(LbBotManager.LbError.Rejected(404, ""), metaRefreshError(404, "", false))
+	}
+
+	@Test
+	fun onlyAnAnswerWithContentReplacesWhatIsShown() {
+		assertEquals(AboutRefreshOutcome.Updated(newer), aboutRefreshOutcome(about, LbMetaRefresh.Answered(newer)))
+		assertEquals(newer, aboutAfterRefresh(about, AboutRefreshOutcome.Updated(newer)))
+		// Nothing was shown, and now there is an About.
+		assertEquals(AboutRefreshOutcome.Updated(about), aboutRefreshOutcome(null, LbMetaRefresh.Answered(about)))
+		assertEquals(AboutRefreshOutcome.Updated(about), aboutRefreshOutcome(sparse, LbMetaRefresh.Answered(about)))
+	}
+
+	@Test
+	fun foundFalseNeverWipesAnAboutThatHasContent() {
+		// lb-bot answers `found: false` for a MusicBrainz or Wikipedia blip as readily as for a
+		// true "nothing written". The About on screen stays, and the sentence says what is known.
+		val outcome = aboutRefreshOutcome(about, LbMetaRefresh.Answered(sparse))
+		assertEquals(AboutRefreshOutcome.NothingThisTime, outcome)
+		assertEquals(about, aboutAfterRefresh(about, outcome))
+		assertEquals(AboutRefreshNotice.NOTHING_THIS_TIME, aboutRefreshNotice(outcome))
+	}
+
+	@Test
+	fun foundFalseWithNothingShownIsSaidAsNothingWritten() {
+		assertEquals(AboutRefreshOutcome.NothingWritten(sparse), aboutRefreshOutcome(null, LbMetaRefresh.Answered(sparse)))
+		// What was shown had no content either: the sparse answer may stand in for it.
+		val linksOnly = LbMeta(found = false, links = listOf(LbMetaLink(type = "official homepage", url = "https://example.org")))
+		assertEquals(
+			AboutRefreshOutcome.NothingWritten(linksOnly),
+			aboutRefreshOutcome(sparse, LbMetaRefresh.Answered(linksOnly))
+		)
+		assertEquals(linksOnly, aboutAfterRefresh(sparse, AboutRefreshOutcome.NothingWritten(linksOnly)))
+		assertEquals(AboutRefreshNotice.NOTHING_WRITTEN, aboutRefreshNotice(AboutRefreshOutcome.NothingWritten(sparse)))
+	}
+
+	@Test
+	fun aSparseAnswerIsNeverStoredAndAnAboutWithContentIs() {
+		// Stored under the ordinary key, a sparse body replaced a good About for a month.
+		assertFalse(aboutRefreshStored(LbMetaRefresh.Answered(sparse)))
+		assertTrue(aboutRefreshStored(LbMetaRefresh.Answered(about)))
+		assertFalse(aboutRefreshStored(LbMetaRefresh.Nothing))
+		assertFalse(aboutRefreshStored(LbMetaRefresh.Unreachable))
+		assertFalse(aboutRefreshStored(LbMetaRefresh.Refused(502, "MusicBrainz did not answer")))
+	}
+
+	@Test
+	fun anAnswerIdenticalToWhatIsShownSaysSo() {
+		val outcome = aboutRefreshOutcome(about, LbMetaRefresh.Answered(about.copy()))
+		assertEquals(AboutRefreshOutcome.Same, outcome)
+		assertEquals(about, aboutAfterRefresh(about, outcome))
+		assertEquals(AboutRefreshNotice.SAME, aboutRefreshNotice(outcome))
+		// "Refreshed" is said only of an answer with content that changed something.
+		assertEquals(AboutRefreshNotice.UPDATED, aboutRefreshNotice(aboutRefreshOutcome(about, LbMetaRefresh.Answered(newer))))
+	}
+
+	@Test
+	fun aFailureLeavesWhatIsShownAndSaysWhichItWas() {
+		listOf(
+			LbMetaRefresh.Nothing to AboutRefreshNotice.NOTHING,
+			LbMetaRefresh.Unreachable to AboutRefreshNotice.UNREACHABLE,
+			LbMetaRefresh.Refused(503) to AboutRefreshNotice.ERROR,
+			LbMetaRefresh.Refused(502, "MusicBrainz did not answer.") to AboutRefreshNotice.ERROR_SAID
+		).forEach { (refresh, notice) ->
+			val outcome = aboutRefreshOutcome(about, refresh)
+			assertEquals(about, aboutAfterRefresh(about, outcome))
+			assertNull(aboutAfterRefresh(null, outcome))
+			assertEquals(notice, aboutRefreshNotice(outcome))
+		}
+	}
+
+	@Test
+	fun anErrorsSentenceCarriesItsStatusAndLbBotsText() {
+		// "lb-bot answered an error (502): MusicBrainz did not answer. What is shown is unchanged."
+		assertEquals(
+			listOf<Any>(502, "MusicBrainz did not answer"),
+			aboutRefreshArgs(AboutRefreshOutcome.Refused(502, "MusicBrainz did not answer."))
+		)
+		// "lb-bot answered an error (503). What is shown is unchanged."
+		assertEquals(listOf<Any>(503), aboutRefreshArgs(AboutRefreshOutcome.Refused(503, " ")))
+		assertEquals(emptyList(), aboutRefreshArgs(AboutRefreshOutcome.Same))
+		assertEquals(emptyList(), aboutRefreshArgs(AboutRefreshOutcome.Updated(about)))
 	}
 
 	// --- pending actions -------------------------------------------------------------------

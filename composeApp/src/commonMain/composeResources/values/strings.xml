@@ -1001,8 +1001,11 @@
 	<string name="action_remove_pending_action">Remove from the queue</string>
 	<string name="action_refresh_about">Refresh About</string>
 	<string name="notice_about_refreshed">About refreshed.</string>
-	<string name="notice_about_refreshed_empty">Refreshed. lb-bot found nothing written about this.</string>
+	<string name="notice_about_same">lb-bot's answer is the same as what is shown.</string>
+	<string name="notice_about_nothing_this_time">lb-bot found nothing this time. What is shown is unchanged.</string>
+	<string name="notice_about_nothing_written">lb-bot found nothing written about this.</string>
 	<string name="notice_about_nothing">lb-bot returned nothing. What is shown is unchanged.</string>
 	<string name="notice_about_unreachable">Couldn't reach lb-bot. What is shown is unchanged.</string>
-	<string name="notice_about_error">lb-bot answered an error. What is shown is unchanged.</string>
+	<string name="notice_about_error">lb-bot answered an error (%1$d). What is shown is unchanged.</string>
+	<string name="notice_about_error_said">lb-bot answered an error (%1$d): %2$s. What is shown is unchanged.</string>
 </resources>

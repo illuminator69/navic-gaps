@@ -332,7 +332,10 @@ class LbBotManager(
 		)
 	}
 
-	/** An override write's refusal: lb-bot's sentence, with the `code` and `retryable` beside it. */
+	/**
+	 * A refusal in lb-bot's own shape: its sentence, with the `code` and `retryable` beside it.
+	 * An override write's, and a "Refresh About"'s (which carries no `code`).
+	 */
 	@Serializable
 	private data class LbOverrideRefusal(
 		val error: String = "",
@@ -349,6 +352,17 @@ class LbBotManager(
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
 		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
+	}
+
+	/** [failureFor] for "Refresh About": lb-bot's own sentence is kept; see [metaRefreshError]. */
+	private fun metaFailureFor(status: Int, path: String, raw: String): LbResult.Failed {
+		val body = try {
+			json.decodeFromString<LbOverrideRefusal>(raw)
+		} catch (e: Exception) {
+			LbOverrideRefusal()
+		}
+		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		return LbResult.Failed(metaRefreshError(status, body.error, body.retryable))
 	}
 
 	/**
@@ -416,7 +430,11 @@ class LbBotManager(
 	}
 
 	/** [getJson] for [cachedGet]: the body as text, because the text is what gets stored. */
-	private suspend fun getText(path: String, params: List<Pair<String, String>>): LbResult<String> {
+	private suspend fun getText(
+		path: String,
+		params: List<Pair<String, String>>,
+		failure: (status: Int, path: String, raw: String) -> LbResult.Failed = ::failureFor
+	): LbResult<String> {
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.get(base + path) {
@@ -425,7 +443,7 @@ class LbBotManager(
 			}
 			val text = response.bodyAsText()
 			if (response.status.isSuccess()) LbResult.Ok(text)
-			else failureFor(response.status.value, "GET $path", text)
+			else failure(response.status.value, "GET $path", text)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
@@ -1045,10 +1063,10 @@ class LbBotManager(
 
 	/**
 	 * "Refresh About" for an artist (I-020): ask lb-bot to look the About up again and say what
-	 * came of it. Not [artistMeta] with [LbCachePolicy.REFRESH], for two reasons that are the
-	 * whole point of the button: `cachedGet` cannot tell "could not reach lb-bot" from "lb-bot
-	 * answered an error" from "lb-bot answered nothing", and it never lets a sparse answer
-	 * replace a body — where a refresh that finds nothing written must be able to say so.
+	 * came of it. Not [artistMeta] with [LbCachePolicy.REFRESH]: `cachedGet` cannot tell "could
+	 * not reach lb-bot" from "lb-bot answered an error" from "lb-bot answered nothing", and a
+	 * refresh has to say which. What the answer does to the page is the caller's to decide
+	 * against what it shows (`aboutRefreshOutcome`).
 	 *
 	 * `refresh=1` is what makes it a refresh at all: lb-bot keeps an About for a month and the
 	 * hub keeps its own copy for hours, and both step past theirs for that parameter.
@@ -1075,15 +1093,19 @@ class LbBotManager(
 
 	/**
 	 * [params] are the ordinary read's, so an About that comes back is stored under the key that
-	 * read uses and is what the page paints next time — a sparse `found: false` included, which
-	 * `cachedGet` itself never stores. Anything that is not an About ([aboutBodyOrNull]) and every
-	 * failure leaves the cached body, and what is on screen, exactly as it was.
+	 * read uses and is what the page paints next time.
+	 *
+	 * **Only an About with content is stored** (`aboutRefreshStored`), as `cachedGet` itself only
+	 * keeps one. A sparse `found: false` is never written: stored under the ordinary key it
+	 * replaced a good About for the cache's whole month, and lb-bot has answered `found: false`
+	 * for a MusicBrainz or Wikipedia blip as readily as for a true "nothing written". Anything
+	 * that is not an About, and every failure, leaves the cached body exactly as it was.
 	 */
 	private suspend fun refreshMeta(route: String, params: List<Pair<String, String>>): LbMetaRefresh {
 		val startedAt = nowMs()
-		val result = getText(route, params + ("refresh" to "1"))
+		val result = getText(route, params + ("refresh" to "1"), ::metaFailureFor)
 		val outcome = metaRefreshOf(result)
-		if (outcome is LbMetaRefresh.Replaced && result is LbResult.Ok) {
+		if (aboutRefreshStored(outcome) && result is LbResult.Ok) {
 			try {
 				responseCache.putCachedResponse(
 					LbResponseCacheEntity(

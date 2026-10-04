@@ -23,9 +23,12 @@ import navic.composeapp.generated.resources.error_lbbot_not_configured
 import navic.composeapp.generated.resources.error_lbbot_rejected
 import navic.composeapp.generated.resources.error_lbbot_unreachable
 import navic.composeapp.generated.resources.notice_about_error
+import navic.composeapp.generated.resources.notice_about_error_said
 import navic.composeapp.generated.resources.notice_about_nothing
+import navic.composeapp.generated.resources.notice_about_nothing_this_time
+import navic.composeapp.generated.resources.notice_about_nothing_written
 import navic.composeapp.generated.resources.notice_about_refreshed
-import navic.composeapp.generated.resources.notice_about_refreshed_empty
+import navic.composeapp.generated.resources.notice_about_same
 import navic.composeapp.generated.resources.notice_about_unreachable
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -53,16 +56,20 @@ fun lbErrorText(error: LbBotManager.LbError): String = when (error) {
 }
 
 /**
- * The sentence a "Refresh About" ends in. Three of the five say that what is shown did not
- * change, and why — a refresh that failed, or that came back with nothing, never empties the
- * About on screen.
+ * The sentence a "Refresh About" ends in; its arguments are `aboutRefreshArgs`'s. Only
+ * [AboutRefreshNotice.UPDATED] says "refreshed": every other one says what lb-bot answered and
+ * that what is shown did not change — a refresh that failed, or that came back with nothing,
+ * never empties an About that is on screen.
  */
 fun aboutRefreshMessage(notice: AboutRefreshNotice): StringResource = when (notice) {
 	AboutRefreshNotice.UPDATED -> Res.string.notice_about_refreshed
-	AboutRefreshNotice.UPDATED_EMPTY -> Res.string.notice_about_refreshed_empty
+	AboutRefreshNotice.SAME -> Res.string.notice_about_same
+	AboutRefreshNotice.NOTHING_THIS_TIME -> Res.string.notice_about_nothing_this_time
+	AboutRefreshNotice.NOTHING_WRITTEN -> Res.string.notice_about_nothing_written
 	AboutRefreshNotice.NOTHING -> Res.string.notice_about_nothing
 	AboutRefreshNotice.UNREACHABLE -> Res.string.notice_about_unreachable
 	AboutRefreshNotice.ERROR -> Res.string.notice_about_error
+	AboutRefreshNotice.ERROR_SAID -> Res.string.notice_about_error_said
 }
 
 @Composable

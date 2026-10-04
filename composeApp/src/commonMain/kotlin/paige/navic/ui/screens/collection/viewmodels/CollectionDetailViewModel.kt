@@ -27,8 +27,10 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbMeta
-import paige.navic.domain.manager.LbMetaRefresh
+import paige.navic.domain.manager.aboutAfterRefresh
+import paige.navic.domain.manager.aboutRefreshArgs
 import paige.navic.domain.manager.aboutRefreshNotice
+import paige.navic.domain.manager.aboutRefreshOutcome
 import paige.navic.ui.components.sheets.aboutRefreshMessage
 import paige.navic.domain.manager.LbSimilarAlbums
 import paige.navic.domain.manager.SessionManager
@@ -166,19 +168,27 @@ class CollectionDetailViewModel(
 
 	/**
 	 * "Refresh About" (I-020): have lb-bot look the album's About up again, and say what came
-	 * of it. As on the artist page, only an About replaces what is shown — a sparse one
-	 * included — and a refresh that failed or came back with nothing changes nothing and says so.
+	 * of it. As on the artist page (`aboutRefreshOutcome`): only an answer with content replaces
+	 * what is shown, `found: false` leaves an About that has content where it is, an identical
+	 * answer says so, and a failure says which it was and changes nothing.
 	 */
 	fun refreshAbout() {
 		val (rgid, releaseMbid) = aboutKey ?: return
 		viewModelScope.launch {
-			val outcome = lbBotManager.refreshAlbumMeta(rgid, releaseMbid)
-			if (outcome is LbMetaRefresh.Replaced) {
+			val refresh = lbBotManager.refreshAlbumMeta(rgid, releaseMbid)
+			// Against what is shown NOW: an ordinary read may have landed while this was out.
+			val shown = _meta.value
+			val outcome = aboutRefreshOutcome(shown, refresh)
+			val next = aboutAfterRefresh(shown, outcome)
+			if (next != shown) {
 				// An ordinary read still in flight must not land its older answer on top.
 				metaJob?.cancel()
-				_meta.value = outcome.meta
+				_meta.value = next
 			}
-			snackBarManager.notify(aboutRefreshMessage(aboutRefreshNotice(outcome)))
+			snackBarManager.notify(
+				aboutRefreshMessage(aboutRefreshNotice(outcome)),
+				*aboutRefreshArgs(outcome).toTypedArray()
+			)
 		}
 	}
 

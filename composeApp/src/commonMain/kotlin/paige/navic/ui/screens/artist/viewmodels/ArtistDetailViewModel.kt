@@ -55,8 +55,10 @@ import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbLibraryEvent
 import paige.navic.domain.manager.LbMeta
-import paige.navic.domain.manager.LbMetaRefresh
+import paige.navic.domain.manager.aboutAfterRefresh
+import paige.navic.domain.manager.aboutRefreshArgs
 import paige.navic.domain.manager.aboutRefreshNotice
+import paige.navic.domain.manager.aboutRefreshOutcome
 import paige.navic.domain.manager.LbOverrideWrite
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
@@ -564,24 +566,34 @@ class ArtistDetailViewModel(
 	/**
 	 * "Refresh About" (I-020): have lb-bot look the About up again, and say what came of it.
 	 *
-	 * Only an About replaces what is shown — a sparse one included: lb-bot looking again and
-	 * finding nothing written is an answer, and the old text goes. A refresh that could not reach
-	 * lb-bot, that lb-bot answered with an error, or that came back with nothing at all changes
-	 * neither the page nor the cache, and the snackbar says which of the three it was.
+	 * **A refresh never destroys a good About.** Only an answer with content replaces what is
+	 * shown; `found: false` while an About with content is on screen leaves it there and says
+	 * "nothing this time" — lb-bot has answered that for a MusicBrainz or Wikipedia blip as
+	 * readily as for a true "nothing written". With nothing on screen the same answer is shown
+	 * as what it is. An answer identical to what is shown says so rather than "refreshed", and
+	 * a failure says which it was — out of reach, an error with its status and lb-bot's text,
+	 * or nothing at all — and changes nothing (`aboutRefreshOutcome`).
 	 */
 	fun refreshAbout() {
 		val state = (artistState.value as? UiState.Success)?.data ?: return
 		viewModelScope.launch {
-			val outcome = lbBotManager.refreshArtistMeta(
+			val refresh = lbBotManager.refreshArtistMeta(
 				_artistMbid.value.effective.ifBlank { null },
 				state.artist.name
 			)
-			if (outcome is LbMetaRefresh.Replaced) {
+			// Against what is shown NOW: an ordinary read may have landed while this was out.
+			val shown = _meta.value
+			val outcome = aboutRefreshOutcome(shown, refresh)
+			val next = aboutAfterRefresh(shown, outcome)
+			if (next != shown) {
 				// An ordinary read still in flight must not land its older answer on top.
 				metaJob?.cancel()
-				_meta.value = outcome.meta
+				_meta.value = next
 			}
-			snackBarManager.notify(aboutRefreshMessage(aboutRefreshNotice(outcome)))
+			snackBarManager.notify(
+				aboutRefreshMessage(aboutRefreshNotice(outcome)),
+				*aboutRefreshArgs(outcome).toTypedArray()
+			)
 		}
 	}
 
