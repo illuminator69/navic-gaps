@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_choose_musicbrainz_artist
 import navic.composeapp.generated.resources.action_index_artist
 import navic.composeapp.generated.resources.action_rescan_discography
+import navic.composeapp.generated.resources.info_discography_shared
 import navic.composeapp.generated.resources.info_index_needs_mbid
 import navic.composeapp.generated.resources.info_index_scanned_days
 import navic.composeapp.generated.resources.info_index_scanned_today
@@ -175,6 +176,17 @@ private fun IndexAction(
 				text = ui.scanError,
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.error,
+				textAlign = TextAlign.Center,
+				modifier = Modifier.padding(top = 6.dp)
+			)
+		}
+		// The rescan was answered "nothing to scan from here": a fact about whose discography
+		// this is, so a plain line — not the error colour, and no spinner was ever owed.
+		if (ui.scanShared) {
+			Text(
+				stringResource(Res.string.info_discography_shared),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				textAlign = TextAlign.Center,
 				modifier = Modifier.padding(top = 6.dp)
 			)

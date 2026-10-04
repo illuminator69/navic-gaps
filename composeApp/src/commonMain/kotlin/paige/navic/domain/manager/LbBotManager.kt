@@ -880,20 +880,20 @@ class LbBotManager(
 	 * Start the MusicBrainz walk for one artist. Slow (one request a second upstream,
 	 * 10-60s for a real discography) and always an explicit user action.
 	 *
-	 * Returns whether the scan was accepted. The task id it answers with is
-	 * deliberately discarded: polling lb-bot's task API deep-copies its entire review
-	 * state under a process-wide lock, and it is not whitelisted on the hub. Re-read
-	 * the (instant) discography instead and let the section appear when it appears.
+	 * Returns what the request came to ([rescanStart]): a scan to wait on, nothing to wait on
+	 * because another library artist holds this discography, or no scan at all. The task id is
+	 * only ever matched against the discography's own `scan` record, never polled: polling
+	 * lb-bot's task API deep-copies its entire review state under a process-wide lock, and it
+	 * is not whitelisted on the hub. Re-read the (instant) discography instead and let the
+	 * section appear when it appears.
 	 */
-	suspend fun indexArtist(mbid: String, name: String, ndId: String): String? {
-		if (mbid.isBlank() || name.isBlank()) return null
-		val result = postJson<_, LbTaskStarted>(
+	suspend fun indexArtist(mbid: String, name: String, ndId: String): LbRescanStart {
+		if (mbid.isBlank() || name.isBlank()) return LbRescanStart.NotStarted
+		val result = postJson<_, LbRescanAnswer>(
 			"/lb/artist/discography",
 			LbIndexRequest(mbid, name, ndId)
 		)
-		// The id is only ever matched against the discography's own `scan` record, never
-		// polled: lb-bot's task API is not whitelisted (see above).
-		return (result as? LbResult.Ok)?.value?.takeIf { it.ok }?.taskId
+		return rescanStart((result as? LbResult.Ok)?.value)
 	}
 
 	/**
@@ -1362,6 +1362,9 @@ class LbBotManager(
 	/** Refresh triggers, conflated: one read in flight and at most one more waiting behind it. */
 	private val overrideRefreshes = Channel<Unit>(Channel.CONFLATED)
 
+	/** `index` frames asking for a refresh, conflated; see [requestArtistOverridesRefreshSoon]. */
+	private val overrideFrameTicks = Channel<Unit>(Channel.CONFLATED)
+
 	init {
 		scope.launch {
 			restoreArtistOverrides()
@@ -1373,6 +1376,15 @@ class LbBotManager(
 				} catch (e: Exception) {
 					Logger.w("LbBotManager", "artist override refresh failed", e)
 				}
+			}
+		}
+		scope.launch {
+			for (tick in overrideFrameTicks) {
+				delay(OVERRIDE_FRAME_REFRESH_MS)
+				// Every frame that arrived during the wait is answered by the read about to be
+				// asked for; only one that arrives after it opens the next window.
+				overrideFrameTicks.tryReceive()
+				overrideRefreshes.trySend(Unit)
 			}
 		}
 	}
@@ -1424,12 +1436,26 @@ class LbBotManager(
 	}
 
 	/**
-	 * Ask for the map to be re-read. Never blocks; safe from a frame handler. From an `index`
-	 * frame: an override set on another client rescans the artist, and the frame that announces
-	 * the rescan is how this device learns the artist's MBID changed.
+	 * Ask for the map to be re-read now. Never blocks; safe from a frame handler. For a hub
+	 * advert (`welcome`, or lb-bot coming back) — and a write made here re-reads on its own.
 	 */
 	fun requestArtistOverridesRefresh() {
 		overrideRefreshes.trySend(Unit)
+	}
+
+	/**
+	 * Ask for the map to be re-read a few seconds from now, for an `index` frame: an override
+	 * set on another client rescans the artist, and the frame that announces the rescan is how
+	 * this device learns the artist's MBID changed.
+	 *
+	 * Not at once, and not once per frame. During a bulk index build a frame arrives every
+	 * couple of seconds, and each used to re-read the map and rewrite its cache row — an
+	 * upstream read each, since the hub flushes its copy on every index push. The frames inside
+	 * one window collapse into a single trailing read [OVERRIDE_FRAME_REFRESH_MS] after the
+	 * first; a frame after that read opens the next window.
+	 */
+	fun requestArtistOverridesRefreshSoon() {
+		overrideFrameTicks.trySend(Unit)
 	}
 
 	/** Re-read the map from lb-bot now. False when nothing came back; the map is then unchanged. */
@@ -1479,7 +1505,9 @@ class LbBotManager(
 	 *
 	 * The failure is lb-bot's own sentence wherever it wrote one: `Rejected(400)` a malformed id,
 	 * `Rejected(404)` MusicBrainz has no such artist, `Rejected(409)` a download for this artist
-	 * is running, `Rejected(502)` MusicBrainz was unavailable and nothing was stored.
+	 * is running, `Rejected(502)` MusicBrainz **or Navidrome's artist list** was unavailable and
+	 * nothing was stored (on a remove too) — which is why the text shown is lb-bot's, not a
+	 * sentence naming one cause. A 200 that does not say `ok` stored nothing either.
 	 * [LbError.RouteUnknown] is an lb-bot older than the hub, and hides the surface.
 	 */
 	suspend fun setArtistOverride(ndId: String, mbid: String, name: String): LbResult<LbOverrideWrite> {
@@ -1527,7 +1555,8 @@ class LbBotManager(
 		change: (Map<String, LbArtistOverride>, LbOverrideWrite) -> Map<String, LbArtistOverride>
 	): LbResult<LbOverrideWrite> = scope.async {
 		overridesLock.withLock {
-			val result = post()
+			// A 200 is not the verdict: an answer that does not say `ok` stored nothing.
+			val result = confirmedWrite(post()) { it.ok }
 			when (result) {
 				is LbResult.Ok -> {
 					_artistOverrides.value = change(_artistOverrides.value, result.value)
@@ -1632,17 +1661,20 @@ class LbBotManager(
 	 * Ask lb-bot's worker to pull from ListenBrainz now. It answers at once and never waits on
 	 * ListenBrainz, so the answer says the pull was asked for, not that it landed — read
 	 * [listeningStatus] for that. A 405 is an lb-bot that predates the route (its catch-all is
-	 * GET-only) and reads as [LbError.RouteUnknown], like a 404.
+	 * GET-only) and reads as [LbError.RouteUnknown], like a 404. A 200 that does not say `ok`
+	 * asked for nothing, and is a failure ([confirmedWrite]).
 	 */
 	suspend fun listeningSync(): LbResult<LbListeningSync> =
-		postJson<_, LbListeningSync>(
-			"/lb/listening/sync",
-			// An empty object, not an empty body: the hub answers 400 to a POST it cannot parse.
-			JsonObject(emptyMap()),
-			failure = { status, path, raw ->
-				if (status == 405) LbResult.Failed(LbError.RouteUnknown) else failureFor(status, path, raw)
-			}
-		)
+		confirmedWrite(
+			postJson<_, LbListeningSync>(
+				"/lb/listening/sync",
+				// An empty object, not an empty body: the hub answers 400 to a POST it cannot parse.
+				JsonObject(emptyMap()),
+				failure = { status, path, raw ->
+					if (status == 405) LbResult.Failed(LbError.RouteUnknown) else failureFor(status, path, raw)
+				}
+			)
+		) { it.ok }
 
 	// ----- wishlist ---------------------------------------------------------- //
 
@@ -2985,6 +3017,9 @@ class LbBotManager(
 		/** [cacheKey]'s tag for an ownership-bearing answer. */
 		private const val LIBRARY_KEY_PREFIX = "lib:"
 
+		/** How far out an `index` frame's override refresh is put; the desktop client's figure. */
+		private const val OVERRIDE_FRAME_REFRESH_MS = 3_000L
+
 		// Listening analytics (I-006). The summary route's advert string is the gate.
 		private const val ROUTE_LISTENING_SUMMARY = "GET /lb/listening/summary"
 
@@ -3080,12 +3115,6 @@ data class LbAlbumSources(
 	val album: String = "",
 	val query: String = "",
 	val sources: List<LbGapSource> = emptyList()
-)
-
-@Serializable
-private data class LbTaskStarted(
-	val ok: Boolean = false,
-	@SerialName("task_id") val taskId: String = ""
 )
 
 sealed interface LbScanOutcome {

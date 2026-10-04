@@ -1208,10 +1208,12 @@ class HubManager(
 			// needed for that; the pull answers both authoritatively.
 			// The frame is also proof lb-bot is up, whatever a cached availability says.
 			// An artist MBID override set on another client moves the index too (lb-bot re-keys
-			// the artist and rescans), so the same frame re-reads the override map (I-019).
+			// the artist and rescans), so the same frame re-reads the override map (I-019) —
+			// a few seconds out and once per burst, since a bulk build sends a frame every
+			// couple of seconds and each read is an upstream one.
 			"index" -> {
 				lbIndexSync.requestSync("index frame", lbAlive = true)
-				lbBotManager.requestArtistOverridesRefresh()
+				lbBotManager.requestArtistOverridesRefreshSoon()
 			}
 
 			// The hub's lb-bot verdict CHANGED (ruling R18): `{available, routes}`, the very object

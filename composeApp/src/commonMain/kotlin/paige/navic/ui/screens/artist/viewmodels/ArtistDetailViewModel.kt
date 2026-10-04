@@ -60,6 +60,7 @@ import paige.navic.domain.manager.aboutRefreshArgs
 import paige.navic.domain.manager.aboutRefreshNotice
 import paige.navic.domain.manager.aboutRefreshOutcome
 import paige.navic.domain.manager.LbOverrideWrite
+import paige.navic.domain.manager.LbRescanStart
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.domain.manager.NativeApiManager
@@ -146,6 +147,12 @@ data class DiscographyUi(
 	val stale: Boolean = false,
 	/** Why the last scan this page started failed, in lb-bot's words; blank otherwise. */
 	val scanError: String = "",
+	/**
+	 * The last Rescan was answered "nothing to scan from here": another library artist holds
+	 * this discography (lb-bot's `covered`, with no task to wait on). A fact, not a failure —
+	 * shown as one plain line, never in the error colour and never with a spinner.
+	 */
+	val scanShared: Boolean = false,
 	val sections: List<DiscographySection> = emptyList()
 )
 
@@ -728,7 +735,8 @@ class ArtistDetailViewModel(
 			available = true,
 			indexed = false,
 			indexing = previous.indexing,
-			scanError = previous.scanError
+			scanError = previous.scanError,
+			scanShared = previous.scanShared
 		)
 	} else {
 		DiscographyUi(
@@ -736,6 +744,7 @@ class ArtistDetailViewModel(
 			indexed = true,
 			indexing = previous.indexing,
 			scanError = previous.scanError,
+			scanShared = previous.scanShared,
 			scannedAt = (data.scannedAt * 1000).toLong(),
 			stale = data.stale,
 			sections = sections
@@ -754,20 +763,25 @@ class ArtistDetailViewModel(
 		if (mbid.isBlank()) return
 		scanJob?.cancel()
 		scanJob = viewModelScope.launch {
-			_discography.value = _discography.value.copy(indexing = true, scanError = "")
+			_discography.value =
+				_discography.value.copy(indexing = true, scanError = "", scanShared = false)
 			val scannedAtBefore = scannedAtShown(mbid)
-			val taskId = lbBotManager.indexArtist(mbid, state.artist.name, state.artist.id)
+			val start = lbBotManager.indexArtist(mbid, state.artist.name, state.artist.id)
 			// The manager answers a cancelled request as a failure; a wait that an override
 			// write has just replaced must not report "did not start" over the new one.
 			ensureActive()
-			if (taskId == null) {
-				_discography.value = _discography.value.copy(
+			when (start) {
+				is LbRescanStart.Started -> followScan(mbid, start.taskId, scannedAtBefore)
+				// lb-bot started nothing on purpose: another library artist holds this
+				// discography. There is no task to wait on — following a blank id spun until
+				// the scan timeout — so the spinner ends here and the shelf says why.
+				LbRescanStart.Shared -> _discography.value =
+					_discography.value.copy(indexing = false, scanShared = true)
+				LbRescanStart.NotStarted -> _discography.value = _discography.value.copy(
 					indexing = false,
 					scanError = "lb-bot did not start the scan"
 				)
-				return@launch
 			}
-			followScan(mbid, taskId, scannedAtBefore)
 		}
 	}
 
@@ -899,7 +913,8 @@ class ArtistDetailViewModel(
 		mirrorJob = null
 		// A scan the page was waiting on was for the old id; its answer is not this artist's.
 		scanJob?.cancel()
-		_discography.value = _discography.value.copy(indexing = false, scanError = "")
+		_discography.value =
+			_discography.value.copy(indexing = false, scanError = "", scanShared = false)
 		_meta.value = null
 		viewModelScope.launch {
 			discographyLock.withLock {
@@ -983,7 +998,9 @@ class ArtistDetailViewModel(
 						// started, also when the id did not move (an override equal to the tag).
 						scanJob?.cancel()
 						val mbid = _artistMbid.value.effective
-						_discography.value = _discography.value.copy(indexing = true, scanError = "")
+						_discography.value = _discography.value.copy(
+							indexing = true, scanError = "", scanShared = false
+						)
 						scanJob = viewModelScope.launch {
 							followScan(mbid, taskId, scannedAtBefore)
 						}

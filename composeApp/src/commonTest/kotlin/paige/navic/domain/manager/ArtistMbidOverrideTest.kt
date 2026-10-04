@@ -246,4 +246,81 @@ class ArtistMbidOverrideTest {
 		assertNull(overrideScanToFollow(wire.decodeFromString<LbOverrideWrite>("""{"ok":true}""")))
 		assertNull(overrideScanToFollow(wire.decodeFromString<LbOverrideWrite>("""{"ok":true,"task_id":"  "}""")))
 	}
+
+	// --- the rescan button's request (POST /lb/artist/discography) -------------------------
+
+	@Test
+	fun aRescanLbBotStartedIsFollowed() {
+		// An lb-bot that sends no `covered` answers as it always did, and is followed as before.
+		assertEquals(
+			LbRescanStart.Started("task-9"),
+			rescanStart(wire.decodeFromString<LbRescanAnswer>("""{"ok":true,"task_id":"task-9"}"""))
+		)
+	}
+
+	@Test
+	fun aCoveredRescanIsNothingToWaitOn() {
+		// Another library artist holds this discography: lb-bot starts nothing, on purpose.
+		// Following the blank id spun until the scan timeout.
+		assertEquals(
+			LbRescanStart.Shared,
+			rescanStart(wire.decodeFromString<LbRescanAnswer>("""{"ok":true,"task_id":"","covered":true}"""))
+		)
+	}
+
+	@Test
+	fun aBlankTaskIdIsNeverFollowed() {
+		// No task and no `covered`: nothing to wait on either, and nothing is claimed about why.
+		assertEquals(
+			LbRescanStart.NotStarted,
+			rescanStart(wire.decodeFromString<LbRescanAnswer>("""{"ok":true,"task_id":""}"""))
+		)
+		assertEquals(LbRescanStart.NotStarted, rescanStart(wire.decodeFromString<LbRescanAnswer>("""{"ok":true}""")))
+		assertEquals(
+			LbRescanStart.NotStarted,
+			rescanStart(wire.decodeFromString<LbRescanAnswer>("""{"ok":true,"task_id":"  "}"""))
+		)
+	}
+
+	@Test
+	fun aRescanThatWasRefusedOrFailedDidNotStart() {
+		assertEquals(LbRescanStart.NotStarted, rescanStart(null))
+		assertEquals(LbRescanStart.NotStarted, rescanStart(LbRescanAnswer(ok = false, taskId = "task-9")))
+		// A task lb-bot did start is followed whatever else the answer says.
+		assertEquals(
+			LbRescanStart.Started("task-9"),
+			rescanStart(LbRescanAnswer(ok = true, taskId = "task-9", covered = true))
+		)
+	}
+
+	// --- a write is only done when lb-bot says `ok` ----------------------------------------
+
+	@Test
+	fun aWriteLbBotDidNotConfirmIsAFailure() {
+		val unconfirmed = LbBotManager.LbResult.Failed(LbBotManager.LbError.Rejected(200, "lb-bot did not confirm it"))
+		// `ok: false`, and no `ok` at all (which decodes to false), on a 200.
+		assertEquals(
+			unconfirmed,
+			confirmedWrite(LbBotManager.LbResult.Ok(LbOverrideWrite(ok = false, mbid = pick))) { it.ok }
+		)
+		assertEquals(
+			unconfirmed,
+			confirmedWrite(LbBotManager.LbResult.Ok(wire.decodeFromString<LbOverrideWrite>("""{"mbid":"$pick"}"""))) { it.ok }
+		)
+		assertEquals(
+			unconfirmed,
+			confirmedWrite(LbBotManager.LbResult.Ok(wire.decodeFromString<LbListeningSync>("""{"state":"ready"}"""))) { it.ok }
+		)
+	}
+
+	@Test
+	fun aConfirmedWriteAndAFailedOneAreLeftAsTheyAre() {
+		val done = LbBotManager.LbResult.Ok(LbOverrideWrite(ok = true, mbid = pick, taskId = "task-1"))
+		assertEquals(done, confirmedWrite(done) { it.ok })
+		val asked = LbBotManager.LbResult.Ok(LbListeningSync(ok = true, state = "ready"))
+		assertEquals(asked, confirmedWrite(asked) { it.ok })
+		val refused: LbBotManager.LbResult<LbOverrideWrite> =
+			LbBotManager.LbResult.Failed(LbBotManager.LbError.Rejected(409, "A download for this artist is running"))
+		assertEquals(refused, confirmedWrite(refused) { it.ok })
+	}
 }

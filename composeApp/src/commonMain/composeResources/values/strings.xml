@@ -673,6 +673,7 @@
 	<string name="info_tracks_missing">%1$d missing</string>
 	<string name="info_indexing_artist">Searching MusicBrainz…</string>
 	<string name="info_index_needs_mbid">This artist has no MusicBrainz tag, so lb-bot has nothing to scan</string>
+	<string name="info_discography_shared">This artist shares its discography with another artist in your library, so there is nothing to scan from here.</string>
 	<string name="info_index_scanned_today">Last scanned today</string>
 	<string name="info_hub_needs_restart">Your navi-connect hub doesn't know this feature yet — restart it to pick up its newer lb-bot routes.</string>
 	<string name="info_pending_sync_detail">lb-bot has placed this album. It will appear in your library once Navidrome finishes scanning.</string>

@@ -16,6 +16,7 @@ import kotlinx.coroutines.selects.select
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
+import paige.navic.domain.manager.LbRescanStart
 import paige.navic.domain.manager.LbScanOutcome
 import paige.navic.domain.manager.LbRelease
 import paige.navic.util.Logger
@@ -115,6 +116,7 @@ class ExternalArtistViewModel(
 			indexed = data.indexed,
 			indexing = previous.indexing,
 			scanError = previous.scanError,
+			scanShared = previous.scanShared,
 			scannedAt = (data.scannedAt * 1000).toLong(),
 			stale = data.stale,
 			sections = sections(data.releases)
@@ -129,17 +131,26 @@ class ExternalArtistViewModel(
 	fun indexArtist() {
 		if (artistMbid.isBlank()) return
 		viewModelScope.launch {
-			_discography.value = _discography.value.copy(indexing = true, scanError = "")
+			_discography.value =
+				_discography.value.copy(indexing = true, scanError = "", scanShared = false)
 			val before = shown?.takeIf { it.indexed }?.scannedAt
 				?: lbBotManager.discography("mb:$artistMbid", artistMbid)?.scannedAt
 				?: 0.0
-			val taskId = lbBotManager.indexArtist(artistMbid, _name.value, "mb:$artistMbid")
-			if (taskId == null) {
-				_discography.value = _discography.value.copy(
-					indexing = false,
-					scanError = "lb-bot did not start the scan"
-				)
-				return@launch
+			val taskId = when (val start = lbBotManager.indexArtist(artistMbid, _name.value, "mb:$artistMbid")) {
+				is LbRescanStart.Started -> start.taskId
+				// Nothing to wait on: a library artist holds this discography (as on the owned
+				// artist page). No spinner, and the shelf says so.
+				LbRescanStart.Shared -> {
+					_discography.value = _discography.value.copy(indexing = false, scanShared = true)
+					return@launch
+				}
+				LbRescanStart.NotStarted -> {
+					_discography.value = _discography.value.copy(
+						indexing = false,
+						scanError = "lb-bot did not start the scan"
+					)
+					return@launch
+				}
 			}
 			val outcome = coroutineScope {
 				val viaMirror = async<LbScanOutcome> {

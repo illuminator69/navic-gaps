@@ -73,6 +73,68 @@ internal fun overrideScanToFollow(written: LbOverrideWrite): String? =
 	written.taskId.takeIf { it.isNotBlank() }
 
 /**
+ * What `POST /lb/artist/discography` — the artist page's Rescan — answers. [taskId] is the scan
+ * lb-bot started, "" when it started none; [covered] says why it started none: the artist's
+ * effective MBID is one whose discography another library artist holds, the same check an
+ * override write applies. An lb-bot that predates the field sends no `covered` and always a task.
+ */
+@Serializable
+internal data class LbRescanAnswer(
+	val ok: Boolean = false,
+	@SerialName("task_id") val taskId: String = "",
+	val covered: Boolean = false
+)
+
+/** What a rescan request came to. */
+sealed interface LbRescanStart {
+	/** lb-bot started a scan (or joined the one running): wait on it. */
+	data class Started(val taskId: String) : LbRescanStart
+
+	/**
+	 * lb-bot started nothing on purpose: another library artist holds this discography. There
+	 * is nothing to wait on — no spinner, and one plain line saying so.
+	 */
+	data object Shared : LbRescanStart
+
+	/** The request failed, was refused, or was answered with no task and no reason. */
+	data object NotStarted : LbRescanStart
+}
+
+/**
+ * [answer] is null when the request did not come back as a 200.
+ *
+ * **A blank task id is never followed**, the same rule as [overrideScanToFollow]: waiting on ""
+ * matched no scan record and spun until the scan timeout. It is "shared" only when lb-bot says
+ * `covered` — the sentence that goes with it is a claim about another artist, and a blank id
+ * alone does not make it.
+ */
+internal fun rescanStart(answer: LbRescanAnswer?): LbRescanStart = when {
+	answer == null || !answer.ok -> LbRescanStart.NotStarted
+	answer.taskId.isNotBlank() -> LbRescanStart.Started(answer.taskId)
+	answer.covered -> LbRescanStart.Shared
+	else -> LbRescanStart.NotStarted
+}
+
+/** What an unconfirmed write is said to have failed with, where lb-bot sent no text of its own. */
+const val WRITE_NOT_CONFIRMED = "lb-bot did not confirm it"
+
+/**
+ * A write lb-bot answered 200 for is done only when the answer says `ok`. One that says
+ * `ok: false` — or carries no `ok` at all, which decodes to false — stored or started nothing,
+ * and reading it as success would follow a scan that does not exist or report a sync nobody
+ * asked for. A failure is left as it is.
+ */
+internal fun <T> confirmedWrite(
+	result: LbBotManager.LbResult<T>,
+	ok: (T) -> Boolean
+): LbBotManager.LbResult<T> =
+	if (result is LbBotManager.LbResult.Ok && !ok(result.value)) {
+		LbBotManager.LbResult.Failed(LbBotManager.LbError.Rejected(200, WRITE_NOT_CONFIRMED))
+	} else {
+		result
+	}
+
+/**
  * The overrides keyed by Navidrome artist id, which is how every reader asks. A row naming no
  * artist or no MBID overrides nothing and is dropped rather than kept under a blank key. Null
  * when the body carried no list: not an answer, and the caller keeps the map it has.
@@ -125,8 +187,9 @@ internal fun parseArtistMbid(input: String): String? {
  *   artist; `no_override`: nothing to remove). Only a **bare** 404 is a route nobody answers — the
  *   hub's, or an lb-bot older than the hub. So is a **405**: lb-bot's SPA fallback is a GET-only
  *   catch-all, and a POST to a path it has never heard of matches that rule.
- * - lb-bot answers **502 with `retryable`** when MusicBrainz is unavailable and nothing was
- *   stored. The hub's own 502 / 504 (lb-bot unreachable, or timed out) carry no such flag.
+ * - lb-bot answers **502 with `retryable`** when MusicBrainz — or Navidrome's artist list — is
+ *   unavailable and nothing was stored, on a set and on a remove alike; its own `error` text
+ *   says which. The hub's own 502 / 504 (lb-bot unreachable, or timed out) carry no such flag.
  */
 internal fun overrideWriteError(
 	status: Int,
