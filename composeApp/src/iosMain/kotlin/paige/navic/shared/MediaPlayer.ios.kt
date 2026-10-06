@@ -247,7 +247,8 @@ class IOSMediaPlayerViewModel(
 		playAt(startIndex)
 	}
 
-	override fun playNextSingleLocal(song: DomainSong) {
+	override fun playNextSingleLocal(song: DomainSong, andPlay: Boolean) {
+		val at = _uiState.value.currentIndex + 1
 		_uiState.update { state ->
 			val newQueue =
 				if (state.queue.isEmpty())
@@ -260,7 +261,7 @@ class IOSMediaPlayerViewModel(
 				currentSong = if (state.currentIndex == -1) song else state.currentSong
 			)
 		}
-		snackBarManager.notifyPlayNext()
+		if (andPlay) playAt(at) else snackBarManager.notifyPlayNext()
 	}
 
 	override fun playNextLocal(collection: DomainSongCollection) {

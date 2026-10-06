@@ -75,6 +75,9 @@ interface RemotePlaybackRouter {
 	/** Append to the session queue, either next or at the end. */
 	fun enqueue(songs: List<DomainSong>, playNext: Boolean)
 
+	/** Skip the active device to the next track. Sent on the same ordered channel as [enqueue]. */
+	fun skipToNext()
+
 	/** Route a scrubber seek to the active remote device (absolute position). */
 	fun seek(positionMs: Long)
 
@@ -331,7 +334,8 @@ abstract class MediaPlayerViewModel(
 		collection: DomainSongCollection,
 		startSong: DomainSong
 	)
-	protected abstract fun playNextSingleLocal(song: DomainSong)
+	/** [andPlay]: skip straight to [song] once it is in, rather than announcing it as "next". */
+	protected abstract fun playNextSingleLocal(song: DomainSong, andPlay: Boolean = false)
 	protected abstract fun playNextLocal(collection: DomainSongCollection)
 	protected abstract fun shufflePlayLocal(collection: DomainSongCollection)
 
@@ -401,6 +405,24 @@ abstract class MediaPlayerViewModel(
 			addToQueueSingleLocal(song)
 			playAt(0)
 			checkAndAutoFillQueue()
+		}
+	}
+
+	/**
+	 * Play [song] straight away WITHOUT discarding the queue: it goes in right after the current
+	 * track and becomes the current track. The queue sheet's Related tab uses this — a song picked
+	 * from suggestions about the queue should not throw that queue away, which [playNow] does.
+	 *
+	 * The skip has to follow the insert. Remotely both frames share the hub's FIFO outbox; locally
+	 * the insert is asynchronous, so the platform player does the skip itself once it has landed.
+	 */
+	fun playNowKeepingQueue(song: DomainSong) {
+		val router = routeRemotely
+		if (router != null) {
+			router.enqueue(listOf(song), playNext = true)
+			router.skipToNext()
+		} else {
+			playNextSingleLocal(song, andPlay = true)
 		}
 	}
 

@@ -1,5 +1,11 @@
 package paige.navic.ui.screens.queue
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.ButtonDefaults
@@ -57,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.capsule.ContinuousRoundedRectangle
@@ -67,6 +75,7 @@ import navic.composeapp.generated.resources.action_clear_queue
 import navic.composeapp.generated.resources.action_undo
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.info_no_queue
+import navic.composeapp.generated.resources.info_no_songs
 import navic.composeapp.generated.resources.tab_related
 import navic.composeapp.generated.resources.tab_up_next
 import navic.composeapp.generated.resources.undo_queue_cleared
@@ -84,13 +93,14 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.queue.components.QueueScreenItem
+import paige.navic.ui.screens.queue.components.RelatedSongItem
 import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next
 import navic.composeapp.generated.resources.action_download_queue
+import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalSheetState
@@ -98,9 +108,9 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
+import paige.navic.icons.outlined.Note
 import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
-import paige.navic.ui.screens.song.components.songListScreenContent
 import paige.navic.ui.util.draggableItemsIndexed
 import paige.navic.ui.util.rememberDraggableListState
 import kotlin.time.DurationUnit
@@ -344,140 +354,163 @@ fun QueueScreen() {
 			}
 		}
 
-		if (queue.isNotEmpty() && selectedTab == 0) {
-			Row(
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(horizontal = 24.dp, vertical = 8.dp),
-				horizontalArrangement = Arrangement.SpaceBetween,
-				verticalAlignment = Alignment.CenterVertically
-			) {
-				val radioManager = org.koin.compose.koinInject<paige.navic.domain.manager.RadioManager>()
-				val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
-					val audioMuseManager =
-						org.koin.compose.koinInject<paige.navic.domain.manager.AudioMuseManager>()
-					val autoplayMode by radioManager.autoplayMode.collectAsState()
-					val moodCentroid by audioMuseManager.lastMoodCentroid.collectAsState()
-					// Scoped generator indicator: name the active AudioMuse generator and,
-					// for Mood Flow, tint by the live 2D mood centroid (else logo pink).
-					val generatorLabel = when (autoplayMode) {
-						paige.navic.domain.models.settings.AutoplayMode.Adaptive -> "Mood Flow"
-						paige.navic.domain.models.settings.AutoplayMode.Fingerprint ->
-							"Sonic Fingerprint"
-						else -> "AudioMuse mix"
-					}
-					val generatorColor = moodCentroid?.takeIf {
-						autoplayMode ==
-							paige.navic.domain.models.settings.AutoplayMode.Adaptive && it.size >= 2
-					}?.let {
-						val hue = ((kotlin.math.atan2(it[1], it[0]) * 180f /
-							kotlin.math.PI.toFloat()) + 360f) % 360f
-						androidx.compose.ui.graphics.Color.hsv(hue, 0.45f, 0.85f)
-					} ?: androidx.compose.ui.graphics.Color(0xFFEE7B90)
-				Text(
-					text = if (isAudioMuseMix) {
-						"$generatorLabel • $songsText • $totalDurationText"
-					} else {
-						"$songsText • $totalDurationText"
-					},
-					style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-					color = if (isAudioMuseMix) {
-						// AudioMuse logo pink
-						generatorColor
-					} else {
-						MaterialTheme.colorScheme.onSurfaceVariant
-					}
-				)
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					// Downloads are local files, so this is meaningless while another device holds
-					// the session (its queue can be remote placeholders not in our library).
-					if (!isRemoteActive) {
-						QueueDownloadMenuButton(
-							queue = queue,
-							fromIndex = playerState.currentIndex
-						)
-					}
-					TextButton(
-						onClick = {
-							haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-							player.captureQueueUndo(QueueUndoKind.CLEAR)
-							if (isRemoteActive) hubManager.actClearQueue()
-							else player.clearQueue()
-						}
-					) {
-						Text(stringResource(Res.string.action_clear_queue))
-					}
-				}
-			}
-		}
-
-		// Up Next: the draggable live queue (also the sole content when there's no queue).
-		if (queue.isEmpty() || selectedTab == 0) {
-		LazyColumn(
-			modifier = Modifier
-				.padding(horizontal = 12.dp)
-				.fillMaxWidth()
-				.weight(1f),
-			state = draggableState.listState,
-			contentPadding = WindowInsets.systemBars
-				.only(WindowInsetsSides.Bottom)
-				.asPaddingValues(),
-			verticalArrangement = if (queue.isNotEmpty())
-				Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
-			else Arrangement.Center
-		) {
-			draggableItemsIndexed(
-				state = draggableState,
-				items = displayQueue,
-				key = { _, entry -> entry.uid }
-			) { index, entry, isDragging ->
-				val song = entry.song
-				QueueScreenItem(
-					index = index,
-					dragKey = entry.uid,
-					count = queue.count(),
-					song = song,
-					isPlaying = playingIndex == index && !playerState.isPaused,
-					isSelected = playingIndex == index,
-					isDragging = isDragging,
-					draggableState = draggableState,
-					dragEnabled = true,
-					onClick = {
-						platformContext.clickSound()
-						if (playingIndex != index) {
-							// Stay on the queue after jumping so newly auto-queued
-							// songs (autoplay top-up) remain visible — the list
-							// follows currentIndex via the LaunchedEffect above.
-							if (isRemoteActive) hubManager.actJump(index) else player.playAt(index)
-						}
-					},
-					onLongClick = {
-						haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-						viewModel.selectSong(song)
-					},
-					onRemove = {
-						haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-						player.captureQueueUndo(QueueUndoKind.REMOVE)
-						// The hub owns the remote queue and broadcasts queueChanged back,
-						// which re-syncs the mirror — same split as the reorder commit above.
-						if (isRemoteActive) hubManager.actRemoveQueueItem(index)
-						else player.removeFromQueue(index)
-					},
-					isOffline = !isOnline,
-					isDownloaded = downloadedSongs.containsKey(song.id)
-				)
-			}
-			if (queue.isEmpty()) {
-				item {
-					ContentUnavailable(
-						icon = Icons.Outlined.PlaylistRemove,
-						label = stringResource(Res.string.info_no_queue)
+		// Slides toward the tab being opened (with a fade), so the two read as side by side
+		// rather than one list being swapped for another. An empty queue only has Up Next.
+		val spatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+		val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+		AnimatedContent(
+			targetState = if (queue.isEmpty()) 0 else selectedTab,
+			modifier = Modifier.weight(1f),
+			transitionSpec = {
+				val direction = if (targetState > initialState) 1 else -1
+				(slideInHorizontally(spatialSpec) { it / 4 * direction } + fadeIn(effectsSpec))
+					.togetherWith(
+						slideOutHorizontally(spatialSpec) { -it / 4 * direction } + fadeOut(effectsSpec)
 					)
+			},
+			label = "queueTab"
+		) { shownTab ->
+			if (shownTab == 0) {
+				Column(modifier = Modifier.fillMaxSize()) {
+					if (queue.isNotEmpty()) {
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(horizontal = 24.dp, vertical = 8.dp),
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalAlignment = Alignment.CenterVertically
+						) {
+							val radioManager = org.koin.compose.koinInject<paige.navic.domain.manager.RadioManager>()
+							val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
+								val audioMuseManager =
+									org.koin.compose.koinInject<paige.navic.domain.manager.AudioMuseManager>()
+								val autoplayMode by radioManager.autoplayMode.collectAsState()
+								val moodCentroid by audioMuseManager.lastMoodCentroid.collectAsState()
+								// Scoped generator indicator: name the active AudioMuse generator and,
+								// for Mood Flow, tint by the live 2D mood centroid (else logo pink).
+								val generatorLabel = when (autoplayMode) {
+									paige.navic.domain.models.settings.AutoplayMode.Adaptive -> "Mood Flow"
+									paige.navic.domain.models.settings.AutoplayMode.Fingerprint ->
+										"Sonic Fingerprint"
+									else -> "AudioMuse mix"
+								}
+								val generatorColor = moodCentroid?.takeIf {
+									autoplayMode ==
+										paige.navic.domain.models.settings.AutoplayMode.Adaptive && it.size >= 2
+								}?.let {
+									val hue = ((kotlin.math.atan2(it[1], it[0]) * 180f /
+										kotlin.math.PI.toFloat()) + 360f) % 360f
+									androidx.compose.ui.graphics.Color.hsv(hue, 0.45f, 0.85f)
+								} ?: androidx.compose.ui.graphics.Color(0xFFEE7B90)
+							Text(
+								text = if (isAudioMuseMix) {
+									"$generatorLabel • $songsText • $totalDurationText"
+								} else {
+									"$songsText • $totalDurationText"
+								},
+								style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+								color = if (isAudioMuseMix) {
+									// AudioMuse logo pink
+									generatorColor
+								} else {
+									MaterialTheme.colorScheme.onSurfaceVariant
+								}
+							)
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								// Downloads are local files, so this is meaningless while another device holds
+								// the session (its queue can be remote placeholders not in our library).
+								if (!isRemoteActive) {
+									QueueDownloadMenuButton(
+										queue = queue,
+										fromIndex = playerState.currentIndex
+									)
+								}
+								TextButton(
+									onClick = {
+										haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+										player.captureQueueUndo(QueueUndoKind.CLEAR)
+										if (isRemoteActive) hubManager.actClearQueue()
+										else player.clearQueue()
+									}
+								) {
+									Text(stringResource(Res.string.action_clear_queue))
+								}
+							}
+						}
+					}
+
+					// Up Next: the draggable live queue (also the sole content when there's no queue).
+					LazyColumn(
+						modifier = Modifier
+							.padding(horizontal = 12.dp)
+							.fillMaxWidth()
+							.weight(1f),
+						state = draggableState.listState,
+						contentPadding = WindowInsets.systemBars
+							.only(WindowInsetsSides.Bottom)
+							.asPaddingValues(),
+						verticalArrangement = if (queue.isNotEmpty())
+							Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+						else Arrangement.Center
+					) {
+						draggableItemsIndexed(
+							state = draggableState,
+							items = displayQueue,
+							key = { _, entry -> entry.uid }
+						) { index, entry, isDragging ->
+							val song = entry.song
+							QueueScreenItem(
+								index = index,
+								dragKey = entry.uid,
+								count = queue.count(),
+								song = song,
+								isPlaying = playingIndex == index && !playerState.isPaused,
+								isSelected = playingIndex == index,
+								isDragging = isDragging,
+								draggableState = draggableState,
+								dragEnabled = true,
+								onClick = {
+									platformContext.clickSound()
+									if (playingIndex != index) {
+										// Stay on the queue after jumping so newly auto-queued
+										// songs (autoplay top-up) remain visible — the list
+										// follows currentIndex via the LaunchedEffect above.
+										if (isRemoteActive) hubManager.actJump(index) else player.playAt(index)
+									}
+								},
+								onLongClick = {
+									haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+									viewModel.selectSong(song)
+								},
+								onRemove = {
+									haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+									player.captureQueueUndo(QueueUndoKind.REMOVE)
+									// The hub owns the remote queue and broadcasts queueChanged back,
+									// which re-syncs the mirror — same split as the reorder commit above.
+									if (isRemoteActive) hubManager.actRemoveQueueItem(index)
+									else player.removeFromQueue(index)
+								},
+								isOffline = !isOnline,
+								isDownloaded = downloadedSongs.containsKey(song.id)
+							)
+						}
+						if (queue.isEmpty()) {
+							item {
+								ContentUnavailable(
+									icon = Icons.Outlined.PlaylistRemove,
+									label = stringResource(Res.string.info_no_queue)
+								)
+							}
+						}
+					}
 				}
+			} else {
+				RelatedTab(
+					isOnline = isOnline,
+					allDownloads = allDownloads,
+					onSelect = { viewModel.selectSong(it) }
+				)
 			}
-		}
-		} else {
-			RelatedTab()
 		}
 	}
 
@@ -489,11 +522,12 @@ fun QueueScreen() {
 		)
 	}
 
-	// Long-press sheet for ANY queued song. The queue rows used to be the one song list in the app
+	// Long-press sheet for ANY queued song, and for the Related tab's rows. The queue rows used to be the one song list in the app
 	// with no per-row actions at all — the only reachable sheet was the playing track's, through the
 	// player's own "more" button.
 	selectedQueueSong?.let { selected ->
 		val download = allDownloads.find { it.songId == selected.id }
+		val selectedIsQueued = queue.any { it.id == selected.id }
 		SongSheet(
 			onDismissRequest = { viewModel.clearSelection() },
 			song = selected,
@@ -502,6 +536,10 @@ fun QueueScreen() {
 			onSetStarred = { viewModel.starSelectedSong(it) },
 			onShare = { queueShareId = selected.id },
 			onStartRadio = { radioManager.startRadio(selected.id, selected) },
+			// Offered for a song that isn't queued, i.e. a Related row; a queued row's sheet still
+			// doesn't offer to queue it a second time.
+			onPlayNext = if (selectedIsQueued) null else { { player.playNextSingle(selected) } },
+			onAddToQueue = if (selectedIsQueued) null else { { player.addToQueueSingle(selected) } },
 			onStartJourney = playerState.currentSong?.takeIf {
 				radioManager.sonicSimilarityAvailable.value && it.id != selected.id
 			}?.let { now -> { radioManager.startJourney(now.id, selected.id) } },
@@ -538,90 +576,77 @@ fun QueueScreen() {
 }
 
 /**
- * The queue sheet's "Related" tab: songs derived from the whole queue (and NOT already queued),
- * rendered through [songListScreenContent] so each row is a full song card with the same
- * interactions as everywhere else (tap to play, long-press sheet, star, rate, queue, download,
- * swipe). Backed by [RelatedSongsViewModel]; the play/queue wiring mirrors `SongListScreen`.
+ * The queue sheet's "Related" tab: songs derived from the whole queue (and NOT already queued), at
+ * most 20 (see [RelatedSongsViewModel]).
+ *
+ * Drawn as the same list as Up Next — same card, gap and insets — rather than as a generic song list,
+ * which tinted its cards with an always-painted swipe background and opened its sheet's pages
+ * underneath the queue. Tap plays the song without discarding the queue, + / swipe right adds it,
+ * swipe left plays it next, and long-press opens the queue's own sheet via [onSelect].
  */
 @Composable
-private fun RelatedTab() {
+private fun RelatedTab(
+	isOnline: Boolean,
+	allDownloads: List<DownloadEntity>,
+	onSelect: (DomainSong) -> Unit
+) {
 	val viewModel = koinViewModel<RelatedSongsViewModel>()
 	val player = koinInject<MediaPlayerViewModel>()
+	val platformContext = LocalPlatformContext.current
+	val haptic = LocalHapticFeedback.current
 
 	val songsState by viewModel.songsState.collectAsStateWithLifecycle()
-	val selectedSong by viewModel.selectedSong.collectAsStateWithLifecycle()
-	val starred by viewModel.starred.collectAsStateWithLifecycle()
-	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
-	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
-
-	var shareId by remember { mutableStateOf<String?>(null) }
-	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+	val songs = songsState.data.orEmpty()
 
 	Box(modifier = Modifier.fillMaxSize()) {
 		LazyColumn(
 			modifier = Modifier
 				.padding(horizontal = 12.dp)
 				.fillMaxSize(),
-			verticalArrangement = Arrangement.spacedBy(12.dp)
+			contentPadding = WindowInsets.systemBars
+				.only(WindowInsetsSides.Bottom)
+				.asPaddingValues(),
+			verticalArrangement = if (songs.isNotEmpty())
+				Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+			else Arrangement.Center
 		) {
-			songListScreenContent(
-				state = songsState,
-				selectedSong = selectedSong,
-				selectedSongIsStarred = starred,
-				selectedSongRating = selectedSongRating,
-				allDownloads = allDownloads,
-				onUpdateSelection = { viewModel.selectSong(it) },
-				onClearSelection = { viewModel.clearSelection() },
-				onSetShareId = { shareId = it },
-				onSetStarred = { viewModel.starSong(it) },
-				onPlayNext = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
-						player.playNextSingle(song)
-					}
-				},
-				onAddToQueue = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
-						player.addToQueueSingle(song)
-					}
-				},
-				onPlaySong = { song ->
-					player.captureQueueUndo(QueueUndoKind.REPLACE)
-					player.clearQueue()
-					player.addToQueueSingle(song)
-					player.playAt(0)
-				},
-				onSetRating = { viewModel.rateSelectedSong(it) },
-				onDownload = { viewModel.downloadSong(it) },
-				onCancelDownload = { viewModel.cancelDownload(it.id) },
-				onDeleteDownload = { viewModel.deleteDownload(it.id) }
-			)
+			// Keyed by id, so a song added to the queue animates out and the next one moves up.
+			itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+				val download = allDownloads.find { it.songId == song.id }
+				RelatedSongItem(
+					modifier = Modifier.animateItem(),
+					index = index,
+					count = songs.size,
+					song = song,
+					canPlay = isOnline || download?.status == DownloadStatus.DOWNLOADED,
+					downloadStatus = download?.status,
+					downloadProgress = download?.progress ?: 0f,
+					onClick = {
+						platformContext.clickSound()
+						player.playNowKeepingQueue(song)
+					},
+					onLongClick = {
+						haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+						onSelect(song)
+					},
+					onAddToQueue = { player.addToQueueSingle(song) },
+					onPlayNext = { player.playNextSingle(song) }
+				)
+			}
+			if (songsState is UiState.Success && songs.isEmpty()) {
+				item {
+					ContentUnavailable(
+						icon = Icons.Outlined.Note,
+						label = stringResource(Res.string.info_no_songs)
+					)
+				}
+			}
 		}
 
-		// songListScreenContent renders nothing while loading (its data is still empty), so show
-		// the spinner here — the related fetch can take a moment against the server.
+		// Only before the first answer: a refetch keeps the current list up until it lands.
 		if (songsState is UiState.Loading) {
 			CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
 		}
-	}
-
-	ShareDialog(
-		id = shareId,
-		onIdClear = { shareId = null },
-		expiry = null,
-		onExpiryChange = { }
-	)
-
-	if (songToQueue != null) {
-		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
-			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
-			}
-		)
 	}
 }
 

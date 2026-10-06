@@ -235,6 +235,8 @@ class HubManager(
 	override fun enqueue(songs: List<DomainSong>, playNext: Boolean) =
 		enqueueSessionQueue(songs, playNext)
 
+	override fun skipToNext() = actNext()
+
 	override fun restoreQueue(
 		songs: List<DomainSong>,
 		index: Int,
