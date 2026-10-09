@@ -297,8 +297,12 @@ class LbBotManager(
 		 */
 		data object Busy : LbError
 
-		/** Reached the hub; it or lb-bot refused. [message] is upstream's own words. */
-		data class Rejected(val status: Int, val message: String) : LbError
+		/**
+		 * Reached the hub; it or lb-bot refused. [message] is upstream's own words. [code] is
+		 * lb-bot's machine-readable reason where the route's answer is read for one (the album
+		 * override routes: `busy`, `in_progress`, `unknown_album`, …), "" everywhere else.
+		 */
+		data class Rejected(val status: Int, val message: String, val code: String = "") : LbError
 
 		/** Never got an answer. */
 		data class Unreachable(val message: String) : LbError
@@ -448,6 +452,61 @@ class LbBotManager(
 			throw e
 		} catch (e: Exception) {
 			Logger.e("LbBotManager", "GET $path failed", e)
+			LbResult.Failed(LbError.Unreachable(e.message.orEmpty()))
+		}
+	}
+
+	/** One answer before anyone has read it: the HTTP status, and the body as text. */
+	private class LbRaw(val status: Int, val text: String)
+
+	private fun rawAnswer(call: String, status: Int, text: String): LbRaw {
+		if (status !in 200..299) Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+		return LbRaw(status, text)
+	}
+
+	/**
+	 * A GET whose answer is read by a pure function of the status and the body — the album
+	 * override routes (`AlbumOverride.kt`) — so a refusal keeps its `code` and whatever else its
+	 * body carries. It fails only when no answer came at all. [timeoutMs] as on [getJson].
+	 */
+	private suspend fun rawGet(
+		path: String,
+		params: List<Pair<String, String>>,
+		timeoutMs: Long? = null
+	): LbResult<LbRaw> {
+		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		return try {
+			val response = client.get(base + path) {
+				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
+				if (timeoutMs != null) timeout {
+					requestTimeoutMillis = timeoutMs
+					socketTimeoutMillis = timeoutMs
+				}
+			}
+			LbResult.Ok(rawAnswer("GET $path", response.status.value, response.bodyAsText()))
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.e("LbBotManager", "GET $path failed", e)
+			LbResult.Failed(LbError.Unreachable(e.message.orEmpty()))
+		}
+	}
+
+	/** [rawGet] for a POST. */
+	private suspend inline fun <reified B> rawPost(path: String, body: B): LbResult<LbRaw> {
+		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		return try {
+			val response = client.post(base + path) {
+				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				contentType(ContentType.Application.Json)
+				setBody(body)
+			}
+			LbResult.Ok(rawAnswer("POST $path", response.status.value, response.bodyAsText()))
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.e("LbBotManager", "POST $path failed", e)
 			LbResult.Failed(LbError.Unreachable(e.message.orEmpty()))
 		}
 	}
@@ -708,6 +767,7 @@ class LbBotManager(
 		_available.value = ok
 		_availableAt = nowMs()
 		publishOverrideSupport()
+		publishAlbumOverrideSupport()
 		publishListeningSupport()
 		return ok
 	}
@@ -773,6 +833,10 @@ class LbBotManager(
 		// advert is also the only way an lb-bot that answered 404 for them gets newer.
 		overrideRecheck = true
 		publishOverrideSupport()
+		// The same for the album routes: a new advert is how an lb-bot that answered "no such
+		// route" for them is asked again.
+		albumOverrideRoutesMissing = false
+		publishAlbumOverrideSupport()
 		if (available) requestArtistOverridesRefresh()
 		publishListeningSupport()
 	}
@@ -1578,6 +1642,172 @@ class LbBotManager(
 		}
 	}.await()
 
+	// ----- album release override (I-022) ------------------------------------ //
+
+	/**
+	 * Whether "Fix album match" may show at all (I-022; the wire shapes and every rule are in
+	 * `AlbumOverride.kt`): a hub is configured, it proxies the apply route, and lb-bot has not
+	 * answered "no such route" for one of the album routes. False until the hub has said
+	 * anything, and a StateFlow, for the reasons [artistOverridesSupported] is one.
+	 *
+	 * Nothing about an album override is kept on this device. The state is lb-bot's, read when
+	 * the sheet opens; the retagged album itself comes back through the library sync.
+	 */
+	private val _albumOverridesSupported = MutableStateFlow(false)
+	val albumOverridesSupported: StateFlow<Boolean> = _albumOverridesSupported.asStateFlow()
+
+	/**
+	 * lb-bot answered a bare 404, or a 405, for an album route the hub proxies: it is older than
+	 * the hub. The entry points hide — never an error — until the next advert. In memory only.
+	 */
+	@Volatile
+	private var albumOverrideRoutesMissing = false
+
+	private fun publishAlbumOverrideSupport() {
+		_albumOverridesSupported.update {
+			isConfigured && !albumOverrideRoutesMissing && advertisesRoute(ROUTE_ALBUM_OVERRIDE)
+		}
+	}
+
+	/** An album route's answer, read by [read]; "no such route" from any of them hides the surface. */
+	private inline fun <T> albumAnswer(
+		raw: LbResult<LbRaw>,
+		read: (status: Int, text: String) -> LbResult<T>
+	): LbResult<T> {
+		val result = when (raw) {
+			is LbResult.Ok -> read(raw.value.status, raw.value.text)
+			is LbResult.Failed -> raw
+		}
+		if (result is LbResult.Failed && result.error == LbError.RouteUnknown) {
+			albumOverrideRoutesMissing = true
+			publishAlbumOverrideSupport()
+		}
+		return result
+	}
+
+	/**
+	 * An owned album as its files are tagged now, with its override row if lb-bot holds one.
+	 * [albumId] is the Navidrome album id. Never cached, here or on the hub.
+	 *
+	 * `Rejected(404, …, "unknown_album")` when Navidrome has no such album, `Rejected(502)` when
+	 * Navidrome did not answer lb-bot, [LbError.RouteUnknown] for an lb-bot older than the hub.
+	 */
+	suspend fun albumOverrideState(albumId: String): LbResult<LbAlbumState> {
+		if (albumId.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumAnswer(rawGet(PATH_ALBUM_OVERRIDE, listOf("album_id" to albumId))) { status, text ->
+			albumStateAnswer(status, text, byId = false)
+		}
+	}
+
+	/**
+	 * One tick of the poll that follows an apply or a remove (`albumPollStep`): the override row
+	 * by its own [id], because the album id the change started from dies on the retag. On the
+	 * poll routes' short timeout, so a tick never holds the client past its slot.
+	 * `Rejected(404, …, "no_override")` is the row being gone — how a remove is seen to finish.
+	 */
+	suspend fun albumOverrideById(id: String): LbResult<LbAlbumState> {
+		if (id.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumAnswer(rawGet(PATH_ALBUM_OVERRIDE, listOf("id" to id), timeoutMs = POLL_TIMEOUT_MS)) { status, text ->
+			albumStateAnswer(status, text, byId = true)
+		}
+	}
+
+	/**
+	 * Cover Art Archive candidates for a release and its release group — either id, or both.
+	 * An empty list is the Archive having none; `Rejected(502)` is the Archive not answering.
+	 */
+	suspend fun albumCovers(rgid: String, releaseMbid: String): LbResult<List<LbAlbumCover>> {
+		if (rgid.isBlank() && releaseMbid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumAnswer(
+			rawGet(PATH_ALBUM_COVERS, listOf("rgid" to rgid, "release_mbid" to releaseMbid)),
+			::albumCoversAnswer
+		)
+	}
+
+	/**
+	 * How lb-bot would renumber and retitle the album's files for [releaseMbid]. Writes nothing.
+	 * Slow: it fetches the release's tracklist from MusicBrainz behind lb-bot's one-a-second lock.
+	 */
+	suspend fun previewAlbumOverride(albumId: String, releaseMbid: String): LbResult<LbAlbumPreview> {
+		if (albumId.isBlank() || releaseMbid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumAnswer(
+			rawPost(PATH_ALBUM_PREVIEW, LbAlbumPreviewRequest(albumId, releaseMbid)),
+			::albumPreviewAnswer
+		)
+	}
+
+	/**
+	 * Retag the album's files to [releaseMbid], and save [coverUrl] — one of the `full` URLs
+	 * [albumCovers] answered — as its cover when one is given. lb-bot answers at once and writes
+	 * in the background: [LbAlbumApply.Started] names the row to follow with [albumOverrideById].
+	 *
+	 * [LbAlbumApply.PoorMatch] is lb-bot asking first — nothing was written — and the same call
+	 * with [force] is the yes. Refusals keep lb-bot's sentence and its `code`:
+	 * `Rejected(409, …, "busy")` a fill for the album is in flight, `"in_progress"` an apply or
+	 * a remove is already running for it, `Rejected(404, …, "unknown_release")`, `Rejected(400)`,
+	 * and `Rejected(502)` for MusicBrainz or Navidrome not answering, with nothing written.
+	 */
+	suspend fun applyAlbumOverride(
+		albumId: String,
+		releaseMbid: String,
+		coverUrl: String? = null,
+		force: Boolean = false
+	): LbResult<LbAlbumApply> {
+		if (albumId.isBlank() || releaseMbid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumWrite<LbAlbumApply>(changed = { it is LbAlbumApply.Started }) {
+			albumAnswer(
+				rawPost(
+					PATH_ALBUM_OVERRIDE,
+					LbAlbumApplyRequest(
+						albumId = albumId,
+						releaseMbid = releaseMbid,
+						coverUrl = coverUrl?.ifBlank { null },
+						force = if (force) true else null
+					)
+				),
+				::albumApplyAnswer
+			)
+		}
+	}
+
+	/**
+	 * Change the album's cover alone; the release stays. Synchronous on lb-bot, which fetches
+	 * the image before it answers. It creates or updates the album's override row, so the change
+	 * is listed and undone like any other ([removeAlbumOverride]).
+	 */
+	suspend fun setAlbumCover(albumId: String, coverUrl: String): LbResult<LbAlbumWrite> {
+		if (albumId.isBlank() || coverUrl.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumWrite {
+			albumAnswer(rawPost(PATH_ALBUM_COVER, LbAlbumCoverRequest(albumId, coverUrl)), ::albumWriteAnswer)
+		}
+	}
+
+	/**
+	 * Undo an override: lb-bot restores every tag it changed and the previous cover, in the
+	 * background. [id] is the override row's. Followed with [albumOverrideById] until the row is
+	 * gone; `Rejected(404, …, "no_override")` here is a row that was already gone.
+	 */
+	suspend fun removeAlbumOverride(id: String): LbResult<LbAlbumWrite> {
+		if (id.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return albumWrite {
+			albumAnswer(rawPost(PATH_ALBUM_REMOVE, LbAlbumRemoveRequest(id)), ::albumWriteAnswer)
+		}
+	}
+
+	/**
+	 * One album write, in this manager's scope: a sheet swiped away mid-request does not cancel
+	 * what the user confirmed (an apply's validation sits on MusicBrainz and can take a while),
+	 * and the overrides body is asked for again whether or not anyone is left to see the answer.
+	 */
+	private suspend fun <T> albumWrite(
+		changed: (T) -> Boolean = { true },
+		post: suspend () -> LbResult<T>
+	): LbResult<T> = scope.async {
+		val result = post()
+		if (result is LbResult.Ok && changed(result.value)) requestArtistOverridesRefresh()
+		result
+	}.await()
+
 	// ----- listening analytics ----------------------------------------------- //
 
 	/**
@@ -1753,10 +1983,19 @@ class LbBotManager(
 	 * release-group id rather than by a name match — so an owned hit is a known
 	 * fact and the row opens the library album instead of a download page.
 	 */
-	suspend fun albumLookup(query: String): List<LbAlbumCandidate> {
-		if (query.isBlank()) return emptyList()
-		return getJson<LbAlbumLookup>("/lb/album/lookup", listOf("q" to query))
-			.valueOrNull()?.candidates.orEmpty()
+	suspend fun albumLookup(query: String): List<LbAlbumCandidate> =
+		albumLookupResult(query).valueOrNull().orEmpty()
+
+	/**
+	 * [albumLookup] with the failure kept, for "Fix album match": there "MusicBrainz has no such
+	 * album" and "lb-bot did not answer" lead to different sentences.
+	 */
+	suspend fun albumLookupResult(query: String): LbResult<List<LbAlbumCandidate>> {
+		if (query.isBlank()) return LbResult.Ok(emptyList())
+		return when (val result = getJson<LbAlbumLookup>("/lb/album/lookup", listOf("q" to query))) {
+			is LbResult.Ok -> LbResult.Ok(result.value.candidates)
+			is LbResult.Failed -> result
+		}
 	}
 
 	/**
@@ -3038,6 +3277,14 @@ class LbBotManager(
 		private const val PATH_OVERRIDE_SET = "/lb/artist/override"
 		private const val PATH_OVERRIDE_REMOVE = "/lb/artist/override/remove"
 
+		// Album release override (I-022). The advert string is the gate; the paths are the routes.
+		private const val ROUTE_ALBUM_OVERRIDE = "POST /lb/album/override"
+		private const val PATH_ALBUM_OVERRIDE = "/lb/album/override"
+		private const val PATH_ALBUM_COVERS = "/lb/album/covers"
+		private const val PATH_ALBUM_PREVIEW = "/lb/album/override/preview"
+		private const val PATH_ALBUM_COVER = "/lb/album/cover"
+		private const val PATH_ALBUM_REMOVE = "/lb/album/override/remove"
+
 		/** Never let the loop spin: a tick that overran its own interval still waits. */
 		private const val MIN_POLL_GAP_MS = 1_000L
 
@@ -3172,6 +3419,30 @@ private data class LbOverrideSetRequest(
 
 @Serializable
 private data class LbOverrideRemoveRequest(@SerialName("nd_id") val ndId: String)
+
+@Serializable
+private data class LbAlbumPreviewRequest(
+	@SerialName("album_id") val albumId: String,
+	@SerialName("release_mbid") val releaseMbid: String
+)
+
+/** `cover_url` and `force` are optional on the wire and are left out unless set. */
+@Serializable
+private data class LbAlbumApplyRequest(
+	@SerialName("album_id") val albumId: String,
+	@SerialName("release_mbid") val releaseMbid: String,
+	@SerialName("cover_url") val coverUrl: String? = null,
+	val force: Boolean? = null
+)
+
+@Serializable
+private data class LbAlbumCoverRequest(
+	@SerialName("album_id") val albumId: String,
+	@SerialName("cover_url") val coverUrl: String
+)
+
+@Serializable
+private data class LbAlbumRemoveRequest(val id: String)
 
 @Serializable
 private data class LbGroupRequest(@SerialName("group_id") val groupId: String)
@@ -3885,6 +4156,8 @@ data class LbVariant(
 	val title: String = "",
 	val disambiguation: String = "",
 	val year: String = "",
+	/** The release country of the variant's default edition; blank on an older lb-bot. */
+	val country: String = "",
 	val trackCount: Int = 0,
 	val coverUrl: String = "",
 	/** Same tracklist, different pressing — each carries its own cover art. */
@@ -3898,6 +4171,8 @@ data class LbEdition(
 	val label: String = "",
 	val format: String = "",
 	val year: String = "",
+	/** Where this pressing was released (MusicBrainz's country code); blank when it has none. */
+	val country: String = "",
 	val coverUrl: String = ""
 )
 
