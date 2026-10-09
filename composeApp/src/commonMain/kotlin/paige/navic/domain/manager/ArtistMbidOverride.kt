@@ -28,7 +28,20 @@ data class LbOverrides(
 	 * "Matches to check" (I-021), nullable for the same reason and one more: an lb-bot that
 	 * predates the list sends no such field, and that is "no list", not "nothing to check".
 	 */
-	val toCheck: List<LbMatchToCheck>? = null
+	val toCheck: List<LbMatchToCheck>? = null,
+	/**
+	 * Every album override, newest first (I-022). Like the two below, **absent** when lb-bot
+	 * could not work it out — or predates it — and `[]` when there is nothing: a missing list
+	 * is "no list", never "none", here and in the copy persisted for the next start.
+	 */
+	val albums: List<LbAlbumOverrideRow>? = null,
+	/** Every artist name merge that can still be undone, newest first (I-023). */
+	val merges: List<LbMergeRow>? = null,
+	/**
+	 * Groups of two or more library artists whose effective MusicBrainz id is equal (I-023): the
+	 * spellings a merge can join. Within a group, the entry with the most albums first.
+	 */
+	val siblings: List<LbSiblingGroup>? = null
 )
 
 /**

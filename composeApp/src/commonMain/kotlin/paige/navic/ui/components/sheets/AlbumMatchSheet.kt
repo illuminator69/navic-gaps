@@ -103,10 +103,6 @@ import navic.composeapp.generated.resources.title_album_match_cover
 import navic.composeapp.generated.resources.title_album_match_editions
 import navic.composeapp.generated.resources.title_album_match_missing
 import navic.composeapp.generated.resources.title_album_match_preview
-import org.jetbrains.compose.resources.PluralStringResource
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.getPluralString
-import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -146,6 +142,8 @@ import paige.navic.domain.manager.albumLookupQuery
 import paige.navic.domain.manager.albumOutcome
 import paige.navic.domain.manager.albumTaggedAs
 import paige.navic.domain.manager.forceAllowed
+import paige.navic.domain.manager.mergeAnnounced
+import paige.navic.domain.manager.mergeOutcome
 import paige.navic.domain.manager.parseReleaseMbid
 import paige.navic.domain.manager.previewMultiDisc
 import paige.navic.domain.manager.previewSummary
@@ -1011,46 +1009,24 @@ private fun CoverGrid(
 	}
 }
 
-/** One of the sheet's sentences: a plain string, or a plural with its quantity and arguments. */
-private class OutcomeText(
-	val string: StringResource? = null,
-	val plural: PluralStringResource? = null,
-	val quantity: Int = 0,
-	val args: List<Any> = emptyList()
-)
-
 /** What an ended job is said to have come to. Every number is a field of lb-bot's last answer. */
-private fun outcomeText(outcome: AlbumOutcome): OutcomeText = when (outcome) {
+private fun outcomeText(outcome: AlbumOutcome): LbSentence = when (outcome) {
 	is AlbumOutcome.Wrote ->
-		OutcomeText(plural = Res.plurals.info_album_match_wrote, quantity = outcome.files, args = listOf(outcome.files))
-	is AlbumOutcome.WrotePartly -> OutcomeText(
+		LbSentence(plural = Res.plurals.info_album_match_wrote, quantity = outcome.files, args = listOf(outcome.files))
+	is AlbumOutcome.WrotePartly -> LbSentence(
 		plural = Res.plurals.info_album_match_wrote_partly,
 		quantity = outcome.total,
 		args = listOf(outcome.done, outcome.total, outcome.failed)
 	)
-	is AlbumOutcome.DidNotFinish -> OutcomeText(
+	is AlbumOutcome.DidNotFinish -> LbSentence(
 		plural = Res.plurals.info_album_match_not_finished,
 		quantity = outcome.total,
 		args = listOf(outcome.done, outcome.total)
 	)
-	AlbumOutcome.Removed -> OutcomeText(string = Res.string.info_album_match_removed)
-	AlbumOutcome.NotRemoved -> OutcomeText(string = Res.string.info_album_match_not_removed)
-	AlbumOutcome.Gone -> OutcomeText(string = Res.string.info_album_match_gone)
-	AlbumOutcome.StillWorking -> OutcomeText(string = Res.string.info_album_match_still_working)
-}
-
-@Composable
-private fun OutcomeText.text(): String {
-	val counted = plural
-	return if (counted != null) pluralStringResource(counted, quantity, *args.toTypedArray())
-	else string?.let { stringResource(it) }.orEmpty()
-}
-
-/** [text] outside a composition, for the snackbar that speaks when no sheet is open. */
-private suspend fun OutcomeText.resolve(): String {
-	val counted = plural
-	return if (counted != null) getPluralString(counted, quantity, *args.toTypedArray())
-	else string?.let { getString(it) }.orEmpty()
+	AlbumOutcome.Removed -> LbSentence(string = Res.string.info_album_match_removed)
+	AlbumOutcome.NotRemoved -> LbSentence(string = Res.string.info_album_match_not_removed)
+	AlbumOutcome.Gone -> LbSentence(string = Res.string.info_album_match_gone)
+	AlbumOutcome.StillWorking -> LbSentence(string = Res.string.info_album_match_still_working)
 }
 
 /**
@@ -1063,6 +1039,8 @@ private suspend fun OutcomeText.resolve(): String {
  *
  * It also speaks for a job nobody is watching. The job outlives the sheet, so one that ends
  * after the sheet was swiped away is said in a snackbar, in the same words the sheet would use.
+ * An artist name merge (I-023) is said from here too: this is the one composable that is
+ * always there to say it.
  */
 @Composable
 fun AlbumMatchHost() {
@@ -1076,6 +1054,15 @@ fun AlbumMatchHost() {
 			if (lbBot.albumMatch.value?.albumId == job.albumId) return@collect
 			val outcome = albumOutcome(job.poll) ?: return@collect
 			snackBarState.showSnackbar(outcomeText(outcome).resolve())
+		}
+	}
+	// The same for an artist name merge (I-023), whose block lives in the artist's own sheet:
+	// said here unless a block that will still be there is showing it (`mergeAnnounced`).
+	LaunchedEffect(Unit) {
+		lbBot.mergeJobEnded.collect { job ->
+			if (!mergeAnnounced(job, lbBot.mergeBlocksOn)) return@collect
+			val outcome = mergeOutcome(job.poll) ?: return@collect
+			snackBarState.showSnackbar(mergeOutcomeSentence(outcome).resolve())
 		}
 	}
 

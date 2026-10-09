@@ -247,7 +247,8 @@ private fun albumOverrideError(status: Int, refusal: LbAlbumRefusal): LbBotManag
 	else -> LbBotManager.LbError.Rejected(status, refusal.error, refusal.code)
 }
 
-private fun albumRefused(status: Int, raw: String): LbBotManager.LbResult.Failed =
+/** Shared with the merge routes (`ArtistMerge.kt`), which refuse in the same shape. */
+internal fun albumRefused(status: Int, raw: String): LbBotManager.LbResult.Failed =
 	LbBotManager.LbResult.Failed(albumOverrideError(status, albumRefusal(raw)))
 
 /**
@@ -256,7 +257,7 @@ private fun albumRefused(status: Int, raw: String): LbBotManager.LbResult.Failed
  * **Nothing is not an answer.** `{}` decodes — to an untagged album with no tracks, a preview
  * that changes nothing, a write that started nothing — and each of those would be said as fact.
  */
-private fun <T : Any> albumBody(
+internal fun <T : Any> albumBody(
 	raw: String,
 	serializer: KSerializer<T>,
 	notAnAnswer: String = ALBUM_NOT_AN_ANSWER,
@@ -271,7 +272,7 @@ private fun <T : Any> albumBody(
 	else LbBotManager.LbResult.Failed(LbBotManager.LbError.Rejected(200, notAnAnswer))
 }
 
-private fun isSuccess(status: Int): Boolean = status in 200..299
+internal fun isSuccess(status: Int): Boolean = status in 200..299
 
 /**
  * `GET /lb/album/override`. [byId]: the row was asked for by its id, as a poll does — the
@@ -663,28 +664,20 @@ internal fun forceAllowed(question: AlbumPoorMatchQuestion?, releaseMbid: String
 // the clock are [LbBotManager]'s (`followAlbumJob`), so the job is followed to its end whether
 // or not the sheet that started it is still open.
 
-const val ALBUM_POLL_INTERVAL_MS = 2_000L
+const val ALBUM_POLL_INTERVAL_MS = LB_JOB_POLL_INTERVAL_MS
 
 /** After this long the client stops asking and says lb-bot is still working. */
-const val ALBUM_POLL_GIVE_UP_MS = 180_000L
+const val ALBUM_POLL_GIVE_UP_MS = LB_JOB_GIVE_UP_MS
 
 enum class AlbumJob { APPLY, REMOVE }
 
-enum class AlbumPollPhase {
-	POLLING,
-
-	/** An apply lb-bot calls `applied` (with or without failures), or a remove whose row is gone. */
-	DONE,
-
-	/** lb-bot says the job failed, or a remove left the row standing. */
-	FAILED,
-
-	/** The row vanished under an apply: undone from somewhere else while this client waited. */
-	GONE,
-
-	/** Three minutes passed. Nothing is known to have failed — lb-bot may still be working. */
-	TIMED_OUT
-}
+/**
+ * The poll's phases are every followed job's ([LbJobPhase], `LbJobPoll.kt`). For an album:
+ * `DONE` is an apply lb-bot calls `applied` (with or without failures) or a remove whose row is
+ * gone; `FAILED` is `failed`, or a remove that left the row standing; `GONE` is the row
+ * vanishing under an apply.
+ */
+typealias AlbumPollPhase = LbJobPhase
 
 /** What one tick of the poll read. */
 sealed interface AlbumPollRead {
@@ -719,10 +712,30 @@ data class AlbumPoll(
 	val row: LbAlbumOverrideRow? get() = state?.override
 }
 
-private fun activeState(job: AlbumJob): String = when (job) {
-	AlbumJob.APPLY -> ALBUM_STATE_APPLYING
-	AlbumJob.REMOVE -> ALBUM_STATE_REMOVING
+/** An apply: `applying` → `applied` | `failed`. The row vanishing is its own ending. */
+private val APPLY_SPEC = LbJobSpec(
+	active = ALBUM_STATE_APPLYING,
+	settled = setOf(ALBUM_STATE_APPLIED),
+	failed = setOf(ALBUM_STATE_FAILED),
+	failedNeedsActive = false,
+	goneIsDone = false
+)
+
+/** A remove: `removing`, then the row is deleted — its being gone is the finish. */
+private val REMOVE_SPEC = LbJobSpec(
+	active = ALBUM_STATE_REMOVING,
+	settled = emptySet(),
+	failed = setOf(ALBUM_STATE_APPLIED, ALBUM_STATE_FAILED),
+	failedNeedsActive = true,
+	goneIsDone = true
+)
+
+private fun albumSpec(job: AlbumJob): LbJobSpec = when (job) {
+	AlbumJob.APPLY -> APPLY_SPEC
+	AlbumJob.REMOVE -> REMOVE_SPEC
 }
+
+private fun activeState(job: AlbumJob): String = albumSpec(job).active
 
 /**
  * [seen] is the row as already read, for a job found running when the sheet opened (started on
@@ -767,27 +780,18 @@ internal fun albumPollRead(result: LbBotManager.LbResult<LbAlbumState>): AlbumPo
  */
 internal fun albumPollStep(poll: AlbumPoll, read: AlbumPollRead, nowMs: Long): AlbumPoll {
 	if (poll.phase != AlbumPollPhase.POLLING) return poll
-	val next = when (read) {
-		AlbumPollRead.Missed -> poll
-		AlbumPollRead.Gone -> return poll.copy(
-			phase = if (poll.job == AlbumJob.REMOVE) AlbumPollPhase.DONE else AlbumPollPhase.GONE
-		)
-		is AlbumPollRead.Row -> {
-			val state = read.state.override?.state.orEmpty()
-			val heard = poll.copy(state = read.state, sawActive = poll.sawActive || state == activeState(poll.job))
-			val standing = state == ALBUM_STATE_APPLIED || state == ALBUM_STATE_FAILED
-			when (poll.job) {
-				AlbumJob.APPLY -> when (state) {
-					ALBUM_STATE_APPLIED -> return heard.copy(phase = AlbumPollPhase.DONE)
-					ALBUM_STATE_FAILED -> return heard.copy(phase = AlbumPollPhase.FAILED)
-					else -> heard
-				}
-				AlbumJob.REMOVE ->
-					if (standing && heard.sawActive) return heard.copy(phase = AlbumPollPhase.FAILED) else heard
-			}
-		}
+	val heard = when (read) {
+		AlbumPollRead.Missed -> LbJobRead.Missed
+		AlbumPollRead.Gone -> LbJobRead.Gone
+		is AlbumPollRead.Row -> LbJobRead.State(read.state.override?.state.orEmpty())
 	}
-	return if (nowMs - poll.startedAtMs >= ALBUM_POLL_GIVE_UP_MS) next.copy(phase = AlbumPollPhase.TIMED_OUT) else next
+	val next = lbJobStep(albumSpec(poll.job), poll.phase, poll.sawActive, poll.startedAtMs, heard, nowMs)
+	return poll.copy(
+		phase = next.phase,
+		sawActive = next.sawActive,
+		// The last answer is kept across missed polls, so the progress does not blink.
+		state = (read as? AlbumPollRead.Row)?.state ?: poll.state
+	)
 }
 
 /** What an ended poll has to say. Every number in it is a field of lb-bot's last answer. */

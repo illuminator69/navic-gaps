@@ -775,6 +775,7 @@ class LbBotManager(
 		_availableAt = nowMs()
 		publishOverrideSupport()
 		publishAlbumOverrideSupport()
+		publishMergeSupport()
 		publishListeningSupport()
 		return ok
 	}
@@ -844,6 +845,8 @@ class LbBotManager(
 		// route" for them is asked again.
 		albumOverrideRoutesMissing = false
 		publishAlbumOverrideSupport()
+		mergeRoutesMissing = false
+		publishMergeSupport()
 		if (available) requestArtistOverridesRefresh()
 		publishListeningSupport()
 	}
@@ -1411,6 +1414,25 @@ class LbBotManager(
 	val matchesToCheck: StateFlow<List<LbMatchToCheck>?> = _matchesToCheck.asStateFlow()
 
 	/**
+	 * The three lists the same body gained (I-022, I-023): every album override, every artist
+	 * name merge that can still be undone, and the groups of library artists that share one
+	 * effective MusicBrainz id — the spellings a merge can join. Restored, re-read and persisted
+	 * with the overrides, like [matchesToCheck], and under the same rule: **null is "no such
+	 * list"** (an lb-bot that predates it, or could not work it out), never an empty one.
+	 *
+	 * Declared here, above the `init` below: its restore coroutine writes them, and may run
+	 * before a property declared further down has been initialised.
+	 */
+	private val _albumOverrideRows = MutableStateFlow<List<LbAlbumOverrideRow>?>(null)
+	val albumOverrideRows: StateFlow<List<LbAlbumOverrideRow>?> = _albumOverrideRows.asStateFlow()
+
+	private val _artistMerges = MutableStateFlow<List<LbMergeRow>?>(null)
+	val artistMerges: StateFlow<List<LbMergeRow>?> = _artistMerges.asStateFlow()
+
+	private val _artistSiblings = MutableStateFlow<List<LbSiblingGroup>?>(null)
+	val artistSiblings: StateFlow<List<LbSiblingGroup>?> = _artistSiblings.asStateFlow()
+
+	/**
 	 * lb-bot answered 404 for an override route the hub proxies: it is older than the hub. The
 	 * surfaces hide — never an error — and `index` frames stop asking, until the next advert sets
 	 * [overrideRecheck]. In memory only, like [hubProxyOff].
@@ -1502,6 +1524,9 @@ class LbBotManager(
 		overridesLock.withLock {
 			_artistOverrides.value = map
 			_matchesToCheck.value = cached.toCheck
+			_albumOverrideRows.value = cached.albums
+			_artistMerges.value = cached.merges
+			_artistSiblings.value = cached.siblings
 			_artistOverridesLoaded.value = true
 		}
 	}
@@ -1560,6 +1585,10 @@ class LbBotManager(
 			_artistOverrides.value = map
 			// The same answer's list, or its absence: an lb-bot rolled back loses the section.
 			_matchesToCheck.value = body?.toCheck
+			// As `toCheck`: each is the same answer's list, or its absence.
+			_albumOverrideRows.value = body?.albums
+			_artistMerges.value = body?.merges
+			_artistSiblings.value = body?.siblings
 			_artistOverridesLoaded.value = true
 		}
 		// Only a read that was actually made can have failed: the early return above (no hub,
@@ -1974,6 +2003,248 @@ class LbBotManager(
 					// Subscribed first, then asked once: a sync that landed in between is not missed.
 					.onSubscription { emit(LbLibraryEvent(EVENT_LOCAL_SYNCED)) }
 					.first { it.event == EVENT_LOCAL_SYNCED && forgetAlbum(albumId) }
+			}
+		}
+	}
+
+	// ----- artist name merge (I-023) ------------------------------------------ //
+
+	/**
+	 * Whether "Merge into one name" may show (I-023; the wire shapes and every rule are in
+	 * `ArtistMerge.kt`): a hub is configured, it proxies the merge route, and lb-bot has not
+	 * answered "no such route" for one of the merge routes. As [albumOverridesSupported].
+	 */
+	private val _artistMergesSupported = MutableStateFlow(false)
+	val artistMergesSupported: StateFlow<Boolean> = _artistMergesSupported.asStateFlow()
+
+	@Volatile
+	private var mergeRoutesMissing = false
+
+	private fun publishMergeSupport() {
+		_artistMergesSupported.update {
+			isConfigured && !mergeRoutesMissing && advertisesRoute(ROUTE_ARTIST_MERGE)
+		}
+	}
+
+	/** A merge route's answer, read by [read]; "no such route" from any of them hides the block. */
+	private inline fun <T> mergeAnswer(
+		raw: LbResult<LbRaw>,
+		read: (status: Int, text: String) -> LbResult<T>
+	): LbResult<T> {
+		val result = when (raw) {
+			is LbResult.Ok -> read(raw.value.status, raw.value.text)
+			is LbResult.Failed -> raw
+		}
+		if (result is LbResult.Failed && result.error == LbError.RouteUnknown) {
+			mergeRoutesMissing = true
+			publishMergeSupport()
+		}
+		return result
+	}
+
+	/**
+	 * What merging the spelling [fromNdId] into [ndId] — the entry whose name is KEPT — would
+	 * retag: "N files in M albums". Writes nothing. `Rejected(409, …, "different_artists")` when
+	 * the two do not resolve to one MusicBrainz artist, `Rejected(404, …, "unknown_artist")` when
+	 * Navidrome lists neither.
+	 */
+	suspend fun mergePreview(ndId: String, fromNdId: String): LbResult<LbMergePreview> {
+		if (ndId.isBlank() || fromNdId.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return mergeAnswer(
+			rawGet(PATH_ARTIST_MERGE_PREVIEW, listOf("nd_id" to ndId, "from_nd_id" to fromNdId)),
+			::mergePreviewAnswer
+		)
+	}
+
+	/**
+	 * Merge the spelling [fromNdId] into [ndId]: lb-bot retags the first one's files to the
+	 * second one's name, in the background. **[ndId] is the entry whose name is kept.** The
+	 * names are the two as the caller shows them, kept with the job until lb-bot's row names
+	 * them. A started merge is followed from here ([followMergeJob]); a second merge or undo
+	 * touching either artist while one is followed is refused here, unsent.
+	 */
+	suspend fun startArtistMerge(
+		ndId: String,
+		fromNdId: String,
+		intoName: String = "",
+		fromName: String = ""
+	): LbResult<LbMergeWrite> {
+		if (ndId.isBlank() || fromNdId.isBlank() || ndId == fromNdId) return LbResult.Failed(LbError.Rejected(400, ""))
+		if (mergeJobInWay(_mergeJobs.value.values, listOf(ndId, fromNdId)) != null) return mergeJobRunning()
+		return albumWrite {
+			val result = mergeAnswer(
+				rawPost(PATH_ARTIST_MERGE, LbMergeRequest(ndId = ndId, fromNdId = fromNdId)),
+				::mergeWriteAnswer
+			)
+			if (result is LbResult.Ok) {
+				followMergeJob(MergeJob.MERGE, result.value.id, ndId, fromNdId, intoName, fromName)
+			}
+			result
+		}
+	}
+
+	/** One tick of the poll that follows a merge or an undo: the merge row by its [id]. */
+	suspend fun artistMergeById(id: String): LbResult<LbMergeRow> {
+		if (id.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		return mergeAnswer(
+			rawGet(PATH_ARTIST_MERGE, listOf("id" to id), timeoutMs = POLL_TIMEOUT_MS),
+			::mergeRowAnswer
+		)
+	}
+
+	/**
+	 * Undo a merge: lb-bot puts the previous names back, in the background, and the row is gone
+	 * when it has. [id] is the merge row's; the ids and names are the row's as the caller shows
+	 * it. lb-bot's own row names the rewritten spelling by name only, so a caller that has just
+	 * that row (the data panel) leaves [fromId] blank, and what this device remembers of the
+	 * merge — when it is the one that followed it — fills the gap. Followed from here until
+	 * lb-bot answers `no_merge`.
+	 */
+	suspend fun undoArtistMerge(
+		id: String,
+		intoId: String = "",
+		fromId: String = "",
+		intoName: String = "",
+		fromName: String = ""
+	): LbResult<LbMergeWrite> {
+		if (id.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		val known = _mergeJobs.value[id]
+		val into = intoId.ifBlank { known?.intoId.orEmpty() }
+		val from = fromId.ifBlank { known?.fromId.orEmpty() }
+		if (mergeJobInWay(_mergeJobs.value.values, listOf(into, from), rowId = id) != null) return mergeJobRunning()
+		return albumWrite {
+			val result = mergeAnswer(rawPost(PATH_ARTIST_MERGE_UNDO, LbMergeUndoRequest(id)), ::mergeWriteAnswer)
+			if (result is LbResult.Ok) {
+				followMergeJob(
+					MergeJob.UNDO,
+					id,
+					into,
+					from,
+					intoName.ifBlank { known?.intoName.orEmpty() },
+					fromName.ifBlank { known?.fromName.orEmpty() }
+				)
+			}
+			result
+		}
+	}
+
+	private fun mergeJobRunning(): LbResult.Failed =
+		LbResult.Failed(LbError.Rejected(409, MERGE_JOB_RUNNING, ALBUM_CODE_IN_PROGRESS))
+
+	/**
+	 * The merges and undos this device follows, by merge row id — the unfinished ones and the
+	 * last few that ended, newest last. As [albumJobs]: the job outlives the sheet. An ended
+	 * job stays until the user has read it ([dismissMergeJob]), because **the result must
+	 * survive its own cause** — a finished merge removes the very sibling group that offered it,
+	 * and may replace the page its block was on.
+	 */
+	private val _mergeJobs = MutableStateFlow<Map<String, MergeJobState>>(emptyMap())
+	val mergeJobs: StateFlow<Map<String, MergeJobState>> = _mergeJobs.asStateFlow()
+
+	/** One event per followed merge or undo, when it is over and the library settled. */
+	private val _mergeJobEnded = MutableSharedFlow<MergeJobState>(extraBufferCapacity = 8)
+	val mergeJobEnded: SharedFlow<MergeJobState> = _mergeJobEnded.asSharedFlow()
+
+	/**
+	 * The artists whose merge block is on screen, counted: so that a job's ending is said in a
+	 * snackbar only when no block that stays is already showing it (`mergeAnnounced`).
+	 */
+	private val mergeBlocks = MutableStateFlow<Map<String, Int>>(emptyMap())
+	val mergeBlocksOn: Set<String> get() = mergeBlocks.value.keys
+
+	fun mergeBlockShown(artistId: String) {
+		if (artistId.isBlank()) return
+		mergeBlocks.update { it + (artistId to (it[artistId] ?: 0) + 1) }
+	}
+
+	fun mergeBlockHidden(artistId: String) {
+		mergeBlocks.update { shown ->
+			val left = (shown[artistId] ?: 0) - 1
+			if (left > 0) shown + (artistId to left) else shown - artistId
+		}
+	}
+
+	/** The user has read an ended job: its block goes back to the form (or away). */
+	fun dismissMergeJob(rowId: String) {
+		_mergeJobs.update { jobs -> if (jobs[rowId]?.unfinished == false) jobs - rowId else jobs }
+	}
+
+	/**
+	 * Follow a merge or an undo to its end, in this manager's scope — [followAlbumJob]'s twin:
+	 * one [artistMergeById] per tick, `mergePollStep` ends it, the library is settled, and only
+	 * then is the job published as over. A row already being followed is not followed twice.
+	 */
+	fun followMergeJob(
+		job: MergeJob,
+		rowId: String,
+		intoId: String,
+		fromId: String,
+		intoName: String = "",
+		fromName: String = "",
+		seen: LbMergeRow? = null
+	) {
+		if (rowId.isBlank()) return
+		var started: MergeJobState? = null
+		_mergeJobs.update { jobs ->
+			started = null
+			if (jobs[rowId]?.unfinished == true) return@update jobs
+			val state = MergeJobState(rowId, intoId, fromId, intoName, fromName, mergePollStart(job, nowMs(), seen))
+			started = state
+			val kept = (jobs - rowId).entries.toList()
+			val ended = kept.filter { !it.value.unfinished }.takeLast(ALBUM_JOBS_KEPT).map { it.key }.toSet()
+			kept.filter { it.value.unfinished || it.key in ended }.associate { it.key to it.value } + (rowId to state)
+		}
+		val first = started ?: return
+		scope.launch { runMergeJob(first) }
+	}
+
+	private suspend fun runMergeJob(first: MergeJobState) {
+		val rowId = first.rowId
+		var poll = first.poll
+		while (poll.phase == LbJobPhase.POLLING) {
+			delay(LB_JOB_POLL_INTERVAL_MS)
+			poll = mergePollStep(poll, mergePollRead(artistMergeById(rowId)), nowMs())
+			val heard = poll
+			_mergeJobs.update { jobs -> jobs[rowId]?.let { jobs + (rowId to it.copy(poll = heard)) } ?: jobs }
+		}
+		// The merges list and the sibling groups both changed: ask for the body again.
+		requestArtistOverridesRefresh()
+		try {
+			settleMergeJob(poll, first.intoId, first.fromId)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w("LbBotManager", "merge job $rowId: the library could not be settled", e)
+		}
+		val ended = first.copy(poll = poll, endedAtMs = nowMs())
+		_mergeJobs.update { jobs -> if (rowId in jobs) jobs + (rowId to ended) else jobs }
+		_mergeJobEnded.tryEmit(ended)
+	}
+
+	/**
+	 * Bring the local library to agree with how a merge or an undo ended
+	 * (`mergeResyncArtistId`, `DbRepository.resyncArtist`): the albums Room files under the
+	 * artist whose files were rewritten are read again, and so is the artist list — which is
+	 * what drops the rewritten spelling, once the server no longer lists it. If it is still
+	 * listed after a merge that landed (Navidrome had not finished indexing, or some files
+	 * could not be written), it is looked at once more a little later; after that it is the
+	 * full pull's, as it always was. So is every album Navidrome gave a NEW id in the process
+	 * (one with no MusicBrainz album id of its own): lb-bot's row does not name them, and the
+	 * old rows stay listed until that pull.
+	 */
+	private suspend fun settleMergeJob(poll: MergePoll, intoId: String, fromId: String) {
+		// Null: the job said nothing, so nothing is read. Blank: an artist nobody here knows by
+		// id (a merge picked up from lb-bot's row) — the artist list is still read.
+		val artistId = mergeResyncArtistId(poll, intoId, fromId) ?: return
+		val stillListed = library.resyncArtist(artistId).getOrNull()
+		onLocalLibrarySynced()
+		val landed = poll.job == MergeJob.MERGE && poll.phase == LbJobPhase.DONE
+		// With no id there is no telling whether the rewritten spelling is still listed.
+		if (landed && (artistId.isBlank() || stillListed != false)) {
+			scope.launch {
+				delay(ARTIST_RESYNC_DELAY_MS)
+				library.resyncArtist(artistId)
+				onLocalLibrarySynced()
 			}
 		}
 	}
@@ -3455,7 +3726,16 @@ class LbBotManager(
 		private const val PATH_ALBUM_COVER = "/lb/album/cover"
 		private const val PATH_ALBUM_REMOVE = "/lb/album/override/remove"
 
-		/** Ended album jobs kept for a page that comes back to a dead id, or a sheet still open. */
+		// Artist name merge (I-023).
+		private const val ROUTE_ARTIST_MERGE = "POST /lb/artist/merge"
+		private const val PATH_ARTIST_MERGE = "/lb/artist/merge"
+		private const val PATH_ARTIST_MERGE_PREVIEW = "/lb/artist/merge/preview"
+		private const val PATH_ARTIST_MERGE_UNDO = "/lb/artist/merge/undo"
+
+		/** How long after a merge the artist list is read once more, if the old spelling is still listed. */
+		private const val ARTIST_RESYNC_DELAY_MS = 45_000L
+
+		/** Ended album and merge jobs kept, for a page or a block that still has to show them. */
 		private const val ALBUM_JOBS_KEPT = 8
 
 		/** How long a dead album id is looked at again after each library sync. */
@@ -3619,6 +3899,16 @@ private data class LbAlbumCoverRequest(
 
 @Serializable
 private data class LbAlbumRemoveRequest(val id: String)
+
+/** `nd_id` is the entry whose name is KEPT; `from_nd_id` the spelling that is rewritten. */
+@Serializable
+private data class LbMergeRequest(
+	@SerialName("nd_id") val ndId: String,
+	@SerialName("from_nd_id") val fromNdId: String
+)
+
+@Serializable
+private data class LbMergeUndoRequest(val id: String)
 
 @Serializable
 private data class LbGroupRequest(@SerialName("group_id") val groupId: String)

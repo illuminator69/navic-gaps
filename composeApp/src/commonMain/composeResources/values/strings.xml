@@ -816,6 +816,45 @@
 	<string name="info_album_match_not_indexed">Navidrome has not indexed the album again yet.</string>
 	<string name="action_album_match_open_album">Open the album</string>
 
+	<!-- navi-connect I-023: "Merge into one name" - two spellings of one artist, in the MusicBrainz match sheet. -->
+	<string name="title_mbid_merge">Merge into one name</string>
+	<string name="info_mbid_merge_blurb">Your library lists this artist under more than one spelling, all with the same MusicBrainz ID.</string>
+	<string name="label_mbid_merge_with">Merge with:</string>
+	<string name="label_mbid_merge_keep">Keep this name:</string>
+	<plurals name="option_mbid_merge_spelling">
+		<item quantity="one">%1$s (%2$d album)</item>
+		<item quantity="other">%1$s (%2$d albums)</item>
+	</plurals>
+	<string name="info_mbid_merge_counting">Counting what would change…</string>
+	<plurals name="count_mbid_merge_files">
+		<item quantity="one">%1$d file</item>
+		<item quantity="other">%1$d files</item>
+	</plurals>
+	<string name="info_mbid_merge_preview">lb-bot would retag %1$s in %2$s to “%3$s”.</string>
+	<string name="action_mbid_merge">Merge</string>
+	<string name="info_mbid_merge_older">This lb-bot is older and can't merge artist names yet.</string>
+	<string name="info_mbid_merge_names">%1$s → %2$s</string>
+	<string name="info_mbid_merge_retagging">lb-bot is retagging the files…</string>
+	<string name="info_mbid_merge_retagging_count">lb-bot is retagging the files: %1$d of %2$d</string>
+	<string name="info_mbid_merge_undoing">lb-bot is putting the previous names back…</string>
+	<plurals name="info_mbid_merge_retagged">
+		<item quantity="one">lb-bot retagged %1$d file.</item>
+		<item quantity="other">lb-bot retagged %1$d files.</item>
+	</plurals>
+	<plurals name="info_mbid_merge_retagged_partly">
+		<item quantity="one">lb-bot retagged %1$d of %2$d file; %3$d could not be written.</item>
+		<item quantity="other">lb-bot retagged %1$d of %2$d files; %3$d could not be written.</item>
+	</plurals>
+	<plurals name="info_mbid_merge_not_finished">
+		<item quantity="one">lb-bot did not finish retagging (%1$d of %2$d file written).</item>
+		<item quantity="other">lb-bot did not finish retagging (%1$d of %2$d files written).</item>
+	</plurals>
+	<string name="info_mbid_merge_undone">lb-bot put the previous names back.</string>
+	<string name="info_mbid_merge_not_undone">lb-bot could not put all the previous names back.</string>
+	<string name="info_mbid_merge_gone">lb-bot no longer has this merge.</string>
+	<string name="info_mbid_merge_undo_note">Undo is also in Settings, under lb-bot data.</string>
+	<string name="action_mbid_merge_done">Done</string>
+
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>
 	<string name="title_type_single">Singles</string>

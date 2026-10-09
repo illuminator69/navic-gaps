@@ -84,6 +84,8 @@ import paige.navic.di.isLandscape
 import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.MergeLeave
+import paige.navic.domain.manager.mergeLeave
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ThemeMode
@@ -118,6 +120,7 @@ import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import kotlin.time.Clock
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
 
@@ -192,6 +195,29 @@ fun ArtistDetailScreen(
 	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
 	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
 	val lbBot = koinInject<LbBotManager>()
+
+	// "Merge into one name" (I-023). A merge that lands rewrites one spelling's files to the
+	// other's name, and Navidrome keys artists by name: the rewritten spelling's id is dead.
+	// When this page is showing that artist it goes to the kept one — on the job's own state,
+	// whether or not the sheet that started it is still open, and decided on ids (`mergeLeave`).
+	val mergeJobs by lbBot.mergeJobs.collectAsState()
+	// When this page was OPENED, kept with its back-stack entry: a page that sat under another
+	// one while the merge ran still leaves when it is next shown, and one opened after the
+	// merge ended — the old spelling can still be an artist, if some files were not written —
+	// is left alone.
+	val mergeOnScreenSince = rememberSaveable(artistId) { Clock.System.now().toEpochMilliseconds() }
+	val mergedAway = mergeJobs.values.lastOrNull { !it.unfinished && it.fromId == artistId }
+	LaunchedEffect(artistId, mergedAway?.rowId, mergedAway?.endedAtMs) {
+		val job = mergedAway ?: return@LaunchedEffect
+		val leave = mergeLeave(job, artistId, mergeOnScreenSince) as? MergeLeave.ToArtist ?: return@LaunchedEffect
+		// This page's own entry, found by the id it shows.
+		val index = backStack.indexOfLast { (it as? Screen.ArtistDetail)?.artist == artistId }
+		if (index < 0) return@LaunchedEffect
+		// Opened from the kept artist's own page: leaving this one is already there.
+		val beneath = (backStack.getOrNull(index - 1) as? Screen.ArtistDetail)?.artist
+		if (beneath == leave.artistId) backStack.removeAt(index)
+		else backStack[index] = Screen.ArtistDetail(leave.artistId)
+	}
 
 	// Apple-Music-style art theming from the artist photo, following the app's
 	// light/dark mode (see CollectionDetailScreen for the same pattern).
@@ -695,7 +721,8 @@ fun ArtistDetailScreen(
 				error = match.error,
 				onPick = { viewModel.setMbidOverride(it) },
 				onRemoveOverride = { viewModel.removeMbidOverride() },
-				onDismissRequest = { viewModel.dismissMbidMatch() }
+				onDismissRequest = { viewModel.dismissMbidMatch() },
+				ndArtistId = artist.id
 			)
 		}
 	}

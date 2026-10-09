@@ -10,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -458,6 +459,42 @@ class DbRepository(
 		albumDao.deleteAlbum(albumId)
 		Logger.i("DbRepository", "- Forgot album $albumId: a retag left it empty")
 		AlbumForgotten.REMOVED
+	}
+
+	/**
+	 * Bring Room to agree with Navidrome about one artist after lb-bot rewrote an artist name on
+	 * some files (I-023, "Merge into one name") — and answer whether Room still lists [artistId].
+	 *
+	 * Navidrome keys artists by name, so a merge moves the rewritten spelling's albums to the
+	 * kept artist and an undo moves some of the kept artist's back. Two things in Room do not
+	 * follow on their own until the next full pull:
+	 * - **the albums.** Room files an album under the artist it had when it was last read, and
+	 *   the syncs that follow a retag only re-read an album whose id is new or whose track count
+	 *   or cover changed — which a renamed artist changes none of. So every album Room files
+	 *   under [artistId] is read again; the ones that moved are re-filed by the upsert.
+	 * - **the artist list.** It is read by the full pull and the artist list's own refresh
+	 *   only, so the rewritten spelling would stay listed, with a page that opens on nothing.
+	 *   It is read here the way [syncArtists] reads it: one `getArtists`, and an artist is
+	 *   dropped only when the SERVER no longer lists it. That is why this is not a "forget when
+	 *   empty" guess like [forgetAlbumIfEmpty] — a merge that could not write every file leaves
+	 *   the old spelling a real artist, and the server is the one that knows.
+	 *   **An answer that lists nobody drops nobody**: `fetchAlbumArtists` reads a Subsonic error
+	 *   envelope as an empty list, and this runs while Navidrome is still indexing a retag.
+	 *
+	 * An album Navidrome re-keyed in the process is not found under its old id and is left as
+	 * it is, for the changed-albums sweep and the full pull.
+	 */
+	suspend fun resyncArtist(artistId: String): Result<Boolean> = runDbOp {
+		// Blank: the caller cannot name the artist by id. The artist list is read all the same.
+		val ids = if (artistId.isBlank()) emptyList()
+		else albumDao.getAlbumsByArtist(artistId).first().map { it.album.albumId }
+		// A failure here is albums that could not be read; they stay as they are.
+		if (ids.isNotEmpty()) syncAlbumsById(ids)
+		val listed = sessionManager.fetchAlbumArtists().map { it.toEntity() }
+		if (listed.isEmpty()) error("the server listed no artists")
+		listed.chunked(dbChunkSize).forEach { chunk -> artistDao.insertArtists(chunk) }
+		artistDao.deleteObsoleteArtists(listed.map { it.artistId }.toSet())
+		artistDao.getArtistById(artistId) != null
 	}
 
 	/**

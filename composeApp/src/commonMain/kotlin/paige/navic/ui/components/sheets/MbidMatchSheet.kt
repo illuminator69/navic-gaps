@@ -80,6 +80,10 @@ private const val LOOKUP_DEBOUNCE_MS = 500L
  *
  * @param tagMbid Navidrome's own tag, blank when the artist has none.
  * @param currentMbid the id in force — the override when [overridden], else the tag.
+ * @param ndArtistId the artist's Navidrome id, for "Merge into one name" (I-023,
+ *   [ArtistMergeBlock]): the block shows when lb-bot lists this artist beside another spelling
+ *   with the same MusicBrainz id, or while a merge that concerns it is being followed. Blank
+ *   where the sheet is opened for an artist it has no id to merge by.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,7 +97,8 @@ fun MbidMatchSheet(
 	error: LbBotManager.LbError?,
 	onPick: (mbid: String) -> Unit,
 	onRemoveOverride: () -> Unit,
-	onDismissRequest: () -> Unit
+	onDismissRequest: () -> Unit,
+	ndArtistId: String = ""
 ) {
 	val lbBot = koinInject<LbBotManager>()
 	val title = stringResource(Res.string.action_fix_musicbrainz_match)
@@ -181,6 +186,10 @@ fun MbidMatchSheet(
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
+
+			// Above the search, not under its results: two spellings sharing this id is a
+			// statement about the match shown just above, and a result list would bury it.
+			ArtistMergeBlock(ndArtistId)
 
 			TextField(
 				state = searchState,

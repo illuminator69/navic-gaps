@@ -30,7 +30,11 @@ import navic.composeapp.generated.resources.notice_about_nothing_written
 import navic.composeapp.generated.resources.notice_about_refreshed
 import navic.composeapp.generated.resources.notice_about_same
 import navic.composeapp.generated.resources.notice_about_unreachable
+import org.jetbrains.compose.resources.PluralStringResource
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.getPluralString
+import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.AboutRefreshNotice
 import paige.navic.domain.manager.LbBotManager
@@ -70,6 +74,32 @@ fun aboutRefreshMessage(notice: AboutRefreshNotice): StringResource = when (noti
 	AboutRefreshNotice.UNREACHABLE -> Res.string.notice_about_unreachable
 	AboutRefreshNotice.ERROR -> Res.string.notice_about_error
 	AboutRefreshNotice.ERROR_SAID -> Res.string.notice_about_error_said
+}
+
+/**
+ * One sentence a sheet builds from lb-bot's answer: a plain string, or a plural with its
+ * quantity and arguments. Kept as data so the same sentence can be drawn in a sheet ([text])
+ * and said in a snackbar when no sheet is open ([resolve]).
+ */
+internal class LbSentence(
+	val string: StringResource? = null,
+	val plural: PluralStringResource? = null,
+	val quantity: Int = 0,
+	val args: List<Any> = emptyList()
+)
+
+@Composable
+internal fun LbSentence.text(): String {
+	val counted = plural
+	return if (counted != null) pluralStringResource(counted, quantity, *args.toTypedArray())
+	else string?.let { stringResource(it) }.orEmpty()
+}
+
+/** [text] outside a composition. */
+internal suspend fun LbSentence.resolve(): String {
+	val counted = plural
+	return if (counted != null) getPluralString(counted, quantity, *args.toTypedArray())
+	else string?.let { getString(it) }.orEmpty()
 }
 
 @Composable
