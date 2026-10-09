@@ -627,3 +627,136 @@ internal fun pendingTitlesToLookUp(ids: Collection<String>, seen: Set<String>): 
  */
 internal fun pendingActionTitle(itemId: String, titles: Map<String, String>): String =
 	titles[itemId]?.takeIf { it.isNotBlank() } ?: itemId
+
+// ----- album overrides and name merges (I-022, I-023) ---------------------------------------------
+// Both lists ride the overrides body beside the artist overrides, so they are exactly as loaded,
+// stale or unreachable as those are. Each may be ABSENT from the body — an lb-bot that predates
+// it, or one that could not work it out — and absent is not empty.
+
+/**
+ * Whether a list's section exists. **A missing list renders nothing**; an empty one is shown,
+ * to say there are none. With nothing loaded at all there is no section either: the overrides
+ * list above already says lb-bot is being asked, is out of reach, or is older. And [controls]
+ * — the hub offers the route the rows' Undo goes through — because a list whose every button
+ * can only fail is not one to show (Feishin gates the same two sections the same way).
+ */
+internal fun overrideListShown(data: LbPanelData, rows: List<*>?, controls: Boolean = true): Boolean =
+	controls && rows != null && (data == LbPanelData.STALE || data == LbPanelData.CURRENT)
+
+/** The line under the album overrides' heading, or null when the rows speak for themselves. */
+internal fun albumRowsNote(data: LbPanelData, count: Int): String? = when (data) {
+	LbPanelData.STALE -> LB_STALE_LINE
+	LbPanelData.CURRENT ->
+		if (count == 0) "None. An album's release is set from the album's page: Fix album match." else null
+	LbPanelData.UNSUPPORTED, LbPanelData.READING, LbPanelData.UNREACHABLE -> null
+}
+
+/** As [albumRowsNote], for the name merges. */
+internal fun mergeRowsNote(data: LbPanelData, count: Int): String? = when (data) {
+	LbPanelData.STALE -> LB_STALE_LINE
+	LbPanelData.CURRENT ->
+		if (count == 0) {
+			"None. Two spellings of one artist are merged from the artist's page: Fix MusicBrainz match."
+		} else {
+			null
+		}
+	LbPanelData.UNSUPPORTED, LbPanelData.READING, LbPanelData.UNREACHABLE -> null
+}
+
+private fun filesText(count: Int): String = "$count ${if (count == 1) "file" else "files"}"
+
+/** "Artist — Album", by the names lb-bot stored. Never blank, and never a path: at worst the row's id. */
+internal fun albumRowTitle(row: LbAlbumOverrideRow): String =
+	listOf(row.artist.trim(), row.album.trim()).filter { it.isNotBlank() }.joinToString(" — ").ifBlank { row.id }
+
+/**
+ * What an album override row says of itself: every number is the row's own. A state this build
+ * has never heard of is not put into words — no raw token, and no sentence nothing backs.
+ */
+internal fun albumRowDetail(row: LbAlbumOverrideRow): String = when (row.state) {
+	ALBUM_STATE_APPLYING ->
+		if (row.total > 0) "lb-bot is writing the tags: ${row.done} of ${filesText(row.total)}."
+		else "lb-bot is writing the tags."
+	ALBUM_STATE_REMOVING -> "lb-bot is putting the previous tags back."
+	ALBUM_STATE_FAILED ->
+		"The retag did not finish: ${row.done} of ${filesText(row.total)} written. Undo restores what was written."
+	ALBUM_STATE_APPLIED -> {
+		val retagged = when {
+			row.failures.isNotEmpty() ->
+				"Retagged ${row.done} of ${filesText(row.total)}; ${row.failures.size} could not be written."
+			// The release was kept and nothing rewritten: a cover-only change has no tags to count.
+			row.done > 0 || row.releaseMbid != row.prevReleaseMbid -> "Retagged ${filesText(row.done)}."
+			else -> ""
+		}
+		val cover = if (row.coverUrl.isNotBlank()) "Cover changed." else ""
+		listOf(retagged, cover).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "No tag was rewritten." }
+	}
+	else -> ""
+}
+
+/** A row at rest — applied, or failed part-way — can be undone; one lb-bot is working on cannot. */
+internal fun albumRowCanUndo(row: LbAlbumOverrideRow): Boolean =
+	row.id.isNotBlank() && (row.state == ALBUM_STATE_APPLIED || row.state == ALBUM_STATE_FAILED)
+
+/** "Rewritten spelling → kept name", by the names lb-bot stored; at worst the row's id. */
+internal fun mergeRowTitle(row: LbMergeRow): String =
+	listOf(row.from.name.trim(), row.into.name.trim()).filter { it.isNotBlank() }.joinToString(" → ").ifBlank { row.id }
+
+/** As [albumRowDetail], for a name merge. */
+internal fun mergeRowDetail(row: LbMergeRow): String = when (row.state) {
+	MERGE_STATE_MERGING ->
+		if (row.total > 0) "lb-bot is retagging the files: ${row.done} of ${row.total}."
+		else "lb-bot is retagging the files."
+	MERGE_STATE_UNDOING -> "lb-bot is putting the previous names back."
+	MERGE_STATE_FAILED ->
+		"The merge did not finish: ${row.done} of ${filesText(row.total)} written. Undo restores what was written."
+	MERGE_STATE_MERGED ->
+		if (row.failures.isNotEmpty()) {
+			"Retagged ${row.done} of ${filesText(row.total)}; ${row.failures.size} could not be written."
+		} else {
+			"Retagged ${filesText(row.done)}."
+		}
+	else -> ""
+}
+
+internal fun mergeRowCanUndo(row: LbMergeRow): Boolean =
+	row.id.isNotBlank() && (row.state == MERGE_STATE_MERGED || row.state == MERGE_STATE_FAILED)
+
+/**
+ * What pressing Undo came to — the request's own answer. lb-bot works in the background, so a
+ * started undo is said as started; how it ends is said when it ends, and the row then leaves
+ * the list. A refusal is lb-bot's sentence; an lb-bot older than the route is a fact, not an
+ * error.
+ */
+internal fun undoStartLine(result: LbBotManager.LbResult<*>, merge: Boolean): String = when (result) {
+	is LbBotManager.LbResult.Ok ->
+		if (merge) "lb-bot is putting the previous names back." else "lb-bot is putting the previous tags back."
+	is LbBotManager.LbResult.Failed ->
+		if (result.error == LbBotManager.LbError.RouteUnknown) {
+			"This lb-bot is older and has no such undo. Nothing was changed."
+		} else {
+			"Not undone: ${lbErrorClause(result.error)}."
+		}
+}
+
+/**
+ * The line under the lists for an Undo pressed in this panel, **for as long as it is true**.
+ * [started] is the request's own answer ([undoStartLine]); [phase] is where the job that request
+ * started now stands, or null when this device no longer follows one.
+ *
+ * "lb-bot is putting … back" is a sentence about a job still running, so it is said only while
+ * the job is followed. Once the job has ended the line says how; and with no job to speak of
+ * it says nothing — the list above is then what is true.
+ */
+internal fun undoLine(started: LbBotManager.LbResult<*>, merge: Boolean, phase: LbJobPhase?): String {
+	if (started is LbBotManager.LbResult.Failed) return undoStartLine(started, merge)
+	val what = if (merge) "names" else "tags"
+	return when (phase) {
+		null -> ""
+		LbJobPhase.POLLING -> undoStartLine(started, merge)
+		// For an undo the row being gone IS the finish; GONE is not a phase it ends in.
+		LbJobPhase.DONE, LbJobPhase.GONE -> "lb-bot put the previous $what back."
+		LbJobPhase.FAILED -> "lb-bot could not put all the previous $what back."
+		LbJobPhase.TIMED_OUT -> "lb-bot is still working on it. Sync now reads the list again."
+	}
+}

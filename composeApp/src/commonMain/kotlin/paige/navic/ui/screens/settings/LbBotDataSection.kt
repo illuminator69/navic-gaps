@@ -26,11 +26,21 @@ import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbMatchToCheck
 import paige.navic.domain.manager.MATCHES_TO_CHECK_BLURB
+import paige.navic.domain.manager.albumJobInWay
+import paige.navic.domain.manager.albumRowCanUndo
+import paige.navic.domain.manager.albumRowDetail
+import paige.navic.domain.manager.albumRowTitle
+import paige.navic.domain.manager.albumRowsNote
 import paige.navic.domain.manager.matchCanKeep
 import paige.navic.domain.manager.matchDetail
 import paige.navic.domain.manager.matchesNote
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.lbLayerLine
+import paige.navic.domain.manager.mergeJobInWay
+import paige.navic.domain.manager.mergeRowCanUndo
+import paige.navic.domain.manager.mergeRowDetail
+import paige.navic.domain.manager.mergeRowTitle
+import paige.navic.domain.manager.mergeRowsNote
 import paige.navic.domain.manager.mirrorLine
 import paige.navic.domain.manager.overrideTagLine
 import paige.navic.domain.manager.overridesNote
@@ -40,7 +50,8 @@ import paige.navic.ui.screens.settings.viewmodels.LbBotDataViewModel
 
 /**
  * "lb-bot data" (I-020), a section of the navi-connect settings screen: what this device holds
- * of lb-bot's and what lb-bot holds for this user — the artist MBID overrides, the index mirror,
+ * of lb-bot's and what lb-bot holds for this user — the artist MBID overrides, the albums it
+ * retagged (I-022) and the artist names it merged (I-023), each with its Undo, the index mirror,
  * the listening history — with one "Sync now".
  *
  * Its strings are plain English, like the rest of that screen, and every one of them is decided
@@ -88,6 +99,12 @@ fun LbBotDataSection(
 	val matches by viewModel.matches.collectAsStateWithLifecycle()
 	val pick by viewModel.pick.collectAsStateWithLifecycle()
 	val knownArtistIds by viewModel.knownArtistIds.collectAsStateWithLifecycle()
+	val albumRows by viewModel.albumRows.collectAsStateWithLifecycle()
+	val mergeRows by viewModel.mergeRows.collectAsStateWithLifecycle()
+	val albumJobs by viewModel.albumJobs.collectAsStateWithLifecycle()
+	val mergeJobs by viewModel.mergeJobs.collectAsStateWithLifecycle()
+	val busyUndo by viewModel.busyUndo.collectAsStateWithLifecycle()
+	val undoLine by viewModel.undoLine.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val mirror by viewModel.mirror.collectAsStateWithLifecycle()
 	val indexLine by viewModel.indexLine.collectAsStateWithLifecycle()
@@ -121,6 +138,60 @@ fun LbBotDataSection(
 			)
 		}
 	}
+
+	// ----- album overrides (I-022) and name merges (I-023) ------------------------------------
+	// Each is a section only when lb-bot sent the list and the hub carries its Undo
+	// (`overrideListShown`): a missing list renders nothing, an empty one says there are none.
+	// A shown list is a loaded one, so its count is always a count of something.
+	if (albumRows.shown) {
+		var albumsOpen by rememberSaveable { mutableStateOf(false) }
+		Heading(
+			title = "Album matches changed by lb-bot (${albumRows.rows.size})",
+			expandable = albumRows.rows.isNotEmpty(),
+			open = albumsOpen,
+			onToggle = { albumsOpen = !albumsOpen }
+		)
+		albumRowsNote(albumRows.data, albumRows.rows.size)?.let { Muted(it) }
+		if (albumsOpen) {
+			albumRows.rows.forEach { row ->
+				UndoRow(
+					title = albumRowTitle(row),
+					id = row.releaseMbid,
+					detail = albumRowDetail(row),
+					// At rest, nothing of this panel's out, and no job the manager still follows
+					// for the row or its album — that one it would refuse, unsent.
+					enabled = busyUndo == null && albumRowCanUndo(row) &&
+						albumJobInWay(albumJobs.values, row.albumId, row.id) == null,
+					onUndo = { viewModel.undoAlbum(row) }
+				)
+			}
+		}
+	}
+	if (mergeRows.shown) {
+		var mergesOpen by rememberSaveable { mutableStateOf(false) }
+		Heading(
+			title = "Merged artist names (${mergeRows.rows.size})",
+			expandable = mergeRows.rows.isNotEmpty(),
+			open = mergesOpen,
+			onToggle = { mergesOpen = !mergesOpen }
+		)
+		mergeRowsNote(mergeRows.data, mergeRows.rows.size)?.let { Muted(it) }
+		if (mergesOpen) {
+			mergeRows.rows.forEach { row ->
+				UndoRow(
+					title = mergeRowTitle(row),
+					id = row.mbid,
+					detail = mergeRowDetail(row),
+					enabled = busyUndo == null && mergeRowCanUndo(row) &&
+						mergeJobInWay(mergeJobs.values, listOf(row.into.ndArtistId, row.from.ndArtistId), row.id) == null,
+					onUndo = { viewModel.undoMerge(row) }
+				)
+			}
+		}
+	}
+	// What the last Undo came to: lb-bot's refusal, that it is at work, then how it ended.
+	if (undoLine.isNotBlank()) Muted(undoLine)
+
 	// ----- matches to check (I-021) ---------------------------------------------------------
 	// Shown only when lb-bot sends the list (or when nothing could be loaded at all, to say
 	// so). An lb-bot that predates it sends none, and there is then no section — not an empty
@@ -255,6 +326,32 @@ private fun MatchRow(
 				OutlinedButton(enabled = enabled, onClick = onKeep) { Text("Keep this match") }
 			}
 		}
+	}
+}
+
+/**
+ * One album override or name merge: what it is, the MusicBrainz id it is about, what lb-bot says
+ * of it (`albumRowDetail`, `mergeRowDetail`), and Undo.
+ */
+@Composable
+private fun UndoRow(title: String, id: String, detail: String, enabled: Boolean, onUndo: () -> Unit) {
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.SpaceBetween,
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Column(Modifier.weight(1f)) {
+			Text(
+				title,
+				style = MaterialTheme.typography.bodyLarge,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+			if (id.isNotBlank()) Muted(id)
+			// A state this build has never heard of is not put into words: no line then.
+			if (detail.isNotBlank()) Muted(detail)
+		}
+		OutlinedButton(enabled = enabled, onClick = onUndo) { Text("Undo") }
 	}
 }
 

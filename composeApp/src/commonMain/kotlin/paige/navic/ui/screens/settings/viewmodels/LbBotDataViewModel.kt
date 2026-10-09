@@ -18,16 +18,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.domain.manager.AlbumJob
+import paige.navic.domain.manager.LbAlbumOverrideRow
 import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexRun
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbListeningStatus
 import paige.navic.domain.manager.LbMatchToCheck
+import paige.navic.domain.manager.LbMergeRow
 import paige.navic.domain.manager.LbMirrorInfo
 import paige.navic.domain.manager.LbPanelData
 import paige.navic.domain.manager.ListeningPhase
 import paige.navic.domain.manager.ListeningSyncOutcome
+import paige.navic.domain.manager.MergeJob
+import paige.navic.domain.manager.albumRowCanUndo
 import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.indexRunLineAfterTap
 import paige.navic.domain.manager.listeningPhase
@@ -38,9 +43,12 @@ import paige.navic.domain.manager.listeningSyncOutcome
 import paige.navic.domain.manager.matchCanKeep
 import paige.navic.domain.manager.matchesSectionShown
 import paige.navic.domain.manager.matchesToShow
+import paige.navic.domain.manager.mergeRowCanUndo
+import paige.navic.domain.manager.overrideListShown
 import paige.navic.domain.manager.overrideWriteLine
 import paige.navic.domain.manager.panelData
 import paige.navic.domain.manager.panelReading
+import paige.navic.domain.manager.undoLine
 
 /** The overrides list as the panel shows it: what kind of data it is, and the rows. */
 @Immutable
@@ -55,6 +63,17 @@ data class MatchesPanel(
 	val shown: Boolean = false,
 	val data: LbPanelData = LbPanelData.READING,
 	val rows: List<LbMatchToCheck> = emptyList()
+)
+
+/**
+ * One of the two lists that ride the overrides body — the album overrides (I-022) or the name
+ * merges (I-023). [shown] false: no such section at all (`overrideListShown`).
+ */
+@Immutable
+data class OverrideListPanel<T>(
+	val shown: Boolean = false,
+	val data: LbPanelData = LbPanelData.READING,
+	val rows: List<T> = emptyList()
 )
 
 /** The MusicBrainz picker opened from a "matches to check" row, and its write's state. */
@@ -161,6 +180,75 @@ class LbBotDataViewModel(
 	 */
 	private val _knownArtistIds = MutableStateFlow<Set<String>>(emptySet())
 	val knownArtistIds = _knownArtistIds.asStateFlow()
+
+	// ----- album overrides and name merges (I-022, I-023) ------------------------------------ //
+
+	/**
+	 * The albums lb-bot retagged and the artist names it merged. Both arrive in the body the
+	 * artist overrides come in, so [overrides]'s verdict is theirs; each is ABSENT from an lb-bot
+	 * that predates it or could not work it out, and there is then no section. In lb-bot's own
+	 * order, which is newest first.
+	 */
+	val albumRows: StateFlow<OverrideListPanel<LbAlbumOverrideRow>> = combine(
+		lbBotManager.albumOverrideRows,
+		lbBotManager.albumOverridesSupported,
+		overrides
+	) { rows, controls, panel ->
+		OverrideListPanel(overrideListShown(panel.data, rows, controls), panel.data, rows.orEmpty())
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverrideListPanel())
+
+	val mergeRows: StateFlow<OverrideListPanel<LbMergeRow>> = combine(
+		lbBotManager.artistMerges,
+		lbBotManager.artistMergesSupported,
+		overrides
+	) { rows, controls, panel ->
+		OverrideListPanel(overrideListShown(panel.data, rows, controls), panel.data, rows.orEmpty())
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverrideListPanel())
+
+	/**
+	 * The jobs the manager follows. A row one of them is still working on has no Undo to press
+	 * (`albumJobInWay`, `mergeJobInWay`) — the manager would refuse it, unsent.
+	 */
+	val albumJobs = lbBotManager.albumJobs
+	val mergeJobs = lbBotManager.mergeJobs
+
+	/** The row an Undo request from this panel is out for, so the buttons can wait. */
+	private val _busyUndo = MutableStateFlow<String?>(null)
+	val busyUndo = _busyUndo.asStateFlow()
+
+	/** The last Undo pressed here, and what lb-bot answered the request with. */
+	private data class UndoAnswered(
+		val rowId: String,
+		val merge: Boolean,
+		val result: LbBotManager.LbResult<*>
+	)
+
+	private val undoAnswered = MutableStateFlow<UndoAnswered?>(null)
+
+	/**
+	 * What the last Undo came to, for as long as it is true (`undoLine`): the refusal; while the
+	 * manager follows the job, that lb-bot is at work; then how it ended. The job read is the
+	 * one this undo started — not the apply or the merge that made the row.
+	 */
+	val undoLine: StateFlow<String> = combine(
+		undoAnswered,
+		lbBotManager.albumJobs,
+		lbBotManager.mergeJobs
+	) { asked, albums, merges ->
+		if (asked == null) {
+			""
+		} else {
+			undoLine(
+				started = asked.result,
+				merge = asked.merge,
+				phase = if (asked.merge) {
+					merges[asked.rowId]?.poll?.takeIf { it.job == MergeJob.UNDO }?.phase
+				} else {
+					albums[asked.rowId]?.poll?.takeIf { it.job == AlbumJob.REMOVE }?.phase
+				}
+			)
+		}
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
 	// ----- the index mirror ---------------------------------------------------------------- //
 
@@ -401,6 +489,50 @@ class LbBotDataViewModel(
 				)
 			} finally {
 				_busyOverride.value = null
+			}
+		}
+	}
+
+	/**
+	 * Undo an album override (I-022): lb-bot puts the previous tags and cover back, in the
+	 * background. The manager follows the job and settles the library, exactly as when the
+	 * album's own sheet asks; [undoLine] says what the request and then the job came to, and the
+	 * row leaves the list when lb-bot has finished.
+	 */
+	fun undoAlbum(row: LbAlbumOverrideRow) {
+		if (_busyUndo.value != null || !albumRowCanUndo(row)) return
+		_busyUndo.value = row.id
+		viewModelScope.launch {
+			try {
+				// `albumId` is the album's current id, which the undo of a retag kills.
+				val result = lbBotManager.removeAlbumOverride(row.id, row.albumId)
+				undoAnswered.value = UndoAnswered(row.id, merge = false, result = result)
+			} finally {
+				_busyUndo.value = null
+			}
+		}
+	}
+
+	/**
+	 * Undo a name merge (I-023): lb-bot puts the previous names back. The row names the
+	 * rewritten spelling by name only — its id died with the merge — so the manager is given
+	 * what the row has.
+	 */
+	fun undoMerge(row: LbMergeRow) {
+		if (_busyUndo.value != null || !mergeRowCanUndo(row)) return
+		_busyUndo.value = row.id
+		viewModelScope.launch {
+			try {
+				val result = lbBotManager.undoArtistMerge(
+					id = row.id,
+					intoId = row.into.ndArtistId,
+					fromId = row.from.ndArtistId,
+					intoName = row.into.name,
+					fromName = row.from.name
+				)
+				undoAnswered.value = UndoAnswered(row.id, merge = true, result = result)
+			} finally {
+				_busyUndo.value = null
 			}
 		}
 	}
