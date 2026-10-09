@@ -37,7 +37,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | lb-bot data, pending actions | `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`), `ui/screens/settings/{LbBotDataSection,PendingActionsScreen}.kt` + their view models, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
@@ -642,6 +642,51 @@ still advancing the speaker's queue. It logs one line when it fires.
   found" for none — and a count of 0 is a field that did not arrive, never "0 albums". "Keep this
   match" is an ordinary set of the guessed MBID; "Choose…" is the artist page's own picker,
   opened with no id in force.
+- **"Fix album match" retags an owned album to a MusicBrainz release, and lb-bot holds all of
+  it (I-022).** The user picks which release an album is; lb-bot rewrites the files' tags (release
+  id, disc and track numbers, titles, date — tags only), keeps the previous ones for an undo, and
+  can save a Cover Art Archive image as the cover. Six routes under `/lb/album/` (`override` GET
+  and POST, `override/preview`, `override/remove`, `covers`, `cover`). **Nothing is stored on the
+  device**: `AlbumMatchSheet` reads the album's state when it opens, and the retagged album comes
+  back through the ordinary `library` frame and the Room sync.
+  - **Every rule is a pure function in `AlbumOverride.kt`** (`AlbumOverrideTest`,
+    `AlbumOverridePollTest`), and the sheet only asks and draws. Each route's answer is read by a
+    function of the HTTP status and the body text (`albumStateAnswer`, `albumPreviewAnswer`,
+    `albumApplyAnswer`, …), through `LbBotManager.rawGet` / `rawPost`, so a refusal keeps its
+    `code`: `LbError.Rejected.code` is filled on these routes and "" on every other. A bare 404 or a
+    405 is an lb-bot older than the hub (`RouteUnknown`: `albumOverridesSupported` goes false and
+    the entry points hide until the next advert; the sheet says so in one muted sentence); a 404
+    **with** a code, a 409 `busy` / `in_progress` and a 502 with `retryable` are lb-bot's own
+    answers and are shown in its words. A **409 `poor_match` with both numbers is not a failure but
+    a question** (`LbAlbumApply.PoorMatch`): the sheet names both and resends with `force`. A 200
+    that is not the promised body is never read as one — `{}` would decode to "untagged, no
+    tracks", "0 files change" or "started".
+  - **The job is followed by the override row's id, not the album's** (`albumPollStep`): an apply
+    and a remove answer at once and work in the background, and **the retag changes the album's
+    Navidrome id**. One `GET /lb/album/override?id=` every 2 s on the poll routes' 12 s timeout,
+    in the sheet's own `LaunchedEffect`, so it ends with the sheet; a job found running when the
+    sheet opens is picked up. `applied` / `failed` end an apply, the row being gone
+    (404 `no_override`) ends a remove, a row standing again after it was seen `removing` is a
+    remove that did not finish, a failed poll is not an answer, and after 3 minutes the sheet
+    says "still working" and stops. The three writes run in the manager's scope, so a sheet
+    swiped away mid-request does not cancel what the user confirmed.
+  - **After a change the user is moved off the dead id** (`albumAfterPoll` → `AlbumAfter`): to the
+    album's page under the row's `albumId` when lb-bot names one — **only once Room holds it**
+    (`DbRepository.syncAlbumsById` for that one id; `CollectionDetail` loads from Room and refuses
+    an id it does not hold) — else to the artist's page. The old id's album row and its songs
+    stay in Room until the next full sync that is complete and stable prunes them
+    (`deleteObsoleteAlbums` / `deleteObsoleteSongs`); the landing and changed-album syncs only
+    upsert. A download is a `DownloadEntity` keyed by **song** id in the other database, which
+    no sync prunes: if Navidrome gave the retagged songs new ids, the files stay on disk under
+    the old ones and the album under its new id reads as not downloaded.
+  - **Entry points**, both gated on `albumOverridesSupported` and `isConfigured`: the "Fix album
+    match" row of `CollectionSheet` (passed by the album page's top bar and by the artist page's
+    album sheet — the other long-press sheets do not host it) and "Wrong edition?" in
+    `GapFillSheet`. With no `rgid` from lb-bot the release group is found the way Discover
+    resolves a browse row (`albumLookupQuery` fielded, `releaseGroupFor` validated, declining is
+    fine) and otherwise only a pasted release id is offered. Every sentence states what lb-bot
+    answered; nothing says whether a favourite, a rating or a play count survives a retag.
+    Feishin's `album-override.ts` is the hand-mirrored twin.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
