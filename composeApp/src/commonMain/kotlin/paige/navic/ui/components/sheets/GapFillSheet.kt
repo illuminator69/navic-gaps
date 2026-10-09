@@ -47,6 +47,7 @@ import navic.composeapp.generated.resources.action_open_in_lbbot
 import navic.composeapp.generated.resources.action_search_again
 import navic.composeapp.generated.resources.action_recheck_album
 import navic.composeapp.generated.resources.action_show_files
+import navic.composeapp.generated.resources.action_wrong_edition
 import navic.composeapp.generated.resources.info_gap_edition
 import navic.composeapp.generated.resources.info_gap_failed
 import navic.composeapp.generated.resources.info_gap_progress
@@ -111,10 +112,16 @@ fun GapFillSheet(
 	groupId: String,
 	albumTitle: String,
 	coverArtId: String?,
-	onDismissRequest: () -> Unit
+	onDismissRequest: () -> Unit,
+	/**
+	 * Opens "Fix album match" for the gap's album (I-022). The row shows only when the caller
+	 * can host that sheet, the hub offers the route, and the gap names its Navidrome album.
+	 */
+	onWrongEdition: ((gap: LbGap) -> Unit)? = null
 ) {
 	val lbBot = koinInject<LbBotManager>()
 	val scope = rememberCoroutineScope()
+	val canFixAlbumMatch by lbBot.albumOverridesSupported.collectAsState()
 
 	val gaps by lbBot.gaps.collectAsState()
 	val webUrl by lbBot.webUrl.collectAsState()
@@ -269,6 +276,14 @@ fun GapFillSheet(
 				// count reads as a miscount and the short download reads as a bug.
 				if (gap.canonicalMbid.isNotBlank() && gap.total > 0) {
 					SheetCaption(stringResource(Res.string.info_gap_edition))
+				}
+				// When that release is the wrong pressing, the "missing" tracks are ones this
+				// album never had, and no download fixes it: naming the right release does. Also
+				// offered for an untagged album, which is where a wrong guess is likeliest.
+				if (onWrongEdition != null && canFixAlbumMatch && lbBot.isConfigured && gap.albumId.isNotBlank()) {
+					TextButton(onClick = { onWrongEdition(gap) }) {
+						Text(stringResource(Res.string.action_wrong_edition))
+					}
 				}
 				GapTracks(gap)
 

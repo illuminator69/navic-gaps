@@ -54,6 +54,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.AlbumAfter
 import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.models.DomainPlaylist
@@ -79,6 +80,7 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRowDropdown
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.components.sheets.AboutSheet
+import paige.navic.ui.components.sheets.AlbumMatchSheet
 import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.components.collectionDetailScreenSimilarAlbumsRow
@@ -242,6 +244,14 @@ fun CollectionDetailScreen(
 		hasRules = albumModeHere ||
 			nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
 	}
+	// "Fix album match" (I-022). Offered for an album; the sheet's row hides itself unless the
+	// hub offers the route. The sheet is hosted here, not inside the action sheet that opens it,
+	// which leaves the composition the moment a row is tapped.
+	var albumMatchShown by rememberSaveable(collectionId) { mutableStateOf(false) }
+	val fixAlbumMatch: (() -> Unit)? = if (collection is DomainAlbum) {
+		{ albumMatchShown = true }
+	} else null
+
 	val editRules: (() -> Unit)? = if (collection is DomainPlaylist && hasRules) {
 		{ backStack.add(Screen.SmartPlaylistEditor(collection.id)) }
 	} else null
@@ -297,7 +307,8 @@ fun CollectionDetailScreen(
 					{ viewModel.refreshAbout() }
 				} else {
 					null
-				}
+				},
+				onFixAlbumMatch = fixAlbumMatch
 			)
 		},
 		bottomBar = {
@@ -564,6 +575,35 @@ fun CollectionDetailScreen(
 			// the row now prefers `notes`, so that is what was on screen.
 			fallbackBio = (albumInfoState as? UiState.Success)?.data?.notes,
 			coverArtId = collection?.coverArtId
+		)
+	}
+
+	if (albumMatchShown && collection is DomainAlbum) {
+		AlbumMatchSheet(
+			albumId = collection.id,
+			albumTitle = collection.name.orEmpty(),
+			artistName = collection.artistName.orEmpty(),
+			coverArtId = collection.coverArtId,
+			onFinished = { after ->
+				// A retag changes the album's Navidrome id, so this page may be showing an id
+				// that is dead. Where lb-bot names the album's id now (and Room holds it — the
+				// sheet has checked), that page replaces this one; otherwise the artist's does.
+				val here = Screen.CollectionDetail(collectionId, tab)
+				when (after) {
+					AlbumAfter.Stay -> viewModel.refreshCollection(true)
+					is AlbumAfter.Album -> {
+						if (backStack.lastOrNull() == here) backStack.removeLastOrNull()
+						backStack.add(Screen.CollectionDetail(after.albumId, tab))
+					}
+					AlbumAfter.Artist -> {
+						if (backStack.lastOrNull() == here) backStack.removeLastOrNull()
+						// Opened from the artist's own page, leaving this one is already there.
+						val artist = Screen.ArtistDetail(collection.artistId)
+						if (backStack.lastOrNull() != artist) backStack.add(artist)
+					}
+				}
+			},
+			onDismissRequest = { albumMatchShown = false }
 		)
 	}
 

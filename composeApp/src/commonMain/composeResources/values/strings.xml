@@ -733,6 +733,89 @@
 	<string name="notice_mbid_match_failed">Couldn't change the MusicBrainz match.</string>
 	<string name="notice_mbid_match_unsupported">This lb-bot is older and can't store a MusicBrainz match yet. Nothing was changed.</string>
 
+	<!-- navi-connect I-022: "Fix album match" - which MusicBrainz release an owned album is. -->
+	<string name="action_fix_album_match">Fix album match</string>
+	<string name="action_wrong_edition">Wrong edition?</string>
+	<string name="info_album_match_older">This lb-bot is older and can't fix album matches yet.</string>
+	<string name="info_album_match_tagged">Tagged as this MusicBrainz release:</string>
+	<string name="info_album_match_untagged">This album's files are not tagged with a MusicBrainz release.</string>
+	<string name="info_album_match_changed">lb-bot changed this album's tags or cover. Undo puts the previous ones back.</string>
+	<plurals name="info_album_match_row_failures">
+		<item quantity="one">%1$d file could not be written:</item>
+		<item quantity="other">%1$d files could not be written:</item>
+	</plurals>
+	<string name="title_album_match_editions">Editions</string>
+	<string name="info_album_match_looking_up">Looking this album up on MusicBrainz…</string>
+	<string name="info_album_match_lookup_failed">Couldn't look this album up on MusicBrainz.</string>
+	<string name="info_album_match_no_group">lb-bot doesn't know this album's release group. Paste the release's MusicBrainz ID or link below.</string>
+	<string name="info_album_match_editions_failed">Couldn't load this album's editions.</string>
+	<string name="info_album_match_no_editions">MusicBrainz lists no editions for this album.</string>
+	<string name="option_album_match_paste">Or paste a MusicBrainz release ID or link</string>
+	<string name="info_album_match_bad_id">Not a MusicBrainz release ID or link</string>
+	<string name="action_album_match_preview">Preview this release</string>
+	<string name="title_album_match_preview">What would change</string>
+	<string name="info_album_match_previewing">Asking lb-bot what would change…</string>
+	<plurals name="count_album_match_discs">
+		<item quantity="one">%1$d disc</item>
+		<item quantity="other">%1$d discs</item>
+	</plurals>
+	<plurals name="info_album_match_changing">
+		<item quantity="one">%1$d file changes</item>
+		<item quantity="other">%1$d files change</item>
+	</plurals>
+	<plurals name="info_album_match_no_slot">
+		<item quantity="one">%1$d file has no place on this release</item>
+		<item quantity="other">%1$d files have no place on this release</item>
+	</plurals>
+	<plurals name="info_album_match_missing">
+		<item quantity="one">%1$d track of this release is still missing afterwards</item>
+		<item quantity="other">%1$d tracks of this release are still missing afterwards</item>
+	</plurals>
+	<string name="info_album_match_no_slot_note">A file with no place is left untouched, and Navidrome will then list it as an album of its own.</string>
+	<string name="info_album_match_no_place">No place on this release</string>
+	<plurals name="action_album_match_show_unchanged">
+		<item quantity="one">Show %1$d file that stays as it is</item>
+		<item quantity="other">Show %1$d files that stay as they are</item>
+	</plurals>
+	<string name="title_album_match_missing">Still missing</string>
+	<string name="title_album_match_cover">Cover</string>
+	<string name="option_album_match_keep_cover">Keep the current cover</string>
+	<string name="info_album_match_no_covers">The Cover Art Archive has no cover for this release.</string>
+	<plurals name="info_album_match_commit">
+		<item quantity="one">lb-bot rewrites the tags of %1$d file and keeps the previous ones, so this can be undone.</item>
+		<item quantity="other">lb-bot rewrites the tags of %1$d files and keeps the previous ones, so this can be undone.</item>
+	</plurals>
+	<string name="info_album_match_commit_with_cover">It also saves the chosen image as the album's cover.</string>
+	<string name="info_album_match_commit_cover">lb-bot saves the chosen image as the album's cover and keeps the previous one, so this can be undone.</string>
+	<string name="info_album_match_nothing">Nothing would change.</string>
+	<string name="action_album_match_apply">Apply</string>
+	<string name="action_album_match_set_cover">Set cover</string>
+	<string name="info_album_match_poor">Only %1$d of the %2$d files have a place on this release. Apply anyway?</string>
+	<string name="action_album_match_apply_anyway">Apply anyway</string>
+	<string name="info_album_match_applying">Writing tags…</string>
+	<string name="info_album_match_applying_count">Writing tags: %1$d of %2$d files</string>
+	<string name="info_album_match_removing">Putting the previous tags back…</string>
+	<plurals name="info_album_match_wrote">
+		<item quantity="one">lb-bot wrote the tags of %1$d file.</item>
+		<item quantity="other">lb-bot wrote the tags of %1$d files.</item>
+	</plurals>
+	<plurals name="info_album_match_wrote_partly">
+		<item quantity="one">lb-bot wrote %1$d of %2$d file; %3$d could not be written.</item>
+		<item quantity="other">lb-bot wrote %1$d of %2$d files; %3$d could not be written.</item>
+	</plurals>
+	<plurals name="info_album_match_not_finished">
+		<item quantity="one">lb-bot did not finish writing the tags (%1$d of %2$d file written).</item>
+		<item quantity="other">lb-bot did not finish writing the tags (%1$d of %2$d files written).</item>
+	</plurals>
+	<string name="info_album_match_removed">lb-bot put the previous tags back.</string>
+	<string name="info_album_match_not_removed">lb-bot could not put all the previous tags back.</string>
+	<string name="info_album_match_gone">lb-bot no longer lists this change.</string>
+	<string name="info_album_match_still_working">Still working — check the lb-bot data panel.</string>
+	<string name="info_album_match_cover_saved">lb-bot saved the cover.</string>
+	<string name="info_album_match_not_indexed">Navidrome has not indexed the album again yet.</string>
+	<string name="action_album_match_open_album">Open the album</string>
+	<string name="action_album_match_to_artist">Back to the artist</string>
+
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>
 	<string name="title_type_single">Singles</string>

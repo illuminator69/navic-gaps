@@ -64,7 +64,9 @@ fun CollectionDetailScreenTopBar(
 	/** Re-runs an album-mode playlist's stored recipe. Null for anything else. */
 	onRefreshRules: (() -> Unit)? = null,
 	/** Asks lb-bot for the album's About again. Null until the album's release-group is known. */
-	onRefreshAbout: (() -> Unit)? = null
+	onRefreshAbout: (() -> Unit)? = null,
+	/** Opens "Fix album match". Null for a playlist; the sheet's row gates itself on the hub. */
+	onFixAlbumMatch: (() -> Unit)? = null
 ) {
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
@@ -122,7 +124,8 @@ fun CollectionDetailScreenTopBar(
 						onAutoDownload = onAutoDownload,
 						onEditRules = onEditRules,
 						onRefreshRules = onRefreshRules,
-						onRefreshAbout = onRefreshAbout
+						onRefreshAbout = onRefreshAbout,
+						onFixAlbumMatch = onFixAlbumMatch
 					)
 				}
 			}

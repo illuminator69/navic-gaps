@@ -81,6 +81,7 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
+import paige.navic.domain.manager.AlbumAfter
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -100,6 +101,7 @@ import paige.navic.di.ForceSystemBars
 import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
+import paige.navic.ui.components.sheets.AlbumMatchSheet
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.components.sheets.GapFillSheet
 import paige.navic.ui.components.sheets.MbidMatchSheet
@@ -118,6 +120,14 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
+
+/** The album "Fix album match" is open on: its Navidrome id, and the library's names for it. */
+private data class AlbumMatchTarget(
+	val albumId: String,
+	val title: String,
+	val artistName: String,
+	val coverArtId: String?
+)
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -186,6 +196,10 @@ fun ArtistDetailScreen(
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+
+	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
+	// edition?". Held here because both of those sheets close as they open it.
+	var albumMatch by remember { mutableStateOf<AlbumMatchTarget?>(null) }
 
 	// Apple-Music-style art theming from the artist photo, following the app's
 	// light/dark mode (see CollectionDetailScreen for the same pattern).
@@ -654,7 +668,15 @@ fun ArtistDetailScreen(
 			rating = selectedAlbumRating,
 			onSetRating = { viewModel.rateSelectedAlbum(it) },
 			missingTrackCount = gapEntry?.missingTracks,
-			onFillGaps = gapEntry?.let { entry -> { viewModel.selectGap(entry) } }
+			onFillGaps = gapEntry?.let { entry -> { viewModel.selectGap(entry) } },
+			onFixAlbumMatch = {
+				albumMatch = AlbumMatchTarget(
+					albumId = album.id,
+					title = album.name.orEmpty(),
+					artistName = album.artistName.orEmpty(),
+					coverArtId = album.coverArtId
+				)
+			}
 		)
 	}
 
@@ -690,9 +712,36 @@ fun ArtistDetailScreen(
 				groupId = groupId,
 				albumTitle = entry.title,
 				coverArtId = entry.album?.coverArtId,
-				onDismissRequest = { viewModel.selectGap(null) }
+				onDismissRequest = { viewModel.selectGap(null) },
+				onWrongEdition = { gap ->
+					albumMatch = AlbumMatchTarget(
+						albumId = gap.albumId,
+						title = gap.album.ifBlank { entry.title },
+						artistName = gap.artist,
+						coverArtId = entry.album?.coverArtId
+					)
+					viewModel.selectGap(null)
+				}
 			)
 		}
+	}
+
+	albumMatch?.let { target ->
+		AlbumMatchSheet(
+			albumId = target.albumId,
+			albumTitle = target.title,
+			artistName = target.artistName,
+			coverArtId = target.coverArtId,
+			onFinished = { after ->
+				// This is already the artist's page, and its shelf follows the library on its
+				// own. Only an album that lives under a new id — and that Room holds, which
+				// the sheet has checked — has somewhere else to go.
+				if (after is AlbumAfter.Album) {
+					backStack.add(Screen.CollectionDetail(after.albumId, "artist"))
+				}
+			},
+			onDismissRequest = { albumMatch = null }
+		)
 	}
 
 	if (playlistDialogShown) {

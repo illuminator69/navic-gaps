@@ -19,6 +19,8 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -32,6 +34,7 @@ import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
+import navic.composeapp.generated.resources.action_fix_album_match
 import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.action_refresh_about
 import navic.composeapp.generated.resources.action_remove_star
@@ -49,6 +52,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.canUserShare
@@ -118,9 +122,15 @@ fun CollectionSheet(
 	onFillGaps: (() -> Unit)? = null,
 	// Asks lb-bot to look the album's About up again. Passed only by the album page, and only
 	// once it knows which release-group the album is — there is no About to refresh before that.
-	onRefreshAbout: (() -> Unit)? = null
+	onRefreshAbout: (() -> Unit)? = null,
+	// Opens "Fix album match" (I-022): which MusicBrainz release this album is. Passed by the
+	// callers that can host that sheet; the row itself shows only for an album the library
+	// owns, and only while the hub offers the route and lb-bot has not turned out to predate it.
+	onFixAlbumMatch: (() -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val lbBot = koinInject<LbBotManager>()
+	val canFixAlbumMatch by lbBot.albumOverridesSupported.collectAsState()
 	val platformContext = LocalPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
 	val contentPadding = PaddingValues(horizontal = 16.dp)
@@ -247,6 +257,22 @@ fun CollectionSheet(
 					onClick = {
 						platformContext.clickSound()
 						onViewOnMusicBrainz(albumInfo.musicBrainzId)
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onFixAlbumMatch != null && canFixAlbumMatch && lbBot.isConfigured &&
+				collection is DomainAlbum && !collection.isExternal
+			) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_fix_album_match)) },
+					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
+					onClick = {
+						platformContext.clickSound()
+						onFixAlbumMatch()
 						onDismissRequest()
 					},
 					colors = colors,
