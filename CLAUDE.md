@@ -37,9 +37,9 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
-| lb-bot data, pending actions | `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`), `ui/screens/settings/{LbBotDataSection,PendingActionsScreen}.kt` + their view models, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
+| lb-bot data, pending actions | `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/{LbBotDataSection,PendingActionsScreen}.kt` + their view models, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -558,8 +558,9 @@ still advancing the speaker's queue. It logs one line when it fires.
   rule: a sentence is a claim about lb-bot, and it is only made from a fact lb-bot, the hub or
   Room actually reported. The sentences are pure functions in `LbBotData.kt`.
   - **"lb-bot data"** (`LbBotDataSection`, in the navi-connect settings; plain English like its
-    host screen): the override list (artist, MBID, "Navidrome said: …", Remove), the index
-    mirror's numbers, the listening status in words, and one "Sync now". `panelData` decides what
+    host screen): the override list (artist, MBID, "Navidrome said: …", Remove), the albums
+    lb-bot retagged and the artist names it merged, each with Undo (I-022 / I-023, below), the
+    index mirror's numbers, the listening status in words, and one "Sync now". `panelData` decides what
     a list is — reading (only while a request is in flight), unreachable with nothing loaded,
     the copy loaded last, or current — from `LbBotManager.artistOverridesLoaded` /
     `artistOverridesReadFailed`; an empty map alone cannot tell "no overrides" from "never read".
@@ -699,7 +700,8 @@ still advancing the speaker's queue. It logs one line when it fires.
   - **The sheet lives above the pages.** `AlbumMatchHost()` is composed once in `App.kt` on
     `LbBotManager.albumMatch`, because the page of a retagged album is replaced when lb-bot
     finishes and a sheet composed inside it would take what lb-bot wrote with it. The host also
-    says, in a snackbar, what came of a job that ends with no sheet open on it. **That one line
+    says, in a snackbar, what came of a job that ends with no sheet open on it — an album job,
+    and an artist name merge (I-023) no block is showing. **That one line
     in `App.kt` is fork code a merge can drop silently**: both entry points would then open
     nothing. A `poor_match` confirmation is tied to the release it was answered for
     (`forceAllowed`). A download is a `DownloadEntity` keyed by **song** id in the other
@@ -713,6 +715,80 @@ still advancing the speaker's queue. It logs one line when it fires.
     fine) and otherwise only a pasted release id is offered. Every sentence states what lb-bot
     answered; nothing says whether a favourite, a rating or a play count survives a retag.
     Feishin's `album-override.ts` is the hand-mirrored twin.
+- **"Merge into one name" joins two spellings of one artist, and lb-bot holds all of it
+  (I-023).** Navidrome keys artists by NAME, so "Belle & Sebastian" and "Belle and Sebastian"
+  are two artists even with one MusicBrainz id. lb-bot retags one spelling's files to the other's
+  name and keeps the previous tags for an undo. Four routes under `/lb/artist/merge` (`preview`,
+  the POST, the GET by `id`, `undo`), gated on `artistMergesSupported`
+  (`advertisesRoute("POST /lb/artist/merge")`; a bare 404 / a 405 from any of them hides the
+  block until the next advert). The rules are pure functions in `ArtistMerge.kt`
+  (`ArtistMergeTest`); the answers are read exactly as the album routes' are (`albumBody`,
+  `albumRefused`).
+  - **`GET /lb/overrides` carries three more lists, and absent is not empty.** `albums` (every
+    album override), `merges` (every merge that can still be undone) and `siblings` (groups of
+    library artists whose effective MBID is equal) are each **null** in `LbOverrides` when lb-bot
+    left the field out — an older one, or one that could not work it out — and `[]` when there
+    is nothing. `LbBotManager.albumOverrideRows` / `artistMerges` / `artistSiblings` keep the
+    difference, and so does the persisted copy: `lb_response_cache` stores the response text
+    itself, decoded again at the next start. **All three StateFlows are declared above the
+    manager's `init` block**, whose restore coroutine writes them; one declared below it can
+    still be null when that coroutine runs.
+  - **`nd_id` is the entry whose name is KEPT, `from_nd_id` the spelling that is rewritten**
+    (`planMerge`): keeping the other spelling's name swaps the pair, and it is then the artist
+    the sheet is open on whose files are rewritten. The block (`ArtistMergeBlock`, in
+    `MbidMatchSheet` for a library artist) offers "Merge with" only when the group has three or
+    more spellings, defaults to keeping the one with the most albums (`mergeDefaultKeep`), and
+    **merges only what lb-bot has counted**: the button is enabled by the `preview` answer for
+    exactly that pair, whose `into.name` is the name shown as kept.
+  - **The job is the manager's, followed by the one rule the album job uses.** `LbJobPoll.kt`
+    holds it (`lbJobStep` over an `LbJobSpec`: which state is "working", which ends it well or
+    badly, whether the row being gone is the finish); `AlbumOverride.kt` and `ArtistMerge.kt`
+    supply the vocabulary. `followMergeJob` polls `GET /lb/artist/merge?id=` every 2 s for at
+    most 3 minutes in the manager's scope and publishes `mergeJobs`; a merge ends on `merged` /
+    `failed`, an undo on 404 `no_merge`. A second merge or undo touching either artist while one
+    is followed is refused there, unsent (`mergeJobInWay`). A merge lb-bot is already working on
+    is picked up by the kept artist's block (`mergeToPickUp`) — only one this device has never
+    followed, so a poll that gave up is not restarted behind the user's back.
+  - **The result must survive its own cause** (`mergeBlockView`). A merge that worked leaves one
+    spelling, and `siblings` only lists groups of two or more — the group that offered the merge
+    disappears *because it worked*. So while a job concerns the artist the block shows the job
+    (progress, outcome, the files that failed, Undo), with the names taken from the job — lb-bot's
+    row once it has answered, the names it was started with until then — never from `siblings`.
+    **An ended job stays in `mergeJobs` until the user taps "Done"** (`dismissMergeJob`); it is
+    in memory only.
+  - **When a job ends, the library is settled first, then pages move** (as for an album).
+    `settleMergeJob` → `DbRepository.resyncArtist`: the albums Room files under the artist whose
+    files were rewritten (`mergeResyncArtistId`: the rewritten spelling after a merge, the kept
+    artist after an undo) are read again, and so is the artist list. **The dead artist row is
+    not a "forget when empty" guess**: the artist list is read by the full pull and the artist
+    tab's refresh only, so a merged-away spelling would stay listed for up to an hour — but a
+    merge that could not write every file leaves the old spelling a real artist, and only the
+    server knows. So it is one `getArtists` and the same prune the full pull does, **which drops
+    nobody when the answer lists nobody** (`fetchAlbumArtists` reads a Subsonic error envelope as
+    an empty list; `syncArtists` itself has no such guard). Still listed after a merge that
+    landed (Navidrome mid-scan): one more look 45 s later, then it is the full pull's. Albums
+    Navidrome re-keyed in the process (no MusicBrainz album id) are not named by lb-bot's row and
+    stay listed under their old id until that pull. A blank id from `mergeResyncArtistId` is not
+    null: lb-bot's row names the rewritten spelling by name only, so a picked-up merge reads the
+    artist list alone.
+    Then `ArtistDetailScreen` observes `mergeJobs`: a page showing the rewritten spelling when
+    a merge LANDS replaces its own back-stack entry with the kept artist's (`mergeLeave`, on
+    ids; an undo moves nobody). A page OPENED after the ending is left alone — the old spelling
+    can still be an artist — and "opened" is kept with the back-stack entry (`rememberSaveable`),
+    so a page that sat under another one while the merge ran still leaves when it is next shown.
+  - **Who says how it ended** (`mergeAnnounced`): the block, when one that will still be there
+    is on screen (`LbBotManager.mergeBlocksOn`); otherwise `AlbumMatchHost` in a snackbar. A
+    block on the rewritten spelling's page does not count once the merge has landed — that page
+    is about to be replaced, and the sheet with it.
+  - **The data panel lists both, each with Undo** (`OverrideListsTest`). A section exists only
+    when lb-bot sent its list, something was loaded, and the hub carries the route its Undo goes
+    through (`overrideListShown`); an empty list says there are none. A row's sentence is made of
+    the row's own numbers and a state this build has never heard of is not put into words
+    (`albumRowDetail`, `mergeRowDetail`). Undo goes through the same manager calls as the sheets,
+    so the job is followed and the library settled the same way; the line under the lists is a
+    function of that job (`undoLine`) — "lb-bot is putting … back" only while it is followed,
+    then how it ended, and nothing once nobody follows it.
+    Feishin's `artist-merge.ts` is the hand-mirrored twin.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
   row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
