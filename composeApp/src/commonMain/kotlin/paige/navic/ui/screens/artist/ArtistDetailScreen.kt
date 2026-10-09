@@ -732,11 +732,12 @@ fun ArtistDetailScreen(
 			albumTitle = target.title,
 			artistName = target.artistName,
 			coverArtId = target.coverArtId,
-			onFinished = { after ->
-				// This is already the artist's page, and its shelf follows the library on its
-				// own. Only an album that lives under a new id — and that Room holds, which
-				// the sheet has checked — has somewhere else to go.
-				if (after is AlbumAfter.Album) {
+			onFinished = { after, asked ->
+				// This page is not the dead album's: its shelf follows the library on its own,
+				// and a sheet swiped away leaves the user where they were. Only "Open the
+				// album" goes anywhere — to the album under its new id, which Room holds (the
+				// sheet has checked).
+				if (asked && after is AlbumAfter.Album) {
 					backStack.add(Screen.CollectionDetail(after.albumId, "artist"))
 				}
 			},

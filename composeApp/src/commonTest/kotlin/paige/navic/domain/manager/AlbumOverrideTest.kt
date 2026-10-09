@@ -689,6 +689,18 @@ class AlbumOverrideTest {
 		assertEquals(AlbumCommit.APPLY, albumCommit(release, other, changing = 0, coverChosen = false))
 	}
 
+	// --- forceAllowed ------------------------------------------------------------------------
+
+	@Test
+	fun aPoorMatchConfirmationBelongsToTheReleaseItWasAnsweredFor() {
+		val question = AlbumPoorMatchQuestion(releaseMbid = release, matched = 3, total = 12)
+		assertEquals(true, forceAllowed(question, release))
+		// lb-bot's counts for one release say nothing about another: no question, no force.
+		assertEquals(false, forceAllowed(question, other))
+		assertEquals(false, forceAllowed(null, release))
+		assertEquals(false, forceAllowed(AlbumPoorMatchQuestion("", 0, 0), ""))
+	}
+
 	// --- albumAfterOverride ------------------------------------------------------------------
 
 	@Test

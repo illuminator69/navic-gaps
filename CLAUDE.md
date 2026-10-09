@@ -673,8 +673,12 @@ still advancing the speaker's queue. It logs one line when it fires.
   - **After a change the user is moved off the dead id** (`albumAfterPoll` → `AlbumAfter`): to the
     album's page under the row's `albumId` when lb-bot names one — **only once Room holds it**
     (`DbRepository.syncAlbumsById` for that one id; `CollectionDetail` loads from Room and refuses
-    an id it does not hold) — else to the artist's page. The old id's album row and its songs
-    stay in Room until the next full sync that is complete and stable prunes them
+    an id it does not hold) — else to the artist's page. That happens as the sheet closes, by
+    its button or a swipe, when the host IS the dead album's page; a host that is not (the
+    artist's page) only goes anywhere when the sheet's own button is pressed. A `poor_match`
+    confirmation is tied to the release it was answered for (`forceAllowed`). The old id's
+    album row and its songs stay in Room until the next full sync that is complete and stable
+    prunes them
     (`deleteObsoleteAlbums` / `deleteObsoleteSongs`); the landing and changed-album syncs only
     upsert. A download is a `DownloadEntity` keyed by **song** id in the other database, which
     no sync prunes: if Navidrome gave the retagged songs new ids, the files stay on disk under

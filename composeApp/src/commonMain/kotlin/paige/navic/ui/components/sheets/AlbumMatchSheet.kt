@@ -116,6 +116,7 @@ import paige.navic.domain.manager.AlbumJob
 import paige.navic.domain.manager.AlbumOutcome
 import paige.navic.domain.manager.AlbumPoll
 import paige.navic.domain.manager.AlbumPollPhase
+import paige.navic.domain.manager.AlbumPoorMatchQuestion
 import paige.navic.domain.manager.AlbumPreviewSummary
 import paige.navic.domain.manager.AlbumTaggedAs
 import paige.navic.domain.manager.LbAlbumApply
@@ -140,6 +141,7 @@ import paige.navic.domain.manager.albumPollRead
 import paige.navic.domain.manager.albumPollStart
 import paige.navic.domain.manager.albumPollStep
 import paige.navic.domain.manager.albumTaggedAs
+import paige.navic.domain.manager.forceAllowed
 import paige.navic.domain.manager.parseReleaseMbid
 import paige.navic.domain.manager.previewMultiDisc
 import paige.navic.domain.manager.previewSummary
@@ -190,10 +192,15 @@ private const val COVERS_PER_ROW = 3
  *
  * **A retag changes the album's Navidrome id**, so [albumId] is dead once a change has landed.
  * [onFinished] is then called on the way out with where the user belongs ([AlbumAfter]): the
- * album under its new id once Room holds it, else the artist's page.
+ * album under its new id once Room holds it, else the artist's page. The page under the sheet
+ * is not replaced while the sheet is open — the sheet lives in that page, and what lb-bot wrote
+ * would vanish unread.
  *
  * @param albumId the Navidrome album id the sheet was opened on.
  * @param albumTitle and [artistName]: the library's own names, shown until lb-bot has answered.
+ * @param onFinished `asked` is true when the user pressed the sheet's own button, false when
+ *   the sheet was swiped away. A host sitting on the dead album's page leaves it either way; a
+ *   host that is not (the artist's page) only goes anywhere when asked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,7 +209,7 @@ fun AlbumMatchSheet(
 	albumTitle: String,
 	artistName: String,
 	coverArtId: String?,
-	onFinished: (AlbumAfter) -> Unit,
+	onFinished: (after: AlbumAfter, asked: Boolean) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
 	val lbBot = koinInject<LbBotManager>()
@@ -244,7 +251,8 @@ fun AlbumMatchSheet(
 	val working = busy != null
 	var commitError by remember(albumId) { mutableStateOf<LbBotManager.LbError?>(null) }
 	var undoError by remember(albumId) { mutableStateOf<LbBotManager.LbError?>(null) }
-	var poorMatch by remember(albumId) { mutableStateOf<LbAlbumApply.PoorMatch?>(null) }
+	// lb-bot's `poor_match`, kept with the release it was answered for.
+	var poorMatch by remember(albumId) { mutableStateOf<AlbumPoorMatchQuestion?>(null) }
 	var coverSaved by remember(albumId) { mutableStateOf(false) }
 
 	// The apply or remove being followed, by the override row's id.
@@ -407,8 +415,10 @@ fun AlbumMatchSheet(
 		if (code == ALBUM_CODE_IN_PROGRESS || code == ALBUM_CODE_NO_OVERRIDE) reads++
 	}
 
-	fun apply(releaseMbid: String, force: Boolean) {
+	fun apply(releaseMbid: String, confirmed: Boolean) {
 		if (working) return
+		// `force` only for the release whose `poor_match` the user has just confirmed.
+		val force = confirmed && forceAllowed(poorMatch, releaseMbid)
 		scope.launch {
 			busy = AlbumAction.COMMIT
 			commitError = null
@@ -416,7 +426,8 @@ fun AlbumMatchSheet(
 			when (val result = lbBot.applyAlbumOverride(albumId, releaseMbid, cover, force)) {
 				is LbBotManager.LbResult.Ok -> when (val answer = result.value) {
 					is LbAlbumApply.Started -> follow(AlbumJob.APPLY, answer.id)
-					is LbAlbumApply.PoorMatch -> poorMatch = answer
+					is LbAlbumApply.PoorMatch ->
+						poorMatch = AlbumPoorMatchQuestion(releaseMbid, answer.matched, answer.total)
 				}
 				is LbBotManager.LbResult.Failed -> refused(AlbumAction.COMMIT, result.error)
 			}
@@ -456,14 +467,14 @@ fun AlbumMatchSheet(
 
 	// Once a change has landed the album may live under another id: the host is told where to
 	// go instead of being left on the page of an id that is dead.
-	fun close() {
+	fun close(asked: Boolean) {
 		val target = after
 		onDismissRequest()
-		if (target != null) onFinished(target)
+		if (target != null) onFinished(target, asked)
 	}
 
 	ModalBottomSheet(
-		onDismissRequest = { close() },
+		onDismissRequest = { close(asked = false) },
 		sheetTitle = title,
 		ambient = rememberCoverAmbient(coverArtId)
 	) {
@@ -509,12 +520,12 @@ fun AlbumMatchSheet(
 					undoing = busy == AlbumAction.UNDO,
 					undoError = undoError,
 					onUndo = { row -> undo(row) },
-					onClose = { close() }
+					onClose = { close(asked = true) }
 				)
 
 				current is AlbumLoad.Loaded && coverSaved -> {
 					Text(stringResource(Res.string.info_album_match_cover_saved), style = MaterialTheme.typography.bodyMedium)
-					Button(onClick = { close() }) { Text(stringResource(Res.string.action_close)) }
+					Button(onClick = { close(asked = true) }) { Text(stringResource(Res.string.action_close)) }
 				}
 
 				current is AlbumLoad.Loaded -> {
@@ -636,7 +647,8 @@ fun AlbumMatchSheet(
 
 						val chosenCover = cover
 						val commit = albumCommit(loaded.releaseMbid, shown.releaseMbid, summary.changing, chosenCover != null)
-						val question = poorMatch
+						// Shown, and confirmable, only over the release it was answered for.
+						val question = poorMatch?.takeIf { forceAllowed(it, shown.releaseMbid) }
 						when (commit) {
 							AlbumCommit.NOTHING -> SheetCaption(stringResource(Res.string.info_album_match_nothing))
 
@@ -676,7 +688,7 @@ fun AlbumMatchSheet(
 									ActionRow(busy == AlbumAction.COMMIT) {
 										Button(
 											enabled = !working,
-											onClick = { apply(shown.releaseMbid, force = true) }
+											onClick = { apply(shown.releaseMbid, confirmed = true) }
 										) { Text(stringResource(Res.string.action_album_match_apply_anyway)) }
 										TextButton(enabled = !working, onClick = { poorMatch = null }) {
 											Text(stringResource(Res.string.action_cancel))
@@ -686,7 +698,7 @@ fun AlbumMatchSheet(
 									ActionRow(busy == AlbumAction.COMMIT) {
 										Button(
 											enabled = !working,
-											onClick = { apply(shown.releaseMbid, force = false) }
+											onClick = { apply(shown.releaseMbid, confirmed = false) }
 										) { Text(stringResource(Res.string.action_album_match_apply)) }
 									}
 								}

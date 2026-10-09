@@ -584,19 +584,22 @@ fun CollectionDetailScreen(
 			albumTitle = collection.name.orEmpty(),
 			artistName = collection.artistName.orEmpty(),
 			coverArtId = collection.coverArtId,
-			onFinished = { after ->
+			onFinished = { after, _ ->
 				// A retag changes the album's Navidrome id, so this page may be showing an id
-				// that is dead. Where lb-bot names the album's id now (and Room holds it — the
+				// that is dead — and is left whether the sheet was closed by its button or
+				// swiped away. Where lb-bot names the album's id now (and Room holds it; the
 				// sheet has checked), that page replaces this one; otherwise the artist's does.
+				// Only this page is ever replaced: with something else on top, nothing moves.
 				val here = Screen.CollectionDetail(collectionId, tab)
+				val onTop = backStack.lastOrNull() == here
 				when (after) {
 					AlbumAfter.Stay -> viewModel.refreshCollection(true)
-					is AlbumAfter.Album -> {
-						if (backStack.lastOrNull() == here) backStack.removeLastOrNull()
+					is AlbumAfter.Album -> if (onTop) {
+						backStack.removeLastOrNull()
 						backStack.add(Screen.CollectionDetail(after.albumId, tab))
 					}
-					AlbumAfter.Artist -> {
-						if (backStack.lastOrNull() == here) backStack.removeLastOrNull()
+					AlbumAfter.Artist -> if (onTop) {
+						backStack.removeLastOrNull()
 						// Opened from the artist's own page, leaving this one is already there.
 						val artist = Screen.ArtistDetail(collection.artistId)
 						if (backStack.lastOrNull() != artist) backStack.add(artist)

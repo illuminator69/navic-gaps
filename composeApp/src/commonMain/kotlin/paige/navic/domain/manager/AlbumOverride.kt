@@ -637,6 +637,24 @@ internal fun albumCommit(
 	else -> AlbumCommit.NOTHING
 }
 
+/**
+ * A `poor_match` the user is being asked about — tied to the release it was answered for.
+ * lb-bot's counts for release A say nothing about release B, whose own guard must answer for
+ * itself.
+ */
+data class AlbumPoorMatchQuestion(
+	val releaseMbid: String,
+	val matched: Int,
+	val total: Int
+)
+
+/**
+ * Whether `force` may go out for [releaseMbid], and whether the confirmation is shown over it:
+ * only for the release whose `poor_match` answer is being confirmed.
+ */
+internal fun forceAllowed(question: AlbumPoorMatchQuestion?, releaseMbid: String): Boolean =
+	question != null && releaseMbid.isNotBlank() && question.releaseMbid == releaseMbid
+
 // ----- the apply / remove poll --------------------------------------------------------------
 // lb-bot answers an apply and a remove at once and works in the background. The album id the
 // sheet was opened with dies on the retag, so the job is followed by the override row's id:
