@@ -421,6 +421,45 @@ class DbRepository(
 		albums.size
 	}
 
+	/** What [forgetAlbumIfEmpty] did. */
+	enum class AlbumForgotten {
+		/** Room held no such album. */
+		NOT_THERE,
+
+		/** The row was an empty shell and is gone. */
+		REMOVED,
+
+		/** Songs still hang off it: it was left alone. */
+		KEPT
+	}
+
+	/**
+	 * Stop listing an album id that a retag left behind (I-022) — **only once nothing hangs off
+	 * it**. lb-bot retags an album to another release, Navidrome gives it a new id, and the
+	 * syncs that follow only upsert: without this the album is listed twice until the next
+	 * complete full pull prunes the old row.
+	 *
+	 * The album row has no children of its own: songs point at it through `belongsToAlbumId`,
+	 * and a song's playlist entries and its download hang off the SONG id. So when the retag
+	 * kept the songs' ids, pulling the album under its new id has already moved every song over,
+	 * the old row is an empty shell, and removing it loses nothing. When songs are still filed
+	 * under the old id it is not removed, because those are exactly the cases where it is not
+	 * dead or not safe to drop:
+	 * - files lb-bot left untouched (no slot on the release, or a write that failed) keep their
+	 *   old tags, so the old id is still an album on the server, holding them;
+	 * - Navidrome gave the songs new ids, and the rows left behind are what a completed
+	 *   download of the album is keyed by;
+	 * - the album under its new id has not been pulled yet.
+	 * Those stay the full pull's to settle, exactly as before.
+	 */
+	suspend fun forgetAlbumIfEmpty(albumId: String): Result<AlbumForgotten> = runDbOp {
+		val row = albumDao.getAlbumById(albumId) ?: return@runDbOp AlbumForgotten.NOT_THERE
+		if (row.songs.isNotEmpty()) return@runDbOp AlbumForgotten.KEPT
+		albumDao.deleteAlbum(albumId)
+		Logger.i("DbRepository", "- Forgot album $albumId: a retag left it empty")
+		AlbumForgotten.REMOVED
+	}
+
 	/**
 	 * Pull albums Navidrome added since the last sync, for a landing that didn't name
 	 * its album ids (an older lb-bot, or files placed some other way).

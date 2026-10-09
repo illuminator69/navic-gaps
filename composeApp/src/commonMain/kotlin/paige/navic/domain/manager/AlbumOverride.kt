@@ -7,8 +7,9 @@ import kotlinx.serialization.serializer
 
 /*
  * "Fix album match" (I-022): the wire shapes and the rules, kept free of the network, Room and
- * Compose so they can be run in a test (`AlbumOverrideTest`, `AlbumOverridePollTest`).
- * [LbBotManager] makes the calls and `AlbumMatchSheet` draws what these functions decide.
+ * Compose so they can be run in a test (`AlbumOverrideTest`, `AlbumOverridePollTest`,
+ * `AlbumJobTest`). [LbBotManager] makes the calls and follows a job to its end, and
+ * `AlbumMatchSheet` draws what these functions decide.
  *
  * For an album the library owns, the user picks which MusicBrainz release it is. lb-bot retags
  * the album's files to that release — release id, disc and track numbers, titles, date; tags
@@ -657,13 +658,14 @@ internal fun forceAllowed(question: AlbumPoorMatchQuestion?, releaseMbid: String
 
 // ----- the apply / remove poll --------------------------------------------------------------
 // lb-bot answers an apply and a remove at once and works in the background. The album id the
-// sheet was opened with dies on the retag, so the job is followed by the override row's id:
-// `GET /lb/album/override?id=`, one short request per tick. The machine is pure; the sheet owns
-// the loop and the clock, and the loop ends with the sheet.
+// job was started for dies on the retag, so the job is followed by the override row's id:
+// `GET /lb/album/override?id=`, one short request per tick. The machine is pure; the loop and
+// the clock are [LbBotManager]'s (`followAlbumJob`), so the job is followed to its end whether
+// or not the sheet that started it is still open.
 
 const val ALBUM_POLL_INTERVAL_MS = 2_000L
 
-/** After this long the sheet stops asking and says lb-bot is still working. */
+/** After this long the client stops asking and says lb-bot is still working. */
 const val ALBUM_POLL_GIVE_UP_MS = 180_000L
 
 enum class AlbumJob { APPLY, REMOVE }
@@ -724,7 +726,7 @@ private fun activeState(job: AlbumJob): String = when (job) {
 
 /**
  * [seen] is the row as already read, for a job found running when the sheet opened (started on
- * another client, or before the sheet was closed and reopened): it is shown at once.
+ * another client, or before a restart): it is shown at once.
  */
 internal fun albumPollStart(job: AlbumJob, nowMs: Long, seen: LbAlbumState? = null): AlbumPoll =
 	AlbumPoll(
@@ -836,7 +838,7 @@ internal fun albumOutcome(poll: AlbumPoll): AlbumOutcome? {
 
 /** Where the user belongs once a change has landed. */
 sealed interface AlbumAfter {
-	/** The page under the sheet is still the album: stay, and re-read it. */
+	/** The album kept its id (or nothing is known to have moved): stay, and re-read it. */
 	data object Stay : AlbumAfter
 
 	/** The album lives under another Navidrome id now: open that page instead. */
@@ -847,7 +849,7 @@ sealed interface AlbumAfter {
 }
 
 /**
- * A retag changes the album's Navidrome id, so the id the sheet was opened with is dead.
+ * A retag changes the album's Navidrome id, so the id the job was started for is dead.
  * [currentAlbumId] is the row's `albumId`: the album's id now, "" while lb-bot does not know it.
  */
 internal fun albumAfterOverride(openedAlbumId: String, currentAlbumId: String): AlbumAfter = when {
@@ -857,14 +859,186 @@ internal fun albumAfterOverride(openedAlbumId: String, currentAlbumId: String): 
 }
 
 /**
- * [albumAfterOverride] for a poll's ending. While lb-bot is still working, or never answered,
- * nothing is known to have moved. Once a row is gone — a finished remove, or an apply undone
- * elsewhere — nothing names the album's id any more, and the restore changed it again.
+ * Whether undoing [row] changes the album's Navidrome id — the id follows the release, so it
+ * does exactly when the override had changed the release. Null when the row does not say (no
+ * row was seen, or it names no release): then nothing may be concluded either way.
  */
-internal fun albumAfterPoll(poll: AlbumPoll, openedAlbumId: String): AlbumAfter = when (poll.phase) {
-	AlbumPollPhase.POLLING, AlbumPollPhase.TIMED_OUT -> AlbumAfter.Stay
-	AlbumPollPhase.GONE -> AlbumAfter.Artist
-	AlbumPollPhase.DONE, AlbumPollPhase.FAILED ->
-		if (poll.job == AlbumJob.REMOVE && poll.phase == AlbumPollPhase.DONE) AlbumAfter.Artist
-		else albumAfterOverride(openedAlbumId, poll.row?.albumId.orEmpty())
+private fun undoChangesAlbumId(row: LbAlbumOverrideRow?): Boolean? = when {
+	row == null || row.releaseMbid.isBlank() -> null
+	else -> row.releaseMbid != row.prevReleaseMbid
+}
+
+/**
+ * [albumAfterOverride] for a poll's ending; [openedAlbumId] is the id the job was started for.
+ *
+ * - While lb-bot is still working, or never answered, nothing is known to have moved.
+ * - `applied` moved the album to the row's `albumId` — "" when lb-bot's wait for Navidrome's
+ *   index ran out, and then only the artist's page is certain to exist.
+ * - Once a row is gone — a finished remove, or an apply undone elsewhere — nothing names the
+ *   album's id any more: **never an album**. The one thing still known is when the id cannot
+ *   have changed: the undo of an override that had kept the release (a cover-only change).
+ * - "Did not finish" (an apply that failed, a remove that left the row standing) says nothing
+ *   about where the album is. Only a different, non-empty id moves anyone.
+ */
+internal fun albumAfterPoll(poll: AlbumPoll, openedAlbumId: String): AlbumAfter {
+	val current = poll.row?.albumId.orEmpty()
+	return when (poll.phase) {
+		AlbumPollPhase.POLLING, AlbumPollPhase.TIMED_OUT -> AlbumAfter.Stay
+		AlbumPollPhase.GONE -> AlbumAfter.Artist
+		AlbumPollPhase.DONE -> when (poll.job) {
+			AlbumJob.APPLY -> albumAfterOverride(openedAlbumId, current)
+			AlbumJob.REMOVE ->
+				if (poll.sawActive && undoChangesAlbumId(poll.row) == false) AlbumAfter.Stay else AlbumAfter.Artist
+		}
+		AlbumPollPhase.FAILED ->
+			if (current.isBlank()) AlbumAfter.Stay else albumAfterOverride(openedAlbumId, current)
+	}
+}
+
+// ----- the job, once it is no longer the sheet's ----------------------------------------------
+// **The job outlives the surface that started it.** [LbBotManager] follows an apply or a remove
+// in its own scope, keyed by the override row's id, whether or not the sheet is still open. When
+// it ends, three things are decided from the job alone: which screen leaves, which album id the
+// local library forgets, and — meanwhile — whether another change may be sent.
+
+/**
+ * The album "Fix album match" is opened on, as the screen that opened it knows it: its
+ * Navidrome id, the library's own names for it (shown until lb-bot has answered), and
+ * [artistId] — where a screen left on the album's dead id is sent when lb-bot names no new
+ * one, "" when the opener knows none.
+ */
+data class AlbumMatchTarget(
+	val albumId: String,
+	val title: String,
+	val artistName: String,
+	val artistId: String,
+	val coverArtId: String?
+)
+
+/**
+ * A job this device is following, or one it has followed to its end.
+ *
+ * @property rowId the override row's id: what the job is polled by, and its key.
+ * @property albumId the Navidrome album id the job was started for. A retag changes the
+ *   album's id, so this is the id that dies; a screen is "showing the dead album" when the id it
+ *   shows equals this one. "" when the starter knew none.
+ * @property artistId where to send a screen that must leave and has no album to go to; "" when
+ *   the starter knew none.
+ * @property after null while the job runs **and** while the local library is being brought to
+ *   agree with how it ended; then where the album is. A screen acts only once this is set, so
+ *   the page it is sent to exists.
+ * @property endedAtMs when [after] was set, on this device's clock; 0 until then.
+ */
+data class AlbumJobState(
+	val rowId: String,
+	val albumId: String,
+	val artistId: String,
+	val poll: AlbumPoll,
+	val after: AlbumAfter? = null,
+	val endedAtMs: Long = 0L
+) {
+	/** Still polled, or still being settled: lb-bot's answer is not acted on yet. */
+	val unfinished: Boolean get() = after == null
+}
+
+/** What a second change is refused with while one is followed: nothing was sent to lb-bot. */
+const val ALBUM_JOB_RUNNING = "A change to this album is still running."
+
+/**
+ * The followed job that stands in the way of another apply or remove — for [albumId], or of the
+ * row [rowId] itself, which an undo may reach under another album id than the job was started
+ * for. Null when nothing does.
+ *
+ * **A second change is refused, not queued and not sent**: lb-bot would answer `in_progress`,
+ * and a job followed twice would settle the library twice. A job this client gave up on after
+ * three minutes is no longer in the way — lb-bot says so itself if it still is.
+ */
+internal fun albumJobInWay(jobs: Collection<AlbumJobState>, albumId: String, rowId: String = ""): AlbumJobState? =
+	jobs.lastOrNull { job ->
+		job.unfinished && (
+			(albumId.isNotBlank() && job.albumId == albumId) ||
+				(rowId.isNotBlank() && job.rowId == rowId)
+			)
+	}
+
+/** What a screen does when a job has ended. */
+sealed interface AlbumLeave {
+	/** Not this screen's business: it shows another album or none, or nothing is known yet. */
+	data object Stay : AlbumLeave
+
+	/** The album kept its id: the page is still the album, and is read again. */
+	data object Reread : AlbumLeave
+
+	/** The album lives under [albumId] now, and the local library holds it: open that page. */
+	data class ToAlbum(val albumId: String) : AlbumLeave
+
+	/** The page's id is dead and nothing names the album's new one: the artist's page. */
+	data class ToArtist(val artistId: String) : AlbumLeave
+
+	/** As [ToArtist], with no artist known either: the dead page is simply left. */
+	data object Back : AlbumLeave
+}
+
+/**
+ * Where a screen showing album [shownAlbumId] goes when [job] has ended ("" for a screen that
+ * shows no album). Feishin's `decideLeave`.
+ *
+ * **Decided from the job and the id on screen, never from the sheet**: the sheet may be long
+ * closed, and a page left showing a dead id is exactly what this exists to prevent. Only a
+ * screen showing the album the job was started for acts — compared by the whole id — and only
+ * once the job is over and settled.
+ *
+ * And only a screen the ending concerns:
+ * - one that was **showing the album as the job ended** ([onScreenSinceMs] no later than
+ *   [AlbumJobState.endedAtMs]) leaves, whatever the library still holds — the dead row is only
+ *   dropped once it is empty, which can be minutes later or never;
+ * - one **opened afterwards** leaves only when the library no longer holds the id
+ *   ([albumMissing]): a queue or a list still naming it, with nothing to show under it. Where
+ *   the library does still hold it, it is an album in its own right — the files a retag left
+ *   behind — and opening it must open it.
+ */
+internal fun albumLeave(
+	job: AlbumJobState,
+	shownAlbumId: String,
+	onScreenSinceMs: Long,
+	albumMissing: Boolean
+): AlbumLeave {
+	val after = job.after ?: return AlbumLeave.Stay
+	if (shownAlbumId.isBlank() || shownAlbumId != job.albumId) return AlbumLeave.Stay
+	if (onScreenSinceMs > job.endedAtMs && !albumMissing) return AlbumLeave.Stay
+	return when (after) {
+		is AlbumAfter.Album -> AlbumLeave.ToAlbum(after.albumId)
+		AlbumAfter.Artist -> if (job.artistId.isBlank()) AlbumLeave.Back else AlbumLeave.ToArtist(job.artistId)
+		// The id survived a job that did end; a timeout says nothing at all.
+		AlbumAfter.Stay -> when (job.poll.phase) {
+			AlbumPollPhase.DONE, AlbumPollPhase.FAILED -> AlbumLeave.Reread
+			else -> AlbumLeave.Stay
+		}
+	}
+}
+
+/**
+ * **The dead id is the client's to forget.** The album id the local library should stop
+ * listing once [poll] has ended — [startedAlbumId], the id the job was started for — or "" when
+ * nothing is to be removed. Only where the contract says the id changed:
+ *
+ * - an apply that ended `applied` with a non-empty `albumId` different from the started one;
+ * - a remove that finished (the row gone after it was seen `removing`) of an override that had
+ *   changed the release: putting the previous release back changes the id again.
+ *
+ * Never on `failed`, on a timeout, on a row that vanished, on an `applied` that names no id
+ * (lb-bot's wait for the index ran out: the next sync settles it), or when the id cannot have
+ * changed — a cover-only change, the same release applied again, and the undo of either.
+ *
+ * This says which id is DEAD TO LB-BOT. Whether the row can go is the library's own check:
+ * `DbRepository.forgetAlbumIfEmpty` removes it only once no song hangs off it.
+ */
+internal fun albumDeadId(poll: AlbumPoll, startedAlbumId: String): String {
+	if (startedAlbumId.isBlank() || poll.phase != AlbumPollPhase.DONE) return ""
+	val row = poll.row ?: return ""
+	val changed = when (poll.job) {
+		AlbumJob.APPLY -> row.albumId.isNotBlank() && row.albumId != startedAlbumId
+		AlbumJob.REMOVE -> poll.sawActive && undoChangesAlbumId(row) == true
+	}
+	return if (changed) startedAlbumId else ""
 }

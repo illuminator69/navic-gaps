@@ -248,9 +248,22 @@ class AlbumOverridePollTest {
 		assertEquals(AlbumAfter.Artist, albumAfterPoll(unindexed, openedAlbumId = "al-1"))
 		val same = albumPollStart(AlbumJob.APPLY, 0).then(answered("applied", done = 12, albumId = "al-1"), 2_000)
 		assertEquals(AlbumAfter.Stay, albumAfterPoll(same, openedAlbumId = "al-1"))
-		// A failed apply wrote some files: the album is wherever lb-bot says, as after a whole one.
-		val failed = albumPollStart(AlbumJob.APPLY, 0).then(answered("failed", done = 4, albumId = ""), 2_000)
-		assertEquals(AlbumAfter.Artist, albumAfterPoll(failed, openedAlbumId = "al-1"))
+	}
+
+	@Test
+	fun aFailedApplyMovesNobodyUnlessLbBotNamesAnotherId() {
+		// "Did not finish" says nothing about where the album is: only a different id does.
+		val unknown = albumPollStart(AlbumJob.APPLY, 0).then(answered("failed", done = 4, albumId = ""), 2_000)
+		assertEquals(AlbumAfter.Stay, albumAfterPoll(unknown, openedAlbumId = "al-1"))
+		val same = albumPollStart(AlbumJob.APPLY, 0).then(answered("failed", done = 4, albumId = "al-1"), 2_000)
+		assertEquals(AlbumAfter.Stay, albumAfterPoll(same, openedAlbumId = "al-1"))
+		val moved = albumPollStart(AlbumJob.APPLY, 0).then(answered("failed", done = 4, albumId = "al-2"), 2_000)
+		assertEquals(AlbumAfter.Album("al-2"), albumAfterPoll(moved, openedAlbumId = "al-1"))
+		// The same for a remove that left the row standing.
+		val standing = albumPollStart(AlbumJob.REMOVE, 0)
+			.then(answered("removing", albumId = "al-2"), 2_000)
+			.then(answered("applied", albumId = ""), 4_000)
+		assertEquals(AlbumAfter.Stay, albumAfterPoll(standing, openedAlbumId = "al-2"))
 	}
 
 	@Test

@@ -54,8 +54,11 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.di.LocalNavStack
-import paige.navic.domain.manager.AlbumAfter
+import paige.navic.domain.manager.AlbumLeave
+import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.AlbumModeSmartPlaylists
+import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.albumLeave
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.displayName
@@ -80,7 +83,6 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRowDropdown
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.components.sheets.AboutSheet
-import paige.navic.ui.components.sheets.AlbumMatchSheet
 import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.components.collectionDetailScreenSimilarAlbumsRow
@@ -94,6 +96,7 @@ import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.util.withoutTop
+import kotlin.time.Clock
 import kotlin.time.Duration
 import paige.navic.ui.components.snackbars.ErrorSnackBar
 
@@ -245,12 +248,53 @@ fun CollectionDetailScreen(
 			nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
 	}
 	// "Fix album match" (I-022). Offered for an album; the sheet's row hides itself unless the
-	// hub offers the route. The sheet is hosted here, not inside the action sheet that opens it,
-	// which leaves the composition the moment a row is tapped.
-	var albumMatchShown by rememberSaveable(collectionId) { mutableStateOf(false) }
+	// hub offers the route. The sheet is not composed here: it lives above the pages
+	// (`AlbumMatchHost`), because this page is left when a retag gives the album a new id.
+	val lbBot = koinInject<LbBotManager>()
 	val fixAlbumMatch: (() -> Unit)? = if (collection is DomainAlbum) {
-		{ albumMatchShown = true }
+		{
+			lbBot.openAlbumMatch(
+				AlbumMatchTarget(
+					albumId = collection.id,
+					title = collection.name.orEmpty(),
+					artistName = collection.artistName.orEmpty(),
+					artistId = collection.artistId,
+					coverArtId = collection.coverArtId
+				)
+			)
+		}
 	} else null
+
+	// A retag changes the album's Navidrome id. When a job lb-bot was asked for on THIS album
+	// ends, this page is showing an id that is dead and leaves it — on the job's own state, so
+	// it happens whether or not the sheet that started the job is still open (`albumLeave`).
+	// "This album" is decided on ids: the one the job was started for against the one this page
+	// shows. A page opened only after the job had ended follows it too, but only once Room no
+	// longer holds its id: an old id Room still holds is an album in its own right.
+	val albumJobs by lbBot.albumJobs.collectAsState()
+	val missing by viewModel.missing.collectAsState()
+	val onScreenSince = remember(collectionId) { Clock.System.now().toEpochMilliseconds() }
+	val endedHere = albumJobs.values.lastOrNull { !it.unfinished && it.albumId == collectionId }
+	LaunchedEffect(collectionId, endedHere?.rowId, endedHere?.endedAtMs, missing) {
+		val job = endedHere ?: return@LaunchedEffect
+		// This page's own entry, found by the id it shows.
+		val index = backStack.indexOfLast { (it as? Screen.CollectionDetail)?.collectionId == collectionId }
+		when (val leave = albumLeave(job, collectionId, onScreenSince, missing)) {
+			AlbumLeave.Stay -> Unit
+			AlbumLeave.Reread -> viewModel.refreshCollection(true)
+			// Room holds the album under its new id: the manager pulled it before saying so.
+			is AlbumLeave.ToAlbum ->
+				if (index >= 0) backStack[index] = Screen.CollectionDetail(leave.albumId, tab)
+			is AlbumLeave.ToArtist -> if (index >= 0) {
+				// Opened from the artist's own page: leaving this one is already there.
+				val beneath = (backStack.getOrNull(index - 1) as? Screen.ArtistDetail)?.artist
+				if (beneath == leave.artistId) backStack.removeAt(index)
+				else backStack[index] = Screen.ArtistDetail(leave.artistId)
+			}
+			// Never the last entry: there is always a tab under an album's page.
+			AlbumLeave.Back -> if (index > 0) backStack.removeAt(index)
+		}
+	}
 
 	val editRules: (() -> Unit)? = if (collection is DomainPlaylist && hasRules) {
 		{ backStack.add(Screen.SmartPlaylistEditor(collection.id)) }
@@ -575,38 +619,6 @@ fun CollectionDetailScreen(
 			// the row now prefers `notes`, so that is what was on screen.
 			fallbackBio = (albumInfoState as? UiState.Success)?.data?.notes,
 			coverArtId = collection?.coverArtId
-		)
-	}
-
-	if (albumMatchShown && collection is DomainAlbum) {
-		AlbumMatchSheet(
-			albumId = collection.id,
-			albumTitle = collection.name.orEmpty(),
-			artistName = collection.artistName.orEmpty(),
-			coverArtId = collection.coverArtId,
-			onFinished = { after, _ ->
-				// A retag changes the album's Navidrome id, so this page may be showing an id
-				// that is dead — and is left whether the sheet was closed by its button or
-				// swiped away. Where lb-bot names the album's id now (and Room holds it; the
-				// sheet has checked), that page replaces this one; otherwise the artist's does.
-				// Only this page is ever replaced: with something else on top, nothing moves.
-				val here = Screen.CollectionDetail(collectionId, tab)
-				val onTop = backStack.lastOrNull() == here
-				when (after) {
-					AlbumAfter.Stay -> viewModel.refreshCollection(true)
-					is AlbumAfter.Album -> if (onTop) {
-						backStack.removeLastOrNull()
-						backStack.add(Screen.CollectionDetail(after.albumId, tab))
-					}
-					AlbumAfter.Artist -> if (onTop) {
-						backStack.removeLastOrNull()
-						// Opened from the artist's own page, leaving this one is already there.
-						val artist = Screen.ArtistDetail(collection.artistId)
-						if (backStack.lastOrNull() != artist) backStack.add(artist)
-					}
-				}
-			},
-			onDismissRequest = { albumMatchShown = false }
 		)
 	}
 

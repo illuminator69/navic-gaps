@@ -41,9 +41,10 @@ val managerModule = module {
 	singleOf(::PreviewManager)
 	// createdAtStart so a fill that outlived the process is picked back up without
 	// waiting for the user to open the artist page it was started from.
-	// The second get() is LbIndexDao, for the `lb_response_cache` half only (cachedGet).
+	// The second get() is LbIndexDao, for the `lb_response_cache` half only (cachedGet); the
+	// third is DbRepository, for what follows an album override job (I-022).
 	single(createdAtStart = true) {
-		LbBotManager(get(), get()).apply { resumeWatches() }
+		LbBotManager(get(), get(), get()).apply { resumeWatches() }
 	}
 	// The lb-bot index mirror's sync worker. Constructed by HubManager and SyncManager (both
 	// createdAtStart), which own its three triggers: welcome, the `index` frame, the 15-min cycle.

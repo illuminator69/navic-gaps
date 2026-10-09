@@ -28,7 +28,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,7 +44,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -52,7 +53,6 @@ import navic.composeapp.generated.resources.action_album_match_open_album
 import navic.composeapp.generated.resources.action_album_match_preview
 import navic.composeapp.generated.resources.action_album_match_set_cover
 import navic.composeapp.generated.resources.action_album_match_show_unchanged
-import navic.composeapp.generated.resources.action_album_match_to_artist
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_close
 import navic.composeapp.generated.resources.action_fix_album_match
@@ -71,6 +71,7 @@ import navic.composeapp.generated.resources.info_album_match_commit_with_cover
 import navic.composeapp.generated.resources.info_album_match_cover_saved
 import navic.composeapp.generated.resources.info_album_match_editions_failed
 import navic.composeapp.generated.resources.info_album_match_gone
+import navic.composeapp.generated.resources.info_album_match_indexing
 import navic.composeapp.generated.resources.info_album_match_looking_up
 import navic.composeapp.generated.resources.info_album_match_lookup_failed
 import navic.composeapp.generated.resources.info_album_match_missing
@@ -102,19 +103,25 @@ import navic.composeapp.generated.resources.title_album_match_cover
 import navic.composeapp.generated.resources.title_album_match_editions
 import navic.composeapp.generated.resources.title_album_match_missing
 import navic.composeapp.generated.resources.title_album_match_preview
+import org.jetbrains.compose.resources.PluralStringResource
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.getPluralString
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalSnackBarState
 import paige.navic.domain.manager.ALBUM_CODE_IN_PROGRESS
 import paige.navic.domain.manager.ALBUM_CODE_NO_OVERRIDE
-import paige.navic.domain.manager.ALBUM_POLL_INTERVAL_MS
 import paige.navic.domain.manager.ALBUM_STATE_FAILED
 import paige.navic.domain.manager.AlbumAfter
 import paige.navic.domain.manager.AlbumCommit
 import paige.navic.domain.manager.AlbumEditionRow
 import paige.navic.domain.manager.AlbumJob
+import paige.navic.domain.manager.AlbumJobState
+import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.AlbumOutcome
-import paige.navic.domain.manager.AlbumPoll
 import paige.navic.domain.manager.AlbumPollPhase
 import paige.navic.domain.manager.AlbumPoorMatchQuestion
 import paige.navic.domain.manager.AlbumPreviewSummary
@@ -130,16 +137,13 @@ import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbPreviewFile
 import paige.navic.domain.manager.LbPreviewRelease
 import paige.navic.domain.manager.LbReleaseDetail
-import paige.navic.domain.manager.albumAfterPoll
 import paige.navic.domain.manager.albumCommit
 import paige.navic.domain.manager.albumEditionRows
 import paige.navic.domain.manager.albumJobInFlight
+import paige.navic.domain.manager.albumJobInWay
 import paige.navic.domain.manager.albumLookupFreeText
 import paige.navic.domain.manager.albumLookupQuery
 import paige.navic.domain.manager.albumOutcome
-import paige.navic.domain.manager.albumPollRead
-import paige.navic.domain.manager.albumPollStart
-import paige.navic.domain.manager.albumPollStep
 import paige.navic.domain.manager.albumTaggedAs
 import paige.navic.domain.manager.forceAllowed
 import paige.navic.domain.manager.parseReleaseMbid
@@ -147,11 +151,10 @@ import paige.navic.domain.manager.previewMultiDisc
 import paige.navic.domain.manager.previewSummary
 import paige.navic.domain.manager.releaseGroupFor
 import paige.navic.domain.manager.slotLabel
-import paige.navic.domain.repositories.DbRepository
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.RemoteCoverArt
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.util.rememberCoverAmbient
-import kotlin.time.Clock
 
 /** What the sheet knows of the album, from `GET /lb/album/override`. */
 private sealed interface AlbumLoad {
@@ -162,8 +165,6 @@ private sealed interface AlbumLoad {
 
 /** Which of the sheet's writes is out, so its spinner and its refusal sit beside its own button. */
 private enum class AlbumAction { COMMIT, UNDO }
-
-private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
 
 /** Cover candidates across the sheet: "keep" plus two, then threes. */
 private const val COVERS_PER_ROW = 3
@@ -185,35 +186,33 @@ private const val COVERS_PER_ROW = 3
  *
  * The rules — what a refusal means, what the three counts are, what ends the poll, where to go
  * afterwards — are the pure functions in `AlbumOverride.kt`; this file only asks and draws.
- * The reads and the poll run in the sheet's own scope and stop when it is dismissed. A write
- * the user confirmed is finished by [LbBotManager] whether or not the sheet is still there, and
- * a job found running when the sheet opens (started here before it was closed, or on another
- * client) is picked up again.
  *
- * **A retag changes the album's Navidrome id**, so [albumId] is dead once a change has landed.
- * [onFinished] is then called on the way out with where the user belongs ([AlbumAfter]): the
- * album under its new id once Room holds it, else the artist's page. The page under the sheet
- * is not replaced while the sheet is open — the sheet lives in that page, and what lb-bot wrote
- * would vanish unread.
+ * **The job is not the sheet's.** An apply or a remove is sent, followed and settled by
+ * [LbBotManager] in its own scope; the sheet only observes `albumJobs`. Swiping it away stops
+ * nothing: lb-bot's answer is still acted on — the album's page leaves its dead id, the local
+ * library forgets it, and [AlbumMatchHost] says what was written — and a sheet opened again
+ * finds the job where it is. Only the reads (the album's state, the editions, a preview, the
+ * covers) run in the sheet's own scope and end with it.
  *
- * @param albumId the Navidrome album id the sheet was opened on.
- * @param albumTitle and [artistName]: the library's own names, shown until lb-bot has answered.
- * @param onFinished `asked` is true when the user pressed the sheet's own button, false when
- *   the sheet was swiped away. A host sitting on the dead album's page leaves it either way; a
- *   host that is not (the artist's page) only goes anywhere when asked.
+ * **A retag changes the album's Navidrome id**, so the id in [target] is dead once a change
+ * has landed. The sheet is composed above the pages ([AlbumMatchHost]) precisely so that it can
+ * go on saying what lb-bot wrote while the page beneath it is replaced.
+ *
+ * @param target the album the sheet was opened on: its Navidrome id, and the library's own
+ *   names for it, shown until lb-bot has answered.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumMatchSheet(
-	albumId: String,
-	albumTitle: String,
-	artistName: String,
-	coverArtId: String?,
-	onFinished: (after: AlbumAfter, asked: Boolean) -> Unit,
+	target: AlbumMatchTarget,
 	onDismissRequest: () -> Unit
 ) {
+	val albumId = target.albumId
+	val albumTitle = target.title
+	val artistName = target.artistName
+	val coverArtId = target.coverArtId
+	val backStack = LocalNavStack.current
 	val lbBot = koinInject<LbBotManager>()
-	val dbRepository = koinInject<DbRepository>()
 	val scope = rememberCoroutineScope()
 	val title = stringResource(Res.string.action_fix_album_match)
 
@@ -255,22 +254,22 @@ fun AlbumMatchSheet(
 	var poorMatch by remember(albumId) { mutableStateOf<AlbumPoorMatchQuestion?>(null) }
 	var coverSaved by remember(albumId) { mutableStateOf(false) }
 
-	// The apply or remove being followed, by the override row's id.
-	var poll by remember(albumId) { mutableStateOf<AlbumPoll?>(null) }
-	var pollId by remember(albumId) { mutableStateOf("") }
-	var pollRuns by remember(albumId) { mutableStateOf(0) }
-	// Where the user belongs once a change has landed; null while nothing has.
-	var after by remember(albumId) { mutableStateOf<AlbumAfter?>(null) }
+	// The job this sheet shows, by the override row's id: one the manager is already following
+	// for this album as the sheet opens — which is how a sheet opened again on an id that has
+	// since died still finds its job — and after that the one it starts or finds running. Held
+	// by id, so the job goes on being shown once it has ended.
+	val jobs by lbBot.albumJobs.collectAsState()
+	var followed by remember(albumId) {
+		mutableStateOf(albumJobInWay(lbBot.albumJobs.value.values, albumId)?.rowId)
+	}
+	val job = followed?.let { jobs[it] }
 
 	val state = (load as? AlbumLoad.Loaded)?.state
 
-	fun follow(job: AlbumJob, id: String, seen: LbAlbumState? = null) {
-		pollId = id
-		poll = albumPollStart(job, nowMs(), seen)
-		after = null
+	fun follow(rowId: String) {
+		followed = rowId
 		commitError = null
 		undoError = null
-		pollRuns++
 	}
 
 	// What the album is now.
@@ -279,11 +278,14 @@ fun AlbumMatchSheet(
 		when (val result = lbBot.albumOverrideState(albumId)) {
 			is LbBotManager.LbResult.Ok -> {
 				load = AlbumLoad.Loaded(result.value)
-				// A job already running is followed, not shown as a row frozen mid-way.
+				// A job already running — started on another client, or before a restart — is
+				// followed, not shown as a row frozen mid-way. One this device already follows
+				// is simply joined.
 				val running = albumJobInFlight(result.value)
 				val rowId = result.value.override?.id.orEmpty()
-				if (running != null && rowId.isNotBlank() && poll?.phase != AlbumPollPhase.POLLING) {
-					follow(running, rowId, seen = result.value)
+				if (running != null && rowId.isNotBlank()) {
+					lbBot.followAlbumJob(running, rowId, albumId, target.artistId, seen = result.value)
+					follow(rowId)
 				}
 			}
 			is LbBotManager.LbResult.Failed -> when {
@@ -369,37 +371,6 @@ fun AlbumMatchSheet(
 		coversLoading = false
 	}
 
-	// The poll. It belongs to the sheet: dismissing the sheet ends it, and each tick is one
-	// short request. lb-bot goes on working either way, and a reopened sheet picks the job up.
-	LaunchedEffect(albumId, pollRuns) {
-		val id = pollId
-		var current = poll ?: return@LaunchedEffect
-		if (id.isBlank()) return@LaunchedEffect
-		while (current.phase == AlbumPollPhase.POLLING) {
-			delay(ALBUM_POLL_INTERVAL_MS)
-			current = albumPollStep(current, albumPollRead(lbBot.albumOverrideById(id)), nowMs())
-			poll = current
-		}
-		// Over, or given up on. The device's copy of lb-bot's override lists is asked for again;
-		// the album itself arrives through the `library` frame lb-bot sends once Navidrome has
-		// indexed it, which the library sync already follows.
-		lbBot.requestArtistOverridesRefresh()
-		val target = albumAfterPoll(current, albumId)
-		if (target is AlbumAfter.Album) {
-			// The album's page loads from Room and refuses an id Room does not hold, and that
-			// frame may not have arrived. So this one album is pulled first, and until it is
-			// in — or if it cannot be read yet — the artist's page is where to go.
-			after = AlbumAfter.Artist
-			if (dbRepository.syncAlbumsById(listOf(target.albumId)).isSuccess) {
-				// As the library sync says after a pull of its own: Room holds it, re-read.
-				lbBot.onLocalLibrarySynced(listOf(target.albumId))
-				after = target
-			}
-		} else {
-			after = target
-		}
-	}
-
 	fun refused(action: AlbumAction, error: LbBotManager.LbError) {
 		if (error == LbBotManager.LbError.RouteUnknown) {
 			older = true
@@ -410,9 +381,14 @@ fun AlbumMatchSheet(
 			AlbumAction.UNDO -> undoError = error
 		}
 		// lb-bot is already working on this album, or no longer holds the row: what the sheet
-		// shows is behind. Read it again; a job found running is then followed.
+		// shows is behind. A job this device follows for the album is shown at once; otherwise
+		// the album is read again, and a job found running then is followed.
 		val code = (error as? LbBotManager.LbError.Rejected)?.code
-		if (code == ALBUM_CODE_IN_PROGRESS || code == ALBUM_CODE_NO_OVERRIDE) reads++
+		val running = albumJobInWay(lbBot.albumJobs.value.values, albumId)
+		when {
+			code == ALBUM_CODE_IN_PROGRESS && running != null -> follow(running.rowId)
+			code == ALBUM_CODE_IN_PROGRESS || code == ALBUM_CODE_NO_OVERRIDE -> reads++
+		}
 	}
 
 	fun apply(releaseMbid: String, confirmed: Boolean) {
@@ -423,9 +399,10 @@ fun AlbumMatchSheet(
 			busy = AlbumAction.COMMIT
 			commitError = null
 			poorMatch = null
-			when (val result = lbBot.applyAlbumOverride(albumId, releaseMbid, cover, force)) {
+			when (val result = lbBot.applyAlbumOverride(albumId, releaseMbid, cover, force, target.artistId)) {
 				is LbBotManager.LbResult.Ok -> when (val answer = result.value) {
-					is LbAlbumApply.Started -> follow(AlbumJob.APPLY, answer.id)
+					// The manager is following it already; the sheet only shows it.
+					is LbAlbumApply.Started -> follow(answer.id)
 					is LbAlbumApply.PoorMatch ->
 						poorMatch = AlbumPoorMatchQuestion(releaseMbid, answer.matched, answer.total)
 				}
@@ -442,10 +419,7 @@ fun AlbumMatchSheet(
 			commitError = null
 			when (val result = lbBot.setAlbumCover(albumId, coverUrl)) {
 				// The release and the tags stay, so the album stays where it is.
-				is LbBotManager.LbResult.Ok -> {
-					coverSaved = true
-					after = AlbumAfter.Stay
-				}
+				is LbBotManager.LbResult.Ok -> coverSaved = true
 				is LbBotManager.LbResult.Failed -> refused(AlbumAction.COMMIT, result.error)
 			}
 			busy = null
@@ -457,24 +431,24 @@ fun AlbumMatchSheet(
 		scope.launch {
 			busy = AlbumAction.UNDO
 			undoError = null
-			when (val result = lbBot.removeAlbumOverride(row.id)) {
-				is LbBotManager.LbResult.Ok -> follow(AlbumJob.REMOVE, row.id)
+			when (val result = lbBot.removeAlbumOverride(row.id, albumId, target.artistId)) {
+				is LbBotManager.LbResult.Ok -> follow(row.id)
 				is LbBotManager.LbResult.Failed -> refused(AlbumAction.UNDO, result.error)
 			}
 			busy = null
 		}
 	}
 
-	// Once a change has landed the album may live under another id: the host is told where to
-	// go instead of being left on the page of an id that is dead.
-	fun close(asked: Boolean) {
-		val target = after
+	// "Open the album": only where lb-bot named the album's new id, and only when the page on
+	// top is not that album already — the album's own page will have gone there by itself.
+	fun openAlbum(newAlbumId: String) {
 		onDismissRequest()
-		if (target != null) onFinished(target, asked)
+		val onTop = (backStack.lastOrNull() as? Screen.CollectionDetail)?.collectionId
+		if (onTop != newAlbumId) backStack.add(Screen.CollectionDetail(newAlbumId, "library"))
 	}
 
 	ModalBottomSheet(
-		onDismissRequest = { close(asked = false) },
+		onDismissRequest = onDismissRequest,
 		sheetTitle = title,
 		ambient = rememberCoverAmbient(coverArtId)
 	) {
@@ -501,10 +475,26 @@ fun AlbumMatchSheet(
 			)
 
 			val current = load
-			val running = poll
+			val shown = job
+			// The page on top, by the id it shows: once the album's own page has gone to the new
+			// id there is nothing left for "Open the album" to do.
+			val albumOnTop = (backStack.lastOrNull() as? Screen.CollectionDetail)?.collectionId
 			when {
 				// One muted sentence, never an error: this lb-bot simply has no such routes yet.
 				older -> SheetCaption(stringResource(Res.string.info_album_match_older))
+
+				// Before anything read about the album: a job is what is happening to it, and
+				// the id this sheet was opened on may be one lb-bot no longer knows.
+				shown != null -> AlbumJobBlock(
+					job = shown,
+					albumOnTop = albumOnTop,
+					enabled = !working,
+					undoing = busy == AlbumAction.UNDO,
+					undoError = undoError,
+					onUndo = { row -> undo(row) },
+					onOpenAlbum = { openAlbum(it) },
+					onClose = onDismissRequest
+				)
 
 				current is AlbumLoad.Loading -> Spinner()
 
@@ -513,19 +503,9 @@ fun AlbumMatchSheet(
 					TextButton(onClick = { reads++ }) { Text(stringResource(Res.string.action_retry)) }
 				}
 
-				current is AlbumLoad.Loaded && running != null -> AlbumJobBlock(
-					poll = running,
-					after = after,
-					enabled = !working,
-					undoing = busy == AlbumAction.UNDO,
-					undoError = undoError,
-					onUndo = { row -> undo(row) },
-					onClose = { close(asked = true) }
-				)
-
 				current is AlbumLoad.Loaded && coverSaved -> {
 					Text(stringResource(Res.string.info_album_match_cover_saved), style = MaterialTheme.typography.bodyMedium)
-					Button(onClick = { close(asked = true) }) { Text(stringResource(Res.string.action_close)) }
+					Button(onClick = onDismissRequest) { Text(stringResource(Res.string.action_close)) }
 				}
 
 				current is AlbumLoad.Loaded -> {
@@ -621,9 +601,9 @@ fun AlbumMatchSheet(
 						}
 					}
 
-					preview?.let { shown ->
-						val summary = remember(shown) { previewSummary(shown) }
-						PreviewBlock(shown, summary)
+					preview?.let { previewed ->
+						val summary = remember(previewed) { previewSummary(previewed) }
+						PreviewBlock(previewed, summary)
 
 						SheetLabel(stringResource(Res.string.title_album_match_cover))
 						val offered = covers
@@ -646,9 +626,9 @@ fun AlbumMatchSheet(
 						}
 
 						val chosenCover = cover
-						val commit = albumCommit(loaded.releaseMbid, shown.releaseMbid, summary.changing, chosenCover != null)
+						val commit = albumCommit(loaded.releaseMbid, previewed.releaseMbid, summary.changing, chosenCover != null)
 						// Shown, and confirmable, only over the release it was answered for.
-						val question = poorMatch?.takeIf { forceAllowed(it, shown.releaseMbid) }
+						val question = poorMatch?.takeIf { forceAllowed(it, previewed.releaseMbid) }
 						when (commit) {
 							AlbumCommit.NOTHING -> SheetCaption(stringResource(Res.string.info_album_match_nothing))
 
@@ -688,7 +668,7 @@ fun AlbumMatchSheet(
 									ActionRow(busy == AlbumAction.COMMIT) {
 										Button(
 											enabled = !working,
-											onClick = { apply(shown.releaseMbid, confirmed = true) }
+											onClick = { apply(previewed.releaseMbid, confirmed = true) }
 										) { Text(stringResource(Res.string.action_album_match_apply_anyway)) }
 										TextButton(enabled = !working, onClick = { poorMatch = null }) {
 											Text(stringResource(Res.string.action_cancel))
@@ -698,7 +678,7 @@ fun AlbumMatchSheet(
 									ActionRow(busy == AlbumAction.COMMIT) {
 										Button(
 											enabled = !working,
-											onClick = { apply(shown.releaseMbid, confirmed = false) }
+											onClick = { apply(previewed.releaseMbid, confirmed = false) }
 										) { Text(stringResource(Res.string.action_album_match_apply)) }
 									}
 								}
@@ -1031,21 +1011,100 @@ private fun CoverGrid(
 	}
 }
 
+/** One of the sheet's sentences: a plain string, or a plural with its quantity and arguments. */
+private class OutcomeText(
+	val string: StringResource? = null,
+	val plural: PluralStringResource? = null,
+	val quantity: Int = 0,
+	val args: List<Any> = emptyList()
+)
+
+/** What an ended job is said to have come to. Every number is a field of lb-bot's last answer. */
+private fun outcomeText(outcome: AlbumOutcome): OutcomeText = when (outcome) {
+	is AlbumOutcome.Wrote ->
+		OutcomeText(plural = Res.plurals.info_album_match_wrote, quantity = outcome.files, args = listOf(outcome.files))
+	is AlbumOutcome.WrotePartly -> OutcomeText(
+		plural = Res.plurals.info_album_match_wrote_partly,
+		quantity = outcome.total,
+		args = listOf(outcome.done, outcome.total, outcome.failed)
+	)
+	is AlbumOutcome.DidNotFinish -> OutcomeText(
+		plural = Res.plurals.info_album_match_not_finished,
+		quantity = outcome.total,
+		args = listOf(outcome.done, outcome.total)
+	)
+	AlbumOutcome.Removed -> OutcomeText(string = Res.string.info_album_match_removed)
+	AlbumOutcome.NotRemoved -> OutcomeText(string = Res.string.info_album_match_not_removed)
+	AlbumOutcome.Gone -> OutcomeText(string = Res.string.info_album_match_gone)
+	AlbumOutcome.StillWorking -> OutcomeText(string = Res.string.info_album_match_still_working)
+}
+
+@Composable
+private fun OutcomeText.text(): String {
+	val counted = plural
+	return if (counted != null) pluralStringResource(counted, quantity, *args.toTypedArray())
+	else string?.let { stringResource(it) }.orEmpty()
+}
+
+/** [text] outside a composition, for the snackbar that speaks when no sheet is open. */
+private suspend fun OutcomeText.resolve(): String {
+	val counted = plural
+	return if (counted != null) getPluralString(counted, quantity, *args.toTypedArray())
+	else string?.let { getString(it) }.orEmpty()
+}
+
+/**
+ * Where "Fix album match" lives: composed ONCE, above the pages (`App.kt`), on the album
+ * [LbBotManager.albumMatch] names.
+ *
+ * Above the pages because a retag changes the album's Navidrome id: when lb-bot finishes, the
+ * album's own page leaves the dead id, and a sheet composed inside that page would go with it
+ * — taking what lb-bot wrote, and which files it could not write, with it unread.
+ *
+ * It also speaks for a job nobody is watching. The job outlives the sheet, so one that ends
+ * after the sheet was swiped away is said in a snackbar, in the same words the sheet would use.
+ */
+@Composable
+fun AlbumMatchHost() {
+	val lbBot = koinInject<LbBotManager>()
+	val snackBarState = LocalSnackBarState.current
+	val open by lbBot.albumMatch.collectAsState()
+
+	LaunchedEffect(Unit) {
+		lbBot.albumJobEnded.collect { job ->
+			// A sheet open on this album is already showing the same outcome.
+			if (lbBot.albumMatch.value?.albumId == job.albumId) return@collect
+			val outcome = albumOutcome(job.poll) ?: return@collect
+			snackBarState.showSnackbar(outcomeText(outcome).resolve())
+		}
+	}
+
+	open?.let { target ->
+		// Keyed on the album: another album is another sheet, with none of this one's state.
+		key(target.albumId) {
+			AlbumMatchSheet(target = target, onDismissRequest = { lbBot.closeAlbumMatch() })
+		}
+	}
+}
+
 /**
  * An apply or a remove being followed, then what it came to. While it runs there is nothing to
- * pick: the album is being rewritten. Once it is over the only way on is out, because the album
- * id this sheet was opened with may be dead.
+ * pick: the album is being rewritten. The job is the manager's — closing the sheet here leaves
+ * it running — so the sheet's own button only ever closes it, or opens the album where lb-bot
+ * says it is now.
  */
 @Composable
 private fun AlbumJobBlock(
-	poll: AlbumPoll,
-	after: AlbumAfter?,
+	job: AlbumJobState,
+	albumOnTop: String?,
 	enabled: Boolean,
 	undoing: Boolean,
 	undoError: LbBotManager.LbError?,
 	onUndo: (LbAlbumOverrideRow) -> Unit,
+	onOpenAlbum: (String) -> Unit,
 	onClose: () -> Unit
 ) {
+	val poll = job.poll
 	val row = poll.row
 	val outcome = albumOutcome(poll)
 	if (outcome == null) {
@@ -1055,11 +1114,16 @@ private fun AlbumJobBlock(
 				val total = row?.total ?: 0
 				val done = row?.done ?: 0
 				Text(
-					if (total > 0) stringResource(Res.string.info_album_match_applying_count, done, total)
-					else stringResource(Res.string.info_album_match_applying),
+					when {
+						total <= 0 -> stringResource(Res.string.info_album_match_applying)
+						// Every file written and the row still `applying`: lb-bot is waiting for
+						// Navidrome to index the album again, for a minute at most.
+						done >= total -> stringResource(Res.string.info_album_match_indexing)
+						else -> stringResource(Res.string.info_album_match_applying_count, done, total)
+					},
 					style = MaterialTheme.typography.bodyMedium
 				)
-				if (total > 0) {
+				if (total > 0 && done < total) {
 					LinearProgressIndicator(
 						progress = { (done.toFloat() / total).coerceIn(0f, 1f) },
 						modifier = Modifier.fillMaxWidth()
@@ -1073,33 +1137,12 @@ private fun AlbumJobBlock(
 				LinearProgressIndicator(Modifier.fillMaxWidth())
 			}
 		}
+		// Closing is always possible: the job goes on without the sheet.
+		TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
 		return
 	}
 
-	Text(
-		when (outcome) {
-			is AlbumOutcome.Wrote ->
-				pluralStringResource(Res.plurals.info_album_match_wrote, outcome.files, outcome.files)
-			is AlbumOutcome.WrotePartly -> pluralStringResource(
-				Res.plurals.info_album_match_wrote_partly,
-				outcome.total,
-				outcome.done,
-				outcome.total,
-				outcome.failed
-			)
-			is AlbumOutcome.DidNotFinish -> pluralStringResource(
-				Res.plurals.info_album_match_not_finished,
-				outcome.total,
-				outcome.done,
-				outcome.total
-			)
-			AlbumOutcome.Removed -> stringResource(Res.string.info_album_match_removed)
-			AlbumOutcome.NotRemoved -> stringResource(Res.string.info_album_match_not_removed)
-			AlbumOutcome.Gone -> stringResource(Res.string.info_album_match_gone)
-			AlbumOutcome.StillWorking -> stringResource(Res.string.info_album_match_still_working)
-		},
-		style = MaterialTheme.typography.bodyMedium
-	)
+	Text(outcomeText(outcome).text(), style = MaterialTheme.typography.bodyMedium)
 	// A partial result names the files that failed, each with lb-bot's reason.
 	if (outcome is AlbumOutcome.WrotePartly || outcome is AlbumOutcome.DidNotFinish) {
 		FailureList(row?.failures.orEmpty())
@@ -1112,17 +1155,16 @@ private fun AlbumJobBlock(
 	}
 	LbErrorLine(undoError)
 
+	// Null until the local library has been settled; only then is the new album's page there.
+	val moved = (job.after as? AlbumAfter.Album)?.albumId
 	ActionRow(undoing) {
-		Button(enabled = enabled, onClick = onClose) {
-			Text(
-				stringResource(
-					when (after) {
-						is AlbumAfter.Album -> Res.string.action_album_match_open_album
-						AlbumAfter.Artist -> Res.string.action_album_match_to_artist
-						AlbumAfter.Stay, null -> Res.string.action_close
-					}
-				)
-			)
+		if (moved != null && moved != albumOnTop) {
+			Button(enabled = enabled, onClick = { onOpenAlbum(moved) }) {
+				Text(stringResource(Res.string.action_album_match_open_album))
+			}
+			TextButton(enabled = enabled, onClick = onClose) { Text(stringResource(Res.string.action_close)) }
+		} else {
+			Button(enabled = enabled, onClick = onClose) { Text(stringResource(Res.string.action_close)) }
 		}
 		// A row left standing — an apply that failed part-way, a remove that did not finish —
 		// can still be undone: lb-bot restores whatever it did write.

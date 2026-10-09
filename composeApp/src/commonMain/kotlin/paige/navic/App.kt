@@ -96,6 +96,7 @@ import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.layouts.SideBar
+import paige.navic.ui.components.sheets.AlbumMatchHost
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -451,6 +452,11 @@ fun App() {
 				) {
 					ChangelogSheet()
 				}
+				// navi-connect I-022: "Fix album match", composed ONCE above the pages. A retag
+				// changes the album's Navidrome id, so the album's page is left when lb-bot
+				// finishes — and the sheet must go on saying what was written. A fork line:
+				// without it the "Fix album match" and "Wrong edition?" rows open nothing.
+				AlbumMatchHost()
 			}
 		}
 	}

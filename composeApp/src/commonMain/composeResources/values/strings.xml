@@ -794,6 +794,7 @@
 	<string name="action_album_match_apply_anyway">Apply anyway</string>
 	<string name="info_album_match_applying">Writing tags…</string>
 	<string name="info_album_match_applying_count">Writing tags: %1$d of %2$d files</string>
+	<string name="info_album_match_indexing">The tags are written. Waiting for Navidrome to index the album…</string>
 	<string name="info_album_match_removing">Putting the previous tags back…</string>
 	<plurals name="info_album_match_wrote">
 		<item quantity="one">lb-bot wrote the tags of %1$d file.</item>
@@ -814,7 +815,6 @@
 	<string name="info_album_match_cover_saved">lb-bot saved the cover.</string>
 	<string name="info_album_match_not_indexed">Navidrome has not indexed the album again yet.</string>
 	<string name="action_album_match_open_album">Open the album</string>
-	<string name="action_album_match_to_artist">Back to the artist</string>
 
 	<string name="title_type_album">Albums</string>
 	<string name="title_type_ep">EPs</string>

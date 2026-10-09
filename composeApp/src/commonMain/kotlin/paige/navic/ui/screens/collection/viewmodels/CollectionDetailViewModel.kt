@@ -3,6 +3,7 @@ package paige.navic.ui.screens.collection.viewmodels
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +70,14 @@ class CollectionDetailViewModel(
 	private val _collectionState =
 		MutableStateFlow<UiState<DomainSongCollection>>(UiState.Loading())
 	val collectionState: StateFlow<UiState<DomainSongCollection>> = _collectionState.asStateFlow()
+
+	/**
+	 * Room does not hold this page's id (any more): a full sync pruned the album, or a retag
+	 * gave it a new id and the dead row was dropped (I-022). The screen uses it to follow the
+	 * album to where a finished job says it went (`albumLeave`).
+	 */
+	val missing: StateFlow<Boolean>
+		field = MutableStateFlow(false)
 
 	val starred: StateFlow<Boolean>
 		field = MutableStateFlow(false)
@@ -326,20 +335,33 @@ class CollectionDetailViewModel(
 
 	fun refreshCollection(fullRefresh: Boolean) {
 		viewModelScope.launch {
-			repository.getCollectionFlow(fullRefresh, collectionId).collect {
-				_collectionState.value = it
-				if (it.data is DomainAlbum) {
-					starred.value = albumRepository.isAlbumStarred(it.data as DomainAlbum)
-					rating.value = albumRepository.getAlbumRating(it.data as DomainAlbum)
-					try {
-						val albumInfo = repository.getAlbumInfo(collectionId)
-						val domainInfo = albumInfo.toDomainModel()
-						albumInfoState.value = UiState.Success(domainInfo)
-						loadLbBotExtras(it.data as DomainAlbum, domainInfo.musicBrainzId)
-					} catch (e: Exception) {
-						albumInfoState.value = UiState.Error(e)
+			try {
+				repository.getCollectionFlow(fullRefresh, collectionId).collect {
+					_collectionState.value = it
+					missing.value = false
+					if (it.data is DomainAlbum) {
+						starred.value = albumRepository.isAlbumStarred(it.data as DomainAlbum)
+						rating.value = albumRepository.getAlbumRating(it.data as DomainAlbum)
+						try {
+							val albumInfo = repository.getAlbumInfo(collectionId)
+							val domainInfo = albumInfo.toDomainModel()
+							albumInfoState.value = UiState.Success(domainInfo)
+							loadLbBotExtras(it.data as DomainAlbum, domainInfo.musicBrainzId)
+						} catch (e: Exception) {
+							albumInfoState.value = UiState.Error(e)
+						}
 					}
 				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Throwable) {
+				// Room no longer holds this id: `getLocalData` throws a bare `Error` for that,
+				// and uncaught here it took the whole app down. It can happen under an open
+				// page — a full sync prunes an album, or a retag gives it a new id and the dead
+				// row is dropped (I-022) — so it is the page's error state, with what it showed.
+				Logger.w("CollectionDetailViewModel", "collection $collectionId could not be read", e)
+				missing.value = true
+				_collectionState.value = UiState.Error(Exception(e.message, e), _collectionState.value.data)
 			}
 		}
 	}

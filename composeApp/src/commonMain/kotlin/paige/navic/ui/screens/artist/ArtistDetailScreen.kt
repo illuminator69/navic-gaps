@@ -81,8 +81,9 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
-import paige.navic.domain.manager.AlbumAfter
+import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ThemeMode
@@ -101,7 +102,6 @@ import paige.navic.di.ForceSystemBars
 import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
-import paige.navic.ui.components.sheets.AlbumMatchSheet
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.components.sheets.GapFillSheet
 import paige.navic.ui.components.sheets.MbidMatchSheet
@@ -120,14 +120,6 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
-
-/** The album "Fix album match" is open on: its Navidrome id, and the library's names for it. */
-private data class AlbumMatchTarget(
-	val albumId: String,
-	val title: String,
-	val artistName: String,
-	val coverArtId: String?
-)
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -198,8 +190,8 @@ fun ArtistDetailScreen(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
-	// edition?". Held here because both of those sheets close as they open it.
-	var albumMatch by remember { mutableStateOf<AlbumMatchTarget?>(null) }
+	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
+	val lbBot = koinInject<LbBotManager>()
 
 	// Apple-Music-style art theming from the artist photo, following the app's
 	// light/dark mode (see CollectionDetailScreen for the same pattern).
@@ -670,11 +662,14 @@ fun ArtistDetailScreen(
 			missingTrackCount = gapEntry?.missingTracks,
 			onFillGaps = gapEntry?.let { entry -> { viewModel.selectGap(entry) } },
 			onFixAlbumMatch = {
-				albumMatch = AlbumMatchTarget(
-					albumId = album.id,
-					title = album.name.orEmpty(),
-					artistName = album.artistName.orEmpty(),
-					coverArtId = album.coverArtId
+				lbBot.openAlbumMatch(
+					AlbumMatchTarget(
+						albumId = album.id,
+						title = album.name.orEmpty(),
+						artistName = album.artistName.orEmpty(),
+						artistId = album.artistId,
+						coverArtId = album.coverArtId
+					)
 				)
 			}
 		)
@@ -714,35 +709,20 @@ fun ArtistDetailScreen(
 				coverArtId = entry.album?.coverArtId,
 				onDismissRequest = { viewModel.selectGap(null) },
 				onWrongEdition = { gap ->
-					albumMatch = AlbumMatchTarget(
-						albumId = gap.albumId,
-						title = gap.album.ifBlank { entry.title },
-						artistName = gap.artist,
-						coverArtId = entry.album?.coverArtId
+					lbBot.openAlbumMatch(
+						AlbumMatchTarget(
+							albumId = gap.albumId,
+							title = gap.album.ifBlank { entry.title },
+							artistName = gap.artist,
+							// The album's own artist where Room names one, else this page's.
+							artistId = entry.album?.artistId ?: artistId,
+							coverArtId = entry.album?.coverArtId
+						)
 					)
 					viewModel.selectGap(null)
 				}
 			)
 		}
-	}
-
-	albumMatch?.let { target ->
-		AlbumMatchSheet(
-			albumId = target.albumId,
-			albumTitle = target.title,
-			artistName = target.artistName,
-			coverArtId = target.coverArtId,
-			onFinished = { after, asked ->
-				// This page is not the dead album's: its shelf follows the library on its own,
-				// and a sheet swiped away leaves the user where they were. Only "Open the
-				// album" goes anywhere — to the album under its new id, which Room holds (the
-				// sheet has checked).
-				if (asked && after is AlbumAfter.Album) {
-					backStack.add(Screen.CollectionDetail(after.albumId, "artist"))
-				}
-			},
-			onDismissRequest = { albumMatch = null }
-		)
 	}
 
 	if (playlistDialogShown) {

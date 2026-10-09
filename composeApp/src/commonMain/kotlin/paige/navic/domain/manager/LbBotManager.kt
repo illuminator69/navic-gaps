@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -51,6 +52,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Clock
 import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.entities.LbResponseCacheEntity
+import paige.navic.domain.repositories.DbRepository
 import paige.navic.util.Logger
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -92,7 +94,12 @@ enum class LbCachePolicy { NORMAL, CACHE_ONLY, REFRESH }
 class LbBotManager(
 	private val preferenceManager: PreferenceManager,
 	/** Only its `lb_response_cache` half — the index mirror is [LbIndexSync]'s. */
-	private val responseCache: LbIndexDao
+	private val responseCache: LbIndexDao,
+	/**
+	 * The Room library, for the one thing here that changes it: after an album override job the
+	 * retagged album is pulled under its new id and the dead id's row is dropped (I-022).
+	 */
+	private val library: DbRepository
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -1650,8 +1657,8 @@ class LbBotManager(
 	 * answered "no such route" for one of the album routes. False until the hub has said
 	 * anything, and a StateFlow, for the reasons [artistOverridesSupported] is one.
 	 *
-	 * Nothing about an album override is kept on this device. The state is lb-bot's, read when
-	 * the sheet opens; the retagged album itself comes back through the library sync.
+	 * Nothing about an album override is persisted on this device. The state is lb-bot's, read
+	 * when the sheet opens; a job in flight is followed in memory ([albumJobs]).
 	 */
 	private val _albumOverridesSupported = MutableStateFlow(false)
 	val albumOverridesSupported: StateFlow<Boolean> = _albumOverridesSupported.asStateFlow()
@@ -1741,6 +1748,10 @@ class LbBotManager(
 	 * [albumCovers] answered — as its cover when one is given. lb-bot answers at once and writes
 	 * in the background: [LbAlbumApply.Started] names the row to follow with [albumOverrideById].
 	 *
+	 * A started apply is followed from here ([followAlbumJob]); [artistId] is where a screen left
+	 * on the album's dead id is sent when lb-bot names no new one. While a job for the album is
+	 * being followed a second change is refused here, unsent (`albumJobInWay`).
+	 *
 	 * [LbAlbumApply.PoorMatch] is lb-bot asking first — nothing was written — and the same call
 	 * with [force] is the yes. Refusals keep lb-bot's sentence and its `code`:
 	 * `Rejected(409, …, "busy")` a fill for the album is in flight, `"in_progress"` an apply or
@@ -1751,11 +1762,13 @@ class LbBotManager(
 		albumId: String,
 		releaseMbid: String,
 		coverUrl: String? = null,
-		force: Boolean = false
+		force: Boolean = false,
+		artistId: String = ""
 	): LbResult<LbAlbumApply> {
 		if (albumId.isBlank() || releaseMbid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		if (albumJobInWay(_albumJobs.value.values, albumId) != null) return albumJobRunning()
 		return albumWrite<LbAlbumApply>(changed = { it is LbAlbumApply.Started }) {
-			albumAnswer(
+			val result = albumAnswer(
 				rawPost(
 					PATH_ALBUM_OVERRIDE,
 					LbAlbumApplyRequest(
@@ -1767,6 +1780,11 @@ class LbBotManager(
 				),
 				::albumApplyAnswer
 			)
+			// Followed from here, in this manager's scope: whoever asked may be gone by now.
+			((result as? LbResult.Ok)?.value as? LbAlbumApply.Started)?.let { started ->
+				followAlbumJob(AlbumJob.APPLY, started.id, albumId, artistId)
+			}
+			result
 		}
 	}
 
@@ -1784,15 +1802,24 @@ class LbBotManager(
 
 	/**
 	 * Undo an override: lb-bot restores every tag it changed and the previous cover, in the
-	 * background. [id] is the override row's. Followed with [albumOverrideById] until the row is
-	 * gone; `Rejected(404, …, "no_override")` here is a row that was already gone.
+	 * background. [id] is the override row's; [albumId] the album's id as the caller shows it,
+	 * which the undo of a retag kills, and [artistId] as on [applyAlbumOverride]. A started
+	 * remove is followed from here until the row is gone; `Rejected(404, …, "no_override")` is a
+	 * row that was already gone, and a row or album already being followed is refused unsent.
 	 */
-	suspend fun removeAlbumOverride(id: String): LbResult<LbAlbumWrite> {
+	suspend fun removeAlbumOverride(id: String, albumId: String = "", artistId: String = ""): LbResult<LbAlbumWrite> {
 		if (id.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
+		if (albumJobInWay(_albumJobs.value.values, albumId, rowId = id) != null) return albumJobRunning()
 		return albumWrite {
-			albumAnswer(rawPost(PATH_ALBUM_REMOVE, LbAlbumRemoveRequest(id)), ::albumWriteAnswer)
+			val result = albumAnswer(rawPost(PATH_ALBUM_REMOVE, LbAlbumRemoveRequest(id)), ::albumWriteAnswer)
+			if (result is LbResult.Ok) followAlbumJob(AlbumJob.REMOVE, id, albumId, artistId)
+			result
 		}
 	}
+
+	/** A second change to an album whose job is still followed: refused here, nothing sent. */
+	private fun albumJobRunning(): LbResult.Failed =
+		LbResult.Failed(LbError.Rejected(409, ALBUM_JOB_RUNNING, ALBUM_CODE_IN_PROGRESS))
 
 	/**
 	 * One album write, in this manager's scope: a sheet swiped away mid-request does not cancel
@@ -1807,6 +1834,149 @@ class LbBotManager(
 		if (result is LbResult.Ok && changed(result.value)) requestArtistOverridesRefresh()
 		result
 	}.await()
+
+	/**
+	 * The apply and remove jobs this device follows, by override row id — the unfinished ones and
+	 * the last few that ended, newest last. **A job outlives the surface that started it**: the
+	 * sheet only observes this, and so does the album's page, which leaves a dead id when its job
+	 * ends (`albumLeave`) whether or not the sheet is still open.
+	 *
+	 * In memory only. lb-bot holds the row, so a sheet opened after a restart finds a job still
+	 * running in the album's state and has it followed again.
+	 */
+	private val _albumJobs = MutableStateFlow<Map<String, AlbumJobState>>(emptyMap())
+	val albumJobs: StateFlow<Map<String, AlbumJobState>> = _albumJobs.asStateFlow()
+
+	/**
+	 * One event per followed job, when it is over and the library has been settled — for
+	 * whoever says what came of a job no sheet is showing. Emitted here and nowhere else.
+	 */
+	private val _albumJobEnded = MutableSharedFlow<AlbumJobState>(extraBufferCapacity = 8)
+	val albumJobEnded: SharedFlow<AlbumJobState> = _albumJobEnded.asSharedFlow()
+
+	/**
+	 * The album "Fix album match" is open on, or null. Held here and not by a screen because the
+	 * sheet must outlive the page it was opened from: when lb-bot finishes, the page of a
+	 * retagged album is left, and the sheet goes on saying what was written (`AlbumMatchHost`,
+	 * composed once above the pages).
+	 */
+	private val _albumMatch = MutableStateFlow<AlbumMatchTarget?>(null)
+	val albumMatch: StateFlow<AlbumMatchTarget?> = _albumMatch.asStateFlow()
+
+	fun openAlbumMatch(target: AlbumMatchTarget) {
+		if (target.albumId.isNotBlank()) _albumMatch.value = target
+	}
+
+	fun closeAlbumMatch() {
+		_albumMatch.value = null
+	}
+
+	/**
+	 * Follow an apply or a remove to its end, in this manager's scope: one
+	 * [albumOverrideById] every [ALBUM_POLL_INTERVAL_MS] on the poll routes' short timeout,
+	 * until `albumPollStep` ends it — three minutes at most. Then the library is settled
+	 * ([settleAlbumJob]) and only after that is the job published as over.
+	 *
+	 * A row already being followed is not followed twice. [seen] is the row as already read,
+	 * for a job found running (started on another client, or before a restart).
+	 */
+	fun followAlbumJob(
+		job: AlbumJob,
+		rowId: String,
+		albumId: String,
+		artistId: String = "",
+		seen: LbAlbumState? = null
+	) {
+		if (rowId.isBlank()) return
+		var started: AlbumJobState? = null
+		_albumJobs.update { jobs ->
+			started = null
+			if (jobs[rowId]?.unfinished == true) return@update jobs
+			val state = AlbumJobState(rowId, albumId, artistId, albumPollStart(job, nowMs(), seen))
+			started = state
+			// Re-keyed to the end, so the newest job is the last one a reader finds.
+			val kept = (jobs - rowId).entries.toList()
+			val ended = kept.filter { !it.value.unfinished }.takeLast(ALBUM_JOBS_KEPT).map { it.key }.toSet()
+			kept.filter { it.value.unfinished || it.key in ended }.associate { it.key to it.value } + (rowId to state)
+		}
+		val first = started ?: return
+		scope.launch { runAlbumJob(first) }
+	}
+
+	private suspend fun runAlbumJob(first: AlbumJobState) {
+		val rowId = first.rowId
+		var poll = first.poll
+		while (poll.phase == AlbumPollPhase.POLLING) {
+			delay(ALBUM_POLL_INTERVAL_MS)
+			poll = albumPollStep(poll, albumPollRead(albumOverrideById(rowId)), nowMs())
+			val heard = poll
+			_albumJobs.update { jobs -> jobs[rowId]?.let { jobs + (rowId to it.copy(poll = heard)) } ?: jobs }
+		}
+		// Over, or given up on. The override lists are asked for again either way.
+		requestArtistOverridesRefresh()
+		val after = try {
+			settleAlbumJob(poll, first.albumId)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w("LbBotManager", "album job $rowId: the library could not be settled", e)
+			// Without the album in Room there is no album page to send anyone to.
+			albumAfterPoll(poll, first.albumId).let { if (it is AlbumAfter.Album) AlbumAfter.Artist else it }
+		}
+		val ended = first.copy(poll = poll, after = after, endedAtMs = nowMs())
+		_albumJobs.update { jobs -> if (rowId in jobs) jobs + (rowId to ended) else jobs }
+		_albumJobEnded.tryEmit(ended)
+	}
+
+	/**
+	 * Bring the local library to agree with how a job ended, and answer where the album is now.
+	 *
+	 * - **The album under its new id is pulled first.** Its page loads from Room and refuses an id
+	 *   Room does not hold, and the `library` frame that would bring it in may not have arrived.
+	 *   Without it, only the artist's page is sure to exist.
+	 * - **The dead id is this client's to forget** (`albumDeadId`): the syncs that follow a retag
+	 *   only upsert, so the album would be listed twice until the next complete full pull. The row
+	 *   goes only once nothing hangs off it (`DbRepository.forgetAlbumIfEmpty`) — at once when the
+	 *   pull above moved every song over, else after a later sync has, else not at all.
+	 */
+	private suspend fun settleAlbumJob(poll: AlbumPoll, startedAlbumId: String): AlbumAfter {
+		var after = albumAfterPoll(poll, startedAlbumId)
+		if (after is AlbumAfter.Album) {
+			val moved = after.albumId
+			if (library.syncAlbumsById(listOf(moved)).isSuccess) onLocalLibrarySynced(listOf(moved))
+			else after = AlbumAfter.Artist
+		}
+		val dead = albumDeadId(poll, startedAlbumId)
+		if (dead.isNotBlank() && !forgetAlbum(dead)) forgetAlbumLater(dead)
+		return after
+	}
+
+	/** True when Room no longer lists [albumId]. Says so to the pages that read Room. */
+	private suspend fun forgetAlbum(albumId: String): Boolean =
+		when (library.forgetAlbumIfEmpty(albumId).getOrNull()) {
+			DbRepository.AlbumForgotten.REMOVED -> {
+				onLocalLibrarySynced(listOf(albumId))
+				true
+			}
+			DbRepository.AlbumForgotten.NOT_THERE -> true
+			DbRepository.AlbumForgotten.KEPT, null -> false
+		}
+
+	/**
+	 * Songs were still filed under the dead id: the album under its new id has not reached Room
+	 * yet (a remove names none; a pull can fail). Look again after each library sync, for a few
+	 * minutes; what is still there then is the full pull's, as it always was.
+	 */
+	private fun forgetAlbumLater(albumId: String) {
+		scope.launch {
+			withTimeoutOrNull(ALBUM_FORGET_WAIT_MS) {
+				libraryBumps
+					// Subscribed first, then asked once: a sync that landed in between is not missed.
+					.onSubscription { emit(LbLibraryEvent(EVENT_LOCAL_SYNCED)) }
+					.first { it.event == EVENT_LOCAL_SYNCED && forgetAlbum(albumId) }
+			}
+		}
+	}
 
 	// ----- listening analytics ----------------------------------------------- //
 
@@ -3284,6 +3454,12 @@ class LbBotManager(
 		private const val PATH_ALBUM_PREVIEW = "/lb/album/override/preview"
 		private const val PATH_ALBUM_COVER = "/lb/album/cover"
 		private const val PATH_ALBUM_REMOVE = "/lb/album/override/remove"
+
+		/** Ended album jobs kept for a page that comes back to a dead id, or a sheet still open. */
+		private const val ALBUM_JOBS_KEPT = 8
+
+		/** How long a dead album id is looked at again after each library sync. */
+		private const val ALBUM_FORGET_WAIT_MS = 5 * 60_000L
 
 		/** Never let the loop spin: a tick that overran its own interval still waits. */
 		private const val MIN_POLL_GAP_MS = 1_000L
