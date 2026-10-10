@@ -105,6 +105,17 @@ interface AlbumDao {
 	@Query("DELETE FROM AlbumEntity WHERE albumId = :albumId")
 	suspend fun deleteAlbum(albumId: String)
 
+	/**
+	 * Delete the album row only when no song is filed under it, as ONE statement (I-022,
+	 * `DbRepository.forgetAlbumIfEmpty`). Returns the number of rows deleted: 0 when there was
+	 * no such album or it still has songs.
+	 */
+	@Query(
+		"DELETE FROM AlbumEntity WHERE albumId = :albumId " +
+			"AND NOT EXISTS (SELECT 1 FROM SongEntity WHERE belongsToAlbumId = :albumId)"
+	)
+	suspend fun deleteAlbumIfEmpty(albumId: String): Int
+
 	@Query("DELETE FROM AlbumEntity")
 	suspend fun clearAllAlbums()
 

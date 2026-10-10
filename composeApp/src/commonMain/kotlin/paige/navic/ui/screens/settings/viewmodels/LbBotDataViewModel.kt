@@ -514,9 +514,9 @@ class LbBotDataViewModel(
 	}
 
 	/**
-	 * Undo a name merge (I-023): lb-bot puts the previous names back. The row names the
-	 * rewritten spelling by name only — its id died with the merge — so the manager is given
-	 * what the row has.
+	 * Undo a name merge (I-023): lb-bot puts the previous names back. The row names both
+	 * artists — the rewritten spelling by the id it had when it was merged — and the manager is
+	 * given what the row has.
 	 */
 	fun undoMerge(row: LbMergeRow) {
 		if (_busyUndo.value != null || !mergeRowCanUndo(row)) return

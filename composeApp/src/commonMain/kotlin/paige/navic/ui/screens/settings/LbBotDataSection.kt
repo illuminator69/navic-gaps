@@ -29,6 +29,7 @@ import paige.navic.domain.manager.MATCHES_TO_CHECK_BLURB
 import paige.navic.domain.manager.albumJobInWay
 import paige.navic.domain.manager.albumRowCanUndo
 import paige.navic.domain.manager.albumRowDetail
+import paige.navic.domain.manager.albumRowProblems
 import paige.navic.domain.manager.albumRowTitle
 import paige.navic.domain.manager.albumRowsNote
 import paige.navic.domain.manager.matchCanKeep
@@ -39,6 +40,7 @@ import paige.navic.domain.manager.lbLayerLine
 import paige.navic.domain.manager.mergeJobInWay
 import paige.navic.domain.manager.mergeRowCanUndo
 import paige.navic.domain.manager.mergeRowDetail
+import paige.navic.domain.manager.mergeRowProblems
 import paige.navic.domain.manager.mergeRowTitle
 import paige.navic.domain.manager.mergeRowsNote
 import paige.navic.domain.manager.mirrorLine
@@ -158,6 +160,7 @@ fun LbBotDataSection(
 					title = albumRowTitle(row),
 					id = row.releaseMbid,
 					detail = albumRowDetail(row),
+					problems = albumRowProblems(row),
 					// At rest, nothing of this panel's out, and no job the manager still follows
 					// for the row or its album — that one it would refuse, unsent.
 					enabled = busyUndo == null && albumRowCanUndo(row) &&
@@ -182,6 +185,7 @@ fun LbBotDataSection(
 					title = mergeRowTitle(row),
 					id = row.mbid,
 					detail = mergeRowDetail(row),
+					problems = mergeRowProblems(row),
 					enabled = busyUndo == null && mergeRowCanUndo(row) &&
 						mergeJobInWay(mergeJobs.values, listOf(row.into.ndArtistId, row.from.ndArtistId), row.id) == null,
 					onUndo = { viewModel.undoMerge(row) }
@@ -238,6 +242,9 @@ fun LbBotDataSection(
 	pick?.let { picking ->
 		MbidMatchSheet(
 			artistName = picking.row.name,
+			// These artists have no MusicBrainz id in force, so lb-bot lists no sibling group
+			// for them and the merge block inside stays hidden; the id is theirs all the same.
+			ndArtistId = picking.row.ndArtistId,
 			coverArtId = null,
 			tagMbid = "",
 			currentMbid = "",
@@ -331,10 +338,19 @@ private fun MatchRow(
 
 /**
  * One album override or name merge: what it is, the MusicBrainz id it is about, what lb-bot says
- * of it (`albumRowDetail`, `mergeRowDetail`), and Undo.
+ * of it (`albumRowDetail`, `mergeRowDetail`), lb-bot's reasons for whatever it could not write
+ * or put back (`albumRowProblems`, `mergeRowProblems`), and Undo. The reasons sit beside the
+ * button because they are what says when Undo is to be pressed again.
  */
 @Composable
-private fun UndoRow(title: String, id: String, detail: String, enabled: Boolean, onUndo: () -> Unit) {
+private fun UndoRow(
+	title: String,
+	id: String,
+	detail: String,
+	problems: List<String>,
+	enabled: Boolean,
+	onUndo: () -> Unit
+) {
 	Row(
 		modifier = Modifier.fillMaxWidth(),
 		horizontalArrangement = Arrangement.SpaceBetween,
@@ -350,6 +366,7 @@ private fun UndoRow(title: String, id: String, detail: String, enabled: Boolean,
 			if (id.isNotBlank()) Muted(id)
 			// A state this build has never heard of is not put into words: no line then.
 			if (detail.isNotBlank()) Muted(detail)
+			problems.forEach { Muted(it) }
 		}
 		OutlinedButton(enabled = enabled, onClick = onUndo) { Text("Undo") }
 	}

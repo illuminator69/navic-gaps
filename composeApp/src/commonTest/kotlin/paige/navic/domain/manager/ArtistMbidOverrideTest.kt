@@ -323,4 +323,18 @@ class ArtistMbidOverrideTest {
 			LbBotManager.LbResult.Failed(LbBotManager.LbError.Rejected(409, "A download for this artist is running"))
 		assertEquals(refused, confirmedWrite(refused) { it.ok })
 	}
+
+	// --- which hub frames re-read GET /lb/overrides (ruling X10) -------------------------------
+
+	@Test
+	fun theOverrideListsAreReadAgainOnTheIndexAndTheLibraryFrames() {
+		assertEquals(true, frameRereadsOverrideLists("index"))
+		// lb-bot's notice that Navidrome has indexed what a retag, a merge or an undo wrote:
+		// that is when an album override or a merge row comes to rest.
+		assertEquals(true, frameRereadsOverrideLists("library"))
+		assertEquals(false, frameRereadsOverrideLists("fill"))
+		assertEquals(false, frameRereadsOverrideLists("progress"))
+		assertEquals(false, frameRereadsOverrideLists("session"))
+		assertEquals(false, frameRereadsOverrideLists(null))
+	}
 }

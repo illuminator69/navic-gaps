@@ -9,7 +9,8 @@ import kotlin.test.assertNull
  *
  * lb-bot answers both at once and works in the background, and the album id the sheet was opened
  * with dies on the retag, so the job is followed by the override row's id: every 2 s, until lb-bot
- * says `applied` or `failed` (an apply) or the row is gone (a remove), for three minutes at most.
+ * says `applied` or `failed` (an apply) or the row is gone (a remove), or until the row has not
+ * moved for three minutes.
  * The rule that is easy to get wrong is the quiet one: a poll that did not answer says nothing —
  * not "failed", not "done", and not "still working" either until the three minutes are up.
  */
@@ -101,16 +102,75 @@ class AlbumOverridePollTest {
 		assertEquals(AlbumOutcome.StillWorking, albumOutcome(poll))
 	}
 
+	// The clock measures silence, not length (ruling X2): it restarts whenever the row's `state`
+	// or `done` differs from the answer before it.
+
 	@Test
-	fun itGivesUpAfterThreeMinutesOfApplying() {
+	fun itGivesUpThreeMinutesAfterTheRowLastMoved() {
 		var poll = albumPollStart(AlbumJob.APPLY, nowMs = 1_000)
-		poll = poll.then(answered("applying", done = 5), 1_000 + ALBUM_POLL_GIVE_UP_MS - 1)
+		poll = poll.then(answered("applying", done = 5), 3_000)
+		poll = poll.then(answered("applying", done = 6), 5_000)
+		// Stuck at 6 from here on. A millisecond short of three minutes of that: still asking.
+		poll = poll.then(answered("applying", done = 6), 5_000 + ALBUM_POLL_GIVE_UP_MS - 1)
 		assertEquals(AlbumPollPhase.POLLING, poll.phase)
-		poll = poll.then(answered("applying", done = 6), 1_000 + ALBUM_POLL_GIVE_UP_MS)
+		poll = poll.then(answered("applying", done = 6), 5_000 + ALBUM_POLL_GIVE_UP_MS)
 		assertEquals(AlbumPollPhase.TIMED_OUT, poll.phase)
 		// "Still working" is said with the progress last heard, not instead of it.
 		assertEquals(6, poll.row?.done)
 		assertEquals(AlbumOutcome.StillWorking, albumOutcome(poll))
+	}
+
+	@Test
+	fun aJobThatKeepsAdvancingNeverTimesOut() {
+		// A long retag plus lb-bot's wait for Navidrome can run past three minutes with nothing
+		// wrong.
+		var poll = albumPollStart(AlbumJob.APPLY, 0)
+		var at = 0L
+		var done = 0
+		while (at < ALBUM_POLL_GIVE_UP_MS * 3) {
+			at += 60_000
+			done += 1
+			poll = poll.then(answered("applying", done = done, total = 500), at)
+			assertEquals(AlbumPollPhase.POLLING, poll.phase, "at $at ms")
+		}
+	}
+
+	@Test
+	fun aChangeOfStateIsMovementAndAMissedPollIsNot() {
+		// Every file written, then the same count under a state this client does not know:
+		// the row moved.
+		var poll = albumPollStart(AlbumJob.APPLY, 0).then(answered("applying", done = 12), 2_000)
+		poll = poll.then(answered("indexing", done = 12), 170_000)
+		poll = poll.then(answered("indexing", done = 12), ALBUM_POLL_GIVE_UP_MS + 60_000)
+		assertEquals(AlbumPollPhase.POLLING, poll.phase)
+		// Silence is silence, whether lb-bot repeats itself or does not answer at all.
+		poll = poll.then(AlbumPollRead.Missed, 170_000 + ALBUM_POLL_GIVE_UP_MS)
+		assertEquals(AlbumPollPhase.TIMED_OUT, poll.phase)
+	}
+
+	@Test
+	fun theFirstAnswerIsNotAMovement() {
+		// Nothing came before it to differ from: one late answer in hand is still three minutes
+		// of a row that has not moved.
+		val poll = albumPollStart(AlbumJob.APPLY, 0).then(answered("applying", done = 3), ALBUM_POLL_GIVE_UP_MS)
+		assertEquals(AlbumPollPhase.TIMED_OUT, poll.phase)
+	}
+
+	// --- the wait for Navidrome (ruling X4) ----------------------------------------------------
+
+	@Test
+	fun theWritesAreOverWhenSuccessesPlusFailuresReachTheTotal() {
+		assertEquals(true, albumWaitingForIndex(row("applying", done = 12, total = 12).override))
+		// `done` counts successes only: with one failed file "done == total" never comes.
+		assertEquals(true, albumWaitingForIndex(row("applying", done = 11, total = 12, failures = 1).override))
+		assertEquals(true, albumWaitingForIndex(row("removing", done = 12, total = 12).override))
+		assertEquals(false, albumWaitingForIndex(row("applying", done = 11, total = 12).override))
+		// Nothing counted yet is not "everything written".
+		assertEquals(false, albumWaitingForIndex(row("applying", done = 0, total = 0).override))
+		// Only a row lb-bot still holds active is waiting; at rest it is simply over.
+		assertEquals(false, albumWaitingForIndex(row("applied", done = 12, total = 12).override))
+		assertEquals(false, albumWaitingForIndex(row("failed", done = 10, total = 12, failures = 2).override))
+		assertEquals(false, albumWaitingForIndex(null))
 	}
 
 	@Test
@@ -180,6 +240,64 @@ class AlbumOverridePollTest {
 		poll = albumPollStart(AlbumJob.REMOVE, 0).then(answered("removing"), 2_000).then(answered("applied"), 4_000)
 		assertEquals(AlbumPollPhase.FAILED, poll.phase)
 		assertEquals(AlbumOutcome.NotRemoved, albumOutcome(poll))
+	}
+
+	// lb-bot flips the row to `removing` before it answers the POST, and can be done failing
+	// before the first poll two seconds later (ruling X1).
+
+	@Test
+	fun aRemoveThatFailsBeforeTheFirstTickIsSeen() {
+		val poll = albumPollStart(AlbumJob.REMOVE, 0, postState = "removing")
+			.then(answered("failed", done = 10, failures = 2), 2_000)
+		assertEquals(AlbumPollPhase.FAILED, poll.phase)
+		assertEquals(AlbumOutcome.NotRemoved, albumOutcome(poll))
+		// With lb-bot's reasons: they are what tells the user to undo again.
+		assertEquals(2, albumJobFailures(poll).size)
+		assertEquals(poll.row?.failures, albumJobFailures(poll))
+	}
+
+	@Test
+	fun onlyThePostsOwnRemovingCountsAsHavingSeenIt() {
+		// An answer that names another state, or none, proves nothing about the row.
+		assertEquals(
+			AlbumPollPhase.POLLING,
+			albumPollStart(AlbumJob.REMOVE, 0, postState = "applied").then(answered("failed"), 2_000).phase
+		)
+		assertEquals(
+			AlbumPollPhase.POLLING,
+			albumPollStart(AlbumJob.REMOVE, 0, postState = "").then(answered("failed"), 2_000).phase
+		)
+		assertEquals(true, albumPollStart(AlbumJob.REMOVE, 0, postState = "removing").sawActive)
+		assertEquals(false, albumPollStart(AlbumJob.REMOVE, 0).sawActive)
+	}
+
+	// --- lb-bot's reasons --------------------------------------------------------------------
+
+	@Test
+	fun lbBotsReasonsAreReadWhereverAJobEndedWithSome() {
+		val partly = albumPollStart(AlbumJob.APPLY, 0).then(answered("applied", done = 10, failures = 2), 2_000)
+		assertEquals(2, albumJobFailures(partly).size)
+		val failed = albumPollStart(AlbumJob.APPLY, 0).then(answered("failed", done = 4, failures = 1), 2_000)
+		assertEquals(1, albumJobFailures(failed).size)
+		// A remove that did not finish: its reason says to undo again, so it must be on screen.
+		val notRemoved = albumPollStart(AlbumJob.REMOVE, 0)
+			.then(answered("removing"), 2_000)
+			.then(answered("failed", done = 9, failures = 3), 4_000)
+		assertEquals(AlbumOutcome.NotRemoved, albumOutcome(notRemoved))
+		assertEquals(3, albumJobFailures(notRemoved).size)
+	}
+
+	@Test
+	fun noReasonsAreShownForARemoveThatFinishedOrAJobStillRunning() {
+		// The row last seen under a finished remove is from before it ended.
+		val removed = albumPollStart(AlbumJob.REMOVE, 0)
+			.then(answered("removing", done = 5, failures = 2), 2_000)
+			.then(AlbumPollRead.Gone, 4_000)
+		assertEquals(AlbumPollPhase.DONE, removed.phase)
+		assertEquals(emptyList(), albumJobFailures(removed))
+		val running = albumPollStart(AlbumJob.APPLY, 0).then(answered("applying", done = 3, failures = 1), 2_000)
+		assertEquals(emptyList(), albumJobFailures(running))
+		assertEquals(emptyList(), albumJobFailures(albumPollStart(AlbumJob.APPLY, 0)))
 	}
 
 	@Test

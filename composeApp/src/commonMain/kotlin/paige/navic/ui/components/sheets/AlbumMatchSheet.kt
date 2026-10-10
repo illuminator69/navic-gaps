@@ -90,6 +90,7 @@ import navic.composeapp.generated.resources.info_album_match_poor
 import navic.composeapp.generated.resources.info_album_match_previewing
 import navic.composeapp.generated.resources.info_album_match_removed
 import navic.composeapp.generated.resources.info_album_match_removing
+import navic.composeapp.generated.resources.info_album_match_restored_indexing
 import navic.composeapp.generated.resources.info_album_match_row_failures
 import navic.composeapp.generated.resources.info_album_match_still_working
 import navic.composeapp.generated.resources.info_album_match_tagged
@@ -136,7 +137,11 @@ import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.albumCommit
 import paige.navic.domain.manager.albumEditionRows
 import paige.navic.domain.manager.albumJobInFlight
+import paige.navic.domain.manager.albumCoversRgid
+import paige.navic.domain.manager.albumJobFailures
 import paige.navic.domain.manager.albumJobInWay
+import paige.navic.domain.manager.albumWaitingForIndex
+import paige.navic.domain.manager.mergeJobFailures
 import paige.navic.domain.manager.albumLookupFreeText
 import paige.navic.domain.manager.albumLookupQuery
 import paige.navic.domain.manager.albumOutcome
@@ -356,12 +361,18 @@ fun AlbumMatchSheet(
 	}
 
 	// The covers on offer for the previewed release, after the preview so the two slow
-	// requests do not take two of the hub's four slots at once.
+	// requests do not take two of the hub's four slots at once. A release that is not one of
+	// the listed editions — a pasted id — is asked for by itself, without the album's group
+	// (`albumCoversRgid`): it may be another group's.
+	val listedEditions = remember(detail) {
+		albumEditionRows(detail?.releases.orEmpty(), "").map { it.releaseMbid }
+	}
 	LaunchedEffect(albumId, preview?.releaseMbid, coverReads) {
 		val shown = preview ?: return@LaunchedEffect
 		coversLoading = true
 		coversError = null
-		when (val result = lbBot.albumCovers(rgid.orEmpty(), shown.releaseMbid)) {
+		val group = albumCoversRgid(rgid.orEmpty(), shown.releaseMbid, listedEditions)
+		when (val result = lbBot.albumCovers(group, shown.releaseMbid)) {
 			is LbBotManager.LbResult.Ok -> covers = result.value
 			is LbBotManager.LbResult.Failed ->
 				if (result.error == LbBotManager.LbError.RouteUnknown) older = true else coversError = result.error
@@ -424,12 +435,16 @@ fun AlbumMatchSheet(
 		}
 	}
 
-	fun undo(row: LbAlbumOverrideRow) {
+	// [deadId] is the album id the undo kills: the album's CURRENT one. For the row read with
+	// the album that is the id this sheet is open on; for a row the job block shows it is the
+	// row's own `albumId` — the sheet may still be open on the id the album had before the
+	// apply, which is exactly the id an undo brings it back to, and must not be forgotten.
+	fun undo(row: LbAlbumOverrideRow, deadId: String) {
 		if (working || row.id.isBlank()) return
 		scope.launch {
 			busy = AlbumAction.UNDO
 			undoError = null
-			when (val result = lbBot.removeAlbumOverride(row.id, albumId, target.artistId)) {
+			when (val result = lbBot.removeAlbumOverride(row.id, deadId, target.artistId)) {
 				is LbBotManager.LbResult.Ok -> follow(row.id)
 				is LbBotManager.LbResult.Failed -> refused(AlbumAction.UNDO, result.error)
 			}
@@ -489,7 +504,8 @@ fun AlbumMatchSheet(
 					enabled = !working,
 					undoing = busy == AlbumAction.UNDO,
 					undoError = undoError,
-					onUndo = { row -> undo(row) },
+					// "" on a `failed` row, and then nothing is forgotten.
+					onUndo = { row -> undo(row, row.albumId) },
 					onOpenAlbum = { openAlbum(it) },
 					onClose = onDismissRequest
 				)
@@ -519,7 +535,7 @@ fun AlbumMatchSheet(
 							enabled = !working,
 							undoing = busy == AlbumAction.UNDO,
 							error = undoError,
-							onUndo = { undo(row) }
+							onUndo = { undo(row, albumId) }
 						)
 					}
 
@@ -784,7 +800,7 @@ private fun StandingRowBlock(
 	LbErrorLine(error)
 }
 
-/** The files lb-bot could not write, each with its own reason. */
+/** What lb-bot could not write or put back — a file, or the cover — each with its own reason. */
 @Composable
 private fun FailureList(failures: List<LbAlbumFailure>) {
 	if (failures.isEmpty()) return
@@ -1013,10 +1029,12 @@ private fun CoverGrid(
 private fun outcomeText(outcome: AlbumOutcome): LbSentence = when (outcome) {
 	is AlbumOutcome.Wrote ->
 		LbSentence(plural = Res.plurals.info_album_match_wrote, quantity = outcome.files, args = listOf(outcome.files))
+	// Files only. lb-bot's `failures` are counted apart, as problems: one of them may be the
+	// cover, which is not a file that "could not be written" (ruling X9).
 	is AlbumOutcome.WrotePartly -> LbSentence(
 		plural = Res.plurals.info_album_match_wrote_partly,
 		quantity = outcome.total,
-		args = listOf(outcome.done, outcome.total, outcome.failed)
+		args = listOf(outcome.done, outcome.total)
 	)
 	is AlbumOutcome.DidNotFinish -> LbSentence(
 		plural = Res.plurals.info_album_match_not_finished,
@@ -1053,7 +1071,9 @@ fun AlbumMatchHost() {
 			// A sheet open on this album is already showing the same outcome.
 			if (lbBot.albumMatch.value?.albumId == job.albumId) return@collect
 			val outcome = albumOutcome(job.poll) ?: return@collect
-			snackBarState.showSnackbar(outcomeText(outcome).resolve())
+			// With how many problems lb-bot listed: the list itself is in the sheet.
+			val said = outcomeText(outcome).withProblems(albumJobFailures(job.poll).size)
+			snackBarState.showSnackbar(said.resolve())
 		}
 	}
 	// The same for an artist name merge (I-023), whose block lives in the artist's own sheet:
@@ -1062,7 +1082,8 @@ fun AlbumMatchHost() {
 		lbBot.mergeJobEnded.collect { job ->
 			if (!mergeAnnounced(job, lbBot.mergeBlocksOn)) return@collect
 			val outcome = mergeOutcome(job.poll) ?: return@collect
-			snackBarState.showSnackbar(mergeOutcomeSentence(outcome).resolve())
+			val said = mergeOutcomeSentence(outcome).withProblems(mergeJobFailures(job.poll).size)
+			snackBarState.showSnackbar(said.resolve())
 		}
 	}
 
@@ -1100,17 +1121,19 @@ private fun AlbumJobBlock(
 				// Progress is lb-bot's own `done` / `total`, and is not invented before it sent any.
 				val total = row?.total ?: 0
 				val done = row?.done ?: 0
+				// Every file dealt with and the row still `applying`: lb-bot is waiting for
+				// Navidrome to index the album again, for a minute at most. Said as a wait —
+				// "11 of 12" on a bar that has stopped reads as stuck (`albumWaitingForIndex`).
+				val waiting = albumWaitingForIndex(row)
 				Text(
 					when {
+						waiting -> stringResource(Res.string.info_album_match_indexing)
 						total <= 0 -> stringResource(Res.string.info_album_match_applying)
-						// Every file written and the row still `applying`: lb-bot is waiting for
-						// Navidrome to index the album again, for a minute at most.
-						done >= total -> stringResource(Res.string.info_album_match_indexing)
 						else -> stringResource(Res.string.info_album_match_applying_count, done, total)
 					},
 					style = MaterialTheme.typography.bodyMedium
 				)
-				if (total > 0 && done < total) {
+				if (!waiting && total > 0) {
 					LinearProgressIndicator(
 						progress = { (done.toFloat() / total).coerceIn(0f, 1f) },
 						modifier = Modifier.fillMaxWidth()
@@ -1120,7 +1143,13 @@ private fun AlbumJobBlock(
 				}
 			}
 			AlbumJob.REMOVE -> {
-				Text(stringResource(Res.string.info_album_match_removing), style = MaterialTheme.typography.bodyMedium)
+				Text(
+					stringResource(
+						if (albumWaitingForIndex(row)) Res.string.info_album_match_restored_indexing
+						else Res.string.info_album_match_removing
+					),
+					style = MaterialTheme.typography.bodyMedium
+				)
 				LinearProgressIndicator(Modifier.fillMaxWidth())
 			}
 		}
@@ -1130,10 +1159,9 @@ private fun AlbumJobBlock(
 	}
 
 	Text(outcomeText(outcome).text(), style = MaterialTheme.typography.bodyMedium)
-	// A partial result names the files that failed, each with lb-bot's reason.
-	if (outcome is AlbumOutcome.WrotePartly || outcome is AlbumOutcome.DidNotFinish) {
-		FailureList(row?.failures.orEmpty())
-	}
+	// lb-bot's reasons, wherever the job ended with some — a remove that did not finish too:
+	// its reason is what says "undo again" (`albumJobFailures`).
+	FailureList(albumJobFailures(poll))
 	// Said only of a change that landed with no id for the album: lb-bot's "" is Navidrome
 	// not having indexed it again yet.
 	val landed = poll.phase == AlbumPollPhase.DONE && poll.job == AlbumJob.APPLY

@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.count_lb_problems
 import navic.composeapp.generated.resources.error_lbbot_busy
 import navic.composeapp.generated.resources.error_lbbot_hub_outdated
 import navic.composeapp.generated.resources.error_lbbot_not_configured
@@ -79,28 +80,46 @@ fun aboutRefreshMessage(notice: AboutRefreshNotice): StringResource = when (noti
 /**
  * One sentence a sheet builds from lb-bot's answer: a plain string, or a plural with its
  * quantity and arguments. Kept as data so the same sentence can be drawn in a sheet ([text])
- * and said in a snackbar when no sheet is open ([resolve]).
+ * and said in a snackbar when no sheet is open ([resolve]). [then] is a second sentence said
+ * after it — a count of something else, which one plural resource cannot also carry.
  */
 internal class LbSentence(
 	val string: StringResource? = null,
 	val plural: PluralStringResource? = null,
 	val quantity: Int = 0,
-	val args: List<Any> = emptyList()
+	val args: List<Any> = emptyList(),
+	val then: LbSentence? = null
 )
 
 @Composable
 internal fun LbSentence.text(): String {
 	val counted = plural
-	return if (counted != null) pluralStringResource(counted, quantity, *args.toTypedArray())
+	val said = if (counted != null) pluralStringResource(counted, quantity, *args.toTypedArray())
 	else string?.let { stringResource(it) }.orEmpty()
+	val next = then?.text().orEmpty()
+	return listOf(said, next).filter { it.isNotBlank() }.joinToString(" ")
 }
 
 /** [text] outside a composition. */
 internal suspend fun LbSentence.resolve(): String {
 	val counted = plural
-	return if (counted != null) getPluralString(counted, quantity, *args.toTypedArray())
+	val said = if (counted != null) getPluralString(counted, quantity, *args.toTypedArray())
 	else string?.let { getString(it) }.orEmpty()
+	val next = then?.resolve().orEmpty()
+	return listOf(said, next).filter { it.isNotBlank() }.joinToString(" ")
 }
+
+/**
+ * "N problems." — what an outcome said outside its sheet adds when lb-bot listed any: there the
+ * list itself, with this count above it, is not on screen. Problems, not files (ruling X9): a
+ * cover that could not be saved is one of lb-bot's `failures` too.
+ */
+internal fun problemsSentence(count: Int): LbSentence? =
+	if (count > 0) LbSentence(plural = Res.plurals.count_lb_problems, quantity = count, args = listOf(count)) else null
+
+/** This sentence, then "N problems." when there are any ([problemsSentence]). */
+internal fun LbSentence.withProblems(count: Int): LbSentence =
+	LbSentence(string, plural, quantity, args, problemsSentence(count))
 
 @Composable
 fun LbErrorLine(error: LbBotManager.LbError?, modifier: Modifier = Modifier) {

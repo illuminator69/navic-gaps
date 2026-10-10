@@ -150,19 +150,27 @@ class ArtistMergeTest {
 	}
 
 	@Test
-	fun theMergeRowDecodesAndARowWithNoIdIsNotOne() {
+	fun theMergeRowDecodesWithTheRewrittenSpellingsId() {
 		val row = value(
 			mergeRowAnswer(
 				200,
-				"""{"id":"mg-1","state":"merged","into":{"ndArtistId":"ar-amp","name":"Belle & Sebastian"},"from":{"name":"Belle and Sebastian"},
+				"""{"id":"mg-1","state":"merged","into":{"ndArtistId":"ar-amp","name":"Belle & Sebastian"},"from":{"ndArtistId":"ar-and","name":"Belle and Sebastian"},
 				"mbid":"$mbid","done":23,"total":24,"failures":[{"album":"Tigermilk","title":"Electronic Renaissance","reason":"read-only file"}],"setAt":1760000000}"""
 			)
 		)
 		assertEquals("merged", row.state)
 		assertEquals("Belle and Sebastian", row.from.name)
-		// The rewritten spelling's id is dead once it is merged: lb-bot sends only its name.
-		assertEquals("", row.from.ndArtistId)
+		// The rewritten spelling's Navidrome id at the time of the merge — dead once Navidrome
+		// has re-indexed — so a device that did not start the merge can tell which artist to
+		// read again.
+		assertEquals("ar-and", row.from.ndArtistId)
+		assertEquals(1_760_000_000.0, row.setAt)
 		assertEquals(listOf(LbMergeFailure("Tigermilk", "Electronic Renaissance", "read-only file")), row.failures)
+		// An lb-bot from before the id was added sends the name alone: no id, not an error.
+		val older = value(
+			mergeRowAnswer(200, """{"id":"mg-1","state":"merged","into":{"ndArtistId":"ar-amp","name":"A"},"from":{"name":"B"}}""")
+		)
+		assertEquals("", older.from.ndArtistId)
 		assertEquals(rejected(200, ALBUM_NOT_AN_ANSWER), error(mergeRowAnswer(200, "{}")))
 		assertEquals(rejected(200, ALBUM_NOT_AN_ANSWER), error(mergeRowAnswer(200, """{"state":"merged"}""")))
 	}
@@ -189,6 +197,26 @@ class ArtistMergeTest {
 			rejected(502, "Navidrome did not answer"),
 			error(mergePreviewAnswer(502, """{"error":"Navidrome did not answer","retryable":true}"""))
 		)
+	}
+
+	@Test
+	fun filesLbBotCannotReachAreSaidInItsOwnWordsOnAMergeAndAnUndo() {
+		val text = "lb-bot can find only 20 of the 24 files. Turn on Report Real Path for the " +
+			"listenbrainz-bot player in Navidrome, then try again."
+		val body = """{"error":"$text","code":"files_unreachable","reachable":20,"total":24}"""
+		val refused = rejected(409, text, "files_unreachable")
+		// The merge and the undo share one reader.
+		assertEquals(refused, error(mergeWriteAnswer(409, body)))
+		assertEquals(refused, error(mergePreviewAnswer(409, body)))
+	}
+
+	@Test
+	fun aCollaborationCreditIsRefusedInLbBotsWords() {
+		val text = "JPEGMAFIA × Danny Brown is a collaboration credit, not another spelling of JPEGMAFIA"
+		val body = """{"error":"$text","code":"collaboration"}"""
+		val refused = rejected(409, text, "collaboration")
+		assertEquals(refused, error(mergePreviewAnswer(409, body)))
+		assertEquals(refused, error(mergeWriteAnswer(409, body)))
 	}
 
 	@Test
@@ -222,6 +250,42 @@ class ArtistMergeTest {
 		// A row with no id cannot be merged with, and this artist listed twice is still itself.
 		val odd = LbSiblingGroup(mbid, listOf(and, LbSibling("", "Nameless", 4), and, amp))
 		assertEquals(listOf(amp), mergeOthers(odd, "ar-and"))
+	}
+
+	// --- collab: a collaboration credit is not another spelling (ruling X5) --------------------
+
+	private val jpeg = LbSibling("ar-jpeg", "JPEGMAFIA", albums = 6)
+	private val peggy = LbSibling("ar-peggy", "JPEGMAFIA.", albums = 1)
+	private val credit = LbSibling("ar-credit", "JPEGMAFIA × Danny Brown", albums = 1, collab = true)
+
+	@Test
+	fun aSiblingEntryCarriesCollabAndAbsentIsFalse() {
+		val body = wire.decodeFromString<LbOverrides>(
+			"""{"artists":[],"siblings":[{"mbid":"$mbid","artists":[
+			{"ndArtistId":"ar-jpeg","name":"JPEGMAFIA","albums":6,"collab":false},
+			{"ndArtistId":"ar-credit","name":"JPEGMAFIA × Danny Brown","albums":1,"collab":true},
+			{"ndArtistId":"ar-peggy","name":"JPEGMAFIA.","albums":1}]}]}"""
+		)
+		assertEquals(listOf(LbSiblingGroup(mbid, listOf(jpeg, credit, peggy))), body.siblings)
+	}
+
+	@Test
+	fun aGroupWhoseOthersAreAllCollaborationsOffersNothing() {
+		// 61 of the live library's 114 same-MBID groups are an artist plus such credits.
+		assertEquals(emptyList(), mergeOthers(LbSiblingGroup(mbid, listOf(jpeg, credit)), "ar-jpeg"))
+	}
+
+	@Test
+	fun aCollaborationCreditsOwnPageOffersNothing() {
+		// Its own entry is the credit: there is no spelling of IT here, whoever else is listed.
+		assertEquals(emptyList(), mergeOthers(LbSiblingGroup(mbid, listOf(jpeg, peggy, credit)), "ar-credit"))
+	}
+
+	@Test
+	fun inAMixedGroupOnlyTheSpellingsAreOffered() {
+		val mixed = LbSiblingGroup(mbid, listOf(jpeg, credit, peggy))
+		assertEquals(listOf(peggy), mergeOthers(mixed, "ar-jpeg"))
+		assertEquals(listOf(jpeg), mergeOthers(mixed, "ar-peggy"))
 	}
 
 	// --- mergeDefaultKeep ----------------------------------------------------------------------
@@ -272,12 +336,17 @@ class ArtistMergeTest {
 		id = "mg-1",
 		state = state,
 		into = LbMergeArtist("ar-amp", "Belle & Sebastian"),
-		from = LbMergeArtist(name = "Belle and Sebastian"),
+		// The rewritten spelling's id at the time of the merge: dead once Navidrome re-indexes.
+		from = LbMergeArtist("ar-and", "Belle and Sebastian"),
 		mbid = mbid,
 		done = done,
 		total = total,
-		failures = List(failures) { LbMergeFailure("Tigermilk", "Track $it", "read-only file") }
+		failures = List(failures) { LbMergeFailure("Tigermilk", "Track $it", "read-only file") },
+		setAt = 1_760_000_000.0
 	)
+
+	/** A row as an lb-bot from before `from.ndArtistId` sends it: the spelling by name only. */
+	private fun LbMergeRow.withoutFromId() = copy(from = LbMergeArtist(name = from.name))
 
 	private fun answered(state: String, done: Int = 0, failures: Int = 0) =
 		MergePollRead.Row(row(state, done, failures = failures))
@@ -340,6 +409,88 @@ class ArtistMergeTest {
 		// Seen undoing, and the row stands again: the undo did not finish.
 		assertEquals(LbJobPhase.FAILED, poll.phase)
 		assertEquals(MergeOutcome.NotUndone, mergeOutcome(poll))
+	}
+
+	// lb-bot flips the row to `undoing` before it answers the POST (ruling X1).
+
+	@Test
+	fun anUndoThatFailsBeforeTheFirstTickIsSeen() {
+		val poll = mergePollStart(MergeJob.UNDO, 0, postState = "undoing")
+			.then(answered("failed", done = 20, failures = 4), 2_000)
+		assertEquals(LbJobPhase.FAILED, poll.phase)
+		assertEquals(MergeOutcome.NotUndone, mergeOutcome(poll))
+		// With lb-bot's reasons, and with Undo to press again: its undo is two presses when a
+		// file has gone missing.
+		assertEquals(4, mergeJobFailures(poll).size)
+		assertEquals(true, mergeJobCanUndo(poll))
+		// Without the POST's word the first `failed` is where the job started from.
+		assertEquals(LbJobPhase.POLLING, mergePollStart(MergeJob.UNDO, 0).then(answered("failed"), 2_000).phase)
+	}
+
+	// The clock measures silence, not length (ruling X2).
+
+	@Test
+	fun aMergeThatKeepsAdvancingIsFollowedPastThreeMinutes() {
+		var poll = mergePollStart(MergeJob.MERGE, 0)
+		for (minute in 1..10) {
+			poll = poll.then(answered("merging", done = minute * 2), minute * 60_000L)
+			assertEquals(LbJobPhase.POLLING, poll.phase, "minute $minute")
+		}
+		// It stops moving at the tenth minute, and is given up on three minutes after that.
+		assertEquals(LbJobPhase.POLLING, poll.then(answered("merging", done = 20), 600_000 + LB_JOB_GIVE_UP_MS - 1).phase)
+		assertEquals(LbJobPhase.TIMED_OUT, poll.then(answered("merging", done = 20), 600_000 + LB_JOB_GIVE_UP_MS).phase)
+	}
+
+	// --- the wait for Navidrome (ruling X4) ----------------------------------------------------
+
+	@Test
+	fun aMergeWaitsForTheIndexOnceEveryFileIsDealtWith() {
+		assertEquals(true, mergeWaitingForIndex(row("merging", done = 24)))
+		assertEquals(true, mergeWaitingForIndex(row("merging", done = 22, failures = 2)))
+		assertEquals(true, mergeWaitingForIndex(row("undoing", done = 24)))
+		assertEquals(false, mergeWaitingForIndex(row("merging", done = 23)))
+		assertEquals(false, mergeWaitingForIndex(row("merging", done = 0, total = 0)))
+		assertEquals(false, mergeWaitingForIndex(row("merged", done = 24)))
+		assertEquals(false, mergeWaitingForIndex(null))
+	}
+
+	// --- lb-bot's reasons, and Undo ------------------------------------------------------------
+
+	@Test
+	fun lbBotsReasonsAreReadForAMergeAndForAnUndoThatDidNotFinish() {
+		val partly = mergePollStart(MergeJob.MERGE, 0).then(answered("merged", done = 22, failures = 2), 2_000)
+		assertEquals(2, mergeJobFailures(partly).size)
+		val failed = mergePollStart(MergeJob.MERGE, 0).then(answered("failed", done = 7, failures = 1), 2_000)
+		assertEquals(1, mergeJobFailures(failed).size)
+		val notUndone = mergePollStart(MergeJob.UNDO, 0)
+			.then(answered("undoing"), 2_000)
+			.then(answered("failed", done = 20, failures = 4), 4_000)
+		assertEquals(4, mergeJobFailures(notUndone).size)
+	}
+
+	@Test
+	fun noReasonsAreShownAfterAnUndoThatFinishedOrWhileLbBotIsStillWorking() {
+		val restored = mergePollStart(MergeJob.UNDO, 0)
+			.then(answered("undoing", done = 5, failures = 2), 2_000)
+			.then(MergePollRead.Gone, 4_000)
+		assertEquals(MergeOutcome.Undone, mergeOutcome(restored))
+		assertEquals(emptyList(), mergeJobFailures(restored))
+		val running = mergePollStart(MergeJob.MERGE, 0).then(answered("merging", done = 3, failures = 1), 2_000)
+		assertEquals(emptyList(), mergeJobFailures(running))
+		assertEquals(emptyList(), mergeJobFailures(mergePollStart(MergeJob.MERGE, 0)))
+	}
+
+	@Test
+	fun aMergeAtRestAndAnUndoThatDidNotFinishCanBeUndoneFromTheBlock() {
+		assertEquals(true, mergeJobCanUndo(merged))
+		assertEquals(true, mergeJobCanUndo(mergePollStart(MergeJob.MERGE, 0).then(answered("failed", done = 7), 2_000)))
+		val notUndone = mergePollStart(MergeJob.UNDO, 0).then(answered("undoing"), 2_000).then(answered("failed"), 4_000)
+		assertEquals(true, mergeJobCanUndo(notUndone))
+		// Undone, still running, given up on, vanished: nothing here to undo.
+		assertEquals(false, mergeJobCanUndo(undone))
+		assertEquals(false, mergeJobCanUndo(mergePollStart(MergeJob.MERGE, 0).then(answered("merging"), 2_000)))
+		assertEquals(false, mergeJobCanUndo(mergePollStart(MergeJob.MERGE, 0).then(MergePollRead.Missed, LB_JOB_GIVE_UP_MS)))
+		assertEquals(false, mergeJobCanUndo(mergePollStart(MergeJob.MERGE, 0).then(MergePollRead.Gone, 2_000)))
 	}
 
 	@Test
@@ -599,8 +750,9 @@ class ArtistMergeTest {
 
 	@Test
 	fun aMergeWhoseRewrittenIdNobodyKnowsStillHasTheArtistListReadAgain() {
-		// lb-bot's row names the rewritten spelling by name only. Blank is "no id to read albums
-		// by", which is not "read nothing": the artist list needs no id.
+		// A row from an lb-bot older than `from.ndArtistId` names the rewritten spelling by name
+		// alone. Blank is "no id to read albums by", which is not "read nothing": the artist
+		// list needs no id.
 		assertEquals("", mergeResyncArtistId(merged, intoId = "ar-amp", fromId = ""))
 	}
 
@@ -624,10 +776,102 @@ class ArtistMergeTest {
 		val gaveUp = mergePollStart(MergeJob.MERGE, 0).then(MergePollRead.Missed, LB_JOB_GIVE_UP_MS)
 		assertNull(mergeToPickUp(true, listOf(merging), mapOf("mg-1" to job(gaveUp)), "ar-amp"))
 		// Another artist's, and an artist with no id.
-		assertNull(mergeToPickUp(true, listOf(merging), emptyMap(), "ar-and"))
+		assertNull(mergeToPickUp(true, listOf(merging), emptyMap(), "ar-plus"))
 		assertNull(mergeToPickUp(true, listOf(merging), emptyMap(), ""))
 		// No list from lb-bot, and no merge route to follow it by.
 		assertNull(mergeToPickUp(true, null, emptyMap(), "ar-amp"))
 		assertNull(mergeToPickUp(false, listOf(merging), emptyMap(), "ar-amp"))
+	}
+
+	@Test
+	fun theRewrittenSpellingsOwnBlockPicksItUpToo() {
+		// The row names the rewritten spelling's id as well as the kept one's.
+		val merging = row("merging", done = 3)
+		assertEquals(merging, mergeToPickUp(true, listOf(merging), emptyMap(), "ar-and"))
+		// An older lb-bot names it by name only: there is no id to decide on, so no pick-up.
+		assertNull(mergeToPickUp(true, listOf(merging.withoutFromId()), emptyMap(), "ar-and"))
+	}
+
+	// --- what is remembered of a job that ended (ruling X3) ------------------------------------
+
+	@Test
+	fun aMergeIsOneMergeByItsIdAndWhenItWasSet() {
+		val one = row("merged", done = 24)
+		// The same merge, read at another moment.
+		assertEquals(mergeRowKey(one), mergeRowKey(one.copy(state = "merging", done = 3)))
+		// A later merge under the same id, and another id at the same moment, are other merges.
+		assertEquals(false, mergeRowKey(one) == mergeRowKey(one.copy(setAt = one.setAt + 60)))
+		assertEquals(false, mergeRowKey(one) == mergeRowKey(one.copy(id = "mg-2")))
+	}
+
+	@Test
+	fun aJobThatEndedAtRestIsRemembered() {
+		val key = mergeRowKey(row("merged"))
+		assertEquals(key, mergeFinishedKey(merged))
+		assertEquals(key, mergeFinishedKey(mergePollStart(MergeJob.MERGE, 0).then(answered("failed", done = 7), 2_000)))
+		assertEquals(key, mergeFinishedKey(undone))
+		val notUndone = mergePollStart(MergeJob.UNDO, 0).then(answered("undoing"), 2_000).then(answered("failed"), 4_000)
+		assertEquals(key, mergeFinishedKey(notUndone))
+	}
+
+	@Test
+	fun aJobThatIsNotAtRestIsNotRemembered() {
+		// Given up on: lb-bot may still be working, and it may be picked up again.
+		val gaveUp = mergePollStart(MergeJob.MERGE, 0).then(answered("merging", done = 3), 2_000)
+			.then(MergePollRead.Missed, 2_000 + LB_JOB_GIVE_UP_MS)
+		assertEquals(LbJobPhase.TIMED_OUT, gaveUp.phase)
+		assertNull(mergeFinishedKey(gaveUp))
+		assertNull(mergeFinishedKey(mergePollStart(MergeJob.MERGE, 0).then(answered("merging"), 2_000)))
+		// Ended with no row ever read: nothing names it.
+		assertNull(mergeFinishedKey(mergePollStart(MergeJob.UNDO, 0, postState = "undoing").then(MergePollRead.Gone, 2_000)))
+	}
+
+	@Test
+	fun aMergeThisDeviceFollowedToRestIsNotPickedUpAgain() {
+		// The list can go on saying `merging` for a merge that has ended — a copy of it up to a
+		// minute old — and picking that up showed a finished merge a second time.
+		val stale = row("merging", done = 3)
+		val finished = setOf(mergeRowKey(row("merged")))
+		assertNull(mergeToPickUp(true, listOf(stale), emptyMap(), "ar-amp", finished))
+		assertNull(mergeToPickUp(true, listOf(stale), emptyMap(), "ar-and", finished))
+		// The same id set at a later moment is another merge, and is picked up.
+		val later = stale.copy(setAt = stale.setAt + 60)
+		assertEquals(later, mergeToPickUp(true, listOf(later), emptyMap(), "ar-amp", finished))
+	}
+
+	@Test
+	fun aPollThatGaveUpMayBePickedUpAgainOnceItIsDismissed() {
+		val gaveUp = mergePollStart(MergeJob.MERGE, 0).then(MergePollRead.Missed, LB_JOB_GIVE_UP_MS)
+		val merging = row("merging", done = 5)
+		// While its job is still listed here it is left alone...
+		assertNull(mergeToPickUp(true, listOf(merging), mapOf("mg-1" to job(gaveUp)), "ar-amp"))
+		// ...and once dismissed, with lb-bot still reporting it running, it is followed again.
+		val finished = setOfNotNull(mergeFinishedKey(gaveUp))
+		assertEquals(merging, mergeToPickUp(true, listOf(merging), emptyMap(), "ar-amp", finished))
+	}
+
+	// --- mergesToResync: a merge that finished on another device -------------------------------
+
+	@Test
+	fun aMergeFinishedElsewhereHasItsRewrittenArtistReadAgain() {
+		val done = row("merged", done = 24)
+		assertEquals(listOf(done), mergesToResync(listOf(row("merging").copy(id = "mg-0"), done), emptyMap(), emptySet(), emptySet()))
+	}
+
+	@Test
+	fun onlyAMergeAtRestThatNamesItsArtistAndIsNobodysHereIsReadAgain() {
+		val done = row("merged", done = 24)
+		val none = emptyList<LbMergeRow>()
+		// Still running, failed, being undone: not `merged`.
+		assertEquals(none, mergesToResync(listOf(row("merging"), row("failed"), row("undoing")), emptyMap(), emptySet(), emptySet()))
+		// An older lb-bot's row: no id to read by.
+		assertEquals(none, mergesToResync(listOf(done.withoutFromId()), emptyMap(), emptySet(), emptySet()))
+		// This device follows it, or followed it to rest: it settles its own.
+		assertEquals(none, mergesToResync(listOf(done), mapOf("mg-1" to job(merged)), emptySet(), emptySet()))
+		assertEquals(none, mergesToResync(listOf(done), emptyMap(), setOf(mergeRowKey(done)), emptySet()))
+		// Once per row per process.
+		assertEquals(none, mergesToResync(listOf(done), emptyMap(), emptySet(), setOf(mergeRowKey(done))))
+		// No list from lb-bot.
+		assertEquals(none, mergesToResync(null, emptyMap(), emptySet(), emptySet()))
 	}
 }

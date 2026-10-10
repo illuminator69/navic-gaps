@@ -39,8 +39,9 @@ import navic.composeapp.generated.resources.info_mbid_merge_gone
 import navic.composeapp.generated.resources.info_mbid_merge_names
 import navic.composeapp.generated.resources.info_mbid_merge_not_finished
 import navic.composeapp.generated.resources.info_mbid_merge_not_undone
-import navic.composeapp.generated.resources.info_mbid_merge_older
+import navic.composeapp.generated.resources.info_mbid_merge_indexing
 import navic.composeapp.generated.resources.info_mbid_merge_preview
+import navic.composeapp.generated.resources.info_mbid_merge_restored_indexing
 import navic.composeapp.generated.resources.info_mbid_merge_retagged
 import navic.composeapp.generated.resources.info_mbid_merge_retagged_partly
 import navic.composeapp.generated.resources.info_mbid_merge_retagging
@@ -56,20 +57,21 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
-import paige.navic.domain.manager.LbJobPhase
 import paige.navic.domain.manager.LbMergePreview
 import paige.navic.domain.manager.LbSibling
 import paige.navic.domain.manager.MergeBlockView
-import paige.navic.domain.manager.MergeJob
 import paige.navic.domain.manager.MergeJobState
 import paige.navic.domain.manager.MergeOutcome
 import paige.navic.domain.manager.mergeBlockView
 import paige.navic.domain.manager.mergeDefaultKeep
+import paige.navic.domain.manager.mergeJobCanUndo
+import paige.navic.domain.manager.mergeJobFailures
 import paige.navic.domain.manager.mergeJobFor
 import paige.navic.domain.manager.mergeJobInFlight
 import paige.navic.domain.manager.mergeOthers
 import paige.navic.domain.manager.mergeOutcome
 import paige.navic.domain.manager.mergeToPickUp
+import paige.navic.domain.manager.mergeWaitingForIndex
 import paige.navic.domain.manager.planMerge
 import paige.navic.domain.manager.siblingGroupFor
 
@@ -80,10 +82,11 @@ private const val FAILURES_SHOWN = 10
 internal fun mergeOutcomeSentence(outcome: MergeOutcome): LbSentence = when (outcome) {
 	is MergeOutcome.Retagged ->
 		LbSentence(plural = Res.plurals.info_mbid_merge_retagged, quantity = outcome.files, args = listOf(outcome.files))
+	// Files only; lb-bot's `failures` are counted apart, as problems (ruling X9).
 	is MergeOutcome.RetaggedPartly -> LbSentence(
 		plural = Res.plurals.info_mbid_merge_retagged_partly,
 		quantity = outcome.total,
-		args = listOf(outcome.done, outcome.total, outcome.failed)
+		args = listOf(outcome.done, outcome.total)
 	)
 	is MergeOutcome.DidNotFinish -> LbSentence(
 		plural = Res.plurals.info_mbid_merge_not_finished,
@@ -113,7 +116,10 @@ internal fun mergeOutcomeSentence(outcome: MergeOutcome): LbSentence = when (out
  * back.
  *
  * Every sentence is a field of an answer. The block only shows while the hub offers the merge
- * route; an lb-bot that turns out to predate it says so in one muted line.
+ * route, between entries that are not collaboration credits (`mergeOthers`). **An lb-bot that
+ * turns out to predate the route hides the block** (ruling X6): the manager withdraws
+ * `artistMergesSupported` on its "no such route", and a control inside a page hides rather than
+ * explain — all the more as the preview that finds out fires without a tap.
  */
 @Composable
 internal fun ArtistMergeBlock(ndArtistId: String) {
@@ -132,7 +138,8 @@ internal fun ArtistMergeBlock(ndArtistId: String) {
 	// A merge lb-bot is already working on with this artist's name as the kept one — started on
 	// another client, or before a restart: followed from where it is, like any other.
 	val merges by lbBot.artistMerges.collectAsState()
-	val pickUp = mergeToPickUp(controls, merges, jobs, ndArtistId)
+	val finished by lbBot.mergesFinished.collectAsState()
+	val pickUp = mergeToPickUp(controls, merges, jobs, ndArtistId, finished)
 	LaunchedEffect(pickUp?.id) {
 		val row = pickUp ?: return@LaunchedEffect
 		val running = mergeJobInFlight(row) ?: return@LaunchedEffect
@@ -147,15 +154,12 @@ internal fun ArtistMergeBlock(ndArtistId: String) {
 		)
 	}
 
-	// lb-bot answered "no such route" to this block's own request: said once, here.
-	var older by remember(ndArtistId) { mutableStateOf(false) }
-
 	val view = mergeBlockView(
 		controls = controls,
 		hasOthers = others.isNotEmpty(),
 		job = job
 	)
-	if (view == MergeBlockView.Hidden && !older) return
+	if (view == MergeBlockView.Hidden) return
 
 	// On screen: a job's ending is not also said in a snackbar while this is showing it.
 	DisposableEffect(ndArtistId) {
@@ -180,11 +184,7 @@ internal fun ArtistMergeBlock(ndArtistId: String) {
 		HorizontalDivider()
 		return
 	}
-	if (older || view != MergeBlockView.Form) {
-		SheetCaption(stringResource(Res.string.info_mbid_merge_older))
-		HorizontalDivider()
-		return
-	}
+	if (view != MergeBlockView.Form) return
 
 	// ----- the form ---------------------------------------------------------------------------
 	val self = group?.artists?.firstOrNull { it.ndArtistId == ndArtistId }
@@ -214,8 +214,10 @@ internal fun ArtistMergeBlock(ndArtistId: String) {
 		previewing = true
 		when (val result = lbBot.mergePreview(asked.ndId, asked.fromNdId)) {
 			is LbBotManager.LbResult.Ok -> preview = result.value
+			// "No such route" is not said: the manager has withdrawn the gate, and the block
+			// is gone with the next frame.
 			is LbBotManager.LbResult.Failed ->
-				if (result.error == LbBotManager.LbError.RouteUnknown) older = true else previewError = result.error
+				if (result.error != LbBotManager.LbError.RouteUnknown) previewError = result.error
 		}
 		previewing = false
 	}
@@ -280,8 +282,10 @@ internal fun ArtistMergeBlock(ndArtistId: String) {
 							fromName = names[plan.fromNdId].orEmpty()
 						)
 						// A started merge is followed by the manager; the block then shows that job.
-						if (result is LbBotManager.LbResult.Failed) {
-							if (result.error == LbBotManager.LbError.RouteUnknown) older = true else error = result.error
+						if (result is LbBotManager.LbResult.Failed &&
+							result.error != LbBotManager.LbError.RouteUnknown
+						) {
+							error = result.error
 						}
 						busy = false
 					}
@@ -333,15 +337,21 @@ private fun MergeJobView(
 		// Running — or over, with the library still being brought to agree.
 		val total = row?.total ?: 0
 		val done = row?.done ?: 0
+		// Every file dealt with and the row still active: lb-bot is waiting for Navidrome to
+		// index them, up to a minute. Said as a wait, with no count and no bar that has stopped
+		// (`mergeWaitingForIndex`).
+		val waiting = mergeWaitingForIndex(row)
 		Text(
 			when {
+				waiting && view.undo -> stringResource(Res.string.info_mbid_merge_restored_indexing)
+				waiting -> stringResource(Res.string.info_mbid_merge_indexing)
 				view.undo -> stringResource(Res.string.info_mbid_merge_undoing)
 				total > 0 -> stringResource(Res.string.info_mbid_merge_retagging_count, done, total)
 				else -> stringResource(Res.string.info_mbid_merge_retagging)
 			},
 			style = MaterialTheme.typography.bodyMedium
 		)
-		if (!view.undo && total > 0 && done < total) {
+		if (!waiting && !view.undo && total > 0) {
 			LinearProgressIndicator(
 				progress = { (done.toFloat() / total).coerceIn(0f, 1f) },
 				modifier = Modifier.fillMaxWidth()
@@ -353,8 +363,10 @@ private fun MergeJobView(
 	}
 
 	Text(mergeOutcomeSentence(outcome).text(), style = MaterialTheme.typography.bodyMedium)
-	val failures = row?.failures.orEmpty()
-	if (failures.isNotEmpty() && !view.undo) {
+	// lb-bot's reasons, wherever the job ended with some — an undo that did not finish too: its
+	// reason is what says "undo again" (`mergeJobFailures`).
+	val failures = mergeJobFailures(poll)
+	if (failures.isNotEmpty()) {
 		Text(
 			pluralStringResource(Res.plurals.info_album_match_row_failures, failures.size, failures.size),
 			style = MaterialTheme.typography.bodySmall,
@@ -370,9 +382,10 @@ private fun MergeJobView(
 	}
 	LbErrorLine(error)
 
-	// A merge at rest — landed, or failed part-way — can be undone: lb-bot restores what it wrote.
-	val undoable = poll.job == MergeJob.MERGE && row != null &&
-		(poll.phase == LbJobPhase.DONE || poll.phase == LbJobPhase.FAILED)
+	// A merge at rest — landed, or failed part-way — can be undone: lb-bot restores what it
+	// wrote. So can an undo that did not finish: lb-bot expects it pressed again, to restore a
+	// file that is back or to give up on it (`mergeJobCanUndo`).
+	val undoable = mergeJobCanUndo(poll)
 	if (undoable) SheetCaption(stringResource(Res.string.info_mbid_merge_undo_note))
 	Row(
 		modifier = Modifier.fillMaxWidth(),

@@ -82,8 +82,9 @@ private const val LOOKUP_DEBOUNCE_MS = 500L
  * @param currentMbid the id in force — the override when [overridden], else the tag.
  * @param ndArtistId the artist's Navidrome id, for "Merge into one name" (I-023,
  *   [ArtistMergeBlock]): the block shows when lb-bot lists this artist beside another spelling
- *   with the same MusicBrainz id, or while a merge that concerns it is being followed. Blank
- *   where the sheet is opened for an artist it has no id to merge by.
+ *   with the same MusicBrainz id, or while a merge that concerns it is being followed.
+ *   **Required on purpose**: as an optional argument an upstream merge could drop it at the
+ *   call site and the block would simply never show, with nothing failing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,7 +99,7 @@ fun MbidMatchSheet(
 	onPick: (mbid: String) -> Unit,
 	onRemoveOverride: () -> Unit,
 	onDismissRequest: () -> Unit,
-	ndArtistId: String = ""
+	ndArtistId: String
 ) {
 	val lbBot = koinInject<LbBotManager>()
 	val title = stringResource(Res.string.action_fix_musicbrainz_match)

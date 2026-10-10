@@ -698,16 +698,20 @@ sealed interface AlbumPollRead {
  * A poll in progress, or its ending.
  *
  * @property state the last answer, kept across missed polls so the progress does not blink.
- * @property sawActive lb-bot has been seen working on this job (`removing`, for a remove). A
- *   remove can be polled before lb-bot has flipped the row, and the `applied` — or `failed`, for
- *   an interrupted apply being undone — read then is the state it started from, not a verdict.
+ * @property sawActive lb-bot is known to have been working on this job (`removing`, for a
+ *   remove): said by the POST's own answer, by the row a running job was found with, or by a
+ *   poll. Until then a remove's `applied` — or `failed`, for an interrupted apply being undone —
+ *   is the state the job started from, not a verdict.
+ * @property quietSinceMs when the row last moved (its `state` or `done`); the job's start until
+ *   it has. The three-minute bound runs from here ([lbJobStep]).
  */
 data class AlbumPoll(
 	val job: AlbumJob,
 	val startedAtMs: Long,
 	val phase: AlbumPollPhase = AlbumPollPhase.POLLING,
 	val state: LbAlbumState? = null,
-	val sawActive: Boolean = false
+	val sawActive: Boolean = false,
+	val quietSinceMs: Long = startedAtMs
 ) {
 	val row: LbAlbumOverrideRow? get() = state?.override
 }
@@ -740,13 +744,23 @@ private fun activeState(job: AlbumJob): String = albumSpec(job).active
 /**
  * [seen] is the row as already read, for a job found running when the sheet opened (started on
  * another client, or before a restart): it is shown at once.
+ *
+ * [postState] is the `state` of the POST's own answer (ruling X1). lb-bot flips the row to
+ * `removing` before it answers a remove, and can reach `failed` before the first poll two
+ * seconds later: without the POST's word that first `failed` would be read as the state the
+ * job started from, and the job would never end.
  */
-internal fun albumPollStart(job: AlbumJob, nowMs: Long, seen: LbAlbumState? = null): AlbumPoll =
+internal fun albumPollStart(
+	job: AlbumJob,
+	nowMs: Long,
+	seen: LbAlbumState? = null,
+	postState: String = ""
+): AlbumPoll =
 	AlbumPoll(
 		job = job,
 		startedAtMs = nowMs,
 		state = seen,
-		sawActive = seen?.override?.state == activeState(job)
+		sawActive = seen?.override?.state == activeState(job) || postState == activeState(job)
 	)
 
 /** The job lb-bot is already running for the album, if any. */
@@ -783,16 +797,55 @@ internal fun albumPollStep(poll: AlbumPoll, read: AlbumPollRead, nowMs: Long): A
 	val heard = when (read) {
 		AlbumPollRead.Missed -> LbJobRead.Missed
 		AlbumPollRead.Gone -> LbJobRead.Gone
-		is AlbumPollRead.Row -> LbJobRead.State(read.state.override?.state.orEmpty())
+		is AlbumPollRead.Row -> jobRead(read.state.override)
 	}
-	val next = lbJobStep(albumSpec(poll.job), poll.phase, poll.sawActive, poll.startedAtMs, heard, nowMs)
+	val last = poll.row?.let { jobRead(it) }
+	val next = lbJobStep(albumSpec(poll.job), poll.phase, poll.sawActive, poll.quietSinceMs, last, heard, nowMs)
 	return poll.copy(
 		phase = next.phase,
 		sawActive = next.sawActive,
+		quietSinceMs = next.quietSinceMs,
 		// The last answer is kept across missed polls, so the progress does not blink.
 		state = (read as? AlbumPollRead.Row)?.state ?: poll.state
 	)
 }
+
+private fun jobRead(row: LbAlbumOverrideRow?): LbJobRead.State =
+	LbJobRead.State(row?.state.orEmpty(), row?.done ?: 0)
+
+/**
+ * Every file is dealt with and lb-bot still holds the row `applying` or `removing`: it is
+ * waiting for Navidrome to index the album ([lbWritesOver]).
+ */
+internal fun albumWaitingForIndex(row: LbAlbumOverrideRow?): Boolean =
+	row != null && lbWritesOver(
+		working = row.state == ALBUM_STATE_APPLYING || row.state == ALBUM_STATE_REMOVING,
+		done = row.done,
+		total = row.total,
+		failures = row.failures.size
+	)
+
+/**
+ * lb-bot's reasons, where an ended job has any to read: an apply that landed with failures or
+ * did not finish, **and a remove that did not finish** — lb-bot's undo is two presses when a
+ * file has gone missing, and the reason is what says so ("undo again to restore it if it is
+ * back, or to give up on it"). Not after a remove that finished (the row last seen is from
+ * before it) and not while lb-bot is still working.
+ */
+internal fun albumJobFailures(poll: AlbumPoll): List<LbAlbumFailure> = when (poll.phase) {
+	AlbumPollPhase.FAILED -> poll.row?.failures.orEmpty()
+	AlbumPollPhase.DONE -> if (poll.job == AlbumJob.APPLY) poll.row?.failures.orEmpty() else emptyList()
+	AlbumPollPhase.POLLING, AlbumPollPhase.GONE, AlbumPollPhase.TIMED_OUT -> emptyList()
+}
+
+/**
+ * The release group the covers are asked for with (ruling X8). A release that is **not one of
+ * the listed editions** — a pasted id — may belong to another group altogether, so it is asked
+ * for by `release_mbid` alone and lb-bot derives that release's own group; with the album's old
+ * `rgid` the "release group" covers would be the wrong group's.
+ */
+internal fun albumCoversRgid(rgid: String, releaseMbid: String, listed: Collection<String>): String =
+	if (releaseMbid.isNotBlank() && releaseMbid !in listed) "" else rgid
 
 /** What an ended poll has to say. Every number in it is a field of lb-bot's last answer. */
 sealed interface AlbumOutcome {

@@ -741,8 +741,12 @@
 	<string name="info_album_match_untagged">This album's files are not tagged with a MusicBrainz release.</string>
 	<string name="info_album_match_changed">lb-bot changed this album's tags or cover. Undo puts the previous ones back.</string>
 	<plurals name="info_album_match_row_failures">
-		<item quantity="one">%1$d file could not be written:</item>
-		<item quantity="other">%1$d files could not be written:</item>
+		<item quantity="one">%1$d problem:</item>
+		<item quantity="other">%1$d problems:</item>
+	</plurals>
+	<plurals name="count_lb_problems">
+		<item quantity="one">%1$d problem.</item>
+		<item quantity="other">%1$d problems.</item>
 	</plurals>
 	<string name="title_album_match_editions">Editions</string>
 	<string name="info_album_match_looking_up">Looking this album up on MusicBrainz…</string>
@@ -794,15 +798,16 @@
 	<string name="action_album_match_apply_anyway">Apply anyway</string>
 	<string name="info_album_match_applying">Writing tags…</string>
 	<string name="info_album_match_applying_count">Writing tags: %1$d of %2$d files</string>
-	<string name="info_album_match_indexing">The tags are written. Waiting for Navidrome to index the album…</string>
+	<string name="info_album_match_indexing">The tags are written. lb-bot is waiting for Navidrome to index them, which can take up to a minute.</string>
+	<string name="info_album_match_restored_indexing">The previous tags are back. lb-bot is waiting for Navidrome to index them, which can take up to a minute.</string>
 	<string name="info_album_match_removing">Putting the previous tags back…</string>
 	<plurals name="info_album_match_wrote">
 		<item quantity="one">lb-bot wrote the tags of %1$d file.</item>
 		<item quantity="other">lb-bot wrote the tags of %1$d files.</item>
 	</plurals>
 	<plurals name="info_album_match_wrote_partly">
-		<item quantity="one">lb-bot wrote %1$d of %2$d file; %3$d could not be written.</item>
-		<item quantity="other">lb-bot wrote %1$d of %2$d files; %3$d could not be written.</item>
+		<item quantity="one">lb-bot wrote the tags of %1$d of %2$d file.</item>
+		<item quantity="other">lb-bot wrote the tags of %1$d of %2$d files.</item>
 	</plurals>
 	<plurals name="info_album_match_not_finished">
 		<item quantity="one">lb-bot did not finish writing the tags (%1$d of %2$d file written).</item>
@@ -811,7 +816,7 @@
 	<string name="info_album_match_removed">lb-bot put the previous tags back.</string>
 	<string name="info_album_match_not_removed">lb-bot could not put all the previous tags back.</string>
 	<string name="info_album_match_gone">lb-bot no longer lists this change.</string>
-	<string name="info_album_match_still_working">Still working — check the lb-bot data panel.</string>
+	<string name="info_album_match_still_working">lb-bot is still working. “lb-bot data” in Settings shows the result.</string>
 	<string name="info_album_match_cover_saved">lb-bot saved the cover.</string>
 	<string name="info_album_match_not_indexed">Navidrome has not indexed the album again yet.</string>
 	<string name="action_album_match_open_album">Open the album</string>
@@ -832,18 +837,19 @@
 	</plurals>
 	<string name="info_mbid_merge_preview">lb-bot would retag %1$s in %2$s to “%3$s”.</string>
 	<string name="action_mbid_merge">Merge</string>
-	<string name="info_mbid_merge_older">This lb-bot is older and can't merge artist names yet.</string>
 	<string name="info_mbid_merge_names">%1$s → %2$s</string>
 	<string name="info_mbid_merge_retagging">lb-bot is retagging the files…</string>
 	<string name="info_mbid_merge_retagging_count">lb-bot is retagging the files: %1$d of %2$d</string>
 	<string name="info_mbid_merge_undoing">lb-bot is putting the previous names back…</string>
+	<string name="info_mbid_merge_indexing">The files are retagged. lb-bot is waiting for Navidrome to index them, which can take up to a minute.</string>
+	<string name="info_mbid_merge_restored_indexing">The previous names are back. lb-bot is waiting for Navidrome to index them, which can take up to a minute.</string>
 	<plurals name="info_mbid_merge_retagged">
 		<item quantity="one">lb-bot retagged %1$d file.</item>
 		<item quantity="other">lb-bot retagged %1$d files.</item>
 	</plurals>
 	<plurals name="info_mbid_merge_retagged_partly">
-		<item quantity="one">lb-bot retagged %1$d of %2$d file; %3$d could not be written.</item>
-		<item quantity="other">lb-bot retagged %1$d of %2$d files; %3$d could not be written.</item>
+		<item quantity="one">lb-bot retagged %1$d of %2$d file.</item>
+		<item quantity="other">lb-bot retagged %1$d of %2$d files.</item>
 	</plurals>
 	<plurals name="info_mbid_merge_not_finished">
 		<item quantity="one">lb-bot did not finish retagging (%1$d of %2$d file written).</item>

@@ -250,6 +250,53 @@ class AlbumOverrideTest {
 		)
 	}
 
+	// --- 409 files_unreachable: lb-bot cannot see the album's files ------------------------------
+	// Navidrome hands lb-bot a synthesized path unless "Report Real Path" is on for its player.
+	// All or nothing, on preview, apply, cover and remove; the text names the remedy.
+
+	private val unreachableText =
+		"lb-bot can find only 9 of this album's 12 files. Turn on Report Real Path for the " +
+			"listenbrainz-bot player in Navidrome, then try again."
+	private val unreachable =
+		"""{"error":"$unreachableText","code":"files_unreachable","reachable":9,"total":12}"""
+
+	@Test
+	fun filesLbBotCannotReachAreSaidInItsOwnWordsOnEveryAlbumWrite() {
+		val refused = rejected(409, unreachableText, "files_unreachable")
+		assertEquals(refused, error(albumPreviewAnswer(409, unreachable)))
+		assertEquals(refused, error(albumApplyAnswer(409, unreachable)))
+		// The cover change and the remove share one reader.
+		assertEquals(refused, error(albumWriteAnswer(409, unreachable)))
+	}
+
+	@Test
+	fun unreachableFilesAreNeverReadAsThePoorMatchQuestion() {
+		// The body carries a `total`, as `poor_match` does. It is not that question: asking
+		// "apply anyway?" over it would send `force` for a retag lb-bot refused for another
+		// reason.
+		val withBothNumbers = """{"error":"$unreachableText","code":"files_unreachable","reachable":9,"matched":9,"total":12}"""
+		assertEquals(
+			rejected(409, unreachableText, "files_unreachable"),
+			error(albumApplyAnswer(409, withBothNumbers))
+		)
+	}
+
+	// --- GET album/covers: which group to ask by (ruling X8) ------------------------------------
+
+	@Test
+	fun coversForAListedEditionAreAskedWithTheAlbumsGroup() {
+		assertEquals(group, albumCoversRgid(group, release, listOf(release, other)))
+		// With no release picked there is only the group to ask by.
+		assertEquals(group, albumCoversRgid(group, "", listOf(release)))
+	}
+
+	@Test
+	fun coversForAReleaseThatIsNotListedAreAskedByTheReleaseAlone() {
+		// A pasted id may belong to another group: lb-bot derives it from the release itself.
+		assertEquals("", albumCoversRgid(group, other, listOf(release)))
+		assertEquals("", albumCoversRgid(group, other, emptyList()))
+	}
+
 	// --- POST album/cover, album/override/remove ----------------------------------------------
 
 	@Test

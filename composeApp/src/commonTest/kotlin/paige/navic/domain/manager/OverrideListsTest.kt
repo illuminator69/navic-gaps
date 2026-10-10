@@ -120,11 +120,12 @@ class OverrideListsTest {
 	}
 
 	@Test
-	fun aPartialRetagNamesWhatCouldNotBeWritten() {
-		assertEquals(
-			"Retagged 10 of 12 files; 2 could not be written.",
-			albumRowDetail(album(done = 10, failures = 2))
-		)
+	fun aPartialRetagCountsProblemsNotFiles() {
+		assertEquals("Retagged 10 of 12 files. 2 problems.", albumRowDetail(album(done = 10, failures = 2)))
+		// A cover that could not be saved is a `failures` entry too — and not a file: every
+		// file was written, and "1 could not be written" beside "12 of 12" was wrong (X9).
+		val coverOnly = album().copy(failures = listOf(LbAlbumFailure("Cover image", "the Archive did not answer")))
+		assertEquals("Retagged 12 of 12 files. 1 problem.", albumRowDetail(coverOnly))
 	}
 
 	@Test
@@ -147,10 +148,16 @@ class OverrideListsTest {
 	}
 
 	@Test
-	fun aFailedRetagSaysHowFarItGotAndThatUndoRestoresIt() {
+	fun aRowThatDidNotFinishSaysHowFarItGotWhicheverJobLeftItSo() {
+		// `failed` is an apply that did not finish, or an undo that did not: the row does not
+		// say which, so the sentence is true of both, and the reasons under it say the rest.
 		assertEquals(
-			"The retag did not finish: 4 of 12 files written. Undo restores what was written.",
+			"Did not finish: 4 of 12 files written. Undo puts the previous tags back.",
 			albumRowDetail(album(state = "failed", done = 4))
+		)
+		assertEquals(
+			"Did not finish: 10 of 12 files written. 2 problems. Undo puts the previous tags back.",
+			albumRowDetail(album(state = "failed", done = 10, failures = 2))
 		)
 	}
 
@@ -158,7 +165,72 @@ class OverrideListsTest {
 	fun aRowStillBeingWorkedOnSaysWhatLbBotIsDoing() {
 		assertEquals("lb-bot is writing the tags: 3 of 12 files.", albumRowDetail(album(state = "applying", done = 3)))
 		assertEquals("lb-bot is writing the tags.", albumRowDetail(album(state = "applying", done = 0, total = 0)))
-		assertEquals("lb-bot is putting the previous tags back.", albumRowDetail(album(state = "removing")))
+		assertEquals("lb-bot is putting the previous tags back.", albumRowDetail(album(state = "removing", done = 3)))
+	}
+
+	@Test
+	fun aRowWhoseWritesAreOverSaysLbBotIsWaitingForNavidrome() {
+		// lb-bot holds the row active after its last write until Navidrome has scanned, up to a
+		// minute: said as a wait, with no "12 of 12" that reads as stuck (X4).
+		val wait = " lb-bot is waiting for Navidrome to index them (up to a minute)."
+		assertEquals("The tags are written.$wait", albumRowDetail(album(state = "applying")))
+		assertEquals("The tags are written.$wait", albumRowDetail(album(state = "applying", done = 11, failures = 1)))
+		assertEquals("The previous tags are back.$wait", albumRowDetail(album(state = "removing")))
+		assertEquals("The files are retagged.$wait", mergeRowDetail(merge(state = "merging")))
+		assertEquals("The files are retagged.$wait", mergeRowDetail(merge(state = "merging", done = 22, failures = 2)))
+		assertEquals("The previous names are back.$wait", mergeRowDetail(merge(state = "undoing")))
+	}
+
+	// --- lb-bot's reasons, under the row -------------------------------------------------------
+
+	@Test
+	fun aRowAtRestListsLbBotsReasons() {
+		val again = "the file was not found, so its earlier tags were not put back. They are still kept: " +
+			"undo again to restore it if it is back, or to give up on it if it is still not there"
+		val notUndone = album(state = "failed", done = 10).copy(
+			failures = listOf(LbAlbumFailure("Eventually", again), LbAlbumFailure("Cover image", "read-only folder"))
+		)
+		// The reason is what tells the user that Undo is to be pressed again.
+		assertEquals(listOf("Eventually — $again", "Cover image — read-only folder"), albumRowProblems(notUndone))
+		assertEquals(
+			listOf("Track 0 — read-only file", "Track 1 — read-only file"),
+			albumRowProblems(album(done = 10, failures = 2))
+		)
+		assertEquals(
+			listOf("Tigermilk — Track 0 — read-only file"),
+			mergeRowProblems(merge(state = "failed", done = 23, failures = 1))
+		)
+		assertEquals(
+			listOf("Tigermilk — Track 0 — read-only file", "Tigermilk — Track 1 — read-only file"),
+			mergeRowProblems(merge(done = 22, failures = 2))
+		)
+	}
+
+	@Test
+	fun aReasonWithNoTitleIsStillAReason() {
+		val row = album(state = "failed").copy(failures = listOf(LbAlbumFailure("", "interrupted"), LbAlbumFailure("Eventually", "")))
+		assertEquals(listOf("interrupted", "Eventually"), albumRowProblems(row))
+		val merged = merge(state = "failed").copy(failures = listOf(LbMergeFailure("", "Track 1", "read-only file")))
+		assertEquals(listOf("Track 1 — read-only file"), mergeRowProblems(merged))
+	}
+
+	@Test
+	fun aLongListIsCutAndSaysHowManyMoreThereAre() {
+		val many = albumRowProblems(album(state = "failed", done = 0, total = 13, failures = 13))
+		assertEquals(ROW_PROBLEMS_SHOWN + 1, many.size)
+		assertEquals("Track 9 — read-only file", many[ROW_PROBLEMS_SHOWN - 1])
+		assertEquals("…and 3 more.", many.last())
+		assertEquals("…and 1 more.", mergeRowProblems(merge(state = "failed", done = 13, failures = 11)).last())
+	}
+
+	@Test
+	fun noReasonsAreListedWhileLbBotIsStillWorkingOrWhenThereAreNone() {
+		assertEquals(emptyList(), albumRowProblems(album()))
+		assertEquals(emptyList(), albumRowProblems(album(state = "applying", done = 3, failures = 1)))
+		assertEquals(emptyList(), albumRowProblems(album(state = "removing", done = 3, failures = 1)))
+		assertEquals(emptyList(), mergeRowProblems(merge()))
+		assertEquals(emptyList(), mergeRowProblems(merge(state = "merging", done = 3, failures = 1)))
+		assertEquals(emptyList(), mergeRowProblems(merge(state = "undoing", done = 3, failures = 1)))
 	}
 
 	@Test
@@ -189,10 +261,15 @@ class OverrideListsTest {
 	@Test
 	fun aMergeSaysHowManyFilesWereRetagged() {
 		assertEquals("Retagged 24 files.", mergeRowDetail(merge()))
-		assertEquals("Retagged 22 of 24 files; 2 could not be written.", mergeRowDetail(merge(done = 22, failures = 2)))
+		assertEquals("Retagged 22 of 24 files. 2 problems.", mergeRowDetail(merge(done = 22, failures = 2)))
+		assertEquals("Retagged 23 of 24 files. 1 problem.", mergeRowDetail(merge(done = 23, failures = 1)))
 		assertEquals(
-			"The merge did not finish: 7 of 24 files written. Undo restores what was written.",
+			"Did not finish: 7 of 24 files written. Undo puts the previous names back.",
 			mergeRowDetail(merge(state = "failed", done = 7))
+		)
+		assertEquals(
+			"Did not finish: 20 of 24 files written. 4 problems. Undo puts the previous names back.",
+			mergeRowDetail(merge(state = "failed", done = 20, failures = 4))
 		)
 	}
 
@@ -200,7 +277,7 @@ class OverrideListsTest {
 	fun aMergeStillBeingWorkedOnSaysWhatLbBotIsDoing() {
 		assertEquals("lb-bot is retagging the files: 5 of 24.", mergeRowDetail(merge(state = "merging", done = 5)))
 		assertEquals("lb-bot is retagging the files.", mergeRowDetail(merge(state = "merging", done = 0, total = 0)))
-		assertEquals("lb-bot is putting the previous names back.", mergeRowDetail(merge(state = "undoing")))
+		assertEquals("lb-bot is putting the previous names back.", mergeRowDetail(merge(state = "undoing", done = 3)))
 	}
 
 	@Test

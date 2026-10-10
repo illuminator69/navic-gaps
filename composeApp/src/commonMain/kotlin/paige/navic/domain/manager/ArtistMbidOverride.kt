@@ -214,3 +214,13 @@ internal fun overrideWriteError(
 	(status == 502 || status == 504) && !retryable -> LbBotManager.LbError.Busy
 	else -> LbBotManager.LbError.Rejected(status, message)
 }
+
+/**
+ * The hub frames after which `GET /lb/overrides` — the override map and the three lists that
+ * ride it — is read again (ruling X10). `index`: an override set on another client re-keys the
+ * artist. `library`: lb-bot's notice that Navidrome has indexed what an apply, a remove, a merge
+ * or an undo wrote, which is when an album override or a merge row comes to rest and a sibling
+ * group appears or goes. The hub flushes its own copy on both.
+ */
+internal fun frameRereadsOverrideLists(frameType: String?): Boolean =
+	frameType == "index" || frameType == "library"

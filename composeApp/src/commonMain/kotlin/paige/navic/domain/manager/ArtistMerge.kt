@@ -19,7 +19,12 @@ import kotlinx.serialization.serializer
 // ----- wire shapes --------------------------------------------------------------------------
 // Field names mirror the wire verbatim; every field is defaulted.
 
-/** One side of a merge. lb-bot sends only the [name] of a spelling whose id is already dead. */
+/**
+ * One side of a merge, by Navidrome id and by name. On a merge row the `from` side's id is the
+ * rewritten spelling's **at the time of the merge** — dead once Navidrome has re-indexed — sent
+ * so that a device that did not start the merge can tell which local artist to read again. An
+ * lb-bot from before that field sends the name alone, and the id is then "".
+ */
 @Serializable
 data class LbMergeArtist(
 	val ndArtistId: String = "",
@@ -81,12 +86,17 @@ data class LbMergeWrite(
 	val state: String = ""
 )
 
-/** One spelling of an artist in the library, and how many albums Navidrome files under it. */
+/**
+ * One entry of a same-MBID group, and how many albums Navidrome files under it. [collab] is true
+ * for a collaboration credit ("JPEGMAFIA × Danny Brown" beside "JPEGMAFIA"): not another
+ * spelling of the artist, and never offered for a merge. Absent on the wire is false.
+ */
 @Serializable
 data class LbSibling(
 	val ndArtistId: String = "",
 	val name: String = "",
-	val albums: Int = 0
+	val albums: Int = 0,
+	val collab: Boolean = false
 )
 
 /** Library artists whose effective MusicBrainz id is the same one: the spellings to merge. */
@@ -143,11 +153,19 @@ internal fun siblingGroupFor(siblings: List<LbSiblingGroup>?, ndId: String): LbS
 /**
  * The other spellings in the group, in lb-bot's order. A row with no id cannot be merged with,
  * and this artist is never its own "other".
+ *
+ * **A collaboration credit is not a spelling** (ruling X5): an entry lb-bot marks `collab` is
+ * never offered, and when this artist's OWN entry is one there is nothing to offer at all — so
+ * a group that is one artist plus its collaboration credits shows no merge block on any of its
+ * pages, where lb-bot would only refuse (409 `collaboration`).
  */
-internal fun mergeOthers(group: LbSiblingGroup?, ndId: String): List<LbSibling> =
-	group?.artists.orEmpty()
-		.filter { it.ndArtistId.isNotBlank() && it.ndArtistId != ndId }
+internal fun mergeOthers(group: LbSiblingGroup?, ndId: String): List<LbSibling> {
+	val artists = group?.artists.orEmpty()
+	if (artists.any { it.ndArtistId == ndId && it.collab }) return emptyList()
+	return artists
+		.filter { it.ndArtistId.isNotBlank() && it.ndArtistId != ndId && !it.collab }
 		.distinctBy { it.ndArtistId }
+}
 
 /** The name kept unless the user says otherwise: the spelling with the most albums, the first on a tie. */
 internal fun mergeDefaultKeep(pair: List<LbSibling>): String {
@@ -180,7 +198,7 @@ internal fun planMerge(thisId: String, otherId: String, keepId: String): MergePl
 
 // ----- the merge / undo poll ----------------------------------------------------------------
 // The shared job poll (`LbJobPoll.kt`) in the merge's vocabulary: `GET /lb/artist/merge?id=`
-// every two seconds, three minutes at most.
+// every two seconds, until the row has not moved for three minutes.
 
 enum class MergeJob { MERGE, UNDO }
 
@@ -224,12 +242,28 @@ data class MergePoll(
 	val startedAtMs: Long,
 	val phase: LbJobPhase = LbJobPhase.POLLING,
 	val row: LbMergeRow? = null,
-	val sawActive: Boolean = false
+	val sawActive: Boolean = false,
+	val quietSinceMs: Long = startedAtMs
 )
 
-/** [seen] is the row as already read, for a job found running (another client's, or after a restart). */
-internal fun mergePollStart(job: MergeJob, nowMs: Long, seen: LbMergeRow? = null): MergePoll =
-	MergePoll(job = job, startedAtMs = nowMs, row = seen, sawActive = seen?.state == mergeSpec(job).active)
+/**
+ * [seen] is the row as already read, for a job found running (another client's, or after a
+ * restart). [postState] is the `state` of the POST's own answer (ruling X1, as
+ * [albumPollStart]): lb-bot flips the row to `undoing` before it answers, and can reach `failed`
+ * before the first poll.
+ */
+internal fun mergePollStart(
+	job: MergeJob,
+	nowMs: Long,
+	seen: LbMergeRow? = null,
+	postState: String = ""
+): MergePoll =
+	MergePoll(
+		job = job,
+		startedAtMs = nowMs,
+		row = seen,
+		sawActive = seen?.state == mergeSpec(job).active || postState == mergeSpec(job).active
+	)
 
 /** The job lb-bot is already running on a row, if any. */
 internal fun mergeJobInFlight(row: LbMergeRow): MergeJob? = when (row.state) {
@@ -239,29 +273,75 @@ internal fun mergeJobInFlight(row: LbMergeRow): MergeJob? = when (row.state) {
 }
 
 /**
- * A merge or an undo lb-bot is still working on with [artistId] as the kept name, that this
- * device neither follows nor has followed: one to pick up — started on another client, or before
- * this app was restarted. It is followed from where it is ([mergePollStart]'s `seen`), so the
- * artist's block shows the job instead of a form lb-bot could only refuse.
+ * A merge or an undo lb-bot is still working on that concerns [artistId] — as the kept name or
+ * as the rewritten spelling — and that this device is not following: one to pick up, started on
+ * another client or before this app was restarted. It is followed from where it is
+ * ([mergePollStart]'s `seen`), so the artist's block shows the job instead of a form lb-bot
+ * could only refuse.
  *
- * Decided on ids, which is why only the kept artist's block can pick one up: the row names the
- * rewritten spelling by name alone. A row already in [jobs] — ended ones too — is left alone, so
- * a poll that gave up after three minutes is not started again behind the user's back.
+ * Decided on ids. lb-bot's row names both artists by id; an lb-bot from before
+ * `from.ndArtistId` names the rewritten spelling by name only, and then only the kept artist's
+ * block can pick the job up.
+ *
+ * What is left alone (ruling X3):
+ * - a row still in [jobs], ended ones too — so a poll that gave up is not started again while
+ *   its "still working" is on screen. Once that job has been dismissed, and lb-bot still
+ *   reports it running, it may be picked up again;
+ * - a merge this device already followed **to rest** ([finished], by [mergeRowKey]) — never
+ *   again in this process. The list can go on saying `merging` for a merge that has ended (a
+ *   copy of it up to a minute old), and picking that up showed a finished merge a second time.
  */
 internal fun mergeToPickUp(
 	controls: Boolean,
 	merges: List<LbMergeRow>?,
 	jobs: Map<String, MergeJobState>,
-	artistId: String
+	artistId: String,
+	finished: Set<String> = emptySet()
 ): LbMergeRow? =
 	if (!controls || artistId.isBlank()) {
 		null
 	} else {
 		merges?.firstOrNull { row ->
-			row.id.isNotBlank() && row.into.ndArtistId == artistId &&
-				mergeJobInFlight(row) != null && row.id !in jobs
+			row.id.isNotBlank() &&
+				(row.into.ndArtistId == artistId || row.from.ndArtistId == artistId) &&
+				mergeJobInFlight(row) != null && row.id !in jobs && mergeRowKey(row) !in finished
 		}
 	}
+
+/**
+ * One merge as lb-bot's rows name it across time: `id@setAt`. The id alone is not enough — it
+ * is lb-bot's to mint, and a later merge may carry the same one.
+ */
+internal fun mergeRowKey(row: LbMergeRow): String = "${row.id}@${row.setAt}"
+
+/**
+ * The key ([mergeRowKey]) under which a job that **ended at rest** is remembered for the rest of
+ * the process, or null (ruling X3). At rest is lb-bot's own verdict with a row to name it:
+ * landed, failed, undone, not undone. A job this device gave up on is not at rest — lb-bot may
+ * still be working — and may be picked up again.
+ */
+internal fun mergeFinishedKey(poll: MergePoll): String? = when (poll.phase) {
+	LbJobPhase.DONE, LbJobPhase.FAILED -> poll.row?.let { mergeRowKey(it) }
+	LbJobPhase.POLLING, LbJobPhase.GONE, LbJobPhase.TIMED_OUT -> null
+}
+
+/**
+ * The merges that **finished on another device** and that the local library has not been
+ * brought to agree with: `merged` rows that name the rewritten spelling's id
+ * (`from.ndArtistId`), that this device is not following and never followed to rest ([jobs],
+ * [finished]), and has not already re-read for ([resynced], by [mergeRowKey]). The caller then
+ * checks that Room still holds that artist and reads it again — once per row per process.
+ */
+internal fun mergesToResync(
+	merges: List<LbMergeRow>?,
+	jobs: Map<String, MergeJobState>,
+	finished: Set<String>,
+	resynced: Set<String>
+): List<LbMergeRow> = merges.orEmpty().filter { row ->
+	val key = mergeRowKey(row)
+	row.state == MERGE_STATE_MERGED && row.from.ndArtistId.isNotBlank() &&
+		row.id !in jobs && key !in finished && key !in resynced
+}
 
 /** A poll's request as what it read. Only the row, or lb-bot's own `no_merge`, is an answer. */
 internal fun mergePollRead(result: LbBotManager.LbResult<LbMergeRow>): MergePollRead = when (result) {
@@ -282,14 +362,49 @@ internal fun mergePollStep(poll: MergePoll, read: MergePollRead, nowMs: Long): M
 	val heard = when (read) {
 		MergePollRead.Missed -> LbJobRead.Missed
 		MergePollRead.Gone -> LbJobRead.Gone
-		is MergePollRead.Row -> LbJobRead.State(read.row.state)
+		is MergePollRead.Row -> LbJobRead.State(read.row.state, read.row.done)
 	}
-	val next = lbJobStep(mergeSpec(poll.job), poll.phase, poll.sawActive, poll.startedAtMs, heard, nowMs)
+	val last = poll.row?.let { LbJobRead.State(it.state, it.done) }
+	val next = lbJobStep(mergeSpec(poll.job), poll.phase, poll.sawActive, poll.quietSinceMs, last, heard, nowMs)
 	return poll.copy(
 		phase = next.phase,
 		sawActive = next.sawActive,
+		quietSinceMs = next.quietSinceMs,
 		row = (read as? MergePollRead.Row)?.row ?: poll.row
 	)
+}
+
+/** Every file is dealt with and lb-bot still holds the row `merging` or `undoing` ([lbWritesOver]). */
+internal fun mergeWaitingForIndex(row: LbMergeRow?): Boolean =
+	row != null && lbWritesOver(
+		working = row.state == MERGE_STATE_MERGING || row.state == MERGE_STATE_UNDOING,
+		done = row.done,
+		total = row.total,
+		failures = row.failures.size
+	)
+
+/**
+ * lb-bot's reasons, where an ended job has any to read ([albumJobFailures]): a merge that landed
+ * with failures or did not finish, and an undo that did not finish.
+ */
+internal fun mergeJobFailures(poll: MergePoll): List<LbMergeFailure> = when (poll.phase) {
+	LbJobPhase.FAILED -> poll.row?.failures.orEmpty()
+	LbJobPhase.DONE -> if (poll.job == MergeJob.MERGE) poll.row?.failures.orEmpty() else emptyList()
+	LbJobPhase.POLLING, LbJobPhase.GONE, LbJobPhase.TIMED_OUT -> emptyList()
+}
+
+/**
+ * Whether the ended job's row can be undone from where it is shown: a merge at rest — landed, or
+ * failed part-way — and **an undo that did not finish**, which lb-bot expects to be pressed
+ * again (to restore a file that is back, or to give up on it).
+ */
+internal fun mergeJobCanUndo(poll: MergePoll): Boolean {
+	if (poll.row?.id.isNullOrBlank()) return false
+	return when (poll.phase) {
+		LbJobPhase.FAILED -> true
+		LbJobPhase.DONE -> poll.job == MergeJob.MERGE
+		LbJobPhase.POLLING, LbJobPhase.GONE, LbJobPhase.TIMED_OUT -> false
+	}
 }
 
 /** What an ended poll has to say. Every number in it is a field of lb-bot's last answer. */
@@ -345,7 +460,8 @@ internal fun mergeOutcome(poll: MergePoll): MergeOutcome? {
  *
  * @property intoId the entry whose name is kept.
  * @property fromId the spelling being rewritten — **the id that dies when a merge lands**. ""
- *   when the starter did not know it: lb-bot's rows name the rewritten spelling only by name.
+ *   only when nobody could say: a job picked up from a row of an lb-bot older than
+ *   `from.ndArtistId`, which names that spelling by name alone.
  * @property intoName and [fromName]: the names as the starter knew them, shown until lb-bot's
  *   row names them itself.
  * @property endedAtMs when the job was over AND the local library had been brought to agree,
@@ -482,9 +598,9 @@ internal fun mergeAnnounced(job: MergeJobState, blocksOn: Set<String>): Boolean 
  * vanished row) is no reason to read anything.
  *
  * **"" is not null.** It is a job that did change the library, by an artist this device cannot
- * name by id — lb-bot's row names the rewritten spelling by name only, so a merge picked up
- * from that row has no id for it. The artist list is then read on its own: which artists the
- * server still lists needs no id to ask.
+ * name by id — a merge picked up from the row of an lb-bot older than `from.ndArtistId`, which
+ * names the rewritten spelling by name alone. The artist list is then read on its own: which
+ * artists the server still lists needs no id to ask.
  */
 internal fun mergeResyncArtistId(poll: MergePoll, intoId: String, fromId: String): String? = when (poll.phase) {
 	LbJobPhase.DONE, LbJobPhase.FAILED -> when (poll.job) {

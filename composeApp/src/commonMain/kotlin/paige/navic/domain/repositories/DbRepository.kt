@@ -454,11 +454,19 @@ class DbRepository(
 	 * Those stay the full pull's to settle, exactly as before.
 	 */
 	suspend fun forgetAlbumIfEmpty(albumId: String): Result<AlbumForgotten> = runDbOp {
-		val row = albumDao.getAlbumById(albumId) ?: return@runDbOp AlbumForgotten.NOT_THERE
-		if (row.songs.isNotEmpty()) return@runDbOp AlbumForgotten.KEPT
-		albumDao.deleteAlbum(albumId)
-		Logger.i("DbRepository", "- Forgot album $albumId: a retag left it empty")
-		AlbumForgotten.REMOVED
+		// One statement decides and deletes: a sync that files a song under the id between a
+		// check and a delete cannot lose the album it has just made real again.
+		if (albumDao.deleteAlbumIfEmpty(albumId) > 0) {
+			Logger.i("DbRepository", "- Forgot album $albumId: a retag left it empty")
+			return@runDbOp AlbumForgotten.REMOVED
+		}
+		// Nothing was deleted: there was no such row, or songs hang off it. Read only to say which.
+		if (albumDao.getAlbumById(albumId) == null) AlbumForgotten.NOT_THERE else AlbumForgotten.KEPT
+	}
+
+	/** Whether Room lists [artistId]: an id is only worth re-reading while it does. */
+	suspend fun holdsArtist(artistId: String): Result<Boolean> = runDbOp {
+		artistId.isNotBlank() && artistDao.getArtistById(artistId) != null
 	}
 
 	/**

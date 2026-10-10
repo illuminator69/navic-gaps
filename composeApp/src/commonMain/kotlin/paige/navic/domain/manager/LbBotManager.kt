@@ -1542,7 +1542,10 @@ class LbBotManager(
 	/**
 	 * Ask for the map to be re-read a few seconds from now, for an `index` frame: an override
 	 * set on another client rescans the artist, and the frame that announces the rescan is how
-	 * this device learns the artist's MBID changed.
+	 * this device learns the artist's MBID changed. And for a `library` frame
+	 * (`frameRereadsOverrideLists`): lb-bot sends it when Navidrome has indexed what a retag, a
+	 * merge or an undo wrote, which is when the album-override and merge rows that ride this
+	 * body come to rest and a sibling group appears or goes.
 	 *
 	 * Not at once, and not once per frame. During a bulk index build a frame arrives every
 	 * couple of seconds, and each used to re-read the map and rewrite its cache row — an
@@ -1586,10 +1589,11 @@ class LbBotManager(
 			// The same answer's list, or its absence: an lb-bot rolled back loses the section.
 			_matchesToCheck.value = body?.toCheck
 			// As `toCheck`: each is the same answer's list, or its absence.
-			_albumOverrideRows.value = body?.albums
-			_artistMerges.value = body?.merges
-			_artistSiblings.value = body?.siblings
+			_albumOverrideRows.value = body.albums
+			_artistMerges.value = body.merges
+			_artistSiblings.value = body.siblings
 			_artistOverridesLoaded.value = true
+			resyncMergedElsewhere(body.merges)
 		}
 		// Only a read that was actually made can have failed: the early return above (no hub,
 		// no such route) leaves this as it was.
@@ -1841,7 +1845,11 @@ class LbBotManager(
 		if (albumJobInWay(_albumJobs.value.values, albumId, rowId = id) != null) return albumJobRunning()
 		return albumWrite {
 			val result = albumAnswer(rawPost(PATH_ALBUM_REMOVE, LbAlbumRemoveRequest(id)), ::albumWriteAnswer)
-			if (result is LbResult.Ok) followAlbumJob(AlbumJob.REMOVE, id, albumId, artistId)
+			// lb-bot has flipped the row to `removing` before answering, and says so: the poll
+			// starts knowing it, or a remove that fails within two seconds would never end.
+			if (result is LbResult.Ok) {
+				followAlbumJob(AlbumJob.REMOVE, id, albumId, artistId, postState = result.value.state)
+			}
 			result
 		}
 	}
@@ -1903,25 +1911,28 @@ class LbBotManager(
 	/**
 	 * Follow an apply or a remove to its end, in this manager's scope: one
 	 * [albumOverrideById] every [ALBUM_POLL_INTERVAL_MS] on the poll routes' short timeout,
-	 * until `albumPollStep` ends it — three minutes at most. Then the library is settled
+	 * until `albumPollStep` ends it — or gives up once the row has not moved for three minutes.
+	 * Then the library is settled
 	 * ([settleAlbumJob]) and only after that is the job published as over.
 	 *
 	 * A row already being followed is not followed twice. [seen] is the row as already read,
-	 * for a job found running (started on another client, or before a restart).
+	 * for a job found running (started on another client, or before a restart); [postState] the
+	 * `state` of the POST's own answer, for one started here (`albumPollStart`).
 	 */
 	fun followAlbumJob(
 		job: AlbumJob,
 		rowId: String,
 		albumId: String,
 		artistId: String = "",
-		seen: LbAlbumState? = null
+		seen: LbAlbumState? = null,
+		postState: String = ""
 	) {
 		if (rowId.isBlank()) return
 		var started: AlbumJobState? = null
 		_albumJobs.update { jobs ->
 			started = null
 			if (jobs[rowId]?.unfinished == true) return@update jobs
-			val state = AlbumJobState(rowId, albumId, artistId, albumPollStart(job, nowMs(), seen))
+			val state = AlbumJobState(rowId, albumId, artistId, albumPollStart(job, nowMs(), seen, postState))
 			started = state
 			// Re-keyed to the end, so the newest job is the last one a reader finds.
 			val kept = (jobs - rowId).entries.toList()
@@ -2077,7 +2088,15 @@ class LbBotManager(
 				::mergeWriteAnswer
 			)
 			if (result is LbResult.Ok) {
-				followMergeJob(MergeJob.MERGE, result.value.id, ndId, fromNdId, intoName, fromName)
+				followMergeJob(
+					MergeJob.MERGE,
+					result.value.id,
+					ndId,
+					fromNdId,
+					intoName,
+					fromName,
+					postState = result.value.state
+				)
 			}
 			result
 		}
@@ -2095,10 +2114,10 @@ class LbBotManager(
 	/**
 	 * Undo a merge: lb-bot puts the previous names back, in the background, and the row is gone
 	 * when it has. [id] is the merge row's; the ids and names are the row's as the caller shows
-	 * it. lb-bot's own row names the rewritten spelling by name only, so a caller that has just
-	 * that row (the data panel) leaves [fromId] blank, and what this device remembers of the
-	 * merge — when it is the one that followed it — fills the gap. Followed from here until
-	 * lb-bot answers `no_merge`.
+	 * it. lb-bot's row names both artists by id; one from an lb-bot older than
+	 * `from.ndArtistId` leaves [fromId] blank, and what this device remembers of the merge —
+	 * when it is the one that followed it — fills the gap. Followed from here until lb-bot
+	 * answers `no_merge`.
 	 */
 	suspend fun undoArtistMerge(
 		id: String,
@@ -2121,7 +2140,9 @@ class LbBotManager(
 					into,
 					from,
 					intoName.ifBlank { known?.intoName.orEmpty() },
-					fromName.ifBlank { known?.fromName.orEmpty() }
+					fromName.ifBlank { known?.fromName.orEmpty() },
+					// lb-bot has flipped the row to `undoing` before answering (`mergePollStart`).
+					postState = result.value.state
 				)
 			}
 			result
@@ -2140,6 +2161,50 @@ class LbBotManager(
 	 */
 	private val _mergeJobs = MutableStateFlow<Map<String, MergeJobState>>(emptyMap())
 	val mergeJobs: StateFlow<Map<String, MergeJobState>> = _mergeJobs.asStateFlow()
+
+	/**
+	 * The merges this device has followed to rest, by `id@setAt` (`mergeFinishedKey`), for the
+	 * life of the process. The lists can go on naming one as `merging` for a while after it
+	 * ended, and neither the block's pick-up nor the re-read of a merge "finished elsewhere"
+	 * may act on that.
+	 */
+	private val _mergesFinished = MutableStateFlow<Set<String>>(emptySet())
+	val mergesFinished: StateFlow<Set<String>> = _mergesFinished.asStateFlow()
+
+	/** The `merged` rows the library has already been re-read for ([resyncMergedElsewhere]). */
+	private val mergesResynced = mutableSetOf<String>()
+
+	/**
+	 * **A merge that finished on another device** leaves this one listing the rewritten
+	 * spelling until the next full pull: the artist list is read by nothing else, and a
+	 * `library` frame re-reads albums only. lb-bot's row names that spelling's id
+	 * (`from.ndArtistId`), so each `merged` row this device did not follow itself
+	 * (`mergesToResync`) whose artist Room still holds is read again — its albums, then the
+	 * artist list — once per row per process. Safe to do unasked: `resyncArtist` drops only
+	 * what the server no longer lists, and nothing on an answer that lists nobody.
+	 *
+	 * Called under [overridesLock], with the list a read has just returned; the reading itself
+	 * is off the lock.
+	 */
+	private fun resyncMergedElsewhere(merges: List<LbMergeRow>?) {
+		val rows = mergesToResync(merges, _mergeJobs.value, _mergesFinished.value, mergesResynced)
+		if (rows.isEmpty()) return
+		rows.forEach { mergesResynced += mergeRowKey(it) }
+		scope.launch {
+			for (row in rows) {
+				val artistId = row.from.ndArtistId
+				try {
+					if (library.holdsArtist(artistId).getOrNull() != true) continue
+					library.resyncArtist(artistId)
+					onLocalLibrarySynced()
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					Logger.w("LbBotManager", "merge ${row.id}: the library could not be re-read", e)
+				}
+			}
+		}
+	}
 
 	/** One event per followed merge or undo, when it is over and the library settled. */
 	private val _mergeJobEnded = MutableSharedFlow<MergeJobState>(extraBufferCapacity = 8)
@@ -2181,14 +2246,22 @@ class LbBotManager(
 		fromId: String,
 		intoName: String = "",
 		fromName: String = "",
-		seen: LbMergeRow? = null
+		seen: LbMergeRow? = null,
+		postState: String = ""
 	) {
 		if (rowId.isBlank()) return
 		var started: MergeJobState? = null
 		_mergeJobs.update { jobs ->
 			started = null
 			if (jobs[rowId]?.unfinished == true) return@update jobs
-			val state = MergeJobState(rowId, intoId, fromId, intoName, fromName, mergePollStart(job, nowMs(), seen))
+			val state = MergeJobState(
+				rowId,
+				intoId,
+				fromId,
+				intoName,
+				fromName,
+				mergePollStart(job, nowMs(), seen, postState)
+			)
 			started = state
 			val kept = (jobs - rowId).entries.toList()
 			val ended = kept.filter { !it.value.unfinished }.takeLast(ALBUM_JOBS_KEPT).map { it.key }.toSet()
@@ -2216,6 +2289,8 @@ class LbBotManager(
 		} catch (e: Exception) {
 			Logger.w("LbBotManager", "merge job $rowId: the library could not be settled", e)
 		}
+		// At rest, by lb-bot's own word: never followed again in this process (`mergeToPickUp`).
+		mergeFinishedKey(poll)?.let { key -> _mergesFinished.update { it + key } }
 		val ended = first.copy(poll = poll, endedAtMs = nowMs())
 		_mergeJobs.update { jobs -> if (rowId in jobs) jobs + (rowId to ended) else jobs }
 		_mergeJobEnded.tryEmit(ended)

@@ -665,6 +665,26 @@ internal fun mergeRowsNote(data: LbPanelData, count: Int): String? = when (data)
 
 private fun filesText(count: Int): String = "$count ${if (count == 1) "file" else "files"}"
 
+/**
+ * Problems, not files (ruling X9): a cover that could not be saved is one of lb-bot's
+ * `failures` too, and "12 of 12 files; 1 could not be written" was wrong.
+ */
+private fun problemsText(count: Int): String = "$count ${if (count == 1) "problem" else "problems"}."
+
+/** Said once every file is dealt with and lb-bot still holds the row active (ruling X4). */
+private const val INDEX_WAIT = "lb-bot is waiting for Navidrome to index them (up to a minute)."
+
+/**
+ * A row lb-bot calls `failed`. That is an apply or a merge that did not finish — **or an undo
+ * that did not**: the row does not say which, so the sentence is true of both, and lb-bot's
+ * reasons under it ([albumRowProblems]) say the rest.
+ */
+private fun didNotFinish(done: Int, total: Int, problems: Int, what: String): String = listOfNotNull(
+	"Did not finish: $done of ${filesText(total)} written.",
+	problemsText(problems).takeIf { problems > 0 },
+	"Undo puts the previous $what back."
+).joinToString(" ")
+
 /** "Artist — Album", by the names lb-bot stored. Never blank, and never a path: at worst the row's id. */
 internal fun albumRowTitle(row: LbAlbumOverrideRow): String =
 	listOf(row.artist.trim(), row.album.trim()).filter { it.isNotBlank() }.joinToString(" — ").ifBlank { row.id }
@@ -674,16 +694,19 @@ internal fun albumRowTitle(row: LbAlbumOverrideRow): String =
  * has never heard of is not put into words — no raw token, and no sentence nothing backs.
  */
 internal fun albumRowDetail(row: LbAlbumOverrideRow): String = when (row.state) {
-	ALBUM_STATE_APPLYING ->
-		if (row.total > 0) "lb-bot is writing the tags: ${row.done} of ${filesText(row.total)}."
-		else "lb-bot is writing the tags."
-	ALBUM_STATE_REMOVING -> "lb-bot is putting the previous tags back."
-	ALBUM_STATE_FAILED ->
-		"The retag did not finish: ${row.done} of ${filesText(row.total)} written. Undo restores what was written."
+	ALBUM_STATE_APPLYING -> when {
+		albumWaitingForIndex(row) -> "The tags are written. $INDEX_WAIT"
+		row.total > 0 -> "lb-bot is writing the tags: ${row.done} of ${filesText(row.total)}."
+		else -> "lb-bot is writing the tags."
+	}
+	ALBUM_STATE_REMOVING ->
+		if (albumWaitingForIndex(row)) "The previous tags are back. $INDEX_WAIT"
+		else "lb-bot is putting the previous tags back."
+	ALBUM_STATE_FAILED -> didNotFinish(row.done, row.total, row.failures.size, "tags")
 	ALBUM_STATE_APPLIED -> {
 		val retagged = when {
 			row.failures.isNotEmpty() ->
-				"Retagged ${row.done} of ${filesText(row.total)}; ${row.failures.size} could not be written."
+				"Retagged ${row.done} of ${filesText(row.total)}. ${problemsText(row.failures.size)}"
 			// The release was kept and nothing rewritten: a cover-only change has no tags to count.
 			row.done > 0 || row.releaseMbid != row.prevReleaseMbid -> "Retagged ${filesText(row.done)}."
 			else -> ""
@@ -704,15 +727,18 @@ internal fun mergeRowTitle(row: LbMergeRow): String =
 
 /** As [albumRowDetail], for a name merge. */
 internal fun mergeRowDetail(row: LbMergeRow): String = when (row.state) {
-	MERGE_STATE_MERGING ->
-		if (row.total > 0) "lb-bot is retagging the files: ${row.done} of ${row.total}."
-		else "lb-bot is retagging the files."
-	MERGE_STATE_UNDOING -> "lb-bot is putting the previous names back."
-	MERGE_STATE_FAILED ->
-		"The merge did not finish: ${row.done} of ${filesText(row.total)} written. Undo restores what was written."
+	MERGE_STATE_MERGING -> when {
+		mergeWaitingForIndex(row) -> "The files are retagged. $INDEX_WAIT"
+		row.total > 0 -> "lb-bot is retagging the files: ${row.done} of ${row.total}."
+		else -> "lb-bot is retagging the files."
+	}
+	MERGE_STATE_UNDOING ->
+		if (mergeWaitingForIndex(row)) "The previous names are back. $INDEX_WAIT"
+		else "lb-bot is putting the previous names back."
+	MERGE_STATE_FAILED -> didNotFinish(row.done, row.total, row.failures.size, "names")
 	MERGE_STATE_MERGED ->
 		if (row.failures.isNotEmpty()) {
-			"Retagged ${row.done} of ${filesText(row.total)}; ${row.failures.size} could not be written."
+			"Retagged ${row.done} of ${filesText(row.total)}. ${problemsText(row.failures.size)}"
 		} else {
 			"Retagged ${filesText(row.done)}."
 		}
@@ -759,4 +785,31 @@ internal fun undoLine(started: LbBotManager.LbResult<*>, merge: Boolean, phase: 
 		LbJobPhase.FAILED -> "lb-bot could not put all the previous $what back."
 		LbJobPhase.TIMED_OUT -> "lb-bot is still working on it. Sync now reads the list again."
 	}
+}
+
+/** How many of a row's problems the panel spells out; the rest are counted in one closing line. */
+const val ROW_PROBLEMS_SHOWN = 10
+
+/**
+ * lb-bot's reasons for a row at rest, one line each — what could not be written, or could not
+ * be put back. **They are what makes Undo readable**: lb-bot's undo is two presses when a file
+ * has gone missing, and only the reason says "undo again to restore it if it is back, or to
+ * give up on it". Named by title, never by path. Nothing while lb-bot is still working.
+ */
+internal fun albumRowProblems(row: LbAlbumOverrideRow): List<String> =
+	if (row.state != ALBUM_STATE_APPLIED && row.state != ALBUM_STATE_FAILED) emptyList()
+	else problemLines(row.failures.map { listOf(it.title, it.reason) })
+
+/** As [albumRowProblems], for a name merge: album, title, reason. */
+internal fun mergeRowProblems(row: LbMergeRow): List<String> =
+	if (row.state != MERGE_STATE_MERGED && row.state != MERGE_STATE_FAILED) emptyList()
+	else problemLines(row.failures.map { listOf(it.album, it.title, it.reason) })
+
+/** One line per problem from whatever parts it has; past [ROW_PROBLEMS_SHOWN], a count of the rest. */
+private fun problemLines(problems: List<List<String>>): List<String> {
+	val lines = problems
+		.map { parts -> parts.map { it.trim() }.filter { it.isNotBlank() }.joinToString(" — ") }
+		.filter { it.isNotBlank() }
+	return if (lines.size <= ROW_PROBLEMS_SHOWN) lines
+	else lines.take(ROW_PROBLEMS_SHOWN) + "…and ${lines.size - ROW_PROBLEMS_SHOWN} more."
 }

@@ -273,7 +273,11 @@ fun CollectionDetailScreen(
 	// longer holds its id: an old id Room still holds is an album in its own right.
 	val albumJobs by lbBot.albumJobs.collectAsState()
 	val missing by viewModel.missing.collectAsState()
-	val onScreenSince = remember(collectionId) { Clock.System.now().toEpochMilliseconds() }
+	// When this page was OPENED, kept with its back-stack entry (as the artist page keeps its
+	// own): a page that sat under another one while the job ran is not composed then, and a
+	// plain `remember` gave it a new time on return — "opened later", so it waited for Room to
+	// drop the id, which a page that reads Room once never sees.
+	val onScreenSince = rememberSaveable(collectionId) { Clock.System.now().toEpochMilliseconds() }
 	val endedHere = albumJobs.values.lastOrNull { !it.unfinished && it.albumId == collectionId }
 	LaunchedEffect(collectionId, endedHere?.rowId, endedHere?.endedAtMs, missing) {
 		val job = endedHere ?: return@LaunchedEffect
