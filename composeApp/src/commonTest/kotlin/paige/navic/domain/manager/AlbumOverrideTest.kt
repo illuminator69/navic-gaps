@@ -339,6 +339,38 @@ class AlbumOverrideTest {
 		assertEquals(AlbumCoversQuery("", other), albumCoversQuery(other, other, release, group, listOf(release)))
 	}
 
+	@Test
+	fun aPickedReleaseWaitsForTheEditionsSoItsQuestionIsAskedOnce() {
+		// A pasted id while the editions are still loading: when they land the release may turn
+		// out to be one of them, and the question would change from "by itself" to "with the
+		// group" — two slow reads for one pick. It waits until the list has settled.
+		assertNull(albumCoversQuery(other, other, release, group, emptyList(), editionsSettled = false))
+		assertEquals(
+			AlbumCoversQuery(group, other),
+			albumCoversQuery(other, other, release, group, listOf(release, other), editionsSettled = true)
+		)
+		// With nothing picked the edition list is no part of the question, and is not waited for.
+		assertEquals(
+			AlbumCoversQuery(group, release),
+			albumCoversQuery("", null, release, group, emptyList(), editionsSettled = false)
+		)
+	}
+
+	@Test
+	fun theSameQuestionIsNotReadTwice() {
+		val asked = AlbumCoversQuery(group, release)
+		assertEquals(true, albumCoversReadNeeded(asked, answered = null, retry = false))
+		// Back at the question already answered (an editions Retry took the group away and
+		// brought the same one back): what was read is still its answer.
+		assertEquals(false, albumCoversReadNeeded(asked, answered = asked, retry = false))
+		// The cover step's own Retry is the user asking again.
+		assertEquals(true, albumCoversReadNeeded(asked, answered = asked, retry = true))
+		assertEquals(true, albumCoversReadNeeded(asked, answered = AlbumCoversQuery("", release), retry = false))
+		// Nothing to ask is nothing to read, Retry or not: no way to loop.
+		assertEquals(false, albumCoversReadNeeded(null, answered = asked, retry = true))
+		assertEquals(false, albumCoversReadNeeded(null, answered = null, retry = false))
+	}
+
 	// --- POST album/cover, album/override/remove ----------------------------------------------
 
 	@Test

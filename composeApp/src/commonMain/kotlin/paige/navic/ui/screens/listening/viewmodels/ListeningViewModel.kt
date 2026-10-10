@@ -33,7 +33,9 @@ import paige.navic.domain.manager.LISTENING_KIND_ALBUM
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbListeningStatus
+import paige.navic.domain.manager.LbDayCount
 import paige.navic.domain.manager.LbListeningSummary
+import paige.navic.domain.manager.keptHeatmap
 import paige.navic.domain.manager.LbRecentPlay
 import paige.navic.domain.manager.LbUnownedRow
 import paige.navic.domain.manager.ListeningListFailure
@@ -60,6 +62,11 @@ data class ListeningUi(
 	val period: ListeningPeriod = ListeningPeriod.MONTH,
 	/** The summary for [period], or null: not read yet, or [summaryFailed]. Never another period's. */
 	val summary: LbListeningSummary? = null,
+	/**
+	 * The heat map's days, kept apart from [summary]: it does not depend on the period, so a
+	 * period change — which clears the summary — must not take it off the screen (`keptHeatmap`).
+	 */
+	val heatmap: List<LbDayCount> = emptyList(),
 	val summaryLoading: Boolean = false,
 	/**
 	 * A read ended with no summary at all — nothing cached and nothing came back. A failure, and
@@ -425,6 +432,7 @@ class ListeningViewModel(
 				_state.update {
 					it.copy(
 						summary = null, summaryFailed = false, summaryLoading = false,
+						heatmap = emptyList(),
 						unowned = emptyList(), unownedFailure = null,
 						recent = emptyList(), recentNextBefore = null, recentFailed = false,
 						recentLoading = false
@@ -498,7 +506,7 @@ class ListeningViewModel(
 			val summary = body?.takeIf { it.isAnswer } ?: return@collect
 			if (_state.value.period != period) return@collect
 			last = summary
-			_state.update { it.copy(summary = summary) }
+			_state.update { it.copy(summary = summary, heatmap = keptHeatmap(it.heatmap, summary)) }
 		}
 		if (_state.value.period == period) {
 			_state.update { it.copy(summaryLoading = false, summaryFailed = it.summary == null) }

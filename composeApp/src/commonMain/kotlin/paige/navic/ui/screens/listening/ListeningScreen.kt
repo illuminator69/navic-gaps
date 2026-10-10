@@ -5,6 +5,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -126,7 +130,12 @@ import paige.navic.domain.manager.LbRecentPlay
 import paige.navic.domain.manager.LbArt
 import paige.navic.domain.manager.ListeningTab
 import paige.navic.domain.manager.albumCardArt
-import paige.navic.domain.manager.dayBars
+import paige.navic.domain.manager.HistoryRowGesture
+import paige.navic.domain.manager.LbDayCount
+import paige.navic.domain.manager.dayAxisLabels
+import paige.navic.domain.manager.daySeries
+import paige.navic.domain.manager.heatmapCellSize
+import paige.navic.domain.manager.historyRowGesture
 import paige.navic.domain.manager.LISTENING_DAILY_MAX_DAYS
 import paige.navic.domain.manager.genreBarFraction
 import paige.navic.domain.manager.heatmapSpan
@@ -175,6 +184,9 @@ import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
  * polled, and it stops the moment the screen is not visible or the import ends.
  */
 private const val STATUS_POLL_MS = 5_000L
+
+/** The largest a heat-map square is drawn, however few weeks there are. */
+private val HEATMAP_CELL_MAX = 24.dp
 
 /**
  * My Listening (I-006): the user's ListenBrainz history, by the numbers.
@@ -699,11 +711,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 	onRetry: () -> Unit
 ) {
 	val summary = state.summary
-	if (summary != null) {
+	if (state.heatmap.isNotEmpty()) {
 		// First, and ABOVE the picker: lb-bot sends the same days with every period's summary,
-		// so the picker does not change it — and its caption says which days those are.
+		// so the picker does not change it — and its caption says which days those are. Drawn
+		// from its own state, not from the summary: a period change clears the summary, and
+		// the map must stay where it is with the picker under it (`keptHeatmap`).
 		item(key = "s:heatmap") {
-			val grid = remember(summary.heatmap) { heatmapGrid(summary.heatmap) }
+			val grid = remember(state.heatmap) { heatmapGrid(state.heatmap) }
 			Column {
 				SectionTitle(stringResource(Res.string.listening_heatmap_title))
 				// The range actually drawn, and that it is always this one: lb-bot sends the
@@ -727,7 +741,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 	item(key = "s:daily") {
 		Column {
 			SectionTitle(stringResource(Res.string.listening_daily_title))
-			val bars = remember(summary.daily) { dayBars(summary.daily) }
+			val series = remember(summary.daily) { daySeries(summary.daily) }
 			// lb-bot charts at most the newest ninety days of a period: a year is not drawn
 			// as ninety bars without saying so.
 			if (listeningDailyCapped(state.period)) {
@@ -736,8 +750,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 					Modifier.padding(bottom = 8.dp)
 				)
 			}
-			if (bars.isEmpty()) Caption(stringResource(Res.string.listening_no_plays), Modifier.padding(bottom = 16.dp))
-			else HoursChart(bars)
+			if (series.isEmpty()) Caption(stringResource(Res.string.listening_no_plays), Modifier.padding(bottom = 16.dp))
+			else DayChart(series)
 		}
 	}
 	item(key = "s:hours") {
@@ -821,26 +835,36 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
 private fun Heatmap(grid: ListeningHeatmap) {
 	val on = MaterialTheme.colorScheme.primary
 	val off = MaterialTheme.colorScheme.surfaceContainerHighest
-	val columns = grid.weeks.size.coerceAtLeast(1)
-	Canvas(Modifier.fillMaxWidth().aspectRatio(columns / 7f)) {
-		val gap = 2.dp.toPx()
-		val cell = (size.width - gap * (columns - 1)) / columns
-		val corner = CornerRadius(cell * 0.2f)
-		grid.weeks.forEachIndexed { x, week ->
-			week.forEachIndexed { y, day ->
-				// A null cell is a day of the current week not yet reached (or, in a history
-				// with no Monday in it, a weekday before it began): drawn as a faint
-				// placeholder, so the grid is a clean rectangle and every row ends together.
-				drawRoundRect(
-					color = when {
-						day == null -> off.copy(alpha = 0.35f)
-						day.level == 0 -> off
-						else -> on.copy(alpha = 0.25f * day.level)
-					},
-					topLeft = Offset(x * (cell + gap), y * (cell + gap)),
-					size = Size(cell, cell),
-					cornerRadius = corner
-				)
+	val columns = grid.weeks.size
+	if (columns == 0) return
+	val gap = 2.dp
+	BoxWithConstraints(Modifier.fillMaxWidth()) {
+		// What the width allows, and never more than the cap (`heatmapCellSize`): with one or
+		// two weeks the squares would otherwise be as wide as the screen. The grid then sits
+		// at the start of the row rather than stretched across it.
+		val cell = with(LocalDensity.current) {
+			heatmapCellSize(maxWidth.toPx(), columns, gap.toPx(), HEATMAP_CELL_MAX.toPx()).toDp()
+		}
+		Canvas(Modifier.size(width = cell * columns + gap * (columns - 1), height = cell * 7 + gap * 6)) {
+			val gapPx = gap.toPx()
+			val cellPx = cell.toPx()
+			val corner = CornerRadius(cellPx * 0.2f)
+			grid.weeks.forEachIndexed { x, week ->
+				week.forEachIndexed { y, day ->
+					// A null cell is a day of the current week not yet reached (or, in a history
+					// with no Monday in it, a weekday before it began): drawn as a faint
+					// placeholder, so the grid is a clean rectangle and every row ends together.
+					drawRoundRect(
+						color = when {
+							day == null -> off.copy(alpha = 0.35f)
+							day.level == 0 -> off
+							else -> on.copy(alpha = 0.25f * day.level)
+						},
+						topLeft = Offset(x * (cellPx + gapPx), y * (cellPx + gapPx)),
+						size = Size(cellPx, cellPx),
+						cornerRadius = corner
+					)
+				}
 			}
 		}
 	}
@@ -855,32 +879,53 @@ private fun Heatmap(grid: ListeningHeatmap) {
 	}
 }
 
-/** Plays per local hour, 00 to 23. The tallest bar is the busiest hour; the rest are to scale. */
+/** Bars to one scale: the tallest is the busiest slot, a slot with no plays keeps a hairline. */
 @Composable
-private fun HoursChart(bars: List<Int>) {
+private fun Bars(bars: List<Int>) {
 	val on = MaterialTheme.colorScheme.primary
 	val off = MaterialTheme.colorScheme.surfaceContainerHighest
 	val max = bars.maxOrNull() ?: 0
 	Canvas(Modifier.fillMaxWidth().height(96.dp)) {
-		val gap = 2.dp.toPx()
-		val width = (size.width - gap * (bars.size - 1)) / bars.size
+		if (bars.isEmpty()) return@Canvas
+		val gap = if (bars.size > 60) 1.dp.toPx() else 2.dp.toPx()
+		val width = ((size.width - gap * (bars.size - 1)) / bars.size).coerceAtLeast(1f)
 		val floor = 2.dp.toPx()
-		bars.forEachIndexed { hour, plays ->
-			// An hour with no plays keeps a hairline, so the axis reads as 24 slots.
+		bars.forEachIndexed { slot, plays ->
 			val height = if (max > 0 && plays > 0) (size.height * plays / max).coerceAtLeast(floor) else floor
 			drawRoundRect(
 				color = if (plays > 0) on else off,
-				topLeft = Offset(hour * (width + gap), size.height - height),
+				topLeft = Offset(slot * (width + gap), size.height - height),
 				size = Size(width, height),
 				cornerRadius = CornerRadius(width * 0.25f)
 			)
 		}
 	}
+}
+
+/** Plays per local hour, 00 to 23. The tallest bar is the busiest hour; the rest are to scale. */
+@Composable
+private fun HoursChart(bars: List<Int>) {
+	Bars(bars)
 	Row(
 		Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 16.dp),
 		horizontalArrangement = Arrangement.SpaceBetween
 	) {
 		listOf("00", "06", "12", "18", "23").forEach { Caption(it) }
+	}
+}
+
+/**
+ * Plays per calendar day, oldest first. **Its axis is dates** — the first day, the last and a
+ * few between (`dayAxisLabels`) — never the hours chart's.
+ */
+@Composable
+private fun DayChart(series: List<LbDayCount>) {
+	Bars(remember(series) { series.map { it.count } })
+	Row(
+		Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 16.dp),
+		horizontalArrangement = Arrangement.SpaceBetween
+	) {
+		remember(series) { dayAxisLabels(series) }.forEach { (_, label) -> Caption(label) }
 	}
 }
 
@@ -993,12 +1038,17 @@ private fun HistoryRow(row: LbRecentPlay, art: LbArt, onClick: (() -> Unit)?, on
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			// A row with neither somewhere to go nor a menu is plain, not a dead control.
+			// A tap does something or shows nothing (`historyRowGesture`).
 			.then(
-				if (onClick != null || onMenu != null) {
-					Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onMenu)
-				} else {
-					Modifier
+				when (historyRowGesture(hasTarget = onClick != null, hasMenu = onMenu != null)) {
+					HistoryRowGesture.TAP -> Modifier.clickable(onClick = onClick ?: {})
+					HistoryRowGesture.TAP_AND_MENU ->
+						Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onMenu)
+					// The long press alone: nothing answers a tap, so nothing ripples under one.
+					HistoryRowGesture.MENU_ONLY -> Modifier.pointerInput(onMenu) {
+						detectTapGestures(onLongPress = { onMenu?.invoke() })
+					}
+					HistoryRowGesture.NONE -> Modifier
 				}
 			)
 			.padding(vertical = 6.dp),

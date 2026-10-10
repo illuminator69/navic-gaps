@@ -137,7 +137,9 @@ import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.albumCommit
 import paige.navic.domain.manager.albumEditionRows
 import paige.navic.domain.manager.albumJobInFlight
+import paige.navic.domain.manager.AlbumCoversQuery
 import paige.navic.domain.manager.albumCoversQuery
+import paige.navic.domain.manager.albumCoversReadNeeded
 import paige.navic.domain.manager.albumJobFailures
 import paige.navic.domain.manager.albumJobInWay
 import paige.navic.domain.manager.albumWaitingForIndex
@@ -245,6 +247,9 @@ fun AlbumMatchSheet(
 	var coversLoading by remember(albumId) { mutableStateOf(false) }
 	var coversError by remember(albumId) { mutableStateOf<LbBotManager.LbError?>(null) }
 	var coverReads by remember(albumId) { mutableStateOf(0) }
+	// The question the covers on screen answer, and the Retry count they were read at.
+	var coversAnswered by remember(albumId) { mutableStateOf<AlbumCoversQuery?>(null) }
+	var coversAnsweredReads by remember(albumId) { mutableStateOf(0) }
 	var cover by remember(albumId) { mutableStateOf<String?>(null) }
 
 	// One write at a time. Each refusal is kept for the button it answers: the Undo sits at the
@@ -346,6 +351,8 @@ fun AlbumMatchSheet(
 		preview = null
 		previewError = null
 		covers = null
+		// What was read is thrown away with it: the next question is asked, even the same one.
+		coversAnswered = null
 		coversError = null
 		cover = null
 		poorMatch = null
@@ -375,24 +382,36 @@ fun AlbumMatchSheet(
 		currentReleaseMbid = state?.releaseMbid.orEmpty(),
 		// Before the album is read nothing is settled, whatever a previous read left behind.
 		rgid = if (state == null) null else rgid,
-		listed = listedEditions
+		listed = listedEditions,
+		// A picked release's question includes whether it is a listed edition, so it waits
+		// for the list: a pasted id is then asked for once, not once by itself and again
+		// with the group when the editions land.
+		editionsSettled = !editionsLoading && rgid != null
 	)
 	LaunchedEffect(albumId, coversQuery, coverReads) {
 		val asked = coversQuery
-		if (asked == null) {
+		// One question, one read (`albumCoversReadNeeded`): coming back to the question already
+		// answered — an editions Retry takes the group away and brings the same one back —
+		// keeps its answer; only this step's own Retry asks it again.
+		if (asked == null || !albumCoversReadNeeded(asked, coversAnswered, retry = coverReads != coversAnsweredReads)) {
 			// Nothing to ask (yet): a read this replaced was cancelled before it could say so.
 			coversLoading = false
 			return@LaunchedEffect
 		}
 		// Another question: what was read for the last one is not its answer.
 		covers = null
+		coversAnswered = null
 		coversLoading = true
 		coversError = null
 		when (val result = lbBot.albumCovers(asked.rgid, asked.releaseMbid)) {
-			is LbBotManager.LbResult.Ok -> covers = result.value
+			is LbBotManager.LbResult.Ok -> {
+				covers = result.value
+				coversAnswered = asked
+			}
 			is LbBotManager.LbResult.Failed ->
 				if (result.error == LbBotManager.LbError.RouteUnknown) older = true else coversError = result.error
 		}
+		coversAnsweredReads = coverReads
 		coversLoading = false
 	}
 

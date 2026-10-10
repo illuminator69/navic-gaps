@@ -586,7 +586,12 @@ still advancing the speaker's queue. It logs one line when it fires.
     inside the data — up to six leading days are not drawn; a span that began on a Sunday used
     to leave one lone square — and ends with the current week, whose days not yet reached are
     placeholders (null cells, drawn faintly), so it is always a clean rectangle. Days are
-    placed by date, not by list position. The plays-per-day chart is capped by lb-bot at the
+    placed by date, not by list position. **It is drawn from its own state**
+    (`ListeningUi.heatmap`, `keptHeatmap`), not from the summary: a period change clears the
+    summary, and the map — with the picker under it — must not blink out. A square has a
+    largest size (`heatmapCellSize`), so a history of a week or two is a small grid at the
+    start of the row. The plays-per-day chart is calendar days with no gaps (`daySeries`) and
+    has its own axis of dates (`dayAxisLabels`), never the hours chart's. The plays-per-day chart is capped by lb-bot at the
     newest ninety days of a period, and says so for a year or all time
     (`listeningDailyCapped`). Albums, artists and tracks are horizontally scrollable rows of
     cards, full width, one under the other; **genres are a ranking read down the screen**
@@ -605,7 +610,11 @@ still advancing the speaker's queue. It logs one line when it fires.
   Room actually reported. The sentences are pure functions in `LbBotData.kt`.
   - **"Library Matches"** (`LibraryMatchesScreen`, `Screen.LibraryMatches`, I-026) is where the
     "lb-bot data" section of the navi-connect settings went: a page of its own, reached from
-    the library home's top buttons (a sixth, gated on `artistOverridesSupported`), washed like
+    the library home's top buttons (a sixth, offered wherever the lb-bot layer is on —
+    `libraryMatchesOffered`, i.e. `isConfigured`, **not** `artistOverridesSupported`: that is
+    false on a cold start before the hub has spoken and for an lb-bot older than the override
+    routes, and the page is where those cases and the copy loaded last are shown; the override
+    routes gate its writes only), washed like
     the fork's other pages. Four sections switched with chips, each with its count — To check,
     Artists, Albums, Merged names — opening on To check when it has rows, else on Artists; a
     list lb-bot does not send is no section (`matchesSections`, `matchesSectionToShow`). Rows
@@ -808,7 +817,10 @@ still advancing the speaker's queue. It logs one line when it fires.
     of the release the album is on, as soon as the album and its group are known — so the
     picker is there when the sheet opens, with "Set cover" for a cover chosen without touching
     the edition; with a release picked, that release's covers once its preview has landed. It
-    used to be gated on a preview, which only a pick makes. A 409
+    used to be gated on a preview, which only a pick makes. One question, one read: a picked
+    release waits for the edition list to settle (whether it is listed is part of its
+    question), and coming back to a question already answered keeps its answer
+    (`albumCoversReadNeeded`). A 409
     `files_unreachable` (lb-bot cannot see the album's real files) carries a `total` like
     `poor_match` does and is never read as that question: it is shown in lb-bot's words, which
     name the remedy, on preview, apply, cover, remove and both merge writes. Every sentence states what lb-bot
@@ -1309,7 +1321,8 @@ true of invented *album art*, and not of an icon naming the kind.
   no library shortcuts has lost something it used to do. My Listening is a fifth possible button
   (gated on `listeningSupported`, not on lb-bot being up — its page works from cache), and
   `overviewButtonCount` then makes the home six long rather than pushing Random off it. Library
-  Matches is the sixth (gated on `artistOverridesSupported`), which fills that row exactly; a
+  Matches is the sixth (`libraryMatchesOffered`: wherever the lb-bot layer is on), which fills
+  that row exactly; a
   seventh primary would have to raise `OVERVIEW_PRIMARY_MAX` and the count with it.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read

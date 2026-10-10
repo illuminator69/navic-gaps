@@ -1,9 +1,11 @@
 package paige.navic.domain.manager
 
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -538,8 +540,7 @@ internal fun heatmapSpan(grid: ListeningHeatmap): HeatmapSpan? {
 }
 
 /** `daily` — the period's plays per day — as bars, oldest day first, whatever order it came in. */
-internal fun dayBars(daily: List<LbDayCount>): List<Int> =
-	daily.filter { it.date.isNotBlank() }.sortedBy { it.date }.map { it.count.coerceAtLeast(0) }
+internal fun dayBars(daily: List<LbDayCount>): List<Int> = daySeries(daily).map { it.count }
 
 /**
  * The cover on a card or a row that stands for an album (a top album, a top track's album, a
@@ -627,3 +628,64 @@ internal fun historyMenu(row: LbRecentPlay, albumSongs: List<HistorySong>?, arti
 
 /** A title with case, spacing and punctuation aside: its letters and digits, lower-cased. */
 private fun titleKey(title: String): String = title.lowercase().filter { it.isLetterOrDigit() }
+
+// ----- fix round 1 --------------------------------------------------------------------------------
+
+/**
+ * The heat map on screen after [summary] was read (or cleared: null). **It does not depend on
+ * the period**, so it must not blink out when one is tapped — the summary is cleared then, and
+ * the picker sits under the map. The last one is kept until a summary brings another; a summary
+ * that carries none (lb-bot left it out) and a read that failed keep it too.
+ */
+internal fun keptHeatmap(previous: List<LbDayCount>, summary: LbListeningSummary?): List<LbDayCount> =
+	summary?.heatmap?.takeIf { it.isNotEmpty() } ?: previous
+
+/**
+ * `daily` as calendar days: sorted, one row per day, **every day between the first and the last
+ * present** — a day lb-bot left out is a day with no plays, not a bar that is not there — and a
+ * row with no readable date dropped.
+ */
+internal fun daySeries(daily: List<LbDayCount>): List<LbDayCount> {
+	val byDay = daily.mapNotNull { day -> dayOrNull(day.date)?.let { it to day.count.coerceAtLeast(0) } }
+		.sortedBy { it.first }
+	val first = byDay.firstOrNull()?.first ?: return emptyList()
+	val counts = IntArray((byDay.last().first.toEpochDays() - first.toEpochDays()).toInt() + 1)
+	for ((date, count) in byDay) counts[(date.toEpochDays() - first.toEpochDays()).toInt()] = count
+	return counts.mapIndexed { index, count -> LbDayCount(first.plus(index, DateTimeUnit.DAY).toString(), count) }
+}
+
+/**
+ * The plays-per-day chart's axis: **dates, never hours.** The first day, the last, and as many
+ * evenly spaced between as fit ([most] in all), each as (index of its bar, `MM-DD`).
+ */
+internal fun dayAxisLabels(series: List<LbDayCount>, most: Int = 5): List<Pair<Int, String>> {
+	if (series.isEmpty() || most <= 0) return emptyList()
+	val count = minOf(most, series.size)
+	val indices = if (count == 1) listOf(series.lastIndex)
+	else (0 until count).map { (it.toLong() * series.lastIndex / (count - 1)).toInt() }.distinct()
+	// `yyyy-mm-dd` without its year: the chart never spans more than ninety days.
+	return indices.map { it to series[it].date.substringAfter('-') }
+}
+
+/**
+ * The side of one heat-map square: what the width allows for [columns] weeks, and **never more
+ * than [cap]** — a history of one or two weeks would otherwise draw squares as wide as the
+ * screen. The grid is then narrower than the page and sits at its start.
+ */
+internal fun heatmapCellSize(available: Float, columns: Int, gap: Float, cap: Float): Float =
+	if (columns <= 0) 0f else ((available - gap * (columns - 1)) / columns).coerceIn(0f, cap)
+
+/** What a History row answers to. */
+enum class HistoryRowGesture { NONE, TAP, TAP_AND_MENU, MENU_ONLY }
+
+/**
+ * **A tap does something or shows nothing.** A row with somewhere to go answers a tap (and a
+ * long press, when it has a menu); one with a menu and nowhere to go answers the long press
+ * alone — no ripple under a tap that would do nothing; one with neither is plain.
+ */
+internal fun historyRowGesture(hasTarget: Boolean, hasMenu: Boolean): HistoryRowGesture = when {
+	hasTarget && hasMenu -> HistoryRowGesture.TAP_AND_MENU
+	hasTarget -> HistoryRowGesture.TAP
+	hasMenu -> HistoryRowGesture.MENU_ONLY
+	else -> HistoryRowGesture.NONE
+}

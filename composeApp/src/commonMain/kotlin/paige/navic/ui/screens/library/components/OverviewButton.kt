@@ -136,6 +136,19 @@ data class OverviewButtonSpec(
 internal fun overviewButtonCount(primary: Int): Int = if (primary <= 4) 4 else 6
 
 /**
+ * Whether the home offers Library Matches: **wherever the lb-bot layer is on**
+ * ([lbConfigured] — a hub is set up and has not said its lb-bot proxy is off). That is how the
+ * settings section it replaced was reachable, and it must stay so: on a cold start before the hub
+ * has spoken in this process, with lb-bot out of reach, and against an lb-bot older than the
+ * override routes, the page is where "the copy loaded last", "not reachable" and "this lb-bot is
+ * older" are said. [overridesSupported] gates the page's WRITES, not the way in — it is false
+ * in every one of those three cases.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun libraryMatchesOffered(lbConfigured: Boolean, overridesSupported: Boolean): Boolean =
+	lbConfigured
+
+/**
  * The longest the primary list gets: Discover, Mixed for You, Fresh, My Listening, Library
  * Matches and Random. [overviewButtonCount] never shows fewer than there are, so this is also
  * the most buttons the home page has; a seventh primary would have to raise both.
@@ -178,12 +191,13 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	// with lb-bot down or the device offline, and says which it is.
 	val listeningAdvertised by lbBot.listeningSupported.collectAsState()
 	val listening = listeningAdvertised && lbBot.isConfigured
-	// Library Matches (I-026) exists where the override routes do — the gate its lists have
-	// always had (`artistOverridesSupported`: the hub offers the route and lb-bot has not
-	// answered "no such route" for it). Like My Listening it works from what this device last
-	// loaded, so it is not gated on lb-bot answering right now.
+	// Library Matches (I-026) is offered wherever the lb-bot layer is on, as the settings
+	// section it replaced was (`libraryMatchesOffered`). NOT on the override routes being
+	// supported: that is false until the hub has spoken in this process and for an lb-bot that
+	// predates them, and the page is exactly where those cases are explained and where the
+	// copy this device loaded last can still be read. Its writes keep their own gates.
 	val overridesSupported by lbBot.artistOverridesSupported.collectAsState()
-	val matches = overridesSupported && lbBot.isConfigured
+	val matches = libraryMatchesOffered(lbBot.isConfigured, overridesSupported)
 
 	return remember(lbBotAvailable, discoverHasSources, hubConfigured, listening, matches) {
 		val primary = buildList {

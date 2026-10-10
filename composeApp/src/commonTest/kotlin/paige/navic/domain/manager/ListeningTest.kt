@@ -683,4 +683,70 @@ class ListeningTest {
 		assertEquals(HistoryMenu.None, historyMenu(play, null, artistHeld = false))
 		assertEquals(HistoryMenu.None, historyMenu(play.copy(ndArtistId = ""), null, artistHeld = true))
 	}
+
+	// --- fix round 1 ---------------------------------------------------------------------------
+
+	@Test
+	fun theHeatMapOutlivesAPeriodChangeAndAFailedRead() {
+		val days = consecutiveDays(LocalDate(2026, 10, 3), n = 14)
+		assertEquals(days, keptHeatmap(emptyList(), LbListeningSummary(period = "30d", heatmap = days)))
+		// A period was tapped: the summary is cleared while the next one is read. The map does
+		// not depend on the period, and the picker sits under it — it must not blink out.
+		assertEquals(days, keptHeatmap(days, null))
+		// A summary with no heat map in it does not blank the one on screen either.
+		assertEquals(days, keptHeatmap(days, LbListeningSummary(period = "7d")))
+		val newer = consecutiveDays(LocalDate(2026, 10, 4), n = 14)
+		assertEquals(newer, keptHeatmap(days, LbListeningSummary(period = "7d", heatmap = newer)))
+	}
+
+	@Test
+	fun thePlaysPerDayChartIsCalendarDaysWithNoGaps() {
+		val daily = listOf(
+			LbDayCount("2026-10-05", 4), LbDayCount("2026-10-01", 2), LbDayCount("2026-10-02", -1),
+			LbDayCount("", 9), LbDayCount("nonsense", 3)
+		)
+		// A day lb-bot left out is a day with no plays, not a bar that is not there.
+		assertEquals(
+			listOf(
+				LbDayCount("2026-10-01", 2), LbDayCount("2026-10-02", 0), LbDayCount("2026-10-03", 0),
+				LbDayCount("2026-10-04", 0), LbDayCount("2026-10-05", 4)
+			),
+			daySeries(daily)
+		)
+		assertEquals(listOf(2, 0, 0, 0, 4), dayBars(daily))
+		assertEquals(emptyList(), daySeries(emptyList()))
+	}
+
+	@Test
+	fun theDayChartsAxisIsDatesFirstLastAndAFewBetween() {
+		val week = daySeries(consecutiveDays(LocalDate(2026, 10, 7), n = 7))
+		assertEquals(listOf(0 to "10-01", 2 to "10-03", 4 to "10-05", 6 to "10-07"), dayAxisLabels(week, most = 4))
+		val ninety = dayAxisLabels(daySeries(consecutiveDays(LocalDate(2026, 10, 7), n = 90)), most = 5)
+		assertEquals(5, ninety.size)
+		assertEquals(0, ninety.first().first)
+		assertEquals(89 to "10-07", ninety.last())
+		assertEquals(ninety.map { it.first }.sorted().distinct(), ninety.map { it.first })
+		// One day is one label; no days, none. Never an hour.
+		assertEquals(listOf(0 to "10-07"), dayAxisLabels(daySeries(consecutiveDays(LocalDate(2026, 10, 7), n = 1)), most = 5))
+		assertEquals(emptyList(), dayAxisLabels(emptyList(), most = 5))
+	}
+
+	@Test
+	fun aHeatMapSquareHasALargestSize() {
+		// Sixteen weeks across a phone: the width decides.
+		assertEquals((360f - 2f * 15) / 16, heatmapCellSize(360f, columns = 16, gap = 2f, cap = 24f))
+		// One or two weeks: the cap decides, not a square as wide as the screen.
+		assertEquals(24f, heatmapCellSize(360f, columns = 1, gap = 2f, cap = 24f))
+		assertEquals(24f, heatmapCellSize(360f, columns = 2, gap = 2f, cap = 24f))
+		assertEquals(0f, heatmapCellSize(360f, columns = 0, gap = 2f, cap = 24f))
+	}
+
+	@Test
+	fun aHistoryRowsTapDoesSomethingOrShowsNothing() {
+		assertEquals(HistoryRowGesture.TAP_AND_MENU, historyRowGesture(hasTarget = true, hasMenu = true))
+		assertEquals(HistoryRowGesture.TAP, historyRowGesture(hasTarget = true, hasMenu = false))
+		// A menu and nowhere to go: the long press alone — a tap neither acts nor ripples.
+		assertEquals(HistoryRowGesture.MENU_ONLY, historyRowGesture(hasTarget = false, hasMenu = true))
+		assertEquals(HistoryRowGesture.NONE, historyRowGesture(hasTarget = false, hasMenu = false))
+	}
 }

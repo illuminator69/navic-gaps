@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.library
 
 import paige.navic.ui.screens.library.components.OVERVIEW_PRIMARY_MAX
+import paige.navic.ui.screens.library.components.libraryMatchesOffered
 import paige.navic.ui.screens.library.components.overviewButtonCount
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,6 +28,18 @@ class OverviewButtonCountTest {
 		// Library Matches (I-026) is the sixth: six primaries, six buttons, Random still there.
 		assertEquals(6, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
 		assertEquals(6, OVERVIEW_PRIMARY_MAX)
+	}
+
+	@Test
+	fun libraryMatchesIsOfferedWhereverTheLbBotLayerIsOn() {
+		// As the settings section it replaced: reachable on a cold start before the hub has
+		// spoken, with lb-bot out of reach, and against an lb-bot older than the override
+		// routes. The page is where "the copy loaded last", "not reachable" and "older lb-bot"
+		// are said; the override routes gate its writes, not the way in.
+		assertEquals(true, libraryMatchesOffered(lbConfigured = true, overridesSupported = false))
+		assertEquals(true, libraryMatchesOffered(lbConfigured = true, overridesSupported = true))
+		assertEquals(false, libraryMatchesOffered(lbConfigured = false, overridesSupported = false))
+		assertEquals(false, libraryMatchesOffered(lbConfigured = false, overridesSupported = true))
 	}
 
 	@Test

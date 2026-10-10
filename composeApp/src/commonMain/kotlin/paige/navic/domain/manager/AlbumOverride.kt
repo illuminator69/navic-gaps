@@ -870,16 +870,30 @@ internal fun albumCoversQuery(
 	previewedReleaseMbid: String?,
 	currentReleaseMbid: String,
 	rgid: String?,
-	listed: Collection<String>
+	listed: Collection<String>,
+	editionsSettled: Boolean = true
 ): AlbumCoversQuery? {
 	if (picked.isNotBlank()) {
-		if (previewedReleaseMbid != picked) return null
+		// Whether a picked release is "one of the listed editions" is part of its question
+		// (`albumCoversRgid`), so the question waits until that list has settled: asked while
+		// the editions are still loading, a pasted id would be asked by itself and then, when
+		// they land and include it, asked again with the group.
+		if (previewedReleaseMbid != picked || !editionsSettled) return null
 		return AlbumCoversQuery(albumCoversRgid(rgid.orEmpty(), picked, listed), picked)
 	}
 	val group = rgid ?: return null
 	if (group.isBlank() && currentReleaseMbid.isBlank()) return null
 	return AlbumCoversQuery(group, currentReleaseMbid)
 }
+
+/**
+ * Whether the covers are read now. **One question, one read**: a question already answered is
+ * not asked again when the sheet merely comes back to it — an editions Retry takes the release
+ * group away and brings the same one back — and is asked again only when the user presses the
+ * cover step's own Retry ([retry]). No question, no read.
+ */
+internal fun albumCoversReadNeeded(asked: AlbumCoversQuery?, answered: AlbumCoversQuery?, retry: Boolean): Boolean =
+	asked != null && (retry || asked != answered)
 
 /** What an ended poll has to say. Every number in it is a field of lb-bot's last answer. */
 sealed interface AlbumOutcome {
