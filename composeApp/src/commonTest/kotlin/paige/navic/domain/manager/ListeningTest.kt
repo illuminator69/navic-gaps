@@ -200,24 +200,10 @@ class ListeningTest {
 	}
 
 	// --- heatmap ---------------------------------------------------------------------------
-
-	private fun days(n: Int, count: (Int) -> Int = { 0 }) = List(n) { i ->
-		// 2026-01-01 onward, zero-padded so the strings sort as dates.
-		val month = 1 + i / 28
-		val day = 1 + i % 28
-		LbDayCount("2026-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}", count(i))
-	}
-
-	@Test
-	fun oneHundredAndTwelveDaysMakeSixteenWeeksEndingOnTheNewestDay() {
-		val input = days(112) { it }
-		val grid = heatmapGrid(input)
-		assertEquals(16, grid.weeks.size)
-		assertTrue(grid.weeks.all { it.size == 7 })
-		assertEquals(input.first().date, grid.weeks.first().first()?.date)
-		assertEquals(input.last().date, grid.weeks.last().last()?.date)
-		assertEquals(111, grid.max)
-	}
+	// Whole calendar weeks, Monday first: the grid starts on the first Monday inside the data
+	// (up to six leading days are not drawn) and ends with the current week, whose days not yet
+	// reached are placeholders. lb-bot sends the last 112 days; a span that began on a Sunday
+	// used to leave one lone square in the first column and a short last one.
 
 	/** [n] real consecutive calendar days ending on [end], oldest first — what lb-bot sends. */
 	private fun consecutiveDays(end: LocalDate, n: Int = 112) = List(n) { i ->
@@ -228,73 +214,95 @@ class ListeningTest {
 		grid.weeks.mapNotNull { it[row] }.map { LocalDate.parse(it.date).dayOfWeek }.toSet()
 
 	@Test
-	fun withRealDatesTheNewestDayIsBottomRightAndEveryRowIsOneWeekday() {
-		// 2026-10-03 is a Saturday; 112 days ending on it begin on Sunday 2026-06-14.
+	fun theGridStartsOnTheFirstMondayInTheData() {
+		// 2026-10-03 is a Saturday; 112 days ending on it begin on Sunday 2026-06-14. That lone
+		// Sunday is not drawn: the grid starts on Monday the 15th.
 		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
+		assertEquals("2026-06-15", grid.weeks.first().first()?.date)
 		assertEquals(16, grid.weeks.size)
-		assertEquals("2026-06-14", grid.weeks[0][0]?.date)
-		assertEquals("2026-10-03", grid.weeks[15][6]?.date)
-		(0..6).forEach { row -> assertEquals(1, weekdaysOfRow(grid, row).size) }
-		assertEquals(setOf(DayOfWeek.SUNDAY), weekdaysOfRow(grid, 0))
-		assertEquals(setOf(DayOfWeek.SATURDAY), weekdaysOfRow(grid, 6))
-		// A column is one run of seven days: the day above the newest is the day before it.
-		assertEquals("2026-10-02", grid.weeks[15][5]?.date)
-		assertEquals("2026-09-26", grid.weeks[14][6]?.date)
+		assertTrue(grid.weeks.all { it.size == 7 })
+		// A row is one weekday throughout: Mondays at the top, Sundays at the bottom.
+		(0..6).forEach { row -> assertEquals(1, weekdaysOfRow(grid, row).size, "row $row") }
+		assertEquals(setOf(DayOfWeek.MONDAY), weekdaysOfRow(grid, 0))
+		assertEquals(setOf(DayOfWeek.SUNDAY), weekdaysOfRow(grid, 6))
 	}
 
 	@Test
-	fun theRowsFollowTheNewestDayNotTheCalendarWeek() {
-		// Ending on a Wednesday (2026-09-30) the bottom row is Wednesdays and the top row is
-		// Thursdays: the newest day is always the last cell, so a row's weekday moves with it.
-		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 9, 30)))
-		assertEquals("2026-09-30", grid.weeks[15][6]?.date)
-		assertEquals(setOf(DayOfWeek.WEDNESDAY), weekdaysOfRow(grid, 6))
-		assertEquals(setOf(DayOfWeek.THURSDAY), weekdaysOfRow(grid, 0))
+	fun theCurrentWeekIsWholeWithItsDaysNotYetReachedAsPlaceholders() {
+		// Ending on a Saturday: the last column is Monday to Saturday, and Sunday is a
+		// placeholder — a square that is there, with no day in it yet.
+		val saturday = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
+		assertEquals(
+			listOf("2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", null),
+			saturday.weeks.last().map { it?.date }
+		)
+		// Ending on a Wednesday: three days, four placeholders.
+		val wednesday = heatmapGrid(consecutiveDays(LocalDate(2026, 9, 30)))
+		assertEquals(
+			listOf("2026-09-28", "2026-09-29", "2026-09-30", null, null, null, null),
+			wednesday.weeks.last().map { it?.date }
+		)
 	}
 
 	@Test
-	fun aShortRealHistoryStillEndsBottomRightOnItsNewestDay() {
-		// Ten days ending Saturday 2026-10-03: only the last column is full, and the three
-		// days before it sit at the BOTTOM of the column before, on their own weekdays.
-		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3), n = 10))
-		assertEquals("2026-10-03", grid.weeks[15][6]?.date)
-		assertEquals("2026-09-27", grid.weeks[15][0]?.date)
-		assertEquals(listOf(null, null, null, null, "2026-09-24", "2026-09-25", "2026-09-26"), grid.weeks[14].map { it?.date })
-		assertEquals(setOf(DayOfWeek.SATURDAY), weekdaysOfRow(grid, 6))
+	fun theGridIsACleanRectangleWhateverWeekdayTheSpanEndsOn() {
+		for (offset in 0..6) {
+			val end = LocalDate(2026, 10, 4).minus(offset, DateTimeUnit.DAY)
+			val weeks = heatmapGrid(consecutiveDays(end)).weeks
+			assertTrue(weeks.all { it.size == 7 }, "ending $end")
+			val cells = weeks.flatten()
+			// No hole at the start, and the only empty squares are the tail of the last week.
+			assertEquals(DayOfWeek.MONDAY, LocalDate.parse(cells.first()!!.date).dayOfWeek, "ending $end")
+			val drawn = cells.takeWhile { it != null }
+			assertEquals(end.toString(), drawn.last()?.date)
+			assertTrue(cells.drop(drawn.size).all { it == null }, "ending $end")
+			assertTrue(cells.size - drawn.size < 7, "ending $end")
+		}
 	}
 
 	@Test
-	fun theGridIsSortedByDateWhateverOrderItArrivedIn() {
-		val input = days(112) { it }
+	fun aSpanThatAlreadyStartsOnAMondayLosesNoDay() {
+		// 112 days ending Sunday 2026-10-04 begin on Monday 2026-06-15: sixteen full weeks.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 4)))
+		assertEquals(16, grid.weeks.size)
+		assertTrue(grid.weeks.flatten().all { it != null })
+		assertEquals("2026-06-15", grid.weeks.first().first()?.date)
+		assertEquals("2026-10-04", grid.weeks.last().last()?.date)
+	}
+
+	@Test
+	fun aHistoryWithNoMondayInItKeepsItsDaysOnTheirWeekdays() {
+		// Wednesday to Friday: there is no Monday to start on, and dropping the days would
+		// leave nothing. One week, the three days in their own rows.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 2), n = 3))
+		assertEquals(
+			listOf(listOf(null, null, "2026-09-30", "2026-10-01", "2026-10-02", null, null)),
+			grid.weeks.map { week -> week.map { it?.date } }
+		)
+	}
+
+	@Test
+	fun theGridIsSortedByDateAndKeepsTheNewestSixteenWeeksOfDays() {
+		val input = consecutiveDays(LocalDate(2026, 10, 3), n = 140)
 		assertEquals(heatmapGrid(input), heatmapGrid(input.reversed()))
+		// Cut to the newest 112 before anything else: the same grid as those 112 alone.
+		assertEquals(heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3))).weeks.map { w -> w.map { it?.date } },
+			heatmapGrid(input).weeks.map { w -> w.map { it?.date } })
 	}
 
 	@Test
-	fun aShortHistoryIsPaddedOnTheOldSide() {
-		val input = days(10) { 1 }
-		val grid = heatmapGrid(input)
-		assertEquals(16, grid.weeks.size)
-		val cells = grid.weeks.flatten()
-		assertEquals(112, cells.size)
-		assertEquals(102, cells.takeWhile { it == null }.size)
-		assertEquals(input.last().date, cells.last()?.date)
+	fun theScaleIsTheBusiestDayDrawn() {
+		// The day left out before the first Monday does not set the scale.
+		val days = consecutiveDays(LocalDate(2026, 10, 3)).mapIndexed { i, d -> d.copy(count = if (i == 0) 500 else 3) }
+		assertEquals(3, heatmapGrid(days).max)
 	}
 
 	@Test
-	fun moreThanSixteenWeeksKeepsTheNewest() {
-		val input = days(140) { 1 }
-		val cells = heatmapGrid(input).weeks.flatten()
-		assertEquals(112, cells.size)
-		assertEquals(input[28].date, cells.first()?.date)
-		assertEquals(input.last().date, cells.last()?.date)
-	}
-
-	@Test
-	fun anEmptyHeatmapIsSixteenEmptyWeeks() {
+	fun anEmptyHeatmapDrawsNothing() {
 		val grid = heatmapGrid(emptyList())
-		assertEquals(16, grid.weeks.size)
-		assertTrue(grid.weeks.flatten().all { it == null })
+		assertTrue(grid.weeks.isEmpty())
 		assertEquals(0, grid.max)
+		assertEquals(null, heatmapSpan(grid))
 	}
 
 	@Test
@@ -551,32 +559,35 @@ class ListeningTest {
 	}
 
 	@Test
-	fun theHeatMapNamesTheSpanItShows() {
-		val full = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
-		assertEquals(HeatmapSpan("2026-06-14", "2026-10-03", count = 16, inWeeks = true), heatmapSpan(full))
-		// Fewer days than the grid, and not whole weeks: said in days, from the days drawn.
-		val short = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3), n = 10))
-		assertEquals(HeatmapSpan("2026-09-24", "2026-10-03", count = 10, inWeeks = false), heatmapSpan(short))
-		assertEquals(null, heatmapSpan(heatmapGrid(emptyList())))
+	fun theHeatMapNamesTheRangeItDraws() {
+		// Not the range lb-bot sent: the Sunday before the first Monday is not drawn, and is
+		// not claimed.
+		val grid = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
+		assertEquals(HeatmapSpan("2026-06-15", "2026-10-03", weeks = 16), heatmapSpan(grid))
+		val short = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 2), n = 3))
+		assertEquals(HeatmapSpan("2026-09-30", "2026-10-02", weeks = 1), heatmapSpan(short))
 	}
 
 	@Test
-	fun theLastColumnIsWholeWhateverWeekdayTheHistoryEndsOn() {
-		// Feishin's grid is by calendar week, so its last column is short unless the span ends
-		// on a Sunday — the "last row one square to the left". This grid is seven consecutive
-		// days per column ending on the newest day: for a span ending on every weekday, and
-		// for one shorter than the grid, the last column is full and the padding is all at
-		// the old end.
-		for (offset in 0..6) {
-			for (n in listOf(112, 109, 30)) {
-				val end = LocalDate(2026, 10, 3).minus(offset, DateTimeUnit.DAY)
-				val weeks = heatmapGrid(consecutiveDays(end, n)).weeks
-				assertEquals(7, weeks.last().count { it != null }, "ending $end, $n days")
-				assertEquals(end.toString(), weeks.last().last()?.date)
-				val cells = weeks.flatten()
-				assertEquals(cells.size - n, cells.indexOfFirst { it != null }, "ending $end, $n days")
-			}
-		}
+	fun aYearOrAllTimeIsChartedOverNinetyDaysAndSaysSo() {
+		// lb-bot sends at most the newest ninety days of a period's daily series.
+		assertEquals(90, LISTENING_DAILY_MAX_DAYS)
+		assertEquals(true, listeningDailyCapped(ListeningPeriod.YEAR))
+		assertEquals(true, listeningDailyCapped(ListeningPeriod.ALL))
+		assertEquals(false, listeningDailyCapped(ListeningPeriod.WEEK))
+		assertEquals(false, listeningDailyCapped(ListeningPeriod.MONTH))
+		assertEquals(false, listeningDailyCapped(ListeningPeriod.QUARTER))
+	}
+
+	@Test
+	fun aGenresBarIsItsPlaysAgainstTheMostPlayedGenre() {
+		assertEquals(1f, genreBarFraction(40, 40))
+		assertEquals(0.25f, genreBarFraction(10, 40))
+		assertEquals(0f, genreBarFraction(0, 40))
+		// Nothing to scale against, and nonsense, draw no bar rather than a full one.
+		assertEquals(0f, genreBarFraction(5, 0))
+		assertEquals(0f, genreBarFraction(-3, 40))
+		assertEquals(1f, genreBarFraction(50, 40))
 	}
 
 	@Test
@@ -618,5 +629,58 @@ class ListeningTest {
 			LbArt.Library("ar-ar-1_0", isArtist = true),
 			unownedCardArt(true, artist.copy(artistOwned = true, artistId = "ar-1"), heldArtists)
 		)
+	}
+
+
+	// --- a History row's menu ------------------------------------------------------------------
+	// A recent play carries no Navidrome song id. The song is looked for in the album it is
+	// filed under, and a menu is only ever opened on a song when exactly one fits.
+
+	private val play = LbRecentPlay(
+		track = "Let It Happen",
+		artist = "Tame Impala",
+		release = "Currents",
+		recordingMbid = "rec-1",
+		ndAlbumId = "al-1",
+		ndArtistId = "ar-1"
+	)
+	private val currents = listOf(
+		HistorySong("s-1", "Let It Happen", "rec-1"),
+		HistorySong("s-2", "Nangs", "rec-2"),
+		HistorySong("s-3", "The Moment", "")
+	)
+
+	@Test
+	fun theSongIsFoundByItsRecordingId() {
+		assertEquals(HistoryMenu.Song("s-1"), historyMenu(play, currents, artistHeld = true))
+		// The id decides, whatever the title says: a retitled track is still that recording.
+		assertEquals(HistoryMenu.Song("s-2"), historyMenu(play.copy(recordingMbid = "rec-2"), currents, true))
+	}
+
+	@Test
+	fun withNoRecordingIdToGoByTheTitleDecidesWithCaseAndPunctuationAside() {
+		val untagged = play.copy(recordingMbid = "", track = "the moment!")
+		assertEquals(HistoryMenu.Song("s-3"), historyMenu(untagged, currents, true))
+		// A recording id the album does not carry is no match either: the title is asked next.
+		assertEquals(HistoryMenu.Song("s-2"), historyMenu(play.copy(recordingMbid = "rec-x", track = "NANGS"), currents, true))
+	}
+
+	@Test
+	fun aSongThatCannotBeToldApartOpensTheAlbumNotAGuess() {
+		val twice = currents + HistorySong("s-4", "Let It Happen", "rec-1")
+		// Two songs carry the id and the title: which was played is not known.
+		assertEquals(HistoryMenu.Album("al-1"), historyMenu(play, twice, true))
+		// Nothing fits.
+		assertEquals(HistoryMenu.Album("al-1"), historyMenu(play.copy(recordingMbid = "", track = "Eventually"), currents, true))
+		// A title that is nothing but punctuation matches nothing — not every such song.
+		val odd = listOf(HistorySong("s-9", "!!!", ""), HistorySong("s-8", "???", ""))
+		assertEquals(HistoryMenu.Album("al-1"), historyMenu(play.copy(recordingMbid = "", track = "..."), odd, true))
+	}
+
+	@Test
+	fun withNoAlbumInTheLibraryTheArtistsMenuOrNone() {
+		assertEquals(HistoryMenu.Artist("ar-1"), historyMenu(play, albumSongs = null, artistHeld = true))
+		assertEquals(HistoryMenu.None, historyMenu(play, null, artistHeld = false))
+		assertEquals(HistoryMenu.None, historyMenu(play.copy(ndArtistId = ""), null, artistHeld = true))
 	}
 }

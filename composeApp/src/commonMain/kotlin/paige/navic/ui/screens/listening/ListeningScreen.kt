@@ -2,7 +2,10 @@ package paige.navic.ui.screens.listening
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,8 +64,8 @@ import navic.composeapp.generated.resources.listening_genres_from
 import navic.composeapp.generated.resources.action_listening_sync_now
 import navic.composeapp.generated.resources.action_listening_syncing
 import navic.composeapp.generated.resources.listening_daily_title
-import navic.composeapp.generated.resources.listening_heatmap_caption_days
-import navic.composeapp.generated.resources.listening_heatmap_caption_weeks
+import navic.composeapp.generated.resources.listening_daily_capped
+import navic.composeapp.generated.resources.listening_heatmap_caption
 import navic.composeapp.generated.resources.listening_heatmap_scale
 import navic.composeapp.generated.resources.listening_needs_lbbot
 import navic.composeapp.generated.resources.listening_tab_activity
@@ -124,7 +127,11 @@ import paige.navic.domain.manager.LbArt
 import paige.navic.domain.manager.ListeningTab
 import paige.navic.domain.manager.albumCardArt
 import paige.navic.domain.manager.dayBars
+import paige.navic.domain.manager.LISTENING_DAILY_MAX_DAYS
+import paige.navic.domain.manager.genreBarFraction
 import paige.navic.domain.manager.heatmapSpan
+import paige.navic.domain.manager.heldInLibrary
+import paige.navic.domain.manager.listeningDailyCapped
 import paige.navic.domain.manager.libraryArtistArt
 import paige.navic.domain.manager.unownedCardArt
 import paige.navic.domain.manager.ListeningHeatmap
@@ -150,6 +157,13 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.LbArtImage
+import paige.navic.ui.components.sheets.ArtistSheet
+import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.screens.listening.viewmodels.HistoryMenuUi
+import paige.navic.domain.manager.RadioManager
+import paige.navic.shared.MediaPlayerViewModel
+import org.koin.compose.koinInject
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.navigation.Screen
@@ -215,6 +229,37 @@ fun ListeningScreen() {
 				viewModel.pollStatus()
 			}
 		}
+	}
+
+	// A History row's menu: the app's own sheet for the song the play was — found in the album
+	// it is filed under, and only when exactly one song fits (`historyMenu`) — else the album's
+	// or the artist's. The song sheet carries the actions that need nothing but the song.
+	val historyMenu by viewModel.historyMenu.collectAsStateWithLifecycle()
+	val player = koinInject<MediaPlayerViewModel>()
+	val radioManager = koinInject<RadioManager>()
+	when (val menu = historyMenu) {
+		is HistoryMenuUi.Song -> SongSheet(
+			onDismissRequest = { viewModel.dismissHistoryMenu() },
+			song = menu.song,
+			onPlayNext = { player.playNextSingle(menu.song) },
+			onAddToQueue = { player.addToQueueSingle(menu.song) },
+			onStartRadio = { radioManager.startRadio(menu.song.id, menu.song) },
+			onTrackInfo = { backStack.add(Screen.SongDetailSheet(menu.song.id)) },
+			onViewAlbum = menu.song.albumId?.let { albumId ->
+				{ backStack.add(Screen.CollectionDetail(albumId, "library")) }
+			}
+		)
+		is HistoryMenuUi.Album -> CollectionSheet(
+			onDismissRequest = { viewModel.dismissHistoryMenu() },
+			collection = menu.album,
+			onPlayNext = { player.playNext(menu.album) },
+			onAddToQueue = { player.addToQueue(menu.album) }
+		)
+		is HistoryMenuUi.Artist -> ArtistSheet(
+			onDismissRequest = { viewModel.dismissHistoryMenu() },
+			artist = menu.artist
+		)
+		null -> Unit
 	}
 
 	Scaffold(
@@ -285,6 +330,7 @@ fun ListeningScreen() {
 									historyItems(
 										state,
 										open,
+										onMenu = { viewModel.openHistoryMenu(it) },
 										onMore = { viewModel.loadMoreRecent() },
 										onRetry = { viewModel.retryRecent() }
 									)
@@ -595,22 +641,53 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 					stringResource(Res.string.listening_genres_from, summary.genrePlays, summary.totals.plays),
 					Modifier.padding(bottom = 8.dp)
 				)
-				LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					items(summary.genres) { genre ->
-						FormRow(rounding = 14.dp) {
-							Column {
-								Text(genre.genre, maxLines = 1, overflow = TextOverflow.Ellipsis)
-								Text(
-									pluralStringResource(Res.plurals.listening_plays, genre.plays, genre.plays),
-									style = MaterialTheme.typography.labelMedium,
-									color = MaterialTheme.colorScheme.onSurfaceVariant
-								)
-							}
-						}
-					}
+				// A ranking read DOWN the screen — rank, genre, its bar, plays — not a sideways
+				// row: a genre has no picture to make a card of, and the bars only compare when
+				// they share a left edge.
+				val top = summary.genres.maxOfOrNull { it.plays } ?: 0
+				summary.genres.forEachIndexed { index, genre ->
+					GenreRow(index + 1, genre.genre, genre.plays, genreBarFraction(genre.plays, top))
 				}
 			}
 		}
+	}
+}
+
+/** One genre of the ranking: its rank, its name over its bar, and its plays. */
+@Composable
+private fun GenreRow(rank: Int, name: String, plays: Int, fraction: Float) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Text(
+			rank.toString(),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.width(24.dp)
+		)
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+			Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+			Box(
+				Modifier
+					.fillMaxWidth()
+					.height(4.dp)
+					.background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
+			) {
+				Box(
+					Modifier
+						.fillMaxWidth(fraction)
+						.height(4.dp)
+						.background(MaterialTheme.colorScheme.primary, CircleShape)
+				)
+			}
+		}
+		Text(
+			pluralStringResource(Res.plurals.listening_plays, plays, plays),
+			style = MaterialTheme.typography.labelMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
 	}
 }
 
@@ -629,12 +706,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 			val grid = remember(summary.heatmap) { heatmapGrid(summary.heatmap) }
 			Column {
 				SectionTitle(stringResource(Res.string.listening_heatmap_title))
+				// The range actually drawn, and that it is always this one: lb-bot sends the
+				// last sixteen weeks of days whatever the period is.
 				heatmapSpan(grid)?.let { span ->
 					Caption(
-						stringResource(
-							if (span.inWeeks) Res.string.listening_heatmap_caption_weeks
-							else Res.string.listening_heatmap_caption_days,
-							span.count, span.first, span.last
+						pluralStringResource(
+							Res.plurals.listening_heatmap_caption, span.weeks,
+							span.first, span.last, span.weeks
 						),
 						Modifier.padding(bottom = 8.dp)
 					)
@@ -650,6 +728,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 		Column {
 			SectionTitle(stringResource(Res.string.listening_daily_title))
 			val bars = remember(summary.daily) { dayBars(summary.daily) }
+			// lb-bot charts at most the newest ninety days of a period: a year is not drawn
+			// as ninety bars without saying so.
+			if (listeningDailyCapped(state.period)) {
+				Caption(
+					stringResource(Res.string.listening_daily_capped, LISTENING_DAILY_MAX_DAYS),
+					Modifier.padding(bottom = 8.dp)
+				)
+			}
 			if (bars.isEmpty()) Caption(stringResource(Res.string.listening_no_plays), Modifier.padding(bottom = 16.dp))
 			else HoursChart(bars)
 		}
@@ -728,8 +814,8 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
 }
 
 /**
- * Sixteen weeks of days, oldest column first, the newest day bottom-right. Drawn, not laid out:
- * 112 cells as composables would be 112 nodes for a picture.
+ * Whole weeks of days, Monday at the top, oldest column first, ending with the current week.
+ * Drawn, not laid out: over a hundred cells as composables would be as many nodes for a picture.
  */
 @Composable
 private fun Heatmap(grid: ListeningHeatmap) {
@@ -742,11 +828,15 @@ private fun Heatmap(grid: ListeningHeatmap) {
 		val corner = CornerRadius(cell * 0.2f)
 		grid.weeks.forEachIndexed { x, week ->
 			week.forEachIndexed { y, day ->
-				// A null cell is padding on the old side of a history shorter than the grid:
-				// no day stands there, so nothing is drawn — not even the empty-day square.
-				if (day == null) return@forEachIndexed
+				// A null cell is a day of the current week not yet reached (or, in a history
+				// with no Monday in it, a weekday before it began): drawn as a faint
+				// placeholder, so the grid is a clean rectangle and every row ends together.
 				drawRoundRect(
-					color = if (day.level == 0) off else on.copy(alpha = 0.25f * day.level),
+					color = when {
+						day == null -> off.copy(alpha = 0.35f)
+						day.level == 0 -> off
+						else -> on.copy(alpha = 0.25f * day.level)
+					},
 					topLeft = Offset(x * (cell + gap), y * (cell + gap)),
 					size = Size(cell, cell),
 					cornerRadius = corner
@@ -861,6 +951,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 private fun androidx.compose.foundation.lazy.LazyListScope.historyItems(
 	state: ListeningUi,
 	open: (ListeningTarget) -> Unit,
+	onMenu: (LbRecentPlay) -> Unit,
 	onMore: () -> Unit,
 	onRetry: () -> Unit
 ) {
@@ -868,10 +959,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyItems(
 	// The key carries the index: the same recording scrobbled twice in a second is two identical
 	// rows, and a duplicate key in a lazy list is a crash.
 	itemsIndexed(state.recent, key = { index, row -> recentPlayKey(index, row) }) { _, row ->
+		// A long press opens the app's own menu — the song's when it can be told apart, else
+		// the album's or the artist's — and is offered only where the library holds one of them.
+		val menu = heldInLibrary(row.ndAlbumId, state.albumArt) || heldInLibrary(row.ndArtistId, state.artistArt)
 		HistoryRow(
 			row,
 			art = albumCardArt(row.ndAlbumId, row.rgid, state.albumArt),
-			onClick = clickFor(recentPlayTarget(row, state.knownAlbumIds, state.knownArtistIds), open)
+			onClick = clickFor(recentPlayTarget(row, state.knownAlbumIds, state.knownArtistIds), open),
+			onMenu = if (menu) ({ onMenu(row) }) else null
 		)
 	}
 	item(key = "s:recent-foot") {
@@ -893,12 +988,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyItems(
  * the Archive's front where it does not, the placeholder where nothing names one.
  */
 @Composable
-private fun HistoryRow(row: LbRecentPlay, art: LbArt, onClick: (() -> Unit)?) {
+private fun HistoryRow(row: LbRecentPlay, art: LbArt, onClick: (() -> Unit)?, onMenu: (() -> Unit)?) {
 	val zone = remember { TimeZone.currentSystemDefault() }
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+			// A row with neither somewhere to go nor a menu is plain, not a dead control.
+			.then(
+				if (onClick != null || onMenu != null) {
+					Modifier.combinedClickable(onClick = onClick ?: {}, onLongClick = onMenu)
+				} else {
+					Modifier
+				}
+			)
 			.padding(vertical = 6.dp),
 		horizontalArrangement = Arrangement.spacedBy(12.dp),
 		verticalAlignment = Alignment.CenterVertically

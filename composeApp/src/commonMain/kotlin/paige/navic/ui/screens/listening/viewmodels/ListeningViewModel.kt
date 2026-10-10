@@ -20,6 +20,14 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.manager.HistoryMenu
+import paige.navic.domain.manager.HistorySong
+import paige.navic.domain.manager.heldInLibrary
+import paige.navic.domain.manager.historyMenu
+import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.LISTENING_KIND_ALBUM
 import paige.navic.domain.manager.LbBotManager
@@ -83,6 +91,13 @@ data class ListeningUi(
 ) {
 	val knownAlbumIds: Set<String> get() = albumArt.keys
 	val knownArtistIds: Set<String> get() = artistArt.keys
+}
+
+/** What a History row's menu was opened on: the library's own song, album or artist. */
+sealed interface HistoryMenuUi {
+	data class Song(val song: DomainSong) : HistoryMenuUi
+	data class Album(val album: DomainAlbum) : HistoryMenuUi
+	data class Artist(val artist: DomainArtist) : HistoryMenuUi
 }
 
 /**
@@ -281,6 +296,41 @@ class ListeningViewModel(
 				return
 			}
 		}
+	}
+
+	// ----- a History row's menu ----------------------------------------------------------------- //
+
+	private val _historyMenu = MutableStateFlow<HistoryMenuUi?>(null)
+	val historyMenu = _historyMenu.asStateFlow()
+
+	/**
+	 * A long press on a recent play. The play carries no Navidrome song id, so the song is
+	 * looked for now, among the songs of the album Room files it under — and **a menu is only
+	 * opened on a song when exactly one fits** (`historyMenu`: by the recording id, else by
+	 * title). Otherwise it is the album's menu, or the artist's when the library holds no album
+	 * for the play, or nothing.
+	 */
+	fun openHistoryMenu(row: LbRecentPlay) {
+		viewModelScope.launch {
+			val album = row.ndAlbumId.takeIf { it.isNotBlank() }?.let { id ->
+				runCatching { albumDao.getAlbumById(id)?.toDomainModel() }.getOrNull()
+			}
+			val songs = album?.songs?.map { HistorySong(it.id, it.title, it.musicBrainzId.orEmpty()) }
+			val artistHeld = heldInLibrary(row.ndArtistId, _state.value.artistArt)
+			_historyMenu.value = when (val menu = historyMenu(row, songs, artistHeld)) {
+				is HistoryMenu.Song ->
+					album?.songs?.firstOrNull { it.id == menu.songId }?.let { HistoryMenuUi.Song(it) }
+				is HistoryMenu.Album -> album?.let { HistoryMenuUi.Album(it) }
+				is HistoryMenu.Artist ->
+					runCatching { artistDao.getArtistById(menu.artistId)?.toDomainModel() }.getOrNull()
+						?.let { HistoryMenuUi.Artist(it) }
+				HistoryMenu.None -> null
+			}
+		}
+	}
+
+	fun dismissHistoryMenu() {
+		_historyMenu.value = null
 	}
 
 	fun setPeriod(period: ListeningPeriod) {

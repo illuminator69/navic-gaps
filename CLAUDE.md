@@ -581,11 +581,21 @@ still advancing the speaker's queue. It logs one line when it fires.
     (recent plays) and Not in library. One period for the page; its picker is drawn where it
     changes something (`listeningTabShowsPeriod`: not on History, and on Activity **below** the
     heat map). **The heat map does not follow the picker**: lb-bot sends the same sixteen weeks
-    with every period's summary, and the caption names the span drawn (`heatmapSpan`). Its
-    grid is seven consecutive days per column ending on the newest day — not calendar weeks —
-    so the last column is always whole (Feishin's calendar grid is where a short last column
-    read as "one square to the left"). Rankings are horizontally scrollable rows of cards,
-    full width, one under the other. **Pictures come from ids the rows carry** (`LbArt`):
+    with every period's summary, and the caption names the range drawn (`heatmapSpan`). **Its
+    grid is whole calendar weeks, Monday first** (`heatmapGrid`): it starts on the first Monday
+    inside the data — up to six leading days are not drawn; a span that began on a Sunday used
+    to leave one lone square — and ends with the current week, whose days not yet reached are
+    placeholders (null cells, drawn faintly), so it is always a clean rectangle. Days are
+    placed by date, not by list position. The plays-per-day chart is capped by lb-bot at the
+    newest ninety days of a period, and says so for a year or all time
+    (`listeningDailyCapped`). Albums, artists and tracks are horizontally scrollable rows of
+    cards, full width, one under the other; **genres are a ranking read down the screen**
+    (rank, name, bar, plays — `genreBarFraction`), not a sideways row. **A History row's long
+    press opens the app's own menu** — `SongSheet` for the song when it can be told apart,
+    else `CollectionSheet` for its album, else `ArtistSheet`, else nothing. A recent play
+    carries no Navidrome song id, so the song is looked for among its album's songs when the
+    menu is asked for: by recording id, else by title with case and punctuation aside, and
+    **only when exactly one fits** (`historyMenu`) — never a menu acting on a guessed song. **Pictures come from ids the rows carry** (`LbArt`):
     the library's own cover or artist image where Room holds the id, the Cover Art Archive's
     front for an album it does not, the placeholder otherwise (`albumCardArt`,
     `unownedCardArt`, `libraryArtistArt`); `ListeningUi.albumArt` / `artistArt` are two Room

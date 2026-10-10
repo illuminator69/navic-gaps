@@ -1,6 +1,9 @@
 package paige.navic.domain.manager
 
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -342,30 +345,53 @@ internal fun recentPlayKey(index: Int, row: LbRecentPlay): String =
 data class HeatCell(val date: String, val count: Int, val level: Int)
 
 /**
- * The 16-week grid: [weeks] columns of seven days, oldest first, the last cell being the newest
- * day lb-bot sent. A null cell is padding, and only ever on the OLD side: lb-bot sent fewer than
- * 112 days, and the grid keeps its shape rather than its start.
+ * The heat map as whole calendar weeks: [weeks] columns of seven, Monday first, oldest first,
+ * the last being the current week. A null cell is a square with no day in it — a day of the
+ * current week not yet reached — and is drawn as a placeholder, so the grid is always a clean
+ * rectangle.
  */
 data class ListeningHeatmap(val weeks: List<List<HeatCell?>>, val max: Int)
 
 const val HEATMAP_DAYS = 112
 
+/** [date] (`yyyy-mm-dd`, a calendar day in the user's zone) as a date, or null when it is not one. */
+private fun dayOrNull(date: String): LocalDate? = try {
+	LocalDate.parse(date)
+} catch (_: Exception) {
+	null
+}
+
 /**
- * lb-bot's `heatmap` — the last 112 days ending today in the user's zone — as 16 columns of 7.
- * Every column is seven consecutive days, so a row is one weekday throughout. Sorted here rather
- * than trusted, cut to the newest 112, and padded on the OLD side when there are fewer, so the
- * newest day is always the last cell.
+ * lb-bot's `heatmap` — the last 112 days ending today in the user's zone, whatever period was
+ * asked for — as whole weeks, Monday at the top.
  *
- * The rows are therefore NOT a calendar week: the bottom row is the newest day's weekday and the
- * top row the weekday after it (history ending on a Saturday reads Sunday to Saturday; ending on
- * a Wednesday, Thursday to Wednesday). The screen draws no weekday labels for that reason.
+ * **The grid starts on the first Monday inside the data and ends with the current week.** Up
+ * to six leading days are not drawn: a span that happened to begin on a Sunday used to put one
+ * lone square in the first column. The current week is drawn whole, its days not yet reached as
+ * placeholders (null), so every row ends together. Sorted here rather than trusted, and cut to
+ * the newest 112 first. Each day is placed by its date, not by its position in the list, so a
+ * row is one weekday throughout even if lb-bot skipped a day.
+ *
+ * A history with no Monday in it (a few days old) has nothing to start on: it is one week, its
+ * days in their own rows and the squares before them placeholders too.
  */
 internal fun heatmapGrid(days: List<LbDayCount>): ListeningHeatmap {
-	val newest = days.filter { it.date.isNotBlank() }.sortedBy { it.date }.takeLast(HEATMAP_DAYS)
-	val max = newest.maxOfOrNull { it.count } ?: 0
-	val cells: List<HeatCell?> = List(HEATMAP_DAYS - newest.size) { null } +
-		newest.map { HeatCell(it.date, it.count, heatLevel(it.count, max)) }
-	return ListeningHeatmap(cells.chunked(7), max)
+	val dated = days.mapNotNull { day -> dayOrNull(day.date)?.let { it to day } }
+		.sortedBy { it.first }
+		.takeLast(HEATMAP_DAYS)
+	if (dated.isEmpty()) return ListeningHeatmap(emptyList(), 0)
+	val monday = dated.indexOfFirst { it.first.dayOfWeek == DayOfWeek.MONDAY }
+	val drawn = if (monday >= 0) dated.drop(monday) else dated
+	// Rows are Monday (0) to Sunday (6): where the first drawn day sits in its week.
+	val lead = drawn.first().first.dayOfWeek.isoDayNumber - 1
+	val start = drawn.first().first.toEpochDays()
+	val span = lead + (drawn.last().first.toEpochDays() - start).toInt() + 1
+	val max = drawn.maxOf { it.second.count }
+	val cells = arrayOfNulls<HeatCell>((span + 6) / 7 * 7)
+	for ((date, day) in drawn) {
+		cells[lead + (date.toEpochDays() - start).toInt()] = HeatCell(day.date, day.count, heatLevel(day.count, max))
+	}
+	return ListeningHeatmap(cells.toList().chunked(7), max)
 }
 
 /** Quartiles of the busiest day, rounded up, so one play on a quiet history still shows. */
@@ -496,20 +522,19 @@ enum class ListeningTab { OVERVIEW, ACTIVITY, HISTORY, NOT_IN_LIBRARY }
  */
 internal fun listeningTabShowsPeriod(tab: ListeningTab): Boolean = tab != ListeningTab.HISTORY
 
-/** The span the heat map covers, as it says of itself: [count] weeks ([inWeeks]) or days. */
-data class HeatmapSpan(val first: String, val last: String, val count: Int, val inWeeks: Boolean)
+/** The range the heat map draws, as it says of itself: its first and last day, and how many weeks. */
+data class HeatmapSpan(val first: String, val last: String, val weeks: Int)
 
 /**
  * **The heat map is its own span at a glance and does not follow the picker**: lb-bot sends the
  * same days — the last sixteen weeks ending today — with every period's summary. So it names
- * what it shows, from the days actually drawn: whole weeks when they are, else days. Null when
- * there is no day to draw.
+ * the range actually DRAWN: from the first Monday the grid starts on to the newest day, and how
+ * many weeks that is. Null when there is no day to draw.
  */
 internal fun heatmapSpan(grid: ListeningHeatmap): HeatmapSpan? {
 	val days = grid.weeks.flatten().filterNotNull()
 	val first = days.firstOrNull() ?: return null
-	val inWeeks = days.size % 7 == 0
-	return HeatmapSpan(first.date, days.last().date, if (inWeeks) days.size / 7 else days.size, inWeeks)
+	return HeatmapSpan(first.date, days.last().date, grid.weeks.size)
 }
 
 /** `daily` — the period's plays per day — as bars, oldest day first, whatever order it came in. */
@@ -535,3 +560,70 @@ internal fun albumCardArt(ndAlbumId: String, rgid: String, albumArt: Map<String,
  */
 internal fun unownedCardArt(isArtist: Boolean, row: LbUnownedRow, artistArt: Map<String, String?>): LbArt =
 	if (isArtist) libraryArtistArt(row.artistId, artistArt) else albumCardArt("", row.rgid, emptyMap())
+
+/** lb-bot charts at most this many days of a period, the newest (`LISTENS_DAILY_MAX_DAYS`). */
+const val LISTENING_DAILY_MAX_DAYS = 90
+
+/**
+ * Whether the plays-per-day chart shows less than the period picked: lb-bot sends at most the
+ * last [LISTENING_DAILY_MAX_DAYS] days, so a year or all time is charted over ninety days — and
+ * the screen says so rather than letting ninety bars pass for a year.
+ */
+internal fun listeningDailyCapped(period: ListeningPeriod): Boolean = when (period) {
+	ListeningPeriod.YEAR, ListeningPeriod.ALL -> true
+	ListeningPeriod.WEEK, ListeningPeriod.MONTH, ListeningPeriod.QUARTER -> false
+}
+
+/** A genre's bar: its plays against the most played genre of the list, 0 to 1. */
+internal fun genreBarFraction(plays: Int, top: Int): Float =
+	if (top <= 0 || plays <= 0) 0f else (plays.toFloat() / top).coerceIn(0f, 1f)
+
+// ----- a History row's menu -----------------------------------------------------------------------
+
+/** One song of the album a play is filed under, as far as matching it needs. */
+data class HistorySong(val id: String, val title: String, val recordingMbid: String)
+
+/** What a History row's menu is opened on. */
+sealed interface HistoryMenu {
+	/** The song itself: found in the album, and the only one that fits. */
+	data class Song(val songId: String) : HistoryMenu
+
+	/** The album the play is filed under: the song could not be told apart. */
+	data class Album(val albumId: String) : HistoryMenu
+
+	/** The artist: the library holds no album for the play. */
+	data class Artist(val artistId: String) : HistoryMenu
+
+	/** Nothing in the library to open a menu on. */
+	data object None : HistoryMenu
+}
+
+/**
+ * **Never a menu acting on a guessed song.** A recent play carries no Navidrome song id — only
+ * the track's title, the recording's MusicBrainz id and the album and artist the library files it
+ * under — so the song is looked for when the menu is asked for, among [albumSongs] (the songs of
+ * the play's album as Room holds them; null when it holds no such album):
+ *
+ * - by the recording id, when exactly one song carries it;
+ * - else by title, with case, spacing and punctuation aside, when exactly one song has it;
+ * - else the album's own menu — two songs fit, or none: which was played is not known.
+ *
+ * With no album held: the artist's menu when the library holds the artist ([artistHeld]), and
+ * otherwise nothing.
+ */
+internal fun historyMenu(row: LbRecentPlay, albumSongs: List<HistorySong>?, artistHeld: Boolean): HistoryMenu {
+	if (albumSongs == null || row.ndAlbumId.isBlank()) {
+		return if (artistHeld && row.ndArtistId.isNotBlank()) HistoryMenu.Artist(row.ndArtistId) else HistoryMenu.None
+	}
+	val byRecording = if (row.recordingMbid.isBlank()) emptyList()
+	else albumSongs.filter { it.recordingMbid == row.recordingMbid }
+	byRecording.singleOrNull()?.let { return HistoryMenu.Song(it.id) }
+	// Two songs carry the recording: the title cannot tell apart what the id could not.
+	if (byRecording.size > 1) return HistoryMenu.Album(row.ndAlbumId)
+	val wanted = titleKey(row.track)
+	val byTitle = if (wanted.isBlank()) emptyList() else albumSongs.filter { titleKey(it.title) == wanted }
+	return byTitle.singleOrNull()?.let { HistoryMenu.Song(it.id) } ?: HistoryMenu.Album(row.ndAlbumId)
+}
+
+/** A title with case, spacing and punctuation aside: its letters and digits, lower-cased. */
+private fun titleKey(title: String): String = title.lowercase().filter { it.isLetterOrDigit() }

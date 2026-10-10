@@ -1107,9 +1107,12 @@
 	<string name="listening_tab_unowned">Not in library</string>
 	<string name="listening_needs_lbbot">This list needs lb-bot, which is not reachable right now.</string>
 	<string name="listening_heatmap_title">At a glance</string>
-	<string name="listening_heatmap_caption_weeks">Plays per day over the last %1$d weeks, %2$s to %3$s. The period below does not change it.</string>
-	<string name="listening_heatmap_caption_days">Plays per day over the last %1$d days, %2$s to %3$s. The period below does not change it.</string>
+	<plurals name="listening_heatmap_caption">
+		<item quantity="one">Plays per day, %1$s to %2$s: %3$d week, Monday first. It is always these weeks — the period below does not change it.</item>
+		<item quantity="other">Plays per day, %1$s to %2$s: %3$d weeks, Monday first. It is always these weeks — the period below does not change it.</item>
+	</plurals>
 	<string name="listening_daily_title">Plays per day</string>
+	<string name="listening_daily_capped">lb-bot charts at most the newest %1$d days of the period.</string>
 	<string name="listening_heatmap_scale">Darkest: %1$d plays in a day</string>
 	<string name="listening_hours_title">Plays by hour</string>
 	<string name="listening_top_artists">Top artists</string>
