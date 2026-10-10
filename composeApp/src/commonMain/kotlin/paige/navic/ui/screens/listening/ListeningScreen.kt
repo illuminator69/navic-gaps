@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -51,6 +52,8 @@ import navic.composeapp.generated.resources.label_not_in_library
 import navic.composeapp.generated.resources.listening_days
 import navic.composeapp.generated.resources.listening_genres
 import navic.composeapp.generated.resources.listening_genres_from
+import navic.composeapp.generated.resources.action_listening_sync_now
+import navic.composeapp.generated.resources.action_listening_syncing
 import navic.composeapp.generated.resources.listening_heatmap_scale
 import navic.composeapp.generated.resources.listening_heatmap_title
 import navic.composeapp.generated.resources.listening_hours_title
@@ -113,6 +116,8 @@ import paige.navic.domain.manager.albumTarget
 import paige.navic.domain.manager.artistTarget
 import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.heatmapGrid
+import paige.navic.domain.manager.listeningStatusLineShown
+import paige.navic.domain.manager.listeningSyncOffered
 import paige.navic.domain.manager.hourBars
 import paige.navic.domain.manager.listeningDuration
 import paige.navic.domain.manager.listeningTimeCoverage
@@ -159,6 +164,9 @@ private const val STATUS_POLL_MS = 5_000L
 fun ListeningScreen() {
 	val viewModel = koinViewModel<ListeningViewModel>()
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	val statusLine by viewModel.statusLine.collectAsStateWithLifecycle()
+	val syncLine by viewModel.syncLine.collectAsStateWithLifecycle()
+	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val open: (ListeningTarget) -> Unit = { target -> openTarget(backStack, target) }
 
@@ -218,6 +226,9 @@ fun ListeningScreen() {
 					}
 
 					else -> {
+						item(key = "s:sync") {
+							ListeningSyncRow(phase, statusLine, syncLine, syncing, onSync = { viewModel.syncNow() })
+						}
 						item(key = "s:banner") { PhaseBanner(phase, hasSummary = state.summary != null) }
 						item(key = "s:periods") {
 							PeriodChips(state.period, onSelect = { viewModel.setPeriod(it) })
@@ -316,6 +327,44 @@ private fun PhaseBanner(phase: ListeningPhase, hasSummary: Boolean) {
 			}
 			if (phase is ListeningPhase.Importing) {
 				CircularProgressIndicator(Modifier.padding(start = 12.dp).size(18.dp), strokeWidth = 2.dp)
+			}
+		}
+	}
+}
+
+/**
+ * The history's own status and its "Sync now" — here since I-026, out of the settings. The plain
+ * line is drawn only while the mirror is simply ready (`listeningStatusLineShown`): every other
+ * state is the banner's, and the status is said once. The button is absent where a sync cannot be
+ * asked for (`listeningSyncOffered`), and what pressing it came to is the line under the status.
+ */
+@Composable
+private fun ListeningSyncRow(
+	phase: ListeningPhase,
+	statusLine: String,
+	syncLine: String,
+	syncing: Boolean,
+	onSync: () -> Unit
+) {
+	val offered = listeningSyncOffered(phase)
+	val showStatus = listeningStatusLineShown(phase) && statusLine.isNotBlank()
+	if (!offered && !showStatus && syncLine.isBlank()) return
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Column(Modifier.weight(1f)) {
+			if (showStatus) Caption(statusLine)
+			if (syncLine.isNotBlank()) Caption(syncLine)
+		}
+		if (offered) {
+			OutlinedButton(enabled = !syncing, onClick = onSync) {
+				Text(
+					stringResource(
+						if (syncing) Res.string.action_listening_syncing else Res.string.action_listening_sync_now
+					)
+				)
 			}
 		}
 	}

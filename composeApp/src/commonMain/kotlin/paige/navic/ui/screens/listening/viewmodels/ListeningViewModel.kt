@@ -9,7 +9,12 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
@@ -26,9 +31,15 @@ import paige.navic.domain.manager.LbUnownedRow
 import paige.navic.domain.manager.ListeningListFailure
 import paige.navic.domain.manager.ListeningPeriod
 import paige.navic.domain.manager.ListeningPhase
+import paige.navic.domain.manager.ListeningSyncOutcome
+import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.importFinished
 import paige.navic.domain.manager.listeningListFailure
 import paige.navic.domain.manager.listeningPhase
+import paige.navic.domain.manager.listeningStatusLine
+import paige.navic.domain.manager.listeningSyncBaseline
+import paige.navic.domain.manager.listeningSyncLine
+import paige.navic.domain.manager.listeningSyncOutcome
 import paige.navic.domain.manager.phaseAfterPoll
 import paige.navic.domain.manager.summaryNeedsRefresh
 import paige.navic.util.Logger
@@ -92,8 +103,52 @@ class ListeningViewModel(
 	private val _state = MutableStateFlow(ListeningUi())
 	val state = _state.asStateFlow()
 
-	/** The status as last read: its `lastSyncAt` is what a summary's age is judged against. */
-	private var status: LbListeningStatus? = null
+	/**
+	 * The status as last read: its `lastSyncAt` is what a summary's age is judged against, and
+	 * its count and last sync are the status line's ([statusLine]).
+	 */
+	private val _status = MutableStateFlow<LbListeningStatus?>(null)
+	private var status: LbListeningStatus?
+		get() = _status.value
+		set(value) { _status.value = value }
+
+	// ----- the history's own status line and "Sync now" --------------------------------------- //
+	// Both lived in the "lb-bot data" section of the settings, beside the index mirror, under one
+	// "Sync now" that did two things. They are this page's now (I-026), and the button does and
+	// reports the listening half alone; the mirror has its own Refresh on Library Matches.
+
+	/**
+	 * The mirror's state in words (`listeningStatusLine`): how many plays lb-bot holds and when
+	 * it last synced. Every figure is the status's own.
+	 */
+	val statusLine: StateFlow<String> = combine(
+		lbBotManager.hubHeard,
+		lbBotManager.listeningSupported,
+		_state,
+		_status
+	) { hubHeard, advertised, ui, read ->
+		listeningStatusLine(
+			hubHeard = hubHeard,
+			advertised = advertised,
+			phase = ui.phase,
+			count = read?.count ?: 0,
+			lastSync = read?.lastSyncAt
+				?.let { formatListenedAt(it, TimeZone.currentSystemDefault()) }.orEmpty()
+		)
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+	/** What "Sync now" came to; null before it was pressed. */
+	private val syncOutcome = MutableStateFlow<ListeningSyncOutcome?>(null)
+	val syncLine: StateFlow<String> = syncOutcome
+		.map { outcome -> if (outcome == null) "" else listeningSyncLine(outcome) }
+		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+	/**
+	 * "Sync now" is at work. The button is disabled and says so for as long as this is true —
+	 * a second tap would otherwise do nothing and show nothing.
+	 */
+	private val _syncing = MutableStateFlow(false)
+	val syncing = _syncing.asStateFlow()
 
 	private var loadJob: Job? = null
 	private var unownedJob: Job? = null
@@ -155,6 +210,68 @@ class ListeningViewModel(
 			loadJob?.cancel()
 			_state.update { it.copy(loading = false) }
 			loadJob = viewModelScope.launch { readContent(next, LbCachePolicy.REFRESH) }
+		}
+	}
+
+	/**
+	 * "Sync now": ask lb-bot to pull from ListenBrainz, and report what happened — the request's
+	 * own answer, then the status it leads to (`listeningSyncOutcome`). The request returns at
+	 * once, so "synced" is only said once `lastSyncAt` has moved past a baseline read
+	 * **immediately before the request**: what the page last showed may be minutes old, and
+	 * judging against it would credit a sync that finished before the tap to the tap. The status
+	 * is read a bounded number of times, and running out of reads changes no claim — it just
+	 * stops asking. When the sync is seen to have finished the page is read again: what it shows
+	 * was computed before the plays that just arrived.
+	 */
+	fun syncNow() {
+		if (_syncing.value) return
+		_syncing.value = true
+		viewModelScope.launch {
+			try {
+				syncListening()
+			} finally {
+				_syncing.value = false
+			}
+		}
+	}
+
+	/** One status read for the sync: an answer also moves what the page says the mirror is. */
+	private suspend fun readStatusForSync(): LbBotManager.LbResult<LbListeningStatus> {
+		val result = lbBotManager.listeningStatus()
+		stillWanted()
+		(result as? LbBotManager.LbResult.Ok)?.let {
+			status = it.value
+			val phase = listeningPhase(result)
+			_state.update { ui -> ui.copy(phase = phase) }
+		}
+		return result
+	}
+
+	private suspend fun syncListening() {
+		if (!lbBotManager.isConfigured) return
+		// A hub that has not spoken in this process is asked once, so its silence is not read
+		// as "this hub does not offer it".
+		if (!lbBotManager.hubHeard.value) lbBotManager.ensureAvailability()
+		stillWanted()
+		if (!lbBotManager.listeningSupported.value) return
+		syncOutcome.value = ListeningSyncOutcome.Asking
+		var baseline = listeningSyncBaseline(null, readStatusForSync())
+		val post = lbBotManager.listeningSync()
+		stillWanted()
+		syncOutcome.value = listeningSyncOutcome(baseline, post, null)
+		if (post !is LbBotManager.LbResult.Ok) return
+		repeat(SYNC_STATUS_READS) { attempt ->
+			if (attempt > 0) delay(SYNC_STATUS_READ_GAP_MS)
+			val after = readStatusForSync()
+			val outcome = listeningSyncOutcome(baseline, post, after)
+			syncOutcome.value = outcome
+			baseline = listeningSyncBaseline(baseline, after)
+			// Anything but "not seen to finish yet" (or a status that could not be read, which
+			// is not an answer) is the answer.
+			if (outcome != ListeningSyncOutcome.Waiting && outcome != ListeningSyncOutcome.AskedUnread) {
+				if (outcome is ListeningSyncOutcome.Finished) load(LbCachePolicy.REFRESH)
+				return
+			}
 		}
 	}
 
@@ -397,5 +514,9 @@ class ListeningViewModel(
 		 * A current hub does not cache the listening routes at all, and never gets this far.
 		 */
 		const val HUB_CACHE_EXPIRY_MS = 65_000L
+
+		/** How many times the status is read after a sync request, and how far apart. */
+		const val SYNC_STATUS_READS = 12
+		const val SYNC_STATUS_READ_GAP_MS = 5_000L
 	}
 }

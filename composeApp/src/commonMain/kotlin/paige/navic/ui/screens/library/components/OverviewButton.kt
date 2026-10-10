@@ -35,6 +35,7 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_fresh
+import navic.composeapp.generated.resources.title_library_matches
 import navic.composeapp.generated.resources.title_listening
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -45,6 +46,7 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.icons.Icons
+import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
@@ -134,6 +136,13 @@ data class OverviewButtonSpec(
 internal fun overviewButtonCount(primary: Int): Int = if (primary <= 4) 4 else 6
 
 /**
+ * The longest the primary list gets: Discover, Mixed for You, Fresh, My Listening, Library
+ * Matches and Random. [overviewButtonCount] never shows fewer than there are, so this is also
+ * the most buttons the home page has; a seventh primary would have to raise both.
+ */
+internal const val OVERVIEW_PRIMARY_MAX = 6
+
+/**
  * The home page's four buttons — six where My Listening is offered too.
  *
  * Discover, Mixed for You and Fresh live here instead of on the bottom bar. They
@@ -169,8 +178,14 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	// with lb-bot down or the device offline, and says which it is.
 	val listeningAdvertised by lbBot.listeningSupported.collectAsState()
 	val listening = listeningAdvertised && lbBot.isConfigured
+	// Library Matches (I-026) exists where the override routes do — the gate its lists have
+	// always had (`artistOverridesSupported`: the hub offers the route and lb-bot has not
+	// answered "no such route" for it). Like My Listening it works from what this device last
+	// loaded, so it is not gated on lb-bot answering right now.
+	val overridesSupported by lbBot.artistOverridesSupported.collectAsState()
+	val matches = overridesSupported && lbBot.isConfigured
 
-	return remember(lbBotAvailable, discoverHasSources, hubConfigured, listening) {
+	return remember(lbBotAvailable, discoverHasSources, hubConfigured, listening, matches) {
 		val primary = buildList {
 			if (discoverHasSources) {
 				add(
@@ -213,6 +228,15 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 					)
 				)
 			}
+			if (matches) {
+				add(
+					OverviewButtonSpec(
+						Icons.Brand.Musicbrainz,
+						Res.string.title_library_matches,
+						Screen.LibraryMatches
+					)
+				)
+			}
 			add(
 				OverviewButtonSpec(
 					Icons.Outlined.Shuffle,
@@ -238,7 +262,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 1..5 long and `filler` is 3, so there is always enough to fill the count.
+		// `primary` is 1..6 long and `filler` is 3, so there is always enough to fill the count.
 		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }

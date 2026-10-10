@@ -76,6 +76,13 @@ interface ArtistDao {
 	suspend fun getArtistsByIds(ids: List<String>): List<ArtistEntity>
 
 	/**
+	 * Every artist's id with its cover art id and nothing else: what a page of rows needs to
+	 * draw a picture beside each and to know which ids are pages that exist, in one query.
+	 */
+	@Query("SELECT artistId, coverArtId FROM ArtistEntity")
+	suspend fun getArtistArt(): List<ArtistArt>
+
+	/**
 	 * Exact (case-insensitive) name lookup, for turning a credit string into artist ids.
 	 *
 	 * A track's artist is a single string — "A feat. B" — and the bundled Subsonic client exposes
@@ -113,4 +120,10 @@ interface ArtistDao {
 data class CoverHashCount(
 	val hash: String,
 	val artistCount: Int
+)
+
+/** One row of [ArtistDao.getArtistArt]. */
+data class ArtistArt(
+	val artistId: String,
+	val coverArtId: String?
 )

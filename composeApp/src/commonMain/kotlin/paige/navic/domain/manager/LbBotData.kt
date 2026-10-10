@@ -783,7 +783,7 @@ internal fun undoLine(started: LbBotManager.LbResult<*>, merge: Boolean, phase: 
 		// For an undo the row being gone IS the finish; GONE is not a phase it ends in.
 		LbJobPhase.DONE, LbJobPhase.GONE -> "lb-bot put the previous $what back."
 		LbJobPhase.FAILED -> "lb-bot could not put all the previous $what back."
-		LbJobPhase.TIMED_OUT -> "lb-bot is still working on it. Sync now reads the list again."
+		LbJobPhase.TIMED_OUT -> "lb-bot is still working on it. Refresh reads the list again."
 	}
 }
 

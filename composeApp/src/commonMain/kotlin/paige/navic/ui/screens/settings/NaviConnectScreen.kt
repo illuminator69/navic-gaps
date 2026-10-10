@@ -178,11 +178,16 @@ fun NaviConnectScreen() {
 				Text("Save AudioMuse")
 			}
 
-			// What this device holds of lb-bot's, and "Sync now" (I-020). Keyed on the hub's
-			// route configuration and on the saves above: the switch and the fields decide
-			// whether the lb-bot layer exists, and they are plain preferences with no Flow to
-			// observe — the save is the only moment they change.
-			LbBotDataSection(lbBotManager.routeSignature, saves)
+			// What lb-bot holds about the library's artists and albums used to be a section
+			// here ("lb-bot data", I-020). It is a page of its own now, Library Matches
+			// (I-026), and the listening history's status and "Sync now" are in My Listening;
+			// one line says where they went.
+			Text(
+				"Artist, album and name matches are in Library Matches, and the listening " +
+					"history's sync in My Listening — both on the library's home page.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant
+			)
 
 			Text("Devices", style = MaterialTheme.typography.titleMedium)
 			if (devices.isEmpty()) {

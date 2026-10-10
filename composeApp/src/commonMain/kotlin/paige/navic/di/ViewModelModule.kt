@@ -36,7 +36,7 @@ import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.screens.settings.viewmodels.DownloadCenterViewModel
-import paige.navic.ui.screens.settings.viewmodels.LbBotDataViewModel
+import paige.navic.ui.screens.matches.viewmodels.LibraryMatchesViewModel
 import paige.navic.ui.screens.settings.viewmodels.PendingActionsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
@@ -160,7 +160,7 @@ val viewModelModule = module {
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::PendingActionsViewModel)
-	viewModelOf(::LbBotDataViewModel)
+	viewModelOf(::LibraryMatchesViewModel)
 	viewModelOf(::DownloadCenterViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

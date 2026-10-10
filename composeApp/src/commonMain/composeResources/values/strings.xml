@@ -816,7 +816,7 @@
 	<string name="info_album_match_removed">lb-bot put the previous tags back.</string>
 	<string name="info_album_match_not_removed">lb-bot could not put all the previous tags back.</string>
 	<string name="info_album_match_gone">lb-bot no longer lists this change.</string>
-	<string name="info_album_match_still_working">lb-bot is still working. “lb-bot data” in Settings shows the result.</string>
+	<string name="info_album_match_still_working">lb-bot is still working. Library Matches shows the result.</string>
 	<string name="info_album_match_cover_saved">lb-bot saved the cover.</string>
 	<string name="info_album_match_not_indexed">Navidrome has not indexed the album again yet.</string>
 	<string name="action_album_match_open_album">Open the album</string>
@@ -858,7 +858,7 @@
 	<string name="info_mbid_merge_undone">lb-bot put the previous names back.</string>
 	<string name="info_mbid_merge_not_undone">lb-bot could not put all the previous names back.</string>
 	<string name="info_mbid_merge_gone">lb-bot no longer has this merge.</string>
-	<string name="info_mbid_merge_undo_note">Undo is also in Settings, under lb-bot data.</string>
+	<string name="info_mbid_merge_undo_note">Undo is also in Library Matches.</string>
 	<string name="action_mbid_merge_done">Done</string>
 
 	<string name="title_type_album">Albums</string>
@@ -1061,6 +1061,9 @@
 
 	<!-- navi-connect I-006: My Listening (aggregates over the ListenBrainz history lb-bot mirrors). -->
 	<string name="title_listening">My Listening</string>
+	<string name="title_library_matches">Library Matches</string>
+	<string name="action_listening_sync_now">Sync now</string>
+	<string name="action_listening_syncing">Syncing…</string>
 	<string name="because_listening">Your ListenBrainz history, by the numbers</string>
 	<string name="listening_off">lb-bot has no ListenBrainz user set up, so there is no listening history to show.</string>
 	<string name="listening_older">This lb-bot is older and has no listening history yet.</string>

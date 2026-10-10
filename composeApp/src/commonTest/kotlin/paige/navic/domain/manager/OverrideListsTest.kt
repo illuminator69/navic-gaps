@@ -347,7 +347,7 @@ class OverrideListsTest {
 
 	@Test
 	fun anUndoStillRunningAfterThreeMinutesIsNotCalledFinishedOrFailed() {
-		val line = "lb-bot is still working on it. Sync now reads the list again."
+		val line = "lb-bot is still working on it. Refresh reads the list again."
 		assertEquals(line, undoLine(albumUndo, merge = false, phase = LbJobPhase.TIMED_OUT))
 		assertEquals(line, undoLine(mergeUndo, merge = true, phase = LbJobPhase.TIMED_OUT))
 	}

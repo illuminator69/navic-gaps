@@ -511,4 +511,31 @@ class ListeningTest {
 		assertEquals(1_791_054_300.0, recent.nextBefore)
 		assertNull(wire.decodeFromString<LbListeningRecent>("""{"rows":[],"nextBefore":null}""").nextBefore)
 	}
+
+	// --- the status line and "Sync now", moved here from the settings (I-026) ------------------
+
+	@Test
+	fun syncNowIsOfferedOnlyWhereASyncCanBeAskedFor() {
+		assertEquals(true, listeningSyncOffered(ListeningPhase.Ready))
+		assertEquals(true, listeningSyncOffered(ListeningPhase.SyncFailed("rate limited")))
+		assertEquals(true, listeningSyncOffered(ListeningPhase.Importing(10, 100)))
+		// Not reached: pressing is how the user asks again, and the answer says so.
+		assertEquals(true, listeningSyncOffered(ListeningPhase.Unreachable))
+		// No ListenBrainz user, an lb-bot older than the routes, nothing heard yet: no button.
+		assertEquals(false, listeningSyncOffered(ListeningPhase.Off))
+		assertEquals(false, listeningSyncOffered(ListeningPhase.Older))
+		assertEquals(false, listeningSyncOffered(ListeningPhase.Loading))
+	}
+
+	@Test
+	fun theStatusIsSaidOnce() {
+		// Ready: the plain line. Everything else is the banner's, or the page itself.
+		assertEquals(true, listeningStatusLineShown(ListeningPhase.Ready))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.Importing(10, null)))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.SyncFailed("x")))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.Unreachable))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.Off))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.Older))
+		assertEquals(false, listeningStatusLineShown(ListeningPhase.Loading))
+	}
 }

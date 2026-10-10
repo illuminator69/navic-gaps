@@ -247,6 +247,25 @@ internal fun listeningPhase(result: LbBotManager.LbResult<LbListeningStatus>): L
 	}
 
 /**
+ * Whether "Sync now" is offered. **Absent where a sync cannot be asked for**: lb-bot has no
+ * ListenBrainz user (off), predates the routes (older), or has not answered yet. Unreachable
+ * keeps it — the press is how the user asks again, and its answer says lb-bot was not reached.
+ */
+internal fun listeningSyncOffered(phase: ListeningPhase): Boolean = when (phase) {
+	ListeningPhase.Off, ListeningPhase.Older, ListeningPhase.Loading -> false
+	ListeningPhase.Ready, ListeningPhase.Unreachable,
+	is ListeningPhase.Importing, is ListeningPhase.SyncFailed -> true
+}
+
+/**
+ * Whether the plain status line is drawn. **The status is shown once**: while the history is
+ * importing, failed its last sync, or cannot be reached, the page's banner already says so in
+ * full; off and older are the page itself. The line is for the ordinary case — how many plays
+ * are stored and when lb-bot last synced.
+ */
+internal fun listeningStatusLineShown(phase: ListeningPhase): Boolean = phase == ListeningPhase.Ready
+
+/**
  * The phase after one poll of the status while an import runs. A poll that did not answer is not
  * an answer: the page keeps saying "importing" rather than flipping to "can't reach lb-bot" and
  * back every five seconds.

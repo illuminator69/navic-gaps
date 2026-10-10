@@ -171,6 +171,16 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data object Listening : Screen
+
+	/**
+	 * Library Matches (I-026): which MusicBrainz artist and release the library's artists and
+	 * albums are, as lb-bot holds it — the artists to check, the artist overrides, the albums it
+	 * retagged and the names it merged. A pushed page, reached from the library home; it was the
+	 * "lb-bot data" section of the navi-connect settings.
+	 */
+	@Immutable
+	@Serializable
+	data object LibraryMatches : Screen
 	@Immutable
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen

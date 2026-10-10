@@ -1,4 +1,4 @@
-package paige.navic.ui.screens.settings.viewmodels
+package paige.navic.ui.screens.matches.viewmodels
 
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -12,11 +12,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.TimeZone
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.AlbumJob
 import paige.navic.domain.manager.LbAlbumOverrideRow
@@ -24,22 +25,13 @@ import paige.navic.domain.manager.LbArtistOverride
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexRun
 import paige.navic.domain.manager.LbIndexSync
-import paige.navic.domain.manager.LbListeningStatus
 import paige.navic.domain.manager.LbMatchToCheck
 import paige.navic.domain.manager.LbMergeRow
 import paige.navic.domain.manager.LbMirrorInfo
 import paige.navic.domain.manager.LbPanelData
-import paige.navic.domain.manager.ListeningPhase
-import paige.navic.domain.manager.ListeningSyncOutcome
 import paige.navic.domain.manager.MergeJob
 import paige.navic.domain.manager.albumRowCanUndo
-import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.indexRunLineAfterTap
-import paige.navic.domain.manager.listeningPhase
-import paige.navic.domain.manager.listeningStatusLine
-import paige.navic.domain.manager.listeningSyncBaseline
-import paige.navic.domain.manager.listeningSyncLine
-import paige.navic.domain.manager.listeningSyncOutcome
 import paige.navic.domain.manager.matchCanKeep
 import paige.navic.domain.manager.matchesSectionShown
 import paige.navic.domain.manager.matchesToShow
@@ -85,19 +77,21 @@ data class MatchPick(
 )
 
 /**
- * The "lb-bot data" panel of the navi-connect settings screen (I-020): what this device holds of
- * lb-bot's — the artist MBID overrides, the index mirror, the listening history — and one "Sync
- * now" for all of it.
+ * "Library Matches" (I-026) — the page that was the "lb-bot data" section of the navi-connect
+ * settings (I-020): the artists whose MusicBrainz identity is worth a look, the artist MBID
+ * overrides, the albums lb-bot retagged, the artist names it merged, and the index mirror with
+ * its own "Refresh". The listening history's status and "Sync now" are My Listening's.
  *
- * It holds no data of its own. The overrides are `LbBotManager`'s, the mirror's numbers and its
- * last pull are `LbIndexSync`'s, and the listening status is read from lb-bot; every sentence
- * the panel shows is a pure function of those facts (`LbBotData.kt`), so nothing here can say
- * "up to date" or "loading" on its own authority.
+ * It holds no data of its own. The lists are `LbBotManager`'s, the mirror's numbers and its
+ * last pull are `LbIndexSync`'s, and the pictures are what Room holds; every sentence the page
+ * shows is a pure function of those facts (`LbBotData.kt`, `LibraryMatches.kt`), so nothing here
+ * can say "up to date" or "loading" on its own authority.
  */
-class LbBotDataViewModel(
+class LibraryMatchesViewModel(
 	private val lbBotManager: LbBotManager,
 	private val lbIndexSync: LbIndexSync,
-	private val artistDao: ArtistDao
+	private val artistDao: ArtistDao,
+	private val albumDao: AlbumDao
 ) : ViewModel() {
 
 	/**
@@ -175,11 +169,21 @@ class LbBotDataViewModel(
 	val pick = _pick.asStateFlow()
 
 	/**
-	 * The artists Room holds, so a row is only a link to an artist page that exists. The list is
-	 * of library artists, but this device has a page only for the ones it has synced.
+	 * What Room holds, each id with its cover art id: the artists and the albums a row can show
+	 * a picture of and link to (`libraryArtistArt`, `matchAlbumArt`, `heldInLibrary`). One query
+	 * each for the whole page, never a request per row — "To check" alone can be a hundred rows.
+	 * Read when the page reads and again whenever the local library has changed, so a retag or
+	 * a merge that has settled shows its new album and drops its dead artist.
 	 */
-	private val _knownArtistIds = MutableStateFlow<Set<String>>(emptySet())
-	val knownArtistIds = _knownArtistIds.asStateFlow()
+	private val _artistArt = MutableStateFlow<Map<String, String?>>(emptyMap())
+	val artistArt = _artistArt.asStateFlow()
+
+	private val _albumArt = MutableStateFlow<Map<String, String?>>(emptyMap())
+	val albumArt = _albumArt.asStateFlow()
+
+	init {
+		viewModelScope.launch { lbBotManager.libraryRevision.drop(1).collect { readArt() } }
+	}
 
 	// ----- album overrides and name merges (I-022, I-023) ------------------------------------ //
 
@@ -281,40 +285,9 @@ class LbBotDataViewModel(
 		indexRunLineAfterTap(lbIndexSync.lastRun.value, null, false)
 	)
 
-	// ----- listening history ----------------------------------------------------------------- //
-
-	private val listeningPhase = MutableStateFlow<ListeningPhase>(ListeningPhase.Loading)
-	private val listeningStatus = MutableStateFlow<LbListeningStatus?>(null)
-
-	val listeningLine: StateFlow<String> = combine(
-		lbBotManager.hubHeard,
-		lbBotManager.listeningSupported,
-		listeningPhase,
-		listeningStatus
-	) { hubHeard, advertised, phase, status ->
-		listeningStatusLine(
-			hubHeard = hubHeard,
-			advertised = advertised,
-			phase = phase,
-			count = status?.count ?: 0,
-			lastSync = status?.lastSyncAt
-				?.let { formatListenedAt(it, TimeZone.currentSystemDefault()) }.orEmpty()
-		)
-	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-	/** What "Sync now" came to for the listening half; null before it was pressed. */
-	private val listeningSync = MutableStateFlow<ListeningSyncOutcome?>(null)
-	val listeningSyncLine: StateFlow<String> = combine(listeningSync, lbBotManager.listeningSupported) { outcome, advertised ->
-		// With no listening routes on the hub the status line above already says so.
-		if (outcome == null || !advertised) "" else listeningSyncLine(outcome)
-	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-	/**
-	 * "Sync now" is at work. The button is disabled and says so for as long as this is true —
-	 * a second tap used to be swallowed without a sign for up to a minute.
-	 */
-	private val _syncing = MutableStateFlow(false)
-	val syncing = _syncing.asStateFlow()
+	/** "Refresh" is at work: the button is disabled, and says so, until this page's lists are back. */
+	private val _refreshing = MutableStateFlow(false)
+	val refreshing = _refreshing.asStateFlow()
 
 	/** The one question [hearHub] has out; both halves of the panel wait on the same one. */
 	private var hubJob: Job? = null
@@ -329,11 +302,14 @@ class LbBotDataViewModel(
 	 */
 	fun read() {
 		viewModelScope.launch { readOverrides() }
-		viewModelScope.launch { readListeningStatus() }
-		viewModelScope.launch {
-			runCatching { artistDao.getAllArtistIds().toSet() }
-				.onSuccess { _knownArtistIds.value = it }
-		}
+		viewModelScope.launch { readArt() }
+	}
+
+	private suspend fun readArt() {
+		runCatching { artistDao.getArtistArt().associate { it.artistId to it.coverArtId } }
+			.onSuccess { _artistArt.value = it }
+		runCatching { albumDao.getAlbumFingerprints().associate { it.albumId to it.coverArtId as String? } }
+			.onSuccess { _albumArt.value = it }
 	}
 
 	/**
@@ -365,41 +341,19 @@ class LbBotDataViewModel(
 		}
 	}
 
-	private suspend fun readListeningStatus(): LbBotManager.LbResult<LbListeningStatus>? {
-		if (!lbBotManager.isConfigured) return null
-		hearHub()
-		currentCoroutineContext().ensureActive()
-		if (!lbBotManager.listeningSupported.value) {
-			// Nothing to read. With the hub heard the line names that; with it still silent the
-			// question has been asked and went unanswered, which must not stay "Asking lb-bot…".
-			listeningPhase.value = ListeningPhase.Unreachable
-			return null
-		}
-		val result = lbBotManager.listeningStatus()
-		currentCoroutineContext().ensureActive()
-		(result as? LbBotManager.LbResult.Ok)?.let { listeningStatus.value = it.value }
-		listeningPhase.value = listeningPhase(result)
-		return result
-	}
-
 	/**
-	 * "Sync now": pull the index mirror, re-read the overrides, and ask lb-bot to pull from
-	 * ListenBrainz. What came of each is reported from what happened, not from the tap:
-	 *
-	 * - the mirror's line is [indexLine]: what `LbIndexSync` records as the pull runs and ends,
-	 *   and, until a pass this tap can have caused has started, that the pull was asked for;
-	 * - the listening line is the request's own answer, then the status it leads to. The
-	 *   request returns at once, so "synced" is only said once `lastSyncAt` has moved past a
-	 *   baseline read immediately before the request; until then it says the pull was asked for
-	 *   and has not been seen to finish. The status is read a bounded number of times, and
-	 *   running out of reads changes no claim — it just stops asking.
+	 * "Refresh", at the foot of the page: pull the index mirror and read this page's own lists
+	 * again. **It reports only what the mirror did** ([indexLine]) — what `LbIndexSync` records
+	 * as the pull runs and ends, and, until a pass this tap can have caused has started, that the
+	 * pull was asked for. The lists say of themselves what they are. The listening history's
+	 * "Sync now" is My Listening's, and does and reports that half alone.
 	 *
 	 * The pull is requested as a fresh start: a user asking now is as good a reason to stop
 	 * waiting out a backoff as a new connection is.
 	 */
-	fun syncNow() {
-		if (_syncing.value) return
-		_syncing.value = true
+	fun refresh() {
+		if (_refreshing.value) return
+		_refreshing.value = true
 
 		// The serial BEFORE the request, so the pass the request causes is newer than it.
 		val tapSerial = lbIndexSync.lastRun.value.serial
@@ -414,41 +368,12 @@ class LbBotDataViewModel(
 			indexTap.update { tap -> if (tap?.serial == tapSerial) tap.copy(overdue = true) else tap }
 		}
 
-		viewModelScope.launch { readOverrides() }
 		viewModelScope.launch {
 			try {
-				syncListening()
+				readOverrides()
+				readArt()
 			} finally {
-				_syncing.value = false
-			}
-		}
-	}
-
-	private suspend fun syncListening() {
-		if (!lbBotManager.isConfigured) return
-		hearHub()
-		currentCoroutineContext().ensureActive()
-		if (!lbBotManager.listeningSupported.value) return
-		listeningSync.value = ListeningSyncOutcome.Asking
-		// The baseline is read NOW, immediately before the request. What the panel last showed
-		// may be minutes old — or was never read — and judging against it would credit a sync
-		// that finished before the tap to the tap. When this read fails there is no baseline,
-		// and nothing is called finished until a later read supplies one.
-		var baseline = listeningSyncBaseline(null, readListeningStatus())
-		val post = lbBotManager.listeningSync()
-		currentCoroutineContext().ensureActive()
-		listeningSync.value = listeningSyncOutcome(baseline, post, null)
-		if (post !is LbBotManager.LbResult.Ok) return
-		repeat(STATUS_READS) { attempt ->
-			if (attempt > 0) delay(STATUS_READ_GAP_MS)
-			val after = readListeningStatus() ?: return
-			val outcome = listeningSyncOutcome(baseline, post, after)
-			listeningSync.value = outcome
-			baseline = listeningSyncBaseline(baseline, after)
-			// Anything but "not seen to finish yet" (or a status that could not be read, which
-			// is not an answer) is the answer.
-			if (outcome != ListeningSyncOutcome.Waiting && outcome != ListeningSyncOutcome.AskedUnread) {
-				return
+				_refreshing.value = false
 			}
 		}
 	}
@@ -574,10 +499,6 @@ class LbBotDataViewModel(
 	}
 
 	private companion object {
-		/** How many times the status is read after a sync request, and how far apart. */
-		const val STATUS_READS = 12
-		const val STATUS_READ_GAP_MS = 5_000L
-
 		/** How long after a tap, with nothing running, "no pull has started" is said. */
 		const val PULL_START_WAIT_MS = 5_000L
 	}

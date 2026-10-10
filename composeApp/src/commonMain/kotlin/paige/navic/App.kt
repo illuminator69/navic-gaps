@@ -142,6 +142,7 @@ import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
 import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
 import paige.navic.ui.screens.listening.ListeningScreen
+import paige.navic.ui.screens.matches.LibraryMatchesScreen
 import paige.navic.ui.screens.wishlist.WishlistScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
@@ -572,6 +573,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Listening> {
 			ListeningScreen()
+		}
+		entry<Screen.LibraryMatches> {
+			LibraryMatchesScreen()
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)
