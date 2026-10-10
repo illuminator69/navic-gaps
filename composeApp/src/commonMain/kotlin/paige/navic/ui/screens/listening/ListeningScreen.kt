@@ -2,6 +2,7 @@ package paige.navic.ui.screens.listening
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
@@ -30,6 +33,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +60,15 @@ import navic.composeapp.generated.resources.listening_genres
 import navic.composeapp.generated.resources.listening_genres_from
 import navic.composeapp.generated.resources.action_listening_sync_now
 import navic.composeapp.generated.resources.action_listening_syncing
+import navic.composeapp.generated.resources.listening_daily_title
+import navic.composeapp.generated.resources.listening_heatmap_caption_days
+import navic.composeapp.generated.resources.listening_heatmap_caption_weeks
 import navic.composeapp.generated.resources.listening_heatmap_scale
+import navic.composeapp.generated.resources.listening_needs_lbbot
+import navic.composeapp.generated.resources.listening_tab_activity
+import navic.composeapp.generated.resources.listening_tab_history
+import navic.composeapp.generated.resources.listening_tab_overview
+import navic.composeapp.generated.resources.listening_tab_unowned
 import navic.composeapp.generated.resources.listening_heatmap_title
 import navic.composeapp.generated.resources.listening_hours_title
 import navic.composeapp.generated.resources.listening_importing
@@ -106,7 +120,13 @@ import paige.navic.domain.manager.LISTENING_KIND_ALBUM
 import paige.navic.domain.manager.LISTENING_KIND_ARTIST
 import paige.navic.domain.manager.LbListeningSummary
 import paige.navic.domain.manager.LbRecentPlay
-import paige.navic.domain.manager.LbUnownedRow
+import paige.navic.domain.manager.LbArt
+import paige.navic.domain.manager.ListeningTab
+import paige.navic.domain.manager.albumCardArt
+import paige.navic.domain.manager.dayBars
+import paige.navic.domain.manager.heatmapSpan
+import paige.navic.domain.manager.libraryArtistArt
+import paige.navic.domain.manager.unownedCardArt
 import paige.navic.domain.manager.ListeningHeatmap
 import paige.navic.domain.manager.ListeningListFailure
 import paige.navic.domain.manager.ListeningPeriod
@@ -129,6 +149,7 @@ import paige.navic.icons.filled.Headphones
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.LbArtImage
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.navigation.Screen
@@ -159,6 +180,14 @@ private const val STATUS_POLL_MS = 5_000L
  *
  * Rows link out and never download: what the library holds opens its library page, what it does
  * not opens the external album or artist page, where the reviewed acquire flow already lives.
+ *
+ * **Four tabs** (I-026), the same four under the same names as Feishin's page: **Overview** (the
+ * numbers, the rankings as horizontally scrollable rows of cards with covers and artist images,
+ * the genres), **Activity** (the heat map, then the period's plays per day and by hour),
+ * **History** (recent plays as queue-like rows with covers) and **Not in library** (cover cards
+ * of the albums or artists most played that the library lacks). One period for the page, its
+ * picker drawn where it changes something. The history's status line and "Sync now" sit above
+ * the tabs, and every state above keeps its meaning and its wording.
  */
 @Composable
 fun ListeningScreen() {
@@ -169,6 +198,9 @@ fun ListeningScreen() {
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val open: (ListeningTarget) -> Unit = { target -> openTarget(backStack, target) }
+	// Four tabs, the same four as Feishin's page. It opens on Overview; the choice is kept with
+	// the page's back-stack entry.
+	var tab by rememberSaveable { mutableStateOf(ListeningTab.OVERVIEW) }
 
 	// Poll the status only while an import runs and only while this screen is started: the
 	// block is cancelled when another screen covers it or the app goes to the background, and
@@ -230,25 +262,46 @@ fun ListeningScreen() {
 							ListeningSyncRow(phase, statusLine, syncLine, syncing, onSync = { viewModel.syncNow() })
 						}
 						item(key = "s:banner") { PhaseBanner(phase, hasSummary = state.summary != null) }
-						item(key = "s:periods") {
+						item(key = "s:tabs") { TabChips(tab, onSelect = { tab = it }) }
+						// The period picker belongs to what it changes: one period for the page,
+						// its control on every tab but History — and on Activity below the heat
+						// map, which it does not change (`listeningTabShowsPeriod`).
+						val periods: @Composable () -> Unit = {
 							PeriodChips(state.period, onSelect = { viewModel.setPeriod(it) })
 						}
-						summaryItems(state, open, onRetry = { viewModel.refresh() })
-						// The two live lists need lb-bot. With it unreachable they are left
-						// out rather than shown failed under a banner that already says why.
-						if (phase != ListeningPhase.Unreachable) {
-							unownedItems(
-								state,
-								open,
-								onKind = { viewModel.setUnownedKind(it) },
-								onRetry = { viewModel.retryUnowned() }
-							)
-							recentItems(
-								state,
-								open,
-								onMore = { viewModel.loadMoreRecent() },
-								onRetry = { viewModel.retryRecent() }
-							)
+						when (tab) {
+							ListeningTab.OVERVIEW -> {
+								item(key = "s:periods") { periods() }
+								overviewItems(state, open, onRetry = { viewModel.refresh() })
+							}
+							ListeningTab.ACTIVITY ->
+								activityItems(state, periods, onRetry = { viewModel.refresh() })
+							// The two live lists need lb-bot. With it unreachable they say so in
+							// a line rather than show failed under a banner that already says why.
+							ListeningTab.HISTORY ->
+								if (phase == ListeningPhase.Unreachable) {
+									item(key = "s:recent-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
+								} else {
+									historyItems(
+										state,
+										open,
+										onMore = { viewModel.loadMoreRecent() },
+										onRetry = { viewModel.retryRecent() }
+									)
+								}
+							ListeningTab.NOT_IN_LIBRARY -> {
+								item(key = "s:periods") { periods() }
+								if (phase == ListeningPhase.Unreachable) {
+									item(key = "s:unowned-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
+								} else {
+									notInLibraryItems(
+										state,
+										open,
+										onKind = { viewModel.setUnownedKind(it) },
+										onRetry = { viewModel.retryUnowned() }
+									)
+								}
+							}
 						}
 					}
 				}
@@ -394,148 +447,217 @@ private fun PeriodChips(selected: ListeningPeriod, onSelect: (ListeningPeriod) -
 	}
 }
 
-// ----- the summary --------------------------------------------------------------------------------
+// ----- the tabs -----------------------------------------------------------------------------------
 
-private fun androidx.compose.foundation.lazy.LazyListScope.summaryItems(
+private fun tabLabel(tab: ListeningTab): StringResource = when (tab) {
+	ListeningTab.OVERVIEW -> Res.string.listening_tab_overview
+	ListeningTab.ACTIVITY -> Res.string.listening_tab_activity
+	ListeningTab.HISTORY -> Res.string.listening_tab_history
+	ListeningTab.NOT_IN_LIBRARY -> Res.string.listening_tab_unowned
+}
+
+/** The page's four tabs, as the chips the fork's pages use for such a choice (Library Matches too). */
+@Composable
+private fun TabChips(selected: ListeningTab, onSelect: (ListeningTab) -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		ListeningTab.entries.forEach { tab ->
+			FilterChip(
+				selected = tab == selected,
+				onClick = { onSelect(tab) },
+				label = { Text(stringResource(tabLabel(tab))) }
+			)
+		}
+	}
+}
+
+/** With no summary to lay out: the failure with its Retry, or the read still out. True when drawn. */
+private fun androidx.compose.foundation.lazy.LazyListScope.summaryMissing(
+	state: ListeningUi,
+	onRetry: () -> Unit
+): Boolean {
+	if (state.summary != null) return false
+	item(key = "s:summary-empty") {
+		when {
+			// Nothing cached and nothing came back. Said as a failure, with a way to try
+			// again — an empty history is a summary of zeros and looks nothing like this.
+			state.summaryFailed -> FailedLine(
+				stringResource(Res.string.listening_summary_failed),
+				onRetry
+			)
+			state.summaryLoading -> Box(
+				Modifier.fillMaxWidth().padding(vertical = 32.dp),
+				contentAlignment = Alignment.Center
+			) { CircularProgressIndicator() }
+		}
+	}
+	return true
+}
+
+// ----- Overview: the numbers, the rankings, the genres -----------------------------------------
+
+private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 	state: ListeningUi,
 	open: (ListeningTarget) -> Unit,
 	onRetry: () -> Unit
 ) {
-	val summary = state.summary
-	if (summary == null) {
-		item(key = "s:summary-empty") {
-			when {
-				// Nothing cached and nothing came back. Said as a failure, with a way to try
-				// again — an empty history is a summary of zeros and looks nothing like this.
-				state.summaryFailed -> FailedLine(
-					stringResource(Res.string.listening_summary_failed),
-					onRetry
-				)
-				state.summaryLoading -> Box(
-					Modifier.fillMaxWidth().padding(vertical = 32.dp),
-					contentAlignment = Alignment.Center
-				) { CircularProgressIndicator() }
-			}
-		}
-		return
-	}
+	if (summaryMissing(state, onRetry)) return
+	val summary = state.summary ?: return
 
 	item(key = "s:tiles") { StatTiles(summary) }
 	if (summary.totals.plays == 0) {
 		item(key = "s:no-plays") { Caption(stringResource(Res.string.listening_no_plays)) }
 	}
-	item(key = "s:heatmap") {
-		Column {
-			SectionTitle(stringResource(Res.string.listening_heatmap_title))
-			Heatmap(remember(summary.heatmap) { heatmapGrid(summary.heatmap) })
-		}
-	}
-	item(key = "s:hours") {
-		Column {
-			SectionTitle(stringResource(Res.string.listening_hours_title))
-			HoursChart(remember(summary.hours) { hourBars(summary.hours) })
-		}
-	}
 
+	// Every ranking is one horizontally scrollable row of cards, full width, one under the
+	// other: nothing here is laid out as columns of different heights.
 	if (summary.topArtists.isNotEmpty()) {
 		item(key = "s:top-artists") {
-			Column {
-				SectionTitle(stringResource(Res.string.listening_top_artists))
-				Form {
-					summary.topArtists.forEachIndexed { index, artist ->
-						RankedRow(
-							rank = index + 1,
-							title = artist.name,
-							subtitle = null,
-							plays = artist.plays,
-							onClick = clickFor(
-								artistTarget(artist.ndArtistId, artist.mbid, artist.name, state.knownArtistIds),
-								open
-							)
+			CardRow(stringResource(Res.string.listening_top_artists)) {
+				itemsIndexed(summary.topArtists) { index, artist ->
+					MediaCard(
+						art = libraryArtistArt(artist.ndArtistId, state.artistArt),
+						title = artist.name,
+						subtitle = null,
+						rank = index + 1,
+						plays = artist.plays,
+						onClick = clickFor(
+							artistTarget(artist.ndArtistId, artist.mbid, artist.name, state.knownArtistIds),
+							open
 						)
-					}
+					)
 				}
 			}
 		}
 	}
 	if (summary.topAlbums.isNotEmpty()) {
 		item(key = "s:top-albums") {
-			Column {
-				SectionTitle(stringResource(Res.string.listening_top_albums))
-				Form {
-					summary.topAlbums.forEachIndexed { index, album ->
-						RankedRow(
-							rank = index + 1,
-							title = album.title,
-							subtitle = album.artist,
-							plays = album.plays,
-							// lb-bot's `owned`, and only that: "the library holds it" — by its
-							// index, or by Navidrome's own album list. Not Fresh's narrower
-							// `releaseOwned`, which is the index alone.
-							note = if (album.owned) null else stringResource(Res.string.label_not_in_library),
-							// An owned album with no page here (lb-bot does not know its id yet,
-							// or this device has not synced it) is plain text, never a link to
-							// the acquire page.
-							onClick = clickFor(
-								albumTarget(
-									album.ndAlbumId, album.rgid, album.artistMbid, album.artist,
-									album.title, state.knownAlbumIds, owned = album.owned
-								),
-								open
-							)
+			CardRow(stringResource(Res.string.listening_top_albums)) {
+				itemsIndexed(summary.topAlbums) { index, album ->
+					MediaCard(
+						art = albumCardArt(album.ndAlbumId, album.rgid, state.albumArt),
+						title = album.title,
+						// lb-bot's `owned`, and only that: "the library holds it" — by its
+						// index, or by Navidrome's own album list. Not Fresh's narrower
+						// `releaseOwned`, which is the index alone.
+						subtitle = listOfNotNull(
+							album.artist.ifBlank { null },
+							if (album.owned) null else stringResource(Res.string.label_not_in_library)
+						).joinToString(" • "),
+						rank = index + 1,
+						plays = album.plays,
+						// An owned album with no page here (lb-bot does not know its id yet,
+						// or this device has not synced it) is not a link to the acquire page.
+						onClick = clickFor(
+							albumTarget(
+								album.ndAlbumId, album.rgid, album.artistMbid, album.artist,
+								album.title, state.knownAlbumIds, owned = album.owned
+							),
+							open
 						)
-					}
+					)
 				}
 			}
 		}
 	}
 	if (summary.topTracks.isNotEmpty()) {
 		item(key = "s:top-tracks") {
-			Column {
-				SectionTitle(stringResource(Res.string.listening_top_tracks))
-				Form {
-					summary.topTracks.forEachIndexed { index, track ->
-						RankedRow(
-							rank = index + 1,
-							title = track.title,
-							subtitle = track.artist,
-							plays = track.plays,
-							// A track opens the album it is on; there is no page for a recording.
-							onClick = clickFor(
-								albumTarget(
-									track.ndAlbumId, track.rgid, "", track.artist, "", state.knownAlbumIds
-								),
-								open
-							)
+			CardRow(stringResource(Res.string.listening_top_tracks)) {
+				itemsIndexed(summary.topTracks) { index, track ->
+					MediaCard(
+						// A track is drawn with, and opens, the album it is on; there is no
+						// page for a recording.
+						art = albumCardArt(track.ndAlbumId, track.rgid, state.albumArt),
+						title = track.title,
+						subtitle = track.artist,
+						rank = index + 1,
+						plays = track.plays,
+						onClick = clickFor(
+							albumTarget(
+								track.ndAlbumId, track.rgid, "", track.artist, "", state.knownAlbumIds
+							),
+							open
 						)
-					}
+					)
 				}
 			}
 		}
 	}
 	if (summary.genres.isNotEmpty()) {
 		item(key = "s:genres") {
-			Column {
+			Column(Modifier.padding(bottom = 16.dp)) {
 				SectionTitle(stringResource(Res.string.listening_genres))
 				// Genres come from the library's tags, so only plays of albums the library
 				// holds can be counted. Both numbers are the summary's own.
 				Caption(
-					stringResource(Res.string.listening_genres_from, summary.genrePlays, summary.totals.plays)
+					stringResource(Res.string.listening_genres_from, summary.genrePlays, summary.totals.plays),
+					Modifier.padding(bottom = 8.dp)
 				)
-				Form {
-					summary.genres.forEach { genre ->
-						FormRow {
-							Text(
-								genre.genre,
-								maxLines = 1,
-								overflow = TextOverflow.Ellipsis,
-								modifier = Modifier.weight(1f)
-							)
-							Plays(genre.plays)
+				LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					items(summary.genres) { genre ->
+						FormRow(rounding = 14.dp) {
+							Column {
+								Text(genre.genre, maxLines = 1, overflow = TextOverflow.Ellipsis)
+								Text(
+									pluralStringResource(Res.plurals.listening_plays, genre.plays, genre.plays),
+									style = MaterialTheme.typography.labelMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
 						}
 					}
 				}
 			}
+		}
+	}
+}
+
+// ----- Activity: the heat map, then the period's own charts ---------------------------------------
+
+private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
+	state: ListeningUi,
+	periods: @Composable () -> Unit,
+	onRetry: () -> Unit
+) {
+	val summary = state.summary
+	if (summary != null) {
+		// First, and ABOVE the picker: lb-bot sends the same days with every period's summary,
+		// so the picker does not change it — and its caption says which days those are.
+		item(key = "s:heatmap") {
+			val grid = remember(summary.heatmap) { heatmapGrid(summary.heatmap) }
+			Column {
+				SectionTitle(stringResource(Res.string.listening_heatmap_title))
+				heatmapSpan(grid)?.let { span ->
+					Caption(
+						stringResource(
+							if (span.inWeeks) Res.string.listening_heatmap_caption_weeks
+							else Res.string.listening_heatmap_caption_days,
+							span.count, span.first, span.last
+						),
+						Modifier.padding(bottom = 8.dp)
+					)
+				}
+				Heatmap(grid)
+			}
+		}
+	}
+	item(key = "s:periods") { periods() }
+	if (summaryMissing(state, onRetry)) return
+	if (summary == null) return
+	item(key = "s:daily") {
+		Column {
+			SectionTitle(stringResource(Res.string.listening_daily_title))
+			val bars = remember(summary.daily) { dayBars(summary.daily) }
+			if (bars.isEmpty()) Caption(stringResource(Res.string.listening_no_plays), Modifier.padding(bottom = 16.dp))
+			else HoursChart(bars)
+		}
+	}
+	item(key = "s:hours") {
+		Column {
+			SectionTitle(stringResource(Res.string.listening_hours_title))
+			HoursChart(remember(summary.hours) { hourBars(summary.hours) })
 		}
 	}
 }
@@ -674,7 +796,7 @@ private fun HoursChart(bars: List<Int>) {
 
 // ----- most played, not in the library ----------------------------------------------------------
 
-private fun androidx.compose.foundation.lazy.LazyListScope.unownedItems(
+private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 	state: ListeningUi,
 	open: (ListeningTarget) -> Unit,
 	onKind: (String) -> Unit,
@@ -683,6 +805,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.unownedItems(
 	item(key = "s:unowned") {
 		Column {
 			SectionTitle(stringResource(Res.string.listening_unowned_title))
+			// What lb-bot lists here is albums and artists; it has no per-song list.
 			Row(
 				Modifier.padding(bottom = 8.dp),
 				horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -699,9 +822,25 @@ private fun androidx.compose.foundation.lazy.LazyListScope.unownedItems(
 				)
 			}
 			val failure = state.unownedFailure
+			val artists = state.unownedKind == LISTENING_KIND_ARTIST
 			when {
-				state.unowned.isNotEmpty() -> Form {
-					state.unowned.forEach { row -> UnownedRow(row, clickFor(unownedTarget(row, state.knownArtistIds), open)) }
+				// Cover cards, in one horizontally scrollable row. They open the external album
+				// or artist page, which offers the reviewed acquire flow; a card downloads nothing.
+				state.unowned.isNotEmpty() -> LazyRow(
+					modifier = Modifier.padding(bottom = 16.dp),
+					horizontalArrangement = Arrangement.spacedBy(12.dp)
+				) {
+					itemsIndexed(state.unowned) { index, row ->
+						MediaCard(
+							art = unownedCardArt(artists, row, state.artistArt),
+							// An artist row has no title; the artist is then the card.
+							title = row.title.ifBlank { row.artist },
+							subtitle = row.artist.takeIf { row.title.isNotBlank() },
+							rank = index + 1,
+							plays = row.plays,
+							onClick = clickFor(unownedTarget(row, state.knownArtistIds), open)
+						)
+					}
 				}
 				// lb-bot's own sentence when it wrote one (a 503 while Navidrome's lists are
 				// unavailable, a 400); an lb-bot older than the route is said as that, quietly
@@ -717,34 +856,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.unownedItems(
 	}
 }
 
-/** Opens the external album or artist page. It offers no download of its own. */
-@Composable
-private fun UnownedRow(row: LbUnownedRow, onClick: (() -> Unit)?) {
-	FormRow(onClick = onClick) {
-		Column(Modifier.weight(1f)) {
-			// An artist row has no title; the artist is then the row.
-			Text(
-				row.title.ifBlank { row.artist },
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			if (row.title.isNotBlank() && row.artist.isNotBlank()) {
-				Text(
-					row.artist,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
-		}
-		Plays(row.plays)
-	}
-}
+// ----- History: recent plays, as the queue shows songs ---------------------------------------------
 
-// ----- recent plays -------------------------------------------------------------------------------
-
-private fun androidx.compose.foundation.lazy.LazyListScope.recentItems(
+private fun androidx.compose.foundation.lazy.LazyListScope.historyItems(
 	state: ListeningUi,
 	open: (ListeningTarget) -> Unit,
 	onMore: () -> Unit,
@@ -754,9 +868,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.recentItems(
 	// The key carries the index: the same recording scrobbled twice in a second is two identical
 	// rows, and a duplicate key in a lazy list is a crash.
 	itemsIndexed(state.recent, key = { index, row -> recentPlayKey(index, row) }) { _, row ->
-		RecentRow(
+		HistoryRow(
 			row,
-			clickFor(recentPlayTarget(row, state.knownAlbumIds, state.knownArtistIds), open)
+			art = albumCardArt(row.ndAlbumId, row.rgid, state.albumArt),
+			onClick = clickFor(recentPlayTarget(row, state.knownAlbumIds, state.knownArtistIds), open)
 		)
 	}
 	item(key = "s:recent-foot") {
@@ -772,10 +887,23 @@ private fun androidx.compose.foundation.lazy.LazyListScope.recentItems(
 	}
 }
 
+/**
+ * One play, in the look of a queue row: the album's cover, the title, the artist and the album
+ * under it, and when it was played. The cover is the library's own where Room holds the album,
+ * the Archive's front where it does not, the placeholder where nothing names one.
+ */
 @Composable
-private fun RecentRow(row: LbRecentPlay, onClick: (() -> Unit)?) {
+private fun HistoryRow(row: LbRecentPlay, art: LbArt, onClick: (() -> Unit)?) {
 	val zone = remember { TimeZone.currentSystemDefault() }
-	FormRow(modifier = Modifier.padding(bottom = 3.dp), onClick = onClick) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+			.padding(vertical = 6.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		LbArtImage(art, Modifier.size(48.dp), contentDescription = row.release.ifBlank { row.track })
 		Column(Modifier.weight(1f)) {
 			Text(row.track, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			Text(
@@ -799,47 +927,57 @@ private fun RecentRow(row: LbRecentPlay, onClick: (() -> Unit)?) {
 
 // ----- small pieces ---------------------------------------------------------------------------
 
+/** A titled, horizontally scrollable row of cards, full width. */
 @Composable
-private fun RankedRow(
-	rank: Int,
-	title: String,
-	subtitle: String?,
-	plays: Int,
-	onClick: (() -> Unit)?,
-	note: String? = null
-) {
-	FormRow(onClick = onClick) {
-		Text(
-			rank.toString(),
-			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.width(28.dp)
-		)
-		Column(Modifier.weight(1f)) {
-			Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-			val under = listOfNotNull(subtitle?.ifBlank { null }, note).joinToString(" • ")
-			if (under.isNotBlank()) {
-				Text(
-					under,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
-		}
-		Plays(plays)
+private fun CardRow(title: String, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+	Column(Modifier.padding(bottom = 16.dp)) {
+		SectionTitle(title)
+		LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), content = content)
 	}
 }
 
+/**
+ * One ranked thing as a card: its picture (an album's cover, an artist's image), its name, a
+ * second line, and its rank and play count. The picture and the card are a link when there is
+ * somewhere to go ([onClick]); a card with nowhere to go is not a dead control.
+ */
 @Composable
-private fun Plays(plays: Int) {
-	Text(
-		pluralStringResource(Res.plurals.listening_plays, plays, plays),
-		style = MaterialTheme.typography.labelMedium,
-		color = MaterialTheme.colorScheme.onSurfaceVariant,
-		modifier = Modifier.padding(start = 12.dp)
-	)
+private fun MediaCard(
+	art: LbArt,
+	title: String,
+	subtitle: String?,
+	rank: Int,
+	plays: Int,
+	onClick: (() -> Unit)?
+) {
+	Column(
+		Modifier
+			.width(132.dp)
+			.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+	) {
+		LbArtImage(art, Modifier.fillMaxWidth(), contentDescription = title, onClick = onClick)
+		Text(
+			title,
+			style = MaterialTheme.typography.bodyMedium,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.padding(top = 6.dp)
+		)
+		if (!subtitle.isNullOrBlank()) {
+			Text(
+				subtitle,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+		Text(
+			"#$rank · " + pluralStringResource(Res.plurals.listening_plays, plays, plays),
+			style = MaterialTheme.typography.labelSmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
 }
 
 @Composable

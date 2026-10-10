@@ -538,4 +538,85 @@ class ListeningTest {
 		assertEquals(false, listeningStatusLineShown(ListeningPhase.Older))
 		assertEquals(false, listeningStatusLineShown(ListeningPhase.Loading))
 	}
+
+	// --- the page in tabs (I-026) --------------------------------------------------------------
+
+	@Test
+	fun thePeriodPickerIsDrawnWhereItChangesSomething() {
+		assertEquals(true, listeningTabShowsPeriod(ListeningTab.OVERVIEW))
+		assertEquals(true, listeningTabShowsPeriod(ListeningTab.ACTIVITY))
+		assertEquals(true, listeningTabShowsPeriod(ListeningTab.NOT_IN_LIBRARY))
+		// Recent plays are a list in time, not an aggregate over a period.
+		assertEquals(false, listeningTabShowsPeriod(ListeningTab.HISTORY))
+	}
+
+	@Test
+	fun theHeatMapNamesTheSpanItShows() {
+		val full = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3)))
+		assertEquals(HeatmapSpan("2026-06-14", "2026-10-03", count = 16, inWeeks = true), heatmapSpan(full))
+		// Fewer days than the grid, and not whole weeks: said in days, from the days drawn.
+		val short = heatmapGrid(consecutiveDays(LocalDate(2026, 10, 3), n = 10))
+		assertEquals(HeatmapSpan("2026-09-24", "2026-10-03", count = 10, inWeeks = false), heatmapSpan(short))
+		assertEquals(null, heatmapSpan(heatmapGrid(emptyList())))
+	}
+
+	@Test
+	fun theLastColumnIsWholeWhateverWeekdayTheHistoryEndsOn() {
+		// Feishin's grid is by calendar week, so its last column is short unless the span ends
+		// on a Sunday — the "last row one square to the left". This grid is seven consecutive
+		// days per column ending on the newest day: for a span ending on every weekday, and
+		// for one shorter than the grid, the last column is full and the padding is all at
+		// the old end.
+		for (offset in 0..6) {
+			for (n in listOf(112, 109, 30)) {
+				val end = LocalDate(2026, 10, 3).minus(offset, DateTimeUnit.DAY)
+				val weeks = heatmapGrid(consecutiveDays(end, n)).weeks
+				assertEquals(7, weeks.last().count { it != null }, "ending $end, $n days")
+				assertEquals(end.toString(), weeks.last().last()?.date)
+				val cells = weeks.flatten()
+				assertEquals(cells.size - n, cells.indexOfFirst { it != null }, "ending $end, $n days")
+			}
+		}
+	}
+
+	@Test
+	fun thePeriodsDaysAreBarsOldestFirst() {
+		val daily = listOf(LbDayCount("2026-10-03", 4), LbDayCount("2026-10-01", 2), LbDayCount("2026-10-02", -1), LbDayCount("", 9))
+		// Sorted by day, a nonsense count is no plays, and a row with no day is not a bar.
+		assertEquals(listOf(2, 0, 4), dayBars(daily))
+		assertEquals(emptyList(), dayBars(emptyList()))
+	}
+
+	// --- what a card draws ---------------------------------------------------------------------
+
+	private val heldAlbums = mapOf<String, String?>("al-1" to "al-al-1_0", "al-2" to null)
+	private val heldArtists = mapOf<String, String?>("ar-1" to "ar-ar-1_0")
+	private val rg = "33333333-3333-4333-8333-333333333333"
+
+	@Test
+	fun anAlbumCardShowsTheLibrarysCoverThenTheArchivesThenThePlaceholder() {
+		assertEquals(LbArt.Library("al-al-1_0", isArtist = false), albumCardArt("al-1", rg, heldAlbums))
+		// Held, with no cover of its own: still the library's (its placeholder), not a guess.
+		assertEquals(LbArt.Library(null, isArtist = false), albumCardArt("al-2", rg, heldAlbums))
+		// Not held — unowned, or not synced to this device: the release group's front cover.
+		assertEquals(LbArt.Remote(LbBotManager.caaCoverUrl(rg)), albumCardArt("al-gone", rg, heldAlbums))
+		assertEquals(LbArt.Remote(LbBotManager.caaCoverUrl(rg)), albumCardArt("", rg, heldAlbums))
+		// Nothing names a picture.
+		assertEquals(LbArt.Placeholder(isArtist = false), albumCardArt("", "", heldAlbums))
+	}
+
+	@Test
+	fun aNotInLibraryCardShowsWhatTheAppUsesForSomethingItDoesNotHold() {
+		val album = LbUnownedRow(kind = "album", title = "Currents", artist = "Tame Impala", rgid = rg, plays = 12)
+		assertEquals(LbArt.Remote(LbBotManager.caaCoverUrl(rg)), unownedCardArt(isArtist = false, album, heldArtists))
+		assertEquals(LbArt.Placeholder(isArtist = false), unownedCardArt(false, album.copy(rgid = ""), heldArtists))
+		// An artist the library does not hold has no picture here: the artist placeholder.
+		val artist = LbUnownedRow(kind = "artist", artist = "Pond", plays = 30)
+		assertEquals(LbArt.Placeholder(isArtist = true), unownedCardArt(isArtist = true, artist, heldArtists))
+		// ...unless the row names an artist Room does hold.
+		assertEquals(
+			LbArt.Library("ar-ar-1_0", isArtist = true),
+			unownedCardArt(true, artist.copy(artistOwned = true, artistId = "ar-1"), heldArtists)
+		)
+	}
 }

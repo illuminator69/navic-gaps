@@ -482,3 +482,56 @@ internal fun unownedTarget(row: LbUnownedRow, knownArtistIds: Set<String>): List
 	} else {
 		ListeningTarget.None
 	}
+
+// ----- the page, in tabs (I-026) -------------------------------------------------------------------
+// My Listening is four tabs, the same four under the same names as Feishin's page: what it shows
+// did not change, only where. These are the rules the layout follows.
+
+enum class ListeningTab { OVERVIEW, ACTIVITY, HISTORY, NOT_IN_LIBRARY }
+
+/**
+ * **The period picker is drawn where it changes something.** There is one period for the page;
+ * its control is on Overview, on Not in library, and on Activity below the heat map. History has
+ * none: recent plays are a list in time, not an aggregate over a period.
+ */
+internal fun listeningTabShowsPeriod(tab: ListeningTab): Boolean = tab != ListeningTab.HISTORY
+
+/** The span the heat map covers, as it says of itself: [count] weeks ([inWeeks]) or days. */
+data class HeatmapSpan(val first: String, val last: String, val count: Int, val inWeeks: Boolean)
+
+/**
+ * **The heat map is its own span at a glance and does not follow the picker**: lb-bot sends the
+ * same days — the last sixteen weeks ending today — with every period's summary. So it names
+ * what it shows, from the days actually drawn: whole weeks when they are, else days. Null when
+ * there is no day to draw.
+ */
+internal fun heatmapSpan(grid: ListeningHeatmap): HeatmapSpan? {
+	val days = grid.weeks.flatten().filterNotNull()
+	val first = days.firstOrNull() ?: return null
+	val inWeeks = days.size % 7 == 0
+	return HeatmapSpan(first.date, days.last().date, if (inWeeks) days.size / 7 else days.size, inWeeks)
+}
+
+/** `daily` — the period's plays per day — as bars, oldest day first, whatever order it came in. */
+internal fun dayBars(daily: List<LbDayCount>): List<Int> =
+	daily.filter { it.date.isNotBlank() }.sortedBy { it.date }.map { it.count.coerceAtLeast(0) }
+
+/**
+ * The cover on a card or a row that stands for an album (a top album, a top track's album, a
+ * recent play): the library's own when Room holds [ndAlbumId]; else the Cover Art Archive's
+ * front for the release group — the cover the app already uses for an album it does not hold,
+ * as Fresh does; else the placeholder. From ids the row carries: no request to learn a picture.
+ */
+internal fun albumCardArt(ndAlbumId: String, rgid: String, albumArt: Map<String, String?>): LbArt = when {
+	heldInLibrary(ndAlbumId, albumArt) -> LbArt.Library(albumArt[ndAlbumId], isArtist = false)
+	rgid.isNotBlank() -> LbArt.Remote(LbBotManager.caaCoverUrl(rgid))
+	else -> LbArt.Placeholder(isArtist = false)
+}
+
+/**
+ * A "Not in library" card. An album: the Archive's front for its release group, else the
+ * placeholder. An artist: nothing in the library to draw — the artist placeholder — unless Room
+ * holds the id the row names.
+ */
+internal fun unownedCardArt(isArtist: Boolean, row: LbUnownedRow, artistArt: Map<String, String?>): LbArt =
+	if (isArtist) libraryArtistArt(row.artistId, artistArt) else albumCardArt("", row.rgid, emptyMap())

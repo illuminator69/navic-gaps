@@ -72,10 +72,18 @@ data class ListeningUi(
 	val recentNextBefore: Double? = null,
 	val recentLoading: Boolean = false,
 	val recentFailed: Boolean = false,
-	/** The album and artist ids Room holds: an id is only a link when its page exists. */
-	val knownAlbumIds: Set<String> = emptySet(),
-	val knownArtistIds: Set<String> = emptySet()
-)
+	/**
+	 * The albums and artists Room holds, each id with its cover art id. An id is only a link
+	 * when its page exists ([knownAlbumIds], [knownArtistIds]) — and what Room holds is also
+	 * what a card or a row can draw the library's own picture of (`albumCardArt`,
+	 * `libraryArtistArt`). One query each for the whole page.
+	 */
+	val albumArt: Map<String, String?> = emptyMap(),
+	val artistArt: Map<String, String?> = emptyMap()
+) {
+	val knownAlbumIds: Set<String> get() = albumArt.keys
+	val knownArtistIds: Set<String> get() = artistArt.keys
+}
 
 /**
  * My Listening (I-006): aggregates over the user's ListenBrainz history, mirrored and computed by
@@ -494,16 +502,16 @@ class ListeningViewModel(
 	 * device only has a page for what it has synced, and only album artists have a row at all.
 	 */
 	private suspend fun readKnownIds() {
-		val albums = runCatching { albumDao.getAllAlbumIds().toSet() }
-			.onFailure { Logger.w("ListeningViewModel", "album ids read failed", it) }
-			.getOrNull()
-		val artists = runCatching { artistDao.getAllArtistIds().toSet() }
-			.onFailure { Logger.w("ListeningViewModel", "artist ids read failed", it) }
-			.getOrNull()
+		val albums = runCatching {
+			albumDao.getAlbumFingerprints().associate { it.albumId to it.coverArtId as String? }
+		}.onFailure { Logger.w("ListeningViewModel", "album ids read failed", it) }.getOrNull()
+		val artists = runCatching {
+			artistDao.getArtistArt().associate { it.artistId to it.coverArtId }
+		}.onFailure { Logger.w("ListeningViewModel", "artist ids read failed", it) }.getOrNull()
 		_state.update {
 			it.copy(
-				knownAlbumIds = albums ?: it.knownAlbumIds,
-				knownArtistIds = artists ?: it.knownArtistIds
+				albumArt = albums ?: it.albumArt,
+				artistArt = artists ?: it.artistArt
 			)
 		}
 	}
