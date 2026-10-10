@@ -137,7 +137,7 @@ import paige.navic.domain.manager.LbReleaseDetail
 import paige.navic.domain.manager.albumCommit
 import paige.navic.domain.manager.albumEditionRows
 import paige.navic.domain.manager.albumJobInFlight
-import paige.navic.domain.manager.albumCoversRgid
+import paige.navic.domain.manager.albumCoversQuery
 import paige.navic.domain.manager.albumJobFailures
 import paige.navic.domain.manager.albumJobInWay
 import paige.navic.domain.manager.albumWaitingForIndex
@@ -360,19 +360,35 @@ fun AlbumMatchSheet(
 		previewLoading = false
 	}
 
-	// The covers on offer for the previewed release, after the preview so the two slow
-	// requests do not take two of the hub's four slots at once. A release that is not one of
-	// the listed editions — a pasted id — is asked for by itself, without the album's group
-	// (`albumCoversRgid`): it may be another group's.
+	// The covers on offer, keyed on WHAT IS ASKED (`albumCoversQuery`), so they are read exactly
+	// when the question changes: for the release the album is on as soon as the sheet knows it
+	// — the read that was missing while this was gated on a preview, which only a pick makes —
+	// and for a picked release once its preview has landed, so the two slow requests do not
+	// take two of the hub's four slots at once. A release that is not one of the listed
+	// editions — a pasted id — is asked for by itself (`albumCoversRgid`).
 	val listedEditions = remember(detail) {
 		albumEditionRows(detail?.releases.orEmpty(), "").map { it.releaseMbid }
 	}
-	LaunchedEffect(albumId, preview?.releaseMbid, coverReads) {
-		val shown = preview ?: return@LaunchedEffect
+	val coversQuery = albumCoversQuery(
+		picked = picked,
+		previewedReleaseMbid = preview?.releaseMbid,
+		currentReleaseMbid = state?.releaseMbid.orEmpty(),
+		// Before the album is read nothing is settled, whatever a previous read left behind.
+		rgid = if (state == null) null else rgid,
+		listed = listedEditions
+	)
+	LaunchedEffect(albumId, coversQuery, coverReads) {
+		val asked = coversQuery
+		if (asked == null) {
+			// Nothing to ask (yet): a read this replaced was cancelled before it could say so.
+			coversLoading = false
+			return@LaunchedEffect
+		}
+		// Another question: what was read for the last one is not its answer.
+		covers = null
 		coversLoading = true
 		coversError = null
-		val group = albumCoversRgid(rgid.orEmpty(), shown.releaseMbid, listedEditions)
-		when (val result = lbBot.albumCovers(group, shown.releaseMbid)) {
+		when (val result = lbBot.albumCovers(asked.rgid, asked.releaseMbid)) {
 			is LbBotManager.LbResult.Ok -> covers = result.value
 			is LbBotManager.LbResult.Failed ->
 				if (result.error == LbBotManager.LbError.RouteUnknown) older = true else coversError = result.error
@@ -615,10 +631,10 @@ fun AlbumMatchSheet(
 						}
 					}
 
-					preview?.let { previewed ->
-						val summary = remember(previewed) { previewSummary(previewed) }
-						PreviewBlock(previewed, summary)
-
+					// The cover step, drawn in one of two places: under the preview of a picked
+					// release, or — with nothing picked — on its own, for the release the album
+					// is on. "Keep the current cover" is the grid's first tile and the default.
+					val coverStep: @Composable () -> Unit = {
 						SheetLabel(stringResource(Res.string.title_album_match_cover))
 						val offered = covers
 						when {
@@ -638,6 +654,30 @@ fun AlbumMatchSheet(
 								onChoose = { cover = it }
 							)
 						}
+					}
+
+					// As the sheet opens: the covers are there before any edition is touched, and
+					// the cover can be changed on its own — the release and the tags stay.
+					if (picked.isBlank() && coversQuery != null) {
+						coverStep()
+						cover?.let { chosen ->
+							Text(
+								stringResource(Res.string.info_album_match_commit_cover),
+								style = MaterialTheme.typography.bodyMedium
+							)
+							ActionRow(busy == AlbumAction.COMMIT) {
+								Button(enabled = !working, onClick = { saveCover(chosen) }) {
+									Text(stringResource(Res.string.action_album_match_set_cover))
+								}
+							}
+						}
+					}
+
+					preview?.let { previewed ->
+						val summary = remember(previewed) { previewSummary(previewed) }
+						PreviewBlock(previewed, summary)
+
+						coverStep()
 
 						val chosenCover = cover
 						val commit = albumCommit(loaded.releaseMbid, previewed.releaseMbid, summary.changing, chosenCover != null)

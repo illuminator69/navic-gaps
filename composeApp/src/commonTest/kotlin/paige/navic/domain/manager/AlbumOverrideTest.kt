@@ -297,6 +297,48 @@ class AlbumOverrideTest {
 		assertEquals("", albumCoversRgid(group, other, emptyList()))
 	}
 
+	// --- the cover picker's read (N3) ----------------------------------------------------------
+	// The covers used to be read only once a preview existed, and a preview only exists after a
+	// pick: on the release the sheet opens on there were none until the edition was changed.
+
+	@Test
+	fun theCoversAreAskedForAsTheSheetOpens() {
+		// Nothing picked: the release the album is on now, in its own group.
+		assertEquals(
+			AlbumCoversQuery(rgid = group, releaseMbid = release),
+			albumCoversQuery(picked = "", previewedReleaseMbid = null, currentReleaseMbid = release, rgid = group, listed = emptyList())
+		)
+		// The album's own release is in its own group whether or not lb-bot's edition list
+		// carries it, and whether or not that list has arrived: the question does not change.
+		assertEquals(
+			albumCoversQuery("", null, release, group, emptyList()),
+			albumCoversQuery("", null, release, group, listOf(other))
+		)
+		// An untagged album whose group was found: by the group alone.
+		assertEquals(AlbumCoversQuery(group, ""), albumCoversQuery("", null, "", group, emptyList()))
+		// A tagged album with no group named: by its release alone.
+		assertEquals(AlbumCoversQuery("", release), albumCoversQuery("", null, release, "", emptyList()))
+	}
+
+	@Test
+	fun nothingIsAskedBeforeThereIsSomethingToAskBy() {
+		// The group is not settled yet (null), which is not "there is none" ("").
+		assertNull(albumCoversQuery("", null, release, null, emptyList()))
+		// Neither a release nor a group: no question.
+		assertNull(albumCoversQuery("", null, "", "", emptyList()))
+	}
+
+	@Test
+	fun aPickedReleaseIsAskedForOnceItsPreviewHasLanded() {
+		// Picked, preview still out — or still the previous pick's: not two slow requests at once.
+		assertNull(albumCoversQuery(picked = other, previewedReleaseMbid = null, currentReleaseMbid = release, rgid = group, listed = listOf(release, other)))
+		assertNull(albumCoversQuery(other, release, release, group, listOf(release, other)))
+		// A listed edition: with the album's group.
+		assertEquals(AlbumCoversQuery(group, other), albumCoversQuery(other, other, release, group, listOf(release, other)))
+		// A pasted release that is not listed: by itself (X8).
+		assertEquals(AlbumCoversQuery("", other), albumCoversQuery(other, other, release, group, listOf(release)))
+	}
+
 	// --- POST album/cover, album/override/remove ----------------------------------------------
 
 	@Test

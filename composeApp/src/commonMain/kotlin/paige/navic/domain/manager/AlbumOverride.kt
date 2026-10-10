@@ -847,6 +847,40 @@ internal fun albumJobFailures(poll: AlbumPoll): List<LbAlbumFailure> = when (pol
 internal fun albumCoversRgid(rgid: String, releaseMbid: String, listed: Collection<String>): String =
 	if (releaseMbid.isNotBlank() && releaseMbid !in listed) "" else rgid
 
+/** What the cover picker asks lb-bot for: either may be blank, never both. */
+data class AlbumCoversQuery(val rgid: String, val releaseMbid: String)
+
+/**
+ * **The cover picker shows its candidates at once.** What to ask `GET /lb/album/covers` for, as
+ * the sheet stands — or null while there is nothing to ask by yet. The read is keyed on this,
+ * so it happens exactly when the answer changes:
+ *
+ * - **no release picked** — the sheet as it opens: the covers of the release the album is on
+ *   NOW ([currentReleaseMbid], "" for an untagged album) in its own group. Asked as soon as the
+ *   group is settled ([rgid] non-null; "" when nothing names one). This is the read that used
+ *   to be missing: it was gated on a preview, and a preview only exists after a pick, so the
+ *   covers only appeared once the edition was changed;
+ * - **a release picked** (an edition's row, or a pasted id) — that release's covers, once its
+ *   preview has landed ([previewedReleaseMbid] equals the pick): the two slow requests are not
+ *   sent at once. A release that is not a listed edition is asked for by itself
+ *   ([albumCoversRgid]).
+ */
+internal fun albumCoversQuery(
+	picked: String,
+	previewedReleaseMbid: String?,
+	currentReleaseMbid: String,
+	rgid: String?,
+	listed: Collection<String>
+): AlbumCoversQuery? {
+	if (picked.isNotBlank()) {
+		if (previewedReleaseMbid != picked) return null
+		return AlbumCoversQuery(albumCoversRgid(rgid.orEmpty(), picked, listed), picked)
+	}
+	val group = rgid ?: return null
+	if (group.isBlank() && currentReleaseMbid.isBlank()) return null
+	return AlbumCoversQuery(group, currentReleaseMbid)
+}
+
 /** What an ended poll has to say. Every number in it is a field of lb-bot's last answer. */
 sealed interface AlbumOutcome {
 	/** `applied`, no failures: the tags of [files] files were written. */
