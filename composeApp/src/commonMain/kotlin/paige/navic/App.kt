@@ -571,11 +571,14 @@ private fun entryProvider(
 		entry<Screen.Wishlist> {
 			WishlistScreen()
 		}
+		// The fork's two lb-bot pages wear the playing song's colours like its other pages:
+		// `Washed`, i.e. `BrowsingAmbient`, and a line each in `WashedBrowsingScreens` so the
+		// tablet rail follows too (`WashedBrowsingDriftTest` fails when the two disagree).
 		entry<Screen.Listening> {
-			ListeningScreen()
+			Washed { ListeningScreen() }
 		}
 		entry<Screen.LibraryMatches> {
-			LibraryMatchesScreen()
+			Washed { LibraryMatchesScreen() }
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)
