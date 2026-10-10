@@ -82,6 +82,8 @@ internal class NowPlayingScene<T : Any>(
 				sheetState = sheetState,
 				sheetMaxWidth = sheetMaxWidth,
 				contentWindowInsets = { WindowInsets() },
+				// A whole page, sized by the screen: nothing to ease (see the wrapper).
+				animateContentHeight = false,
 				dragHandle = null,
 				shape = if (sheetState.targetValue == SheetValue.Expanded)
 					RectangleShape

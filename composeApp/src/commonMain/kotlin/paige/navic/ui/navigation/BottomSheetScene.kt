@@ -64,6 +64,8 @@ internal data class BottomSheetScene<T : Any>(
 			// Tint the sheet (Queue / PlaybackSpeed) by the now-playing cover so its
 			// surface, drag handle and content all adapt — no detached notch.
 			ambient = rememberNowPlayingCoverAmbient(),
+			// Hosts whole pages (the queue, playback speed): left as it was (see the wrapper).
+			animateContentHeight = false,
 			dragHandle = {
 				Surface(
 					modifier = Modifier.padding(vertical = 5.dp),

@@ -1,5 +1,6 @@
 package paige.navic.ui.components.sheets
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -52,6 +53,20 @@ fun ModalBottomSheet(
 	// scheme so its text/cards adapt. The Material surface still clips it to [shape].
 	ambient: CoverAmbient? = null,
 	sheetTitle: String? = null,
+	// **A sheet opens in one motion, whatever arrives after its first frame.** Material rests a
+	// sheet at `screen height − sheet height` and works that out again on every change of the
+	// sheet's size; the opening animation picks its target ONCE, from the first frame, and is
+	// restarted from where it is — a fresh tween, fast at the start — each time the anchors move
+	// under it. Upstream's sheets never notice: their content is all there on the first frame.
+	// The fork's sheets read from lb-bot after they open, so the first frame is a spinner, the
+	// sheet starts for a resting place a hand high, and every answer that lands (the album, its
+	// editions, its covers, the search results) throws it at a new one: a series of jerks where
+	// there should be one slide. With this on, a change of the content's height is eased, so the
+	// sheet's size — and the resting place Material derives from it — moves smoothly, and the
+	// one opening animation follows it up. A sheet whose content is static is unaffected.
+	// Off for the two navigation scenes, which host whole pages (the player, the queue) and
+	// are left exactly as they were.
+	animateContentHeight: Boolean = true,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	androidx.compose.material3.ModalBottomSheet(
@@ -79,6 +94,11 @@ fun ModalBottomSheet(
 		contentWindowInsets = if (ambient != null) ({ WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) }) else contentWindowInsets,
 		properties = properties,
 		content = {
+			// INSIDE the window insets (below), not around them: the keyboard's inset changes
+			// every frame as it slides, and easing that too would let the keyboard cover the
+			// field it was opened for. The eased size is clamped to what the sheet is given,
+			// so a shrinking viewport is obeyed at once.
+			val eased = if (animateContentHeight) Modifier.animateContentSize() else Modifier
 			if (ambient != null) {
 				val insets = contentWindowInsets()
 				NavicTheme(ambient.scheme, contentColor = ambient.onAmbient) {
@@ -102,10 +122,21 @@ fun ModalBottomSheet(
 							)
 							// Apply the real content insets here, so the gradient reaches the true
 							// bottom/side edges and no container-coloured border shows.
-							.windowInsetsPadding(insets),
+							.windowInsetsPadding(insets)
+							.then(eased),
 						content = content
 					)
 				}
+			} else if (animateContentHeight) {
+				// The same bounded column the ambient branch has (`weight(fill = false)`: see
+				// there), so the content is measured exactly as before and only its size eases.
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.weight(1f, fill = false)
+						.then(eased),
+					content = content
+				)
 			} else {
 				content()
 			}
