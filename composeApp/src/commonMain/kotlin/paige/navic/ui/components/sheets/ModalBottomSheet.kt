@@ -34,7 +34,20 @@ import paige.navic.ui.util.CoverAmbient
 fun ModalBottomSheet(
 	onDismissRequest: () -> Unit,
 	modifier: Modifier = Modifier,
-	sheetState: SheetState = rememberBottomSheetState(SheetValue.Hidden),
+	// **One resting place: fully shown.** Material's own default also enables a half-way
+	// place (`PartiallyExpanded`), which the opening heads for and which exists only while the
+	// sheet is taller than half the screen. A sheet that reads after it opens starts shorter
+	// than that — so it shows whole — and when its content lands and passes half the screen
+	// the half-way place comes into being and the sheet goes THERE: it opened whole, then
+	// dropped until its last control was cut in half (the missing-album sheet's "Find
+	// sources", seen on the phone). With only Hidden and Expanded there is nowhere to stop
+	// short: the sheet rests at its content's height, and content taller than the screen
+	// scrolls inside it. This is the state upstream's own sheets already pass (Share, Sort,
+	// Account, Sleep timer); a caller that wants the half-way stop passes its own.
+	sheetState: SheetState = rememberBottomSheetState(
+		initialValue = SheetValue.Hidden,
+		enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+	),
 	sheetMaxWidth: Dp = BottomSheetDefaults.SheetMaxWidth,
 	sheetGesturesEnabled: Boolean = true,
 	shape: Shape = BottomSheetDefaults.ExpandedShape,

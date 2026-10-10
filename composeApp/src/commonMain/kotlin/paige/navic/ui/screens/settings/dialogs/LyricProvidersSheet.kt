@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +71,9 @@ fun LyricsPrioritySheet(
 
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
+		// Upstream's sheet, kept as upstream has it: Material's default places (the wrapper's
+		// own default is "one resting place" since I-026, for the fork's sheets that load).
+		sheetState = rememberBottomSheetState(SheetValue.Hidden),
 		dragHandle = {
 			Surface(
 				modifier = Modifier.padding(vertical = 6.dp),

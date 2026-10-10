@@ -1279,6 +1279,15 @@ true of invented *album art*, and not of an icon naming the kind.
   every 200 ms (250 ms remote), so collecting it recomposes the reader ~5×/sec for the whole of
   playback. Take the narrow `progress` flow only where the playhead is actually drawn. Upstream's
   new surfaces get this wrong by default — its `SideBar` mini player did.
+- **A sheet on the shared wrapper has one resting place: fully shown** (I-026). The wrapper's
+  default state enables only `Hidden` and `Expanded` — the state upstream's own sheets pass.
+  Material's default also enables a half-way place, which the opening heads for and which
+  exists only while the sheet is taller than half the screen: a fork sheet that reads after it
+  opens started short, showed whole, and when its content passed half the screen dropped to
+  the half-way place with its last control cut off ("Find sources" on the missing-album sheet,
+  seen on the phone). Content taller than the screen scrolls inside the sheet, so every sheet
+  on the default keeps ONE scrolling column. A caller that wants the half-way stop passes its
+  own state (`LyricProvidersSheet`, upstream's, does, to stay as upstream has it).
 - **A sheet's content height is eased in the shared wrapper** (`ModalBottomSheet`'s
   `animateContentHeight`, on by default; I-026). Material rests a sheet at screen height minus
   sheet height, works that out again on every size change, and restarts the opening animation
