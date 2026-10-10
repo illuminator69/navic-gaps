@@ -39,7 +39,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
-| lb-bot data, pending actions | `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/{LbBotDataSection,PendingActionsScreen}.kt` + their view models, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
+| Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
@@ -569,12 +569,44 @@ still advancing the speaker's queue. It logs one line when it fires.
     only when nothing was said. The first page of recent plays runs under its own job, not as
     the load's child: the list does not depend on the period, and a period change that
     cancelled the load used to cancel it halfway and leave its spinner on.
-  - `listeningSync()` (`POST /lb/listening/sync`) is called by the "Sync now" of the lb-bot data
-    panel, and by nothing else. A 405 from it is an lb-bot that predates the route.
+  - `listeningSync()` (`POST /lb/listening/sync`) is called by My Listening's own "Sync now"
+    (`ListeningViewModel.syncNow`), and by nothing else. A 405 from it is an lb-bot that
+    predates the route. The button and the status line moved here from the settings (I-026):
+    the button does and reports the listening half alone, is absent where a sync cannot be
+    asked for (`listeningSyncOffered`: off, older, nothing heard yet), and **the status is said
+    once** — the plain line only while the mirror is simply ready
+    (`listeningStatusLineShown`), every other state being the banner's.
+  - **The page is four tabs** (I-026; `ListeningTab`, the same four as Feishin's): Overview
+    (tiles, rankings, genres), Activity (heat map, plays per day, plays by hour), History
+    (recent plays) and Not in library. One period for the page; its picker is drawn where it
+    changes something (`listeningTabShowsPeriod`: not on History, and on Activity **below** the
+    heat map). **The heat map does not follow the picker**: lb-bot sends the same sixteen weeks
+    with every period's summary, and the caption names the span drawn (`heatmapSpan`). Its
+    grid is seven consecutive days per column ending on the newest day — not calendar weeks —
+    so the last column is always whole (Feishin's calendar grid is where a short last column
+    read as "one square to the left"). Rankings are horizontally scrollable rows of cards,
+    full width, one under the other. **Pictures come from ids the rows carry** (`LbArt`):
+    the library's own cover or artist image where Room holds the id, the Cover Art Archive's
+    front for an album it does not, the placeholder otherwise (`albumCardArt`,
+    `unownedCardArt`, `libraryArtistArt`); `ListeningUi.albumArt` / `artistArt` are two Room
+    queries for the page, and their keys are still what makes a row a link.
 - **The data-management surfaces say only what something said (I-020).** Three surfaces, one
   rule: a sentence is a claim about lb-bot, and it is only made from a fact lb-bot, the hub or
   Room actually reported. The sentences are pure functions in `LbBotData.kt`.
-  - **"lb-bot data"** (`LbBotDataSection`, in the navi-connect settings; plain English like its
+  - **"Library Matches"** (`LibraryMatchesScreen`, `Screen.LibraryMatches`, I-026) is where the
+    "lb-bot data" section of the navi-connect settings went: a page of its own, reached from
+    the library home's top buttons (a sixth, gated on `artistOverridesSupported`), washed like
+    the fork's other pages. Four sections switched with chips, each with its count — To check,
+    Artists, Albums, Merged names — opening on To check when it has rows, else on Artists; a
+    list lb-bot does not send is no section (`matchesSections`, `matchesSectionToShow`). Rows
+    carry the artist's image or the album's cover from ids they already have (`LbArtImage` over
+    `CoverArt` / `RemoteCoverArt`; `libraryArtistArt`, `matchAlbumArt`): an album whose id is
+    not known yet shows the cover lb-bot was given, one gone from the library the placeholder,
+    and a row is a link only when Room holds its id (`heldInLibrary`). The index mirror is a
+    line at the foot with its own **Refresh** — the mirror's pull plus a re-read of the page's
+    lists, reporting only what the mirror did. The listening history's status and "Sync now"
+    are My Listening's. Everything below about what the lists say is unchanged; read "panel"
+    as this page. Formerly (`LbBotDataSection`; plain English like its
     host screen): the override list (artist, MBID, "Navidrome said: …", Remove), the albums
     lb-bot retagged and the artist names it merged, each with Undo (I-022 / I-023, below), the
     index mirror's numbers, the listening status in words, and one "Sync now". `panelData` decides what
@@ -694,7 +726,7 @@ still advancing the speaker's queue. It logs one line when it fires.
     give-up clock measures silence, not length** (`lbJobStep`): three minutes without the row's
     `state` or `done` moving, restarted by every movement, so a long job that advances is never
     given up on; the first answer is not a movement. A job that timed out is not settled later —
-    the sheet says lb-bot is still working and that "lb-bot data" in Settings shows the result.
+    the sheet says lb-bot is still working and that Library Matches shows the result.
     A job found running when the sheet opens is followed again (or joined), and a sheet opened
     on an id that has since died finds its job by the album id it was started for. **A second apply
     or remove for an album whose job is still followed is refused in the manager, unsent**
@@ -761,7 +793,12 @@ still advancing the speaker's queue. It logs one line when it fires.
     resolves a browse row (`albumLookupQuery` fielded, `releaseGroupFor` validated, declining is
     fine) and otherwise only a pasted release id is offered. Covers for a release that is not
     one of the listed editions — a pasted id — are asked by `release_mbid` alone
-    (`albumCoversRgid`): it may be another group's, and lb-bot derives the group itself. A 409
+    (`albumCoversRgid`): it may be another group's, and lb-bot derives the group itself. **The
+    cover read is keyed on what is asked** (`albumCoversQuery`): with nothing picked, the covers
+    of the release the album is on, as soon as the album and its group are known — so the
+    picker is there when the sheet opens, with "Set cover" for a cover chosen without touching
+    the edition; with a release picked, that release's covers once its preview has landed. It
+    used to be gated on a preview, which only a pick makes. A 409
     `files_unreachable` (lb-bot cannot see the album's real files) carries a `total` like
     `poor_match` does and is never read as that question: it is shown in lb-bot's words, which
     name the remedy, on preview, apply, cover, remove and both merge writes. Every sentence states what lb-bot
@@ -976,7 +1013,8 @@ artwork's brightness like the page beside it (see rule 6 for why its nested `Nav
 **The limit:** detail and artist pages, Settings, the image viewer and a two-pane
 `CollectionDetail` keep the base rail, so a light rail beside a dark artwork-themed *detail* page
 is still expected (option 3, every screen publishing its scheme, would close it). A new washed tab
-goes in `WashedBrowsingScreens` as well as behind `Washed`; `WashedBrowsingDriftTest`
+goes in `WashedBrowsingScreens` as well as behind `Washed` — and so does a washed PUSHED page:
+My Listening and Library Matches are both (I-026), wrapped at their `entry<…>` in `App.kt`; `WashedBrowsingDriftTest`
 (androidHostTest, JVM-only because it reads the source) fails when the two, the self-washing
 `LibraryScreen` or the sheet list drift apart.
 
@@ -1219,6 +1257,15 @@ true of invented *album art*, and not of an icon naming the kind.
   every 200 ms (250 ms remote), so collecting it recomposes the reader ~5×/sec for the whole of
   playback. Take the narrow `progress` flow only where the playhead is actually drawn. Upstream's
   new surfaces get this wrong by default — its `SideBar` mini player did.
+- **A sheet's content height is eased in the shared wrapper** (`ModalBottomSheet`'s
+  `animateContentHeight`, on by default; I-026). Material rests a sheet at screen height minus
+  sheet height, works that out again on every size change, and restarts the opening animation
+  from where it is when the anchors move under it. Upstream's sheets have everything on the
+  first frame; the fork's read from lb-bot after opening, so a spinner's height became the first
+  resting place and every answer threw the sheet at a new one. The easing is INSIDE the window
+  insets, so the keyboard is still followed at once. The two navigation scenes that host whole
+  pages (`NowPlayingScene`, `BottomSheetScene`) pass `false`. A new fork sheet gets this by
+  using the wrapper; don't reach for Material's `ModalBottomSheet` directly.
 - **Leaving the now-playing sheet goes through `NowPlayingSheetController.requestHide { … }`.** The
   player is an `OverlayScene` bottom sheet, so `backStack.remove(Screen.NowPlaying)` plus
   `add(destination)` in one frame destroys it outright — the player vanishes and the next screen
@@ -1251,7 +1298,9 @@ true of invented *album art*, and not of an icon naming the kind.
   it is four long, because an odd count leaves a hole in the two-column grid and a home page with
   no library shortcuts has lost something it used to do. My Listening is a fifth possible button
   (gated on `listeningSupported`, not on lb-bot being up — its page works from cache), and
-  `overviewButtonCount` then makes the home six long rather than pushing Random off it.
+  `overviewButtonCount` then makes the home six long rather than pushing Random off it. Library
+  Matches is the sixth (gated on `artistOverridesSupported`), which fills that row exactly; a
+  seventh primary would have to raise `OVERVIEW_PRIMARY_MAX` and the count with it.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way
