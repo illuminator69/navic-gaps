@@ -100,6 +100,20 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    `PlatformModule.ios.kt` and consumed by `HubManager`'s last `get()` in `ManagerModule.kt`; a
    merge that drops a registration compiles, and `HubManager` is `createdAtStart`, so the app dies
    at launch with `NoDefinitionFoundException`.
+
+   **A fourth mechanism fails with no error at all: an optional argument at a call site.** A
+   nullable lambda that defaults to `null` is an entry point that exists only where a caller
+   passes it, and a merge that takes upstream's call drops it silently — the row or link is
+   simply not there. The ones this fork depends on:
+
+   | Argument | Passed at | Lost, it hides |
+   |---|---|---|
+   | `onFixAlbumMatch` (`CollectionSheet`) | `ArtistDetailScreen` (the album sheet it opens), and `CollectionDetailScreen` → `CollectionDetailScreenTopBar` (`collection/components/TopBar.kt`) → `CollectionSheet` | "Fix album match" (I-022) |
+   | `onWrongEdition` (`GapFillSheet`) | `ArtistDetailScreen` | "Wrong edition?" on the gap sheet (I-022) |
+
+   `MbidMatchSheet.ndArtistId` ("Merge into one name", I-023) was a third and is a **required**
+   parameter for exactly this reason: losing it is a compile error now. Prefer that for a new
+   one wherever every caller has the value.
 4. **Build `:androidApp:assembleRelease` and verify the signature. Every time.** See §3 — upstream
    owns that line and keeps rewriting it, debug signs correctly either way, and an unsigned APK
    reads on the phone as a vague "couldn't update".
@@ -488,9 +502,12 @@ still advancing the speaker's queue. It logs one line when it fires.
   this artist's discography. A blank id is never followed — it matched no scan record and spun
   until the scan timeout — and the shelf says the discography is shared in one plain line
   (`DiscographyUi.scanShared`), not in the error colour. The map is re-read at once on a hub
-  advert and after a write here, but an `index` frame only asks for a read **3 s out, once per
-  burst** (`requestArtistOverridesRefreshSoon`): a bulk index build sends a frame every couple of
-  seconds, and each read is an upstream one. A write that lb-bot answers 200 for is done only
+  advert and after a write here, but an `index` or a `library` frame only asks for a read **3 s
+  out, once per burst** (`requestArtistOverridesRefreshSoon`, decided in one place:
+  `frameRereadsOverrideLists`, checked at the top of `HubManager.handleFrame`): a bulk index
+  build sends a frame every couple of seconds, and each read is an upstream one. The `library`
+  frame is there for the lists that ride the same body (I-022 / I-023, below): it is lb-bot's
+  notice that Navidrome has indexed what a retag, a merge or an undo wrote. A write that lb-bot answers 200 for is done only
   when the answer says `ok` (`confirmedWrite`, the listening sync too). The
   surfaces (the artist sheet's "Fix MusicBrainz match"; the shelf's "Choose MusicBrainz artist"
   where there is no id to scan under) show only while `artistOverridesSupported`: the hub
@@ -669,12 +686,35 @@ still advancing the speaker's queue. It logs one line when it fires.
     every 2 s on the poll routes' 12 s timeout, in its own scope, and publishes the job in
     `albumJobs` (by row id; in memory): closing the sheet stops nothing. `albumPollStep` ends
     it — `applied` / `failed` for an apply, the row being gone (404 `no_override`) for a remove,
-    a row standing again after it was seen `removing` is a remove that did not finish, a failed
-    poll is not an answer, and after 3 minutes it is given up on as "still working". A job
-    found running when the sheet opens is followed again (or joined), and a sheet opened on an
-    id that has since died finds its job by the album id it was started for. **A second apply
+    a row standing again after it was seen `removing` is a remove that did not finish, and a
+    failed poll is not an answer. **"Seen `removing`" starts from the POST's own `state`**
+    (`albumPollStart`'s `postState`; the row's state when a running job is picked up): lb-bot
+    flips the row before it answers and can reach `failed` before the first poll, and that
+    first `failed` would otherwise read as the state the job started from, for ever. **The
+    give-up clock measures silence, not length** (`lbJobStep`): three minutes without the row's
+    `state` or `done` moving, restarted by every movement, so a long job that advances is never
+    given up on; the first answer is not a movement. A job that timed out is not settled later —
+    the sheet says lb-bot is still working and that "lb-bot data" in Settings shows the result.
+    A job found running when the sheet opens is followed again (or joined), and a sheet opened
+    on an id that has since died finds its job by the album id it was started for. **A second apply
     or remove for an album whose job is still followed is refused in the manager, unsent**
     (`albumJobInWay`). The three writes run in the manager's scope too.
+  - **The wait for Navidrome reads as a wait.** lb-bot holds a row `applying` / `removing`
+    (`merging` / `undoing`) after its last write until Navidrome has scanned, up to a minute,
+    and **`done` counts successes only**. So "the writes are over" is one helper for every
+    surface — `lbWritesOver`: `total > 0 && done + failures >= total` while the state is still
+    an active one (`albumWaitingForIndex`, `mergeWaitingForIndex`) — and the sheet, the merge
+    block and both panel rows then say the tags are written and lb-bot is waiting, with no
+    "N of N" and no determinate bar. `done >= total` is the wrong test: one failed file keeps
+    it below for the whole minute.
+  - **lb-bot's reasons are on screen wherever Undo is.** A `failures` entry is a file — or the
+    cover: "Cover image" is one too — so results count *problems* apart from files ("wrote 12
+    of 12 files", then "1 problem:" above the list; no matching on the title). The reasons are
+    listed for an apply that landed with some or did not finish **and for a remove that did
+    not finish** (`albumJobFailures`; the standing row block; the panel's `albumRowProblems`):
+    lb-bot's undo is two presses when a file has gone missing, and only its reason says "undo
+    again to restore it if it is back, or to give up on it". A `failed` row does not say
+    whether an apply or an undo left it so; the panel's sentence is true of both.
   - **When a job ends, three things follow from the job alone — never from whether a sheet is
     open** (`AlbumJobTest`). (1) **The library is settled first** (`settleAlbumJob`): the album
     is pulled under its new id (`syncAlbumsById`; `CollectionDetail` loads from Room and
@@ -687,12 +727,19 @@ still advancing the speaker's queue. It logs one line when it fires.
     apart: the retag kept the songs' ids and the pull moved them over (remove it), files
     lb-bot left untouched still make the old id an album on the server (keep it), or the songs
     got new ids and the rows left behind are what a completed download is keyed by (keep it;
-    the full pull prunes it as before). (3) **A page showing the dead album leaves it**
+    the full pull prunes it as before). The check and the delete are ONE statement
+    (`AlbumDao.deleteAlbumIfEmpty`), so a sync that files a song under the id in between cannot
+    lose the album. An undo started from the job block passes the ROW's `albumId` as the id it
+    kills — "" on a `failed` row, and then nothing is forgotten — never the id the sheet was
+    opened on, which is the one the undo brings the album back to. (3) **A page showing the dead album leaves it**
     (`albumLeave`, decided on ids: the id the job was started for against the id the page
     shows): `CollectionDetailScreen` observes `albumJobs` and replaces its own back-stack entry
     with the album's new page, else the artist's, and re-reads in place when the id survived
-    (the undo of a cover-only change included). A page that was on screen as the job ended
-    leaves whatever Room still holds; one opened afterwards leaves only once Room has dropped
+    (the undo of a cover-only change included). A page that was open as the job ended
+    leaves whatever Room still holds — "open" is when the page was OPENED, kept with its
+    back-stack entry (`rememberSaveable`), because a page that sat under another one is not
+    composed while the job ends and a plain `remember` made it "opened later" on return; one
+    really opened afterwards leaves only once Room has dropped
     its id (`CollectionDetailViewModel.missing`) — a queue still naming the dead id is followed
     to the album, while an old id Room still holds is an album in its own right and opens.
     Nothing else moves. `CollectionDetailViewModel.refreshCollection` catches the repository's
@@ -712,7 +759,12 @@ still advancing the speaker's queue. It logs one line when it fires.
     album sheet — the other long-press sheets do not host it) and "Wrong edition?" in
     `GapFillSheet`. With no `rgid` from lb-bot the release group is found the way Discover
     resolves a browse row (`albumLookupQuery` fielded, `releaseGroupFor` validated, declining is
-    fine) and otherwise only a pasted release id is offered. Every sentence states what lb-bot
+    fine) and otherwise only a pasted release id is offered. Covers for a release that is not
+    one of the listed editions — a pasted id — are asked by `release_mbid` alone
+    (`albumCoversRgid`): it may be another group's, and lb-bot derives the group itself. A 409
+    `files_unreachable` (lb-bot cannot see the album's real files) carries a `total` like
+    `poor_match` does and is never read as that question: it is shown in lb-bot's words, which
+    name the remedy, on preview, apply, cover, remove and both merge writes. Every sentence states what lb-bot
     answered; nothing says whether a favourite, a rating or a play count survives a retag.
     Feishin's `album-override.ts` is the hand-mirrored twin.
 - **"Merge into one name" joins two spellings of one artist, and lb-bot holds all of it
@@ -720,8 +772,9 @@ still advancing the speaker's queue. It logs one line when it fires.
   are two artists even with one MusicBrainz id. lb-bot retags one spelling's files to the other's
   name and keeps the previous tags for an undo. Four routes under `/lb/artist/merge` (`preview`,
   the POST, the GET by `id`, `undo`), gated on `artistMergesSupported`
-  (`advertisesRoute("POST /lb/artist/merge")`; a bare 404 / a 405 from any of them hides the
-  block until the next advert). The rules are pure functions in `ArtistMerge.kt`
+  (`advertisesRoute("POST /lb/artist/merge")`; a bare 404 / a 405 from any of them **hides the
+  block** until the next advert — no "older lb-bot" line: a control inside a page hides, and the
+  preview that finds out fires without a tap). The rules are pure functions in `ArtistMerge.kt`
   (`ArtistMergeTest`); the answers are read exactly as the album routes' are (`albumBody`,
   `albumRefused`).
   - **`GET /lb/overrides` carries three more lists, and absent is not empty.** `albums` (every
@@ -740,20 +793,35 @@ still advancing the speaker's queue. It logs one line when it fires.
     more spellings, defaults to keeping the one with the most albums (`mergeDefaultKeep`), and
     **merges only what lb-bot has counted**: the button is enabled by the `preview` answer for
     exactly that pair, whose `into.name` is the name shown as kept.
+  - **A collaboration credit is not a spelling.** A `siblings` entry may carry `collab`
+    ("JPEGMAFIA × Danny Brown" beside "JPEGMAFIA"; absent = false). `mergeOthers` never offers
+    one, and offers nothing when the artist's OWN entry is one — so a group that is an artist
+    plus its credits (61 of the live library's 114 groups, when measured) shows no block,
+    where lb-bot would only refuse with 409 `collaboration`.
   - **The job is the manager's, followed by the one rule the album job uses.** `LbJobPoll.kt`
     holds it (`lbJobStep` over an `LbJobSpec`: which state is "working", which ends it well or
     badly, whether the row being gone is the finish); `AlbumOverride.kt` and `ArtistMerge.kt`
-    supply the vocabulary. `followMergeJob` polls `GET /lb/artist/merge?id=` every 2 s for at
-    most 3 minutes in the manager's scope and publishes `mergeJobs`; a merge ends on `merged` /
+    supply the vocabulary. `followMergeJob` polls `GET /lb/artist/merge?id=` every 2 s, until
+    the row has not moved for 3 minutes, in the manager's scope and publishes `mergeJobs`; a
+    merge ends on `merged` /
     `failed`, an undo on 404 `no_merge`. A second merge or undo touching either artist while one
-    is followed is refused there, unsent (`mergeJobInWay`). A merge lb-bot is already working on
-    is picked up by the kept artist's block (`mergeToPickUp`) — only one this device has never
-    followed, so a poll that gave up is not restarted behind the user's back.
+    is followed is refused there, unsent (`mergeJobInWay`). The POST's own `state` and the
+    silence clock are the album job's (above). A merge lb-bot is already working on is picked
+    up by either artist's block (`mergeToPickUp`: the row names both ids; an lb-bot older than
+    `from.ndArtistId` names the rewritten spelling by name alone, and then only the kept
+    artist's block can). Not picked up: a row still in `mergeJobs` — a poll that gave up is not
+    restarted while its "still working" is on screen, though once dismissed it may be — and a
+    merge this device already followed **to rest** (`mergesFinished`, by `id@setAt`:
+    `mergeFinishedKey`), never again in the process. The list can go on saying `merging` for a
+    merge that has ended, and picking that up showed a finished merge twice.
   - **The result must survive its own cause** (`mergeBlockView`). A merge that worked leaves one
     spelling, and `siblings` only lists groups of two or more — the group that offered the merge
     disappears *because it worked*. So while a job concerns the artist the block shows the job
-    (progress, outcome, the files that failed, Undo), with the names taken from the job — lb-bot's
+    (progress, outcome, lb-bot's reasons, Undo), with the names taken from the job — lb-bot's
     row once it has answered, the names it was started with until then — never from `siblings`.
+    Undo is offered for a merge at rest **and for an undo that did not finish**
+    (`mergeJobCanUndo`), with its reasons listed (`mergeJobFailures`): lb-bot expects that one
+    pressed again.
     **An ended job stays in `mergeJobs` until the user taps "Done"** (`dismissMergeJob`); it is
     in memory only.
   - **When a job ends, the library is settled first, then pages move** (as for an album).
@@ -769,8 +837,14 @@ still advancing the speaker's queue. It logs one line when it fires.
     landed (Navidrome mid-scan): one more look 45 s later, then it is the full pull's. Albums
     Navidrome re-keyed in the process (no MusicBrainz album id) are not named by lb-bot's row and
     stay listed under their old id until that pull. A blank id from `mergeResyncArtistId` is not
-    null: lb-bot's row names the rewritten spelling by name only, so a picked-up merge reads the
-    artist list alone.
+    null: a merge picked up from the row of an lb-bot older than `from.ndArtistId` has no id for
+    the rewritten spelling, and reads the artist list alone.
+    **A merge that finished on another device is settled too**, from the list: after every
+    successful read of the overrides body, each `merged` row that names `from.ndArtistId`, that
+    this device neither follows nor followed to rest (`mergesToResync`) and whose artist Room
+    still holds is re-read with the same `resyncArtist`, once per `id@setAt` per process
+    (`LbBotManager.resyncMergedElsewhere`). Without it the merged-away spelling stayed listed
+    here until the next full pull: a `library` frame re-reads albums, never the artist list.
     Then `ArtistDetailScreen` observes `mergeJobs`: a page showing the rewritten spelling when
     a merge LANDS replaces its own back-stack entry with the kept artist's (`mergeLeave`, on
     ids; an undo moves nobody). A page OPENED after the ending is left alone — the old spelling
@@ -784,7 +858,8 @@ still advancing the speaker's queue. It logs one line when it fires.
     when lb-bot sent its list, something was loaded, and the hub carries the route its Undo goes
     through (`overrideListShown`); an empty list says there are none. A row's sentence is made of
     the row's own numbers and a state this build has never heard of is not put into words
-    (`albumRowDetail`, `mergeRowDetail`). Undo goes through the same manager calls as the sheets,
+    (`albumRowDetail`, `mergeRowDetail`); under it, for a row at rest, lb-bot's reasons one per
+    line (`albumRowProblems`, `mergeRowProblems`, the first ten and a count of the rest). Undo goes through the same manager calls as the sheets,
     so the job is followed and the library settled the same way; the line under the lists is a
     function of that job (`undoLine`) — "lb-bot is putting … back" only while it is followed,
     then how it ended, and nothing once nobody follows it.
