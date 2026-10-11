@@ -103,12 +103,7 @@ class LbBotManager(
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-	private val json = Json {
-		ignoreUnknownKeys = true
-		isLenient = true
-		coerceInputValues = true
-		encodeDefaults = false
-	}
+	private val json = lbWireJson
 
 	private val client by lazy {
 		HttpClient {
@@ -2610,39 +2605,25 @@ class LbBotManager(
 		/** Widen this one album's search to MP3 — the whole-album counterpart of a gap
 		 *  group's opt-in. A `format_rejected` fill with no review group had
 		 *  `mp3WouldHelp` on the wire and no route that could act on it. */
-		allowMp3: Boolean = false
+		allowMp3: Boolean = false,
+		/** "Download all M files" (B-084): ask [source]'s folder for every audio file in it.
+		 *  Passed by the album picker's second action and by nothing else — a Retry, "Try
+		 *  another source" and the one-tap acquire ask for the release's tracks, because
+		 *  this is consent for one folder, once. The answer's `allFiles` says whether
+		 *  lb-bot took it. */
+		allFiles: Boolean = false
 	): LbResult<LbDownloadResult> {
 		// Never `release_mbid` without `rgid`: lb-bot would happily download it, but the task then
 		// carries no release-group, so placement can't flip the index row to `present` and the
 		// filled album double-lists as missing forever.
 		if (rgid.isBlank()) return LbResult.Failed(LbError.Rejected(400, ""))
-		// An empty quality is omitted rather than sent: lb-bot reads a missing key as
-		// "use the global Source preference", while an explicit "" would make this
-		// download look like an override in its own status view. Same for the source.
 		val res = postJson<_, LbDownloadResponse>(
 			"/lb/album/download",
-			LbDownloadRequest(
-				rgid = rgid,
-				releaseMbid = edition?.releaseMbid?.ifBlank { null },
-				artist = edition?.artist?.ifBlank { null },
-				title = edition?.title?.ifBlank { null },
-				totalTracks = edition?.totalTracks?.takeIf { it > 0 },
-				quality = quality.ifBlank { null },
-				sourceUsername = source?.peer?.ifBlank { null },
-				sourceFolder = source?.folder?.ifBlank { null },
-				excludeUsers = excludeUsers.filter { it.isNotBlank() }.distinct().ifEmpty { null },
-				allowMp3 = if (allowMp3) true else null
-			)
+			albumDownloadRequest(rgid, quality, source, edition, excludeUsers, allowMp3, allFiles)
 		)
 		return when (res) {
 			is LbResult.Failed -> res
-			is LbResult.Ok -> LbResult.Ok(
-				LbDownloadResult(
-					ok = res.value.ok,
-					existing = res.value.existing,
-					releaseMbid = res.value.resolved?.releaseMbid.orEmpty()
-				)
-			)
+			is LbResult.Ok -> LbResult.Ok(albumDownloadResult(res.value))
 		}
 	}
 
@@ -3445,8 +3426,11 @@ class LbBotManager(
 	 * Cancel button until the app restarted.
 	 */
 	private suspend fun applyAlbumStatus(key: String, raw: LbFillStatus, now: Long = nowMs()) {
-		val status = raw.normalized()
-		val previousState = _fills.value[key]?.state
+		val previous = _fills.value[key]
+		// B-084: the hub's `fill` frame says nothing of what the download left out, and one
+		// arrives on every step — it keeps what the last full view said.
+		val status = fillKeepingLeftOut(raw.normalized(), previous)
+		val previousState = previous?.state
 		_fills.update { it + (key to status) }
 
 		val decision = watchLock.withLock {
@@ -3517,6 +3501,9 @@ class LbBotManager(
 				cancellable = status.canCancel,
 				verifyGaveUp = status.verifyGaveUp,
 				allowMp3 = status.allowMp3 || next.allowMp3,
+				// The current source's, as lb-bot last said it ([fillKeepingLeftOut]); not
+				// said at all — a new search, a switch not yet read in full — is nothing.
+				leftOut = status.leftOut ?: 0,
 				lastProgressAt = if (moved || next.lastProgressAt == 0L) now else next.lastProgressAt
 			)
 			saveWatches(watches + (key to next))
@@ -3878,6 +3865,19 @@ data class LbStatusProbe(
 	val webUrl: String = ""
 )
 
+/**
+ * How [LbBotManager] reads and writes lb-bot's JSON. Lenient on purpose — an lb-bot that adds a
+ * field, drops one or sends a null still decodes — and a property left at its default is not
+ * written, which is how an option that is off stays out of a request body. Top level and
+ * internal so the host tests decode and encode exactly as the manager does.
+ */
+internal val lbWireJson = Json {
+	ignoreUnknownKeys = true
+	isLenient = true
+	coerceInputValues = true
+	encodeDefaults = false
+}
+
 @Serializable
 data class LbOk(
 	val ok: Boolean = false,
@@ -4008,7 +4008,7 @@ private data class LbAllowMp3Request(
 )
 
 @Serializable
-private data class LbDownloadRequest(
+internal data class LbDownloadRequest(
 	val rgid: String,
 	/**
 	 * The pressing the user picked.
@@ -4033,7 +4033,11 @@ private data class LbDownloadRequest(
 	/** "Try another source": peers that already failed or crawled for this album. */
 	val excludeUsers: List<String>? = null,
 	/** The whole-album MP3 opt-in; omitted rather than sent false. */
-	val allowMp3: Boolean? = null
+	val allowMp3: Boolean? = null,
+	/** "Download all M files" (B-084): ask the picked folder for every audio file in it,
+	 *  not only the release's tracks. Sent `true` or not at all, and only beside a
+	 *  `sourceUsername` — lb-bot answers 400 for it without one ([albumDownloadRequest]). */
+	val allFiles: Boolean? = null
 )
 
 @Serializable
@@ -4047,19 +4051,72 @@ private data class LbCancelResponse(
 )
 
 @Serializable
-private data class LbDownloadResponse(
+internal data class LbDownloadResponse(
 	val ok: Boolean = false,
 	val existing: Boolean = false,
-	val resolved: LbResolved? = null
+	val resolved: LbResolved? = null,
+	/** lb-bot's echo of the request's `allFiles`; see [LbDownloadResult.allFiles]. */
+	val allFiles: Boolean? = null
 )
 
 @Serializable
-private data class LbResolved(@SerialName("release_mbid") val releaseMbid: String = "")
+internal data class LbResolved(@SerialName("release_mbid") val releaseMbid: String = "")
 
 data class LbDownloadResult(
 	val ok: Boolean = false,
 	val existing: Boolean = false,
-	val releaseMbid: String = ""
+	val releaseMbid: String = "",
+	/**
+	 * What lb-bot understood of "all files" (B-084), echoed on every 200: for a new fill what
+	 * was asked, for an `existing` one what the RUNNING fill was started with. **Null when
+	 * the answer carries no echo** — an older lb-bot; and an older hub drops the key from
+	 * the request without a word, so lb-bot then echoes false. Either way the echo, never
+	 * the request, decides what is said ([allFilesNote]).
+	 */
+	val allFiles: Boolean? = null
+)
+
+/**
+ * The body of `POST /lb/album/download`.
+ *
+ * An empty quality is omitted rather than sent: lb-bot reads a missing key as "use the global
+ * Source preference", while an explicit "" would make this download look like an override in
+ * its own status view. Same for the source, and for every option that is off.
+ *
+ * `allFiles` (B-084) goes out only when asked for AND with a picked peer: it is consent for
+ * that one folder, and lb-bot refuses it without a `sourceUsername` (400, nothing started).
+ */
+internal fun albumDownloadRequest(
+	rgid: String,
+	quality: String,
+	source: LbGapSource? = null,
+	edition: LbResolvedEdition? = null,
+	excludeUsers: List<String> = emptyList(),
+	allowMp3: Boolean = false,
+	allFiles: Boolean = false
+): LbDownloadRequest {
+	val peer = source?.peer?.ifBlank { null }
+	return LbDownloadRequest(
+		rgid = rgid,
+		releaseMbid = edition?.releaseMbid?.ifBlank { null },
+		artist = edition?.artist?.ifBlank { null },
+		title = edition?.title?.ifBlank { null },
+		totalTracks = edition?.totalTracks?.takeIf { it > 0 },
+		quality = quality.ifBlank { null },
+		sourceUsername = peer,
+		sourceFolder = source?.folder?.ifBlank { null },
+		excludeUsers = excludeUsers.filter { it.isNotBlank() }.distinct().ifEmpty { null },
+		allowMp3 = if (allowMp3) true else null,
+		allFiles = if (allFiles && peer != null) true else null
+	)
+}
+
+/** What the route answered, with the echo kept as it came: true, false, or none at all. */
+internal fun albumDownloadResult(response: LbDownloadResponse): LbDownloadResult = LbDownloadResult(
+	ok = response.ok,
+	existing = response.existing,
+	releaseMbid = response.resolved?.releaseMbid.orEmpty(),
+	allFiles = response.allFiles
 )
 
 @Serializable
@@ -4796,7 +4853,24 @@ data class LbFillStatus(
 	/** `placed` past the verifier's deadline: on disk, not (yet) in Navidrome. */
 	val verifyGaveUp: Boolean = false,
 	/** Started with the whole-album MP3 opt-in. */
-	val allowMp3: Boolean = false
+	val allowMp3: Boolean = false,
+	/** The fill's CURRENT source was asked for every audio file at the user's request
+	 *  (B-084). False after lb-bot switches to another source. Null when not said — see
+	 *  [leftOut]. No surface reads it yet. */
+	val allFiles: Boolean? = null,
+	/**
+	 * Audio files of the current source's folder — the peer's full listing, read at the
+	 *  download — that were not asked for (B-084). 0 when the folder was asked whole.
+	 * [total] stays "files asked for".
+	 *
+	 * **Null is "this view does not say", not 0.** `GET /lb/album/status` and `/lb/fills`
+	 * say it on every album; an lb-bot older than the field does not, and neither does the
+	 * hub's `fill` frame, which is rebuilt field by field from a list that has no
+	 * `leftOut`. A frame arrives on every step of a download, so reading its silence as 0
+	 * would blank the count between polls: [fillKeepingLeftOut] carries the last said
+	 * value across such a view instead.
+	 */
+	val leftOut: Int? = null
 ) {
 	/** An lb-bot from before `cancelled` was a state of its own wrote a cancel as
 	 *  `failed` + `failureKind: "cancelled"`; read both for one cycle. */
@@ -5038,7 +5112,19 @@ data class LbGapSource(
 	/** Present on the album picker (that route is not stripped); always empty on a
 	 *  gap poll, where the listing is fetched separately via [LbBotManager.gapSourceFiles]. */
 	val files: List<LbSourceFile> = emptyList(),
-	val filesTruncated: Boolean = false
+	val filesTruncated: Boolean = false,
+	/**
+	 * Audio files lb-bot has seen in this folder that a plain download of this source will
+	 * NOT ask for (B-084): 0 unless every track of the release is paired with a file, then
+	 * the folder's seen audio files less the paired ones. A lower bound — the search's
+	 * files, which can be fewer than the folder holds; the exact number is the fill's
+	 * `leftOut`.
+	 *
+	 * **Null is not 0.** lb-bot leaves the field out when it does not know the release's
+	 * tracklist, an older lb-bot never sends it, and a gap poll's rows carry none: all three
+	 * are "nothing to say". Read through [sourceExtras], by the album picker only.
+	 */
+	val extraFiles: Int? = null
 )
 
 /**
@@ -5167,6 +5253,8 @@ private data class LbWatch(
 	val unknownSince: Long = 0L,
 	val verifyGaveUp: Boolean = false,
 	val allowMp3: Boolean = false,
+	/** [LbFillStatus.leftOut] as last reported (B-084); 0 on a row stored before the field. */
+	val leftOut: Int = 0,
 	/** When a poll last reached lb-bot for this row, and what the last failed poll said. */
 	val lastCheckedAt: Long = 0L,
 	val lastError: String = "",
@@ -5215,6 +5303,8 @@ private data class LbWatch(
 		bytesTotal = 0L,
 		speedBps = 0L,
 		allowMp3 = allowMp3,
+		// A new attempt's source is asked afresh, and for the release's tracks.
+		leftOut = 0,
 		releaseMbid = releaseMbid.ifBlank { this.releaseMbid },
 		excludedPeers = (this.excludedPeers + excludedPeers).distinct(),
 		// A different peer will be picked: the chosen one is what was ruled out.
@@ -5255,7 +5345,8 @@ private data class LbWatch(
 		lastCheckedAt = lastCheckedAt,
 		lastError = lastError,
 		lastErrorTicks = lastErrorTicks,
-		verifyGaveUp = verifyGaveUp
+		verifyGaveUp = verifyGaveUp,
+		leftOut = leftOut
 	)
 }
 
@@ -5311,7 +5402,9 @@ data class LbFillEntry(
 	/** Consecutive polls that could not reach lb-bot. */
 	val lastErrorTicks: Int = 0,
 	/** `placed` past lb-bot's verify deadline — on disk, not in Navidrome. */
-	val verifyGaveUp: Boolean = false
+	val verifyGaveUp: Boolean = false,
+	/** [LbFillStatus.leftOut] as last reported. Always 0 on a gap fill, which has none. */
+	val leftOut: Int = 0
 ) {
 	val isRunning: Boolean get() = !settled
 

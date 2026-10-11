@@ -15,6 +15,7 @@ import navic.composeapp.generated.resources.lbbot_fill_downloading_plain
 import navic.composeapp.generated.resources.lbbot_fill_failed
 import navic.composeapp.generated.resources.lbbot_fill_failed_files
 import navic.composeapp.generated.resources.lbbot_fill_gave_up
+import navic.composeapp.generated.resources.lbbot_fill_left_out
 import navic.composeapp.generated.resources.lbbot_fill_needs_match
 import navic.composeapp.generated.resources.lbbot_fill_needs_pick
 import navic.composeapp.generated.resources.lbbot_fill_needs_pick_hint
@@ -36,9 +37,12 @@ import navic.composeapp.generated.resources.lbbot_track_missing
 import navic.composeapp.generated.resources.lbbot_track_picked
 import navic.composeapp.generated.resources.lbbot_track_queued
 import navic.composeapp.generated.resources.lbbot_track_skipped
+import org.jetbrains.compose.resources.PluralStringResource
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbFillEntry
+import paige.navic.domain.manager.LbFillStatus
 
 /**
  * The acquisition vocabulary, PROTOCOL.md §15.2.
@@ -56,12 +60,18 @@ import paige.navic.domain.manager.LbFillEntry
 sealed interface FillText {
 	data class Res(val res: StringResource, val args: List<Any> = emptyList()) : FillText
 	data class Raw(val text: String) : FillText
+	/** A counted sentence, in the singular or the plural: "1 other file…", "6 other files…". */
+	data class Counted(val res: PluralStringResource, val count: Int) : FillText
+	/** The parts of one line, each put into words and then joined with " · ". */
+	data class Joined(val parts: List<FillText>) : FillText
 }
 
 @Composable
 fun FillText.resolve(): String = when (this) {
 	is FillText.Raw -> text
 	is FillText.Res -> if (args.isEmpty()) stringResource(res) else stringResource(res, *args.toTypedArray())
+	is FillText.Counted -> pluralStringResource(res, count, count)
+	is FillText.Joined -> parts.map { it.resolve() }.joinToString(" · ")
 }
 
 enum class FillButton { CANCEL, ALLOW_MP3, RETRY, TRY_ANOTHER, WISHLIST, OPEN_ALBUM, DISMISS }
@@ -115,6 +125,49 @@ fun runningHeadline(state: String, done: Int, total: Int, verifyGaveUp: Boolean 
 	else -> FillText.Res(Res.string.lbbot_fill_searching)
 }
 
+/**
+ * B-084: "N other files in the folder were left out" — lb-bot's `leftOut`, the audio files of
+ * the current source's folder that the download did not ask for. Null when there are none,
+ * which is every gap fill, every fill asked whole and every lb-bot older than the field.
+ *
+ * Said where a status line for an album download already exists, and only there: while the
+ * album downloads, as one more part of the line, and once it is in the library, as the line.
+ * Feishin's `leftOutText` and its two uses in `fill-vocabulary.ts` are the mirror.
+ */
+fun leftOutPart(leftOut: Int): FillText? =
+	if (leftOut > 0) FillText.Counted(Res.plurals.lbbot_fill_left_out, leftOut) else null
+
+/** A line's own parts, then [extra]: one [FillText], or null when there is nothing to say. With
+ *  no [extra] it is the plain joined string it always was. */
+private fun lineOf(parts: List<String>, extra: FillText?): FillText? {
+	val said = parts.takeIf { it.isNotEmpty() }?.let { FillText.Raw(it.joinToString(" · ")) }
+	return when {
+		extra == null -> said
+		said == null -> extra
+		else -> FillText.Joined(listOf(said, extra))
+	}
+}
+
+/**
+ * The line under the headline in the missing-album sheet's progress block: bytes and speed
+ * while the album downloads, and what the download left out of the folder ([leftOutPart]) —
+ * then, and once the album is in (`verified`, or `placed` past the verifier's deadline: the
+ * ledger's "done").
+ */
+fun fillDetailLine(status: LbFillStatus): FillText? = when {
+	status.state == "downloading" -> {
+		val parts = mutableListOf<String>()
+		if (status.bytesTotal > 0L) {
+			parts += "${formatBytes(status.bytesDone)} / ${formatBytes(status.bytesTotal)}"
+			if (status.speedBps > 0L) parts += "${(status.speedBps / (1024.0 * 1024.0) * 10).toLong() / 10.0} MB/s"
+		}
+		lineOf(parts, leftOutPart(status.leftOut ?: 0))
+	}
+	status.state == "verified" || (status.state == "placed" && status.verifyGaveUp) ->
+		leftOutPart(status.leftOut ?: 0)
+	else -> null
+}
+
 fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): FillPresentation {
 	val buttons = mutableListOf<FillButton>()
 	val sublines = mutableListOf<FillText>()
@@ -130,7 +183,7 @@ fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): Fil
 				if (entry.bytesTotal > 0L) parts += "${formatBytes(entry.bytesDone)} / ${formatBytes(entry.bytesTotal)}"
 				if (entry.speedBps > 0L) parts += "${(entry.speedBps / (1024.0 * 1024.0) * 10).toLong() / 10.0} MB/s"
 				if (entry.lastSource.isNotBlank()) parts += "@${entry.lastSource}"
-				if (parts.isNotEmpty()) sublines += FillText.Raw(parts.joinToString(" · "))
+				lineOf(parts, leftOutPart(entry.leftOut))?.let { sublines += it }
 				if (entry.failedFiles > 0) sublines += FillText.Res(Res.string.lbbot_fill_failed_files, listOf(entry.failedFiles))
 				progress = if (entry.bytesTotal > 0L || entry.total > 0) FillProgressKind.DETERMINATE else FillProgressKind.INDETERMINATE
 				percent = entry.percent
@@ -159,6 +212,7 @@ fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): Fil
 			FillText.Res(Res.string.lbbot_fill_cancelled)
 		}
 		"done" -> {
+			leftOutPart(entry.leftOut)?.let { sublines += it }
 			if (entry.rgid.isNotBlank()) buttons += FillButton.OPEN_ALBUM
 			FillText.Res(if (entry.verifyGaveUp) Res.string.lbbot_fill_placed_unindexed else Res.string.lbbot_fill_verified)
 		}

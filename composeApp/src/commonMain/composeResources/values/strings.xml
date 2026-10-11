@@ -642,6 +642,10 @@
 	<string name="lbbot_fill_bytes">%1$s of %2$s</string>
 	<string name="lbbot_fill_speed">%1$s MB/s</string>
 	<string name="lbbot_fill_failed_files">%1$d failed</string>
+	<plurals name="lbbot_fill_left_out">
+		<item quantity="one">%1$d other file in the folder was left out</item>
+		<item quantity="other">%1$d other files in the folder were left out</item>
+	</plurals>
 	<string name="lbbot_fill_unreachable">Can't reach lb-bot — last checked %1$ds ago</string>
 	<string name="lbbot_fill_retry_in">Retrying automatically in %1$ds</string>
 	<string name="lbbot_fill_wishlist_hint">Nobody had it this time. The swarm changes — add it to the wishlist and lb-bot will keep looking every few hours.</string>
@@ -945,6 +949,19 @@
 	<string name="info_source_failover">lb-bot falls back to the next-best source if this peer disappears.</string>
 	<string name="action_download_from_source">Download this</string>
 	<string name="action_show_files">Show %1$d files</string>
+	<plurals name="info_source_more_files">
+		<item quantity="one">%1$d more file in this folder</item>
+		<item quantity="other">%1$d more files in this folder</item>
+	</plurals>
+	<plurals name="action_download_all_files">
+		<item quantity="one">Download all %1$d file</item>
+		<item quantity="other">Download all %1$d files</item>
+	</plurals>
+	<plurals name="info_asked_all_files">
+		<item quantity="one">Asked @%1$s for all %2$d file in the folder</item>
+		<item quantity="other">Asked @%1$s for all %2$d files in the folder</item>
+	</plurals>
+	<string name="info_tracks_only">lb-bot is downloading the album's tracks only — it did not take “all files” (the hub may be older)</string>
 	<string name="info_source_files_unexpanded">Peer offline — showing search results, not the real folder.</string>
 	<string name="info_gap_progress">%1$d of %2$d tracks</string>
 	<string name="info_gap_edition">Measured against your album's tagged release</string>

@@ -37,7 +37,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
@@ -941,6 +941,33 @@ still advancing the speaker's queue. It logs one line when it fires.
   `downloaded` await a manual match in lb-bot's workspace (the sheet says so and promotes "Open in
   lb-bot"), a `noSourceReason` is shown as lb-bot wrote it, and anything else says "search again"; and
   "Open in lb-bot" opens `<webUrl>/#/gaps/<groupId>` when the hub advertises `webUrl`.
+- **A whole-album download asks a folder for the release's tracks; "Download all M files" is
+  the explicit other (B-084).** lb-bot says, on each source row of `GET /lb/album/sources`, how
+  many of the folder's seen audio files a plain download would leave out (`extraFiles`).
+  **Absent is not 0**: an unknown tracklist, an older lb-bot and every gap-fill row send none,
+  and the row is then exactly what it was. With a count, `AlbumSources` (in
+  `MissingAlbumSheet.kt`) adds one quiet line and a second, muted text button beside "Download
+  this" (`sourceExtras`, `AlbumDownloadAll.kt`, `AlbumDownloadAllTest`); nothing is worked out
+  on the device from `files` or `fileCount` but M in that button's label. The second action is
+  the same request plus `allFiles: true` — sent only when asked and only with a picked peer
+  (`albumDownloadRequest`; lb-bot answers 400 without one). **The answer's echo decides what
+  is said, never the tap** (`allFilesNote`): an older hub drops the key without a word, so an
+  echo that is false or absent reads "the album's tracks only", an answer that started nothing
+  says nothing, and `existing` keeps the sheet's "Already downloading" alone. The line sits
+  with the download's progress, not at the sheet's foot, which a short screen cuts off. Retry,
+  "Try another source" and the one-tap acquire never send `allFiles`: it is consent for one
+  folder, once. The fill view's `leftOut` (files of the current source's folder that were not
+  asked for) is said where a status line already existed and nowhere new — the Download
+  Center's row and the sheet's progress block, while the album downloads and once it is in
+  (`leftOutPart`, `fillDetailLine`, `FillLeftOutTest`); it rides the persisted watch, so a
+  finished row keeps it. **On the fill view, absent is "this view does not say", not 0**
+  (`LbFillStatus.leftOut` is nullable): the hub's `fill` frame is rebuilt field by field from
+  a list with no `leftOut`, and one arrives on every step of a download while the poll is
+  backed off to 30 s — read as 0 it would take the count off the line between polls. The one
+  writer keeps the last said value across a silent view (`fillKeepingLeftOut`), except across
+  a new search or a view naming another peer, where nothing is shown until a full view says.
+  Only the album picker reads `extraFiles`: `GapFillSheet` draws its own rows. Feishin's
+  `album-download.ts` is the hand-mirrored twin.
 - **A cancel is `cancelled`, not a retryable failure.** `canRetry` is false on a cancelled row —
   a cancel is restarted from the album page — and Cancel is offered from the server's own
   `cancellable` field, never on `placing`/`placed`. `cancelFill` answers "too late" when lb-bot

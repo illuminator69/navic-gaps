@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,11 +42,13 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_allow_mp3
+import navic.composeapp.generated.resources.action_download_all_files
 import navic.composeapp.generated.resources.action_download_from_source
 import navic.composeapp.generated.resources.action_show_files
 import navic.composeapp.generated.resources.action_find_sources
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.info_already_downloading
+import navic.composeapp.generated.resources.info_asked_all_files
 import navic.composeapp.generated.resources.info_hub_needs_restart
 import navic.composeapp.generated.resources.info_pending_sync_detail
 import navic.composeapp.generated.resources.info_mp3_would_help
@@ -53,20 +57,26 @@ import navic.composeapp.generated.resources.info_searching_sources
 import navic.composeapp.generated.resources.info_source_complete
 import navic.composeapp.generated.resources.info_source_failover
 import navic.composeapp.generated.resources.info_source_matches_album
+import navic.composeapp.generated.resources.info_source_more_files
 import navic.composeapp.generated.resources.info_source_partial
 import navic.composeapp.generated.resources.info_source_artist_unverified
 import navic.composeapp.generated.resources.info_source_recommended
 import navic.composeapp.generated.resources.info_source_wrong_album
+import navic.composeapp.generated.resources.info_tracks_only
 import navic.composeapp.generated.resources.label_edition
 import navic.composeapp.generated.resources.label_quality_preference
 import navic.composeapp.generated.resources.label_version
 import navic.composeapp.generated.resources.title_missing_album
 import navic.composeapp.generated.resources.title_sources
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.AllFilesNote
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.allFilesNote
+import paige.navic.domain.manager.sourceExtras
 import paige.navic.ui.components.common.failureHeadline
-import paige.navic.ui.components.common.formatBytes
+import paige.navic.ui.components.common.fillDetailLine
 import paige.navic.ui.components.common.resolve
 import paige.navic.ui.components.common.runningHeadline
 import paige.navic.domain.manager.LbFillStatus
@@ -125,6 +135,8 @@ fun MissingAlbumSheet(
 	var searching by remember(release.rgid) { mutableStateOf(false) }
 	var starting by remember(release.rgid) { mutableStateOf(false) }
 	var alreadyRunning by remember(release.rgid) { mutableStateOf(false) }
+	// What lb-bot's answer said of a "Download all" (B-084); nothing until one is asked for.
+	var allFilesSaid by remember(release.rgid) { mutableStateOf<AllFilesNote>(AllFilesNote.None) }
 	var error by remember(release.rgid) { mutableStateOf<LbBotManager.LbError?>(null) }
 
 	val fills by lbBot.fills.collectAsState()
@@ -201,16 +213,30 @@ fun MissingAlbumSheet(
 		}
 	}
 
-	fun download(source: LbGapSource?) {
+	// [allFiles] is the row's second action (B-084): the same request, plus "every audio file
+	// in this folder". What comes of it is read off lb-bot's echo, never off the tap.
+	fun download(source: LbGapSource?, allFiles: Boolean = false) {
+		// Taken in the tap itself, not inside the coroutine: a row's two actions both stay
+		// live until the next frame, and a second tap in that time must start nothing.
+		if (starting) return
+		starting = true
 		scope.launch {
-			starting = true
 			error = null
+			allFilesSaid = AllFilesNote.None
 			// Not fast even with a source chosen: lb-bot resolves the release-group
 			// against MusicBrainz before answering.
-			when (val result = lbBot.download(release.rgid, quality, source, chosenEdition())) {
+			when (val result = lbBot.download(release.rgid, quality, source, chosenEdition(), allFiles = allFiles)) {
 				is LbBotManager.LbResult.Failed -> error = result.error
 				is LbBotManager.LbResult.Ok -> {
 					alreadyRunning = result.value.existing
+					allFilesSaid = allFilesNote(
+						asked = allFiles,
+						ok = result.value.ok,
+						existing = result.value.existing,
+						echo = result.value.allFiles,
+						peer = source?.peer.orEmpty(),
+						fileCount = source?.fileCount ?: 0
+					)
 					if (result.value.ok && result.value.releaseMbid.isNotBlank()) {
 						// Artist and title are carried into the watch, not looked up
 						// later: the downloads view may be opened days afterwards, on a
@@ -356,6 +382,16 @@ fun MissingAlbumSheet(
 				onCancel = { scope.launch { lbBot.cancelFill(release.rgid) } }
 			)
 			LbErrorLine(error)
+			// What lb-bot understood of "Download all" (B-084). Here, with the download's own
+			// progress, and not at the foot beside "Already downloading": the source list
+			// below takes whatever height is left, and on a short screen the foot is cut off.
+			when (val said = allFilesSaid) {
+				is AllFilesNote.Asked -> SheetCaption(
+					pluralStringResource(Res.plurals.info_asked_all_files, said.files, said.peer, said.files)
+				)
+				AllFilesNote.TracksOnly -> SheetCaption(stringResource(Res.string.info_tracks_only))
+				AllFilesNote.None -> Unit
+			}
 
 			if (status != null && status.mp3WouldHelp && status.groupId.isNotBlank()) {
 				Text(
@@ -425,7 +461,8 @@ fun MissingAlbumSheet(
 					AlbumSources(
 						sources = sources.orEmpty(),
 						enabled = !starting && !fillActive,
-						onPick = { download(it) }
+						onPick = { download(it) },
+						onPickAll = { download(it, allFiles = true) }
 					)
 				}
 			}
@@ -452,12 +489,19 @@ fun MissingAlbumSheet(
  * right *quality*. The album verdict comes first because it is the only one whose
  * failure is silent — a partial download is obvious afterwards, the wrong record
  * is not.
+ *
+ * A row whose folder holds more than the album says so, and offers the whole folder as a
+ * second, quieter action (B-084, [sourceExtras]); "Download this" still means the album's
+ * tracks. This is the ALBUM picker's list only: the gap-fill sheet draws its own rows, whose
+ * sources carry no `extraFiles`, and nothing there reads the field.
  */
 @Composable
 internal fun AlbumSources(
 	sources: List<LbGapSource>,
 	enabled: Boolean,
-	onPick: (LbGapSource) -> Unit
+	onPick: (LbGapSource) -> Unit,
+	/** "Download all M files": every audio file in that row's folder. */
+	onPickAll: (LbGapSource) -> Unit
 ) {
 	// One source open at a time: the file lists are long, and the point is to
 	// compare candidates, not to scroll past all of them at once.
@@ -530,8 +574,37 @@ internal fun AlbumSources(
 						color = MaterialTheme.colorScheme.primary
 					)
 				}
-				TextButton(onClick = { onPick(source) }, enabled = enabled) {
-					Text(stringResource(Res.string.action_download_from_source))
+				val extras = sourceExtras(source)
+				if (extras == null) {
+					// Exactly the row there was: one action.
+					TextButton(onClick = { onPick(source) }, enabled = enabled) {
+						Text(stringResource(Res.string.action_download_from_source))
+					}
+				} else {
+					// lb-bot's count, never one worked out from the listing above.
+					Text(
+						pluralStringResource(Res.plurals.info_source_more_files, extras.more, extras.more),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+					// The two actions have a line of their own and wrap: neither shares it
+					// with the folder's name, and at a narrow width the second goes under
+					// the first instead of off the row. Both follow the one `enabled`.
+					FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+						TextButton(onClick = { onPick(source) }, enabled = enabled) {
+							Text(stringResource(Res.string.action_download_from_source))
+						}
+						TextButton(
+							onClick = { onPickAll(source) },
+							enabled = enabled,
+							// The same part as the row's own action, in the muted colour.
+							colors = ButtonDefaults.textButtonColors(
+								contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						) {
+							Text(pluralStringResource(Res.plurals.action_download_all_files, extras.all, extras.all))
+						}
+					}
 				}
 			}
 			HorizontalDivider()
@@ -621,10 +694,11 @@ internal fun FillProgress(status: LbFillStatus?, onCancel: (() -> Unit)? = null)
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 		}
-		if (status.state == "downloading" && status.bytesTotal > 0L) {
+		// Bytes and speed while it downloads, and what the download left out of the
+		// folder (B-084, lb-bot's `leftOut`) — then, and once the album is in.
+		fillDetailLine(status)?.let { line ->
 			Text(
-				"${formatBytes(status.bytesDone)} / ${formatBytes(status.bytesTotal)}" +
-					if (status.speedBps > 0L) " · ${(status.speedBps / (1024.0 * 1024.0) * 10).toLong() / 10.0} MB/s" else "",
+				line.resolve(),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
