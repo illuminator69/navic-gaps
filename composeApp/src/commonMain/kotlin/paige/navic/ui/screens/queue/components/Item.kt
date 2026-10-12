@@ -165,7 +165,8 @@ fun QueueScreenItem(
 /**
  * A row of the queue sheet's Related tab. The same card as [QueueScreenItem] (it is drawn by the
  * same [QueueSongCard]), with the queue-building gestures in place of the queue-editing ones:
- * swipe right or the trailing button to add to the queue, swipe left to play next.
+ * swipe right to add to the queue, swipe left to play next. No trailing button: the swipe and the
+ * long-press sheet are the ways in.
  */
 @Composable
 fun RelatedSongItem(
@@ -242,15 +243,7 @@ fun RelatedSongItem(
 				downloadProgress = downloadProgress,
 				onClick = onClick,
 				onLongClick = onLongClick,
-				// Where Up Next has its drag handle.
-				trailing = {
-					IconButton(onClick = onAddToQueue) {
-						Icon(
-							Icons.Outlined.Queue,
-							contentDescription = stringResource(Res.string.action_add_to_queue)
-						)
-					}
-				}
+				trailing = null
 			)
 		}
 	)
