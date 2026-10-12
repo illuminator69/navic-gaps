@@ -2076,10 +2076,11 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override fun playNextSingleLocal(song: DomainSong) {
+	override fun playNextSingleLocal(song: DomainSong, andPlay: Boolean) {
 		viewModelScope.launch {
+			val at = _uiState.value.currentIndex + 1
 			controller?.addMediaItem(
-				_uiState.value.currentIndex + 1,
+				at,
 				withContext(Dispatchers.Default) { song.toMediaItem() }
 			)
 			_uiState.update { state ->
@@ -2094,7 +2095,8 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) song else state.currentSong
 				)
 			}
-			snackBarManager.notifyPlayNext()
+			// By index, not seekToNextMediaItem(): under shuffle "next" is not the slot just filled.
+			if (andPlay) playAt(at) else snackBarManager.notifyPlayNext()
 		}
 	}
 

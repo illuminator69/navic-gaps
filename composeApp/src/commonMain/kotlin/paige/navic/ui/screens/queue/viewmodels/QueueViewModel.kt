@@ -32,7 +32,8 @@ class QueueViewModel(
 
 	// Long-press selection for the per-row sheet. Star and rating are loaded on selection rather
 	// than read off the queue's DomainSong, which is a snapshot taken when the queue was built and
-	// can be stale by the time you open the sheet. Mirrors RelatedSongsViewModel.
+	// can be stale by the time you open the sheet. Also serves the Related tab's rows, so their sheet
+	// is this one too, with the queue's own way of navigating out from under the sheets.
 	private val _selectedSong = MutableStateFlow<DomainSong?>(null)
 	val selectedSong = _selectedSong.asStateFlow()
 
