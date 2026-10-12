@@ -39,6 +39,7 @@ import paige.navic.data.database.dao.RadioDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.dao.SyncActionDao
 import paige.navic.data.database.entities.AlbumEntity
+import paige.navic.data.database.entities.ArtistEntity
 import paige.navic.data.database.entities.PlaylistEntity
 import paige.navic.data.database.entities.PlaylistSongCrossRef
 import paige.navic.data.database.entities.SongEntity
@@ -486,8 +487,9 @@ class DbRepository(
 	 *   dropped only when the SERVER no longer lists it. That is why this is not a "forget when
 	 *   empty" guess like [forgetAlbumIfEmpty] — a merge that could not write every file leaves
 	 *   the old spelling a real artist, and the server is the one that knows.
-	 *   **An answer that lists nobody drops nobody**: `fetchAlbumArtists` reads a Subsonic error
-	 *   envelope as an empty list, and this runs while Navidrome is still indexing a retag.
+	 *   **An answer that lists nobody drops nobody** ([artistListMayReplace]): `fetchAlbumArtists`
+	 *   reads a Subsonic error envelope as an empty list, and this runs while Navidrome is still
+	 *   indexing a retag.
 	 *
 	 * An album Navidrome re-keyed in the process is not found under its old id and is left as
 	 * it is, for the changed-albums sweep and the full pull.
@@ -498,10 +500,7 @@ class DbRepository(
 		else albumDao.getAlbumsByArtist(artistId).first().map { it.album.albumId }
 		// A failure here is albums that could not be read; they stay as they are.
 		if (ids.isNotEmpty()) syncAlbumsById(ids)
-		val listed = sessionManager.fetchAlbumArtists().map { it.toEntity() }
-		if (listed.isEmpty()) error("the server listed no artists")
-		listed.chunked(dbChunkSize).forEach { chunk -> artistDao.insertArtists(chunk) }
-		artistDao.deleteObsoleteArtists(listed.map { it.artistId }.toSet())
+		replaceArtists(sessionManager.fetchAlbumArtists().map { it.toEntity() })
 		artistDao.getArtistById(artistId) != null
 	}
 
@@ -644,13 +643,27 @@ class DbRepository(
 		// raw parse (the library's getArtists deserializer was broken).
 		val flatArtists = sessionManager.fetchAlbumArtists()
 		val entities = flatArtists.map { it.toEntity() }
-
-		entities.chunked(dbChunkSize).forEach { chunk ->
-			artistDao.insertArtists(chunk)
-		}
-		artistDao.deleteObsoleteArtists(entities.map { it.artistId }.toSet())
+		replaceArtists(entities)
 
 		Logger.i("DbRepository", "- Artists Synced: ${entities.size} artists found")
+	}
+
+	/**
+	 * Make Room's artist list the one the server [listed]: upsert those, drop the rest.
+	 *
+	 * Throws instead when the answer lists nobody and Room holds artists
+	 * ([artistListMayReplace], B-069), so nothing is pruned on the strength of it and the
+	 * caller's `Result` is a failure: the full pull stops there and is reported as failed, to
+	 * be tried again on the next cycle; the artist tab's refresh shows its error over the list
+	 * it had.
+	 */
+	private suspend fun replaceArtists(listed: List<ArtistEntity>) {
+		val held = artistDao.getAllArtistIds().size
+		if (!artistListMayReplace(listed.size, held)) {
+			error("the server listed no artists; keeping the $held in the library")
+		}
+		listed.chunked(dbChunkSize).forEach { chunk -> artistDao.insertArtists(chunk) }
+		artistDao.deleteObsoleteArtists(listed.map { it.artistId }.toSet())
 	}
 
 	suspend fun syncRadios(): Result<Unit> = runDbOp {

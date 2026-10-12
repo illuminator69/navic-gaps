@@ -436,6 +436,16 @@ still advancing the speaker's queue. It logs one line when it fires.
   partial pull still upserts, but `LibrarySync.complete` is false and nothing is pruned. A rename
   that moves an album behind the walk mid-scan is still missed by that sync; the bracket is what
   keeps it from being pruned.
+- **An artist list that lists nobody does not prune Room (B-069).** `getArtists` is parsed
+  leniently (`SessionManager.fetchAlbumArtists`), so a Subsonic error envelope reads as an empty
+  list, and `syncArtists` used to prune against it: one failed answer emptied the artist tab until
+  the next pull that worked. `artistListMayReplace` (`domain/repositories/ArtistListing.kt`)
+  believes an empty answer only when Room holds no artists either (a new server, the first sync).
+  Otherwise `DbRepository.replaceArtists`, shared by `syncArtists` and `resyncArtist`, throws: the
+  full pull stops at the artist phase and is reported as failed (the log line with its cause, the
+  "sync failed" banner, `lastFullSyncTime` not stamped, so the next cycle pulls again), and the
+  artist tab's refresh shows its error over the list it had. A library really emptied on the
+  server reads the same way and keeps its artists until the account is logged out.
 - **A song's artists come from the server; only the LINKS are filtered.** `SongEntity.artists` is
   the OpenSubsonic `artists[]` array, so names and ids are authoritative — which retired the fork's
   old split-on-"feat." heuristic entirely. What survives is `util/SongCredits.kt`:
@@ -903,12 +913,12 @@ still advancing the speaker's queue. It logs one line when it fires.
     merge that could not write every file leaves the old spelling a real artist, and only the
     server knows. So it is one `getArtists` and the same prune the full pull does, **which drops
     nobody when the answer lists nobody** (`fetchAlbumArtists` reads a Subsonic error envelope as
-    an empty list; `syncArtists` itself has no such guard). Still listed after a merge that
-    landed (Navidrome mid-scan): one more look 45 s later, then it is the full pull's. Albums
-    Navidrome re-keyed in the process (no MusicBrainz album id) are not named by lb-bot's row and
-    stay listed under their old id until that pull. A blank id from `mergeResyncArtistId` is not
-    null: a merge picked up from the row of an lb-bot older than `from.ndArtistId` has no id for
-    the rewritten spelling, and reads the artist list alone.
+    an empty list; the guard is `artistListMayReplace`, the full pull's too since B-069). Still
+    listed after a merge that landed (Navidrome mid-scan): one more look 45 s later, then it is
+    the full pull's. Albums Navidrome re-keyed in the process (no MusicBrainz album id) are not
+    named by lb-bot's row and stay listed under their old id until that pull. A blank id from
+    `mergeResyncArtistId` is not null: a merge picked up from the row of an lb-bot older than
+    `from.ndArtistId` has no id for the rewritten spelling, and reads the artist list alone.
     **A merge that finished on another device is settled too**, from the list: after every
     successful read of the overrides body, each `merged` row that names `from.ndArtistId`, that
     this device neither follows nor followed to rest (`mergesToResync`) and whose artist Room
