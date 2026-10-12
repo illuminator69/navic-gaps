@@ -43,6 +43,7 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.LbFillStatus
+import paige.navic.domain.manager.LbGapTrack
 
 /**
  * The acquisition vocabulary, PROTOCOL.md §15.2.
@@ -271,3 +272,21 @@ fun gapTrackStateLabel(state: String): StringResource? = when (state) {
 	"done" -> Res.string.lbbot_track_added
 	else -> null
 }
+
+/**
+ * B-071: whether a gap's rows are numbered with their disc — true when some row is on a disc
+ * past the first. lb-bot's positions start again on every disc, so the bare numbers of a
+ * two-disc gap read 1, 2, 1, 2. A single-disc gap, and one whose discs are not known (`disc` 0,
+ * or no field from an older lb-bot), is numbered as it always was.
+ *
+ * Mirrors Feishin's `gapShowsDisc` / `gapPositionLabel`; the two must not drift.
+ */
+fun gapShowsDisc(tracks: List<LbGapTrack>): Boolean = tracks.any { it.disc > 1 }
+
+/**
+ * The number one gap row is listed by: `<disc>-<position>` ("2-1", no padding) in a gap that
+ * [showDisc]s, the bare position otherwise. A row whose own disc is not known (0) keeps the
+ * bare position in either: "0-3" would name a disc that does not exist.
+ */
+fun gapPositionLabel(track: LbGapTrack, showDisc: Boolean): String =
+	if (showDisc && track.disc >= 1) "${track.disc}-${track.position}" else "${track.position}"

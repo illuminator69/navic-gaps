@@ -962,6 +962,17 @@ still advancing the speaker's queue. It logs one line when it fires.
   `downloaded` await a manual match in lb-bot's workspace (the sheet says so and promotes "Open in
   lb-bot"), a `noSourceReason` is shown as lb-bot wrote it, and anything else says "search again"; and
   "Open in lb-bot" opens `<webUrl>/#/gaps/<groupId>` when the hub advertises `webUrl`.
+- **A multi-disc gap numbers its rows by disc (B-071).** lb-bot's gap rows (`tracks[]` of
+  `GET /lb/gap`, `LbGapTrack`) carry `disc` since 2026-10-10 — an integer, 0 for "not known", no
+  field at all from an older lb-bot — because `position` starts again on every disc and a
+  two-disc gap read 1, 2, 1, 2. `gapShowsDisc` is true when some row has `disc > 1`; then
+  `gapPositionLabel` writes a row with `disc >= 1` as `<disc>-<position>` ("2-1", no padding)
+  and leaves a `disc == 0` row its bare position. Otherwise every row is as it was. Rows are
+  never re-sorted. Both live in `FillVocabulary.kt` (`GapPositionLabelTest`) and are Feishin's
+  rule too, mirrored by hand. `GapTracks` in `GapFillSheet.kt` is the only place a gap row's
+  number is printed; its column is 44 dp instead of 28 when discs show ("10-12" measures 27 dp
+  in the bundled font). The canonical tracklists of `MissingAlbumSheet` and
+  `ExternalAlbumScreen` are another shape (`LbTrack`, no `disc`) and print the bare position.
 - **A whole-album download asks a folder for the release's tracks; "Download all M files" is
   the explicit other (B-084).** lb-bot says, on each source row of `GET /lb/album/sources`, how
   many of the folder's seen audio files a plain download would leave out (`extraFiles`).

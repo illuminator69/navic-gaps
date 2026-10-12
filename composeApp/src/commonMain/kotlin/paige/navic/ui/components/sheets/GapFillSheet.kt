@@ -76,6 +76,8 @@ import paige.navic.domain.manager.LbGap
 import paige.navic.domain.manager.LbGapSource
 import paige.navic.domain.manager.LbSourceFiles
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.gapPositionLabel
+import paige.navic.ui.components.common.gapShowsDisc
 import paige.navic.ui.components.common.gapTrackStateLabel
 
 /**
@@ -428,6 +430,10 @@ fun GapFillSheet(
 
 @Composable
 private fun GapTracks(gap: LbGap) {
+	// B-071: a multi-disc gap numbers its rows "2-1", because the positions alone repeat.
+	val showDisc = gapShowsDisc(gap.tracks)
+	// "10-12" is 27 dp in this type, and "12" leaves 17 dp before the title in the 28 it has.
+	val numberWidth = if (showDisc) 44.dp else 28.dp
 	Column {
 		gap.tracks.forEach { track ->
 			Row(
@@ -435,10 +441,10 @@ private fun GapTracks(gap: LbGap) {
 				verticalAlignment = Alignment.CenterVertically
 			) {
 				Text(
-					"${track.position}",
+					gapPositionLabel(track, showDisc),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.size(width = 28.dp, height = 18.dp)
+					modifier = Modifier.size(width = numberWidth, height = 18.dp)
 				)
 				Text(
 					track.title,

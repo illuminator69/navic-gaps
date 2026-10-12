@@ -5071,6 +5071,12 @@ data class LbGapTask(
 @Serializable
 data class LbGapTrack(
 	val position: Int = 0,
+	/**
+	 * The disc [position] counts on (B-071): positions start again on every disc, so a two-disc
+	 * gap lists 1, 2, 1, 2. 0 is "not known" — lb-bot says so itself, and one from before
+	 * 2026-10-10 sends no field at all. Drawn by `gapShowsDisc` / `gapPositionLabel`.
+	 */
+	val disc: Int = 0,
 	val title: String = "",
 	val artist: String = "",
 	val state: String = "missing",
