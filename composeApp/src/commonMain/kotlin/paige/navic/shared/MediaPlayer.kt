@@ -15,8 +15,6 @@ import kotlin.time.Clock
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.sample
@@ -37,6 +35,7 @@ import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.repositories.stateToRestore
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
 import kotlin.time.Duration.Companion.seconds
@@ -547,15 +546,14 @@ abstract class MediaPlayerViewModel(
 	}
 
 	private suspend fun restoreState() {
-		val savedState = stateRepository.state
-			.filterNotNull()
-			.firstOrNull()
-			?.copy(isPaused = true, isLoading = false)
-		if (savedState != null) {
-			_uiState.value = savedState
-			syncPlayerWithState(savedState)
-			checkAndAutoFillQueue()
-		}
+		// Read once, so that "nothing persisted" and "no longer decodes" are answers. This used
+		// to wait for the first state that did decode, which on a fresh install never came —
+		// and `primeIndex` and `observeAndSaveState` wait behind this call, so nothing was ever
+		// persisted either (Q-049).
+		val savedState = stateToRestore(stateRepository.savedState(), _uiState.value) ?: return
+		_uiState.value = savedState
+		syncPlayerWithState(savedState)
+		checkAndAutoFillQueue()
 	}
 
 	@OptIn(FlowPreview::class)

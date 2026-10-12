@@ -382,6 +382,17 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   reporter queues a `stopped` for **that exact id** before its consumer starts, because Navidrome
   ignores a `stopped` whose mediaId differs from the entry. A dropped or refused send keeps the id
   for the next start. Watched closing a force-stopped entry on the phone, 2026-10-02.
+- **The persisted player state is read once, and null is an answer (Q-049).**
+  `PlayerStateRepository.savedState()` is one read of the DataStore: nothing persisted (a fresh
+  install) and a state that no longer decodes both come back null, and `restoreState` moves on.
+  Upstream's shape — a `StateFlow` that starts null, read with `filterNotNull().firstOrNull()` —
+  waits forever in exactly those two cases, and `primeIndex` and `observeAndSaveState` run after
+  `restoreState` in the same coroutine. So a fresh install never wrote `player_state` at all, on
+  its first run or any later one (no queue after a restart, ever), and an undecodable state was
+  never replaced; both watched on the emulator, 2026-10-12. `stateToRestore` restores into an
+  empty player only, never over a queue started since the process came up. Upstream's
+  `PlayerStateRepository.state` flow is gone here: check `restoreState` after a merge that
+  touches either file.
 - **Android Auto knows nothing about the hub.** Its `resolveStreamUrl` builds a *local* Navidrome
   URL, so browsing or playing from Auto during a remote session may start local playback. Untested
   as of alpha59.
