@@ -56,59 +56,32 @@ class DownloadService : Service(), KoinComponent {
 	override fun onBind(intent: Intent?): IBinder? = null
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-		val reasons = controller.heldReasons()
-		val forSync = reasons == setOf(ForegroundReason.SYNC)
-		val id = if (forSync) NotificationIds.SYNC_LIBRARY else NotificationIds.DOWNLOAD_LIBRARY
-
-		if (id != foregroundId) {
-			// A notification must exist before startForeground, and the first one has to
-			// come from here: the manager's progress notification is only published once
-			// a transfer reports, which is well after the window the system allows.
-			val notification = NotificationCompat.Builder(
-				this,
-				if (forSync) CHANNEL_SYNC_ID else CHANNEL_DOWNLOAD_ID
-			)
-				.setSmallIcon(resourceProvider.icNavic)
-				.setContentTitle(applicationInfo.loadLabel(packageManager).toString())
-				.setContentText(if (forSync) SYNCING else DOWNLOADING)
-				.setPriority(NotificationCompat.PRIORITY_LOW)
-				.setOngoing(true)
-				.setOnlyAlertOnce(true)
-				.setProgress(0, 0, true)
-				.build()
-
-			try {
-				ServiceCompat.startForeground(
-					this,
-					id,
-					notification,
-					if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-						ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-					} else {
-						0
-					}
-				)
-			} catch (e: Exception) {
-				// ForegroundServiceStartNotAllowedException and friends. The work keeps
-				// running unprotected rather than the whole queue dying here.
-				Logger.w("DownloadService", "startForeground refused: ${e.message}")
-				giveUp(REFUSED_BLOCK_MS)
-				return START_NOT_STICKY
-			}
-
-			// The notification this service stood behind until now. If its work is over
-			// nobody else will take it down: the manager's own cancel was ignored while
-			// it was a foreground notification.
-			val previous = foregroundId
-			foregroundId = id
-			if (previous == NotificationIds.DOWNLOAD_LIBRARY && ForegroundReason.DOWNLOADS !in reasons) {
-				(getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(previous)
-			}
+		// Non-zero when this command is the answer to a `startForegroundService`. The system
+		// is then waiting for `startForeground`, so it gets one whatever this instance shows.
+		val token = intent?.getIntExtra(DownloadForegroundController.EXTRA_START_TOKEN, 0) ?: 0
+		if (!enterForeground(controller.heldReasons(), always = token != 0)) {
+			giveUp(REFUSED_BLOCK_MS, token)
+			return START_NOT_STICKY
 		}
 
-		// A stop that raced this start: the controller's own stopService found no service yet.
+		// Only from here may the controller stop this service: stopped while the system still
+		// waits for `startForeground`, the whole app dies of
+		// ForegroundServiceDidNotStartInTimeException (B-096). While the start was pending the
+		// controller therefore sent nothing, so what is held now is read in the step that ends
+		// the wait.
+		val reasons = controller.onStartAnswered(token)
+
+		// Everything was released meanwhile, and it falls to this service to stop. By
+		// `startId`: a start asked for since that read is not taken down with it.
 		if (reasons.isEmpty()) {
-			stopSelf()
+			stopSelf(startId)
+			return START_NOT_STICKY
+		}
+
+		// A no-op unless the reasons moved during the wait (a download began under a sync
+		// that was starting).
+		if (!enterForeground(reasons)) {
+			giveUp(REFUSED_BLOCK_MS)
 			return START_NOT_STICKY
 		}
 
@@ -117,6 +90,60 @@ class DownloadService : Service(), KoinComponent {
 		// downloading notification over nothing. The manager restarts it when there
 		// is work.
 		return START_NOT_STICKY
+	}
+
+	/**
+	 * Stand in the foreground behind the notification [reasons] call for; a no-op when this
+	 * service already does, unless [always]. False when the system refused.
+	 */
+	private fun enterForeground(reasons: Set<ForegroundReason>, always: Boolean = false): Boolean {
+		val forSync = reasons == setOf(ForegroundReason.SYNC)
+		val id = if (forSync) NotificationIds.SYNC_LIBRARY else NotificationIds.DOWNLOAD_LIBRARY
+		if (id == foregroundId && !always) return true
+
+		// A notification must exist before startForeground, and the first one has to
+		// come from here: the manager's progress notification is only published once
+		// a transfer reports, which is well after the window the system allows.
+		val notification = NotificationCompat.Builder(
+			this,
+			if (forSync) CHANNEL_SYNC_ID else CHANNEL_DOWNLOAD_ID
+		)
+			.setSmallIcon(resourceProvider.icNavic)
+			.setContentTitle(applicationInfo.loadLabel(packageManager).toString())
+			.setContentText(if (forSync) SYNCING else DOWNLOADING)
+			.setPriority(NotificationCompat.PRIORITY_LOW)
+			.setOngoing(true)
+			.setOnlyAlertOnce(true)
+			.setProgress(0, 0, true)
+			.build()
+
+		try {
+			ServiceCompat.startForeground(
+				this,
+				id,
+				notification,
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+					ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+				} else {
+					0
+				}
+			)
+		} catch (e: Exception) {
+			// ForegroundServiceStartNotAllowedException and friends. The work keeps
+			// running unprotected rather than the whole queue dying here.
+			Logger.w("DownloadService", "startForeground refused: ${e.message}")
+			return false
+		}
+
+		// The notification this service stood behind until now. If its work is over
+		// nobody else will take it down: the manager's own cancel was ignored while
+		// it was a foreground notification.
+		val previous = foregroundId
+		foregroundId = id
+		if (previous != id && previous == NotificationIds.DOWNLOAD_LIBRARY && ForegroundReason.DOWNLOADS !in reasons) {
+			(getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(previous)
+		}
+		return true
 	}
 
 	/**
@@ -138,9 +165,12 @@ class DownloadService : Service(), KoinComponent {
 		}
 	}
 
-	/** Stop on the service's own initiative, and tell the controller nothing is held. */
-	private fun giveUp(blockMs: Long) {
-		controller.onServiceGaveUp(blockMs)
+	/**
+	 * Stop on the service's own initiative, and tell the controller nothing is held. [token] is
+	 * that of the command being given up on, so that its start stops counting as pending.
+	 */
+	private fun giveUp(blockMs: Long, token: Int = 0) {
+		controller.onServiceGaveUp(blockMs, token)
 		stopSelf()
 	}
 

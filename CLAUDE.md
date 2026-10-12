@@ -1273,6 +1273,20 @@ true of invented *album art*, and not of an icon naming the kind.
   the service reports `onServiceGaveUp` instead, and `onTimeout` finishes the park (`NonCancellable`,
   library sweep included) before it stops. Progress notifications carry `setTimeoutAfter(120 s)`:
   with no service behind one, a stalled notification removes itself rather than hanging in the shade.
+  **What the controller does keep is "a start has not been answered yet" (B-096).**
+  `startForegroundService` obliges the service to call `startForeground`, and a `stopService` before
+  it has is not the no-op that stopping an idle service is: the system kills the app with
+  `ForegroundServiceDidNotStartInTimeException`. Every hold shorter than the main thread's way to
+  `onStartCommand` did that — the full pull of a logged-out fresh install fails within a second, so
+  that install died about 5 s into every launch. From `startForegroundService` until the
+  `onStartCommand` carrying that start's token (an Intent extra) has called `startForeground`, the
+  controller sends nothing: no stop, no "reasons changed", no second start (`ForegroundHold.kt`,
+  `ForegroundHoldTest`). That `onStartCommand` ends the wait and reads the reasons in one locked
+  step (`onStartAnswered`), and with nothing held stops itself by `stopSelf(startId)`, which a
+  start asked for since then survives. Only that command, or the start call throwing, clears the
+  token — a timeout or a command an older instance is still working through does not — which is
+  why it cannot go stale the way the flag did. `start` and `stop` also make their call to the
+  system under one lock, so a stop decided before a start cannot arrive after it.
 - **A row left QUEUED / DOWNLOADING by a process death is resumed, not failed.**
   `reconcileInterruptedDownloads` queues it again at its stored quality and source; `Interrupted` is
   now only a row whose song Room no longer holds. `downloadSong` returns at once for a row that is
