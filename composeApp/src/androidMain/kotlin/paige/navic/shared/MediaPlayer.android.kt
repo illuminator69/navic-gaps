@@ -1618,13 +1618,15 @@ class AndroidMediaPlayerViewModel(
 		play: Boolean,
 		savedQueueId: String?,
 		savedQueueKind: String,
-		savedQueueName: String?
+		savedQueueName: String?,
+		// The same songs as media items, where the caller has built them already.
+		prepared: List<MediaItem>? = null
 	): LoadOutcome? {
 		val player = controller ?: return LoadOutcome(false, "no media controller")
 		if (songs.isEmpty()) return LoadOutcome(false, "nothing to play")
 
 		val mediaItems = try {
-			withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+			prepared ?: withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 		} catch (e: Exception) {
 			Logger.e("MediaPlayer", "remote queue conversion failed", e)
 			return LoadOutcome(false, "could not build the queue (${e.message})")
@@ -1744,28 +1746,32 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun reconcileRemoteQueue(songs: List<DomainSong>, index: Int) {
-		viewModelScope.launch {
-			val player = controller ?: return@launch
+		viewModelScope.launch { awaitRemoteQueueReconcile(songs, index) }
+	}
+
+	override suspend fun awaitRemoteQueueReconcile(songs: List<DomainSong>, index: Int) {
+		// Built first and off the main thread, so that looking at the player and editing it
+		// below are ONE main-thread block. They used to straddle this conversion: a track that
+		// ended during it was then rebuilt around as if it were still the one playing.
+		val items = try {
+			withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.e("MediaPlayer", "remote queue conversion failed", e)
+			return
+		}
+		val reloadFrom = withContext(Dispatchers.Main) {
+			val player = controller ?: return@withContext null
 			val currentId = _uiState.value.currentSong?.id
 			val newCurrent = songs.getOrNull(index)
 
 			// Current track changed (or nothing loaded) → caller-visible
 			// behaviour is a plain reload; keep the position at zero.
 			if (currentId == null || newCurrent?.id != currentId || player.mediaItemCount == 0) {
-				val st = _uiState.value
-				// Carry the saved-queue identity through. loadRemoteQueue defaults it to null
-				// ("a transient mirror of someone else's queue"), which is right for a do:load
-				// but wrong here: this is the SAME session being reconciled after an edit, and
-				// blanking the id mid-playback made the next publish mint a fresh one — forking
-				// a second Continue Listening card for one listening session.
-				loadRemoteQueue(
-					songs, index, 0L, !st.isPaused,
-					st.savedQueueId, st.savedQueueKind, st.savedQueueName
-				)
-				return@launch
+				return@withContext _uiState.value
 			}
 
-			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 			val currentIndex = player.currentMediaItemIndex
 
 			// Rebuild the tail, then the head, leaving the playing item alone. Guarded for the
@@ -1791,7 +1797,21 @@ class AndroidMediaPlayerViewModel(
 				}
 			}
 			updatePlaybackState()
-		}
+			null
+		} ?: return
+		// Carry the saved-queue identity through. A load defaults it to null ("a transient
+		// mirror of someone else's queue"), which is right for a do:load but wrong here: this
+		// is the SAME session being reconciled after an edit, and blanking the id mid-playback
+		// made the next publish mint a fresh one — forking a second Continue Listening card
+		// for one listening session.
+		//
+		// Awaited, where this used to launch the load and return: a hub directive is answered
+		// with the player's state, and that state has to be the reloaded one.
+		applyRemoteQueue(
+			songs, index, 0L, !reloadFrom.isPaused,
+			reloadFrom.savedQueueId, reloadFrom.savedQueueKind, reloadFrom.savedQueueName,
+			prepared = items
+		)
 	}
 
 	override fun setPlayerVolume(volume: Float) {
@@ -2004,34 +2024,52 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun clearQueue() {
-		viewModelScope.launch {
-			_uiState.update {
-				it.copy(
-					queue = emptyList(),
-					currentSong = null,
-					currentIndex = -1,
-					progress = 0f,
-					// Clearing ends the session: drop its saved-queue identity so the
-					// SavedQueues screen doesn't keep showing it as the active queue.
-					savedQueueId = null,
-					savedQueueKind = "manual",
-					savedQueueName = null
-				)
-			}
-			controller?.clearMediaItems()
-			// The publish path bails on an empty queue, so without this the hub kept serving the
-			// queue we just threw away — open another client and the whole list was back.
-			remotePlaybackRouter?.takeIf { it.isHubConnected }?.clearSessionQueue()
+		viewModelScope.launch { clearQueueNow(andPause = false) }
+	}
+
+	override suspend fun awaitRemoteClear() = onPlayerForHub { clearQueueNow(andPause = true) }
+
+	/**
+	 * Empty the queue. Main thread.
+	 *
+	 * [andPause] is the hub's clear: `clearMediaItems()` leaves `playWhenReady` as it was, so
+	 * a player emptied mid-song went on saying "playing" over an empty queue, and that is what
+	 * the next report told every device. Paused FIRST, while the queue is still there for the
+	 * pause's listeners to read.
+	 */
+	private fun clearQueueNow(andPause: Boolean) {
+		if (andPause) controller?.pause()
+		_uiState.update {
+			it.copy(
+				queue = emptyList(),
+				currentSong = null,
+				currentIndex = -1,
+				progress = 0f,
+				isPaused = andPause || it.isPaused,
+				// Clearing ends the session: drop its saved-queue identity so the
+				// SavedQueues screen doesn't keep showing it as the active queue.
+				savedQueueId = null,
+				savedQueueKind = "manual",
+				savedQueueName = null
+			)
 		}
+		controller?.clearMediaItems()
+		// The publish path bails on an empty queue, so without this the hub kept serving the
+		// queue we just threw away — open another client and the whole list was back.
+		remotePlaybackRouter?.takeIf { it.isHubConnected }?.clearSessionQueue()
 	}
 
 	override fun playAt(index: Int) {
-		viewModelScope.launch {
-			controller?.let { player ->
-				if (index in 0 until player.mediaItemCount) {
-					player.seekTo(index, 0L)
-					player.play()
-				}
+		viewModelScope.launch { playAtNow(index) }
+	}
+
+	override suspend fun awaitRemotePlayAt(index: Int) = onPlayerForHub { playAtNow(index) }
+
+	private fun playAtNow(index: Int) {
+		controller?.let { player ->
+			if (index in 0 until player.mediaItemCount) {
+				player.seekTo(index, 0L)
+				player.play()
 			}
 		}
 	}
@@ -2251,6 +2289,29 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override suspend fun awaitRemotePause() = onPlayerForHub { controller?.pause() }
+
+	override suspend fun awaitRemoteResume() = onPlayerForHub { controller?.play() }
+
+	/**
+	 * Run a hub directive's player calls on the main thread, and return when they have run.
+	 *
+	 * That is enough for [localUiState] to show the result. A `MediaController` changes its
+	 * own state inside `play()`, `pause()`, `seekTo()` and the queue edits and flushes its
+	 * listeners before the call returns (media3 1.11: `MediaControllerImplBase` masks its
+	 * `PlayerInfo` and ends in `ListenerSet.flushEvents()`), so the listener in
+	 * [setupController] has already written `_uiState` by the time [block] ends. The state is
+	 * derived once more all the same, for a call that changed nothing and so fired nothing:
+	 * what the hub is then told was read from the player now, not left by an earlier event.
+	 *
+	 * Not `Main.immediate`: always a dispatch of its own, never inside a listener's flush.
+	 */
+	private suspend fun onPlayerForHub(block: () -> Unit) = withContext(Dispatchers.Main) {
+		block()
+		// Not over an emptied queue: an empty timeline reads as index 0 (see removeFromQueue).
+		if (_uiState.value.queue.isNotEmpty()) updatePlaybackState()
+	}
+
 	override fun next() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
@@ -2296,28 +2357,35 @@ class AndroidMediaPlayerViewModel(
 			router.seek((normalized.coerceIn(0f, 1f) * durationMs).toLong())
 			return
 		}
-		viewModelScope.launch(Dispatchers.Main.immediate) {
-			controller?.let {
-				// A stream with no declared length (a first play of an uncached transcode, see
-				// [getStreamUrl]) cannot be seeked: ExoPlayer turns every seek into it into a
-				// seek to 0, so dragging the scrubber would restart the song. Ignore it
-				// instead; the progress loop puts the bar back where playback actually is.
-				// A placeholder window is still preparing and says nothing yet, so a seek
-				// issued then goes through, as it always did.
-				val timeline = it.currentTimeline
-				val index = it.currentMediaItemIndex
-				if (!timeline.isEmpty && index in 0 until timeline.windowCount) {
-					val window = timeline.getWindow(index, Timeline.Window())
-					if (!window.isPlaceholder && !window.isSeekable) {
-						updateProgress()
-						return@let
-					}
+		viewModelScope.launch(Dispatchers.Main.immediate) { seekNow(normalized) }
+	}
+
+	// No re-routing here, unlike [seek]: a directive is for this device's own player. Right
+	// after a transfer in, "another device is active" can still read true for a moment, and
+	// the hub's seek would have gone back to the hub as a new one.
+	override suspend fun awaitRemoteSeek(normalized: Float) = onPlayerForHub { seekNow(normalized) }
+
+	private fun seekNow(normalized: Float) {
+		controller?.let {
+			// A stream with no declared length (a first play of an uncached transcode, see
+			// [getStreamUrl]) cannot be seeked: ExoPlayer turns every seek into it into a
+			// seek to 0, so dragging the scrubber would restart the song. Ignore it
+			// instead; the progress loop puts the bar back where playback actually is.
+			// A placeholder window is still preparing and says nothing yet, so a seek
+			// issued then goes through, as it always did.
+			val timeline = it.currentTimeline
+			val index = it.currentMediaItemIndex
+			if (!timeline.isEmpty && index in 0 until timeline.windowCount) {
+				val window = timeline.getWindow(index, Timeline.Window())
+				if (!window.isPlaceholder && !window.isSeekable) {
+					updateProgress()
+					return@let
 				}
-				val target = (currentDurationMs(it) * normalized).toLong()
-				it.seekTo(target)
-				_uiState.update { state ->
-					state.copy(progress = normalized)
-				}
+			}
+			val target = (currentDurationMs(it) * normalized).toLong()
+			it.seekTo(target)
+			_uiState.update { state ->
+				state.copy(progress = normalized)
 			}
 		}
 	}

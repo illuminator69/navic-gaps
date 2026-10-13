@@ -515,6 +515,29 @@ abstract class MediaPlayerViewModel(
 	 */
 	open fun reconcileRemoteQueue(songs: List<DomainSong>, index: Int) {}
 
+	// The commands a hub directive drives, as the command echo needs them (PROTOCOL §5.3,
+	// duty 2): each returns only once its player calls have RUN and [localUiState] shows the
+	// result. [pause], [resume], [seek], [playAt], [clearQueue] and [reconcileRemoteQueue] hand
+	// their work to the main thread and return at once, which is right for a button and wrong
+	// for the hub: it was told "paused" on the strength of a call that had not happened yet,
+	// while the reporter went on sending the state from before it.
+	//
+	// The defaults are those fire-and-forget calls, for a platform with no hub receiver.
+
+	open suspend fun awaitRemotePause() = pause()
+	open suspend fun awaitRemoteResume() = resume()
+
+	/** [seek] on THIS device's player, whoever the session is on: a directive is never re-routed. */
+	open suspend fun awaitRemoteSeek(normalized: Float) = seek(normalized)
+	open suspend fun awaitRemotePlayAt(index: Int) = playAt(index)
+
+	/** [clearQueue], and the player stopped as well: an emptied queue is not "playing". */
+	open suspend fun awaitRemoteClear() = clearQueue()
+
+	/** [reconcileRemoteQueue], including the reload it falls back to. */
+	open suspend fun awaitRemoteQueueReconcile(songs: List<DomainSong>, index: Int) =
+		reconcileRemoteQueue(songs, index)
+
 	/**
 	 * navi-connect autoplay: append songs to the end of the queue without
 	 * disturbing the currently-playing track. Open so platforms without it

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
@@ -227,6 +229,24 @@ class HubManager(
 	private var lastReportedIndex = -2
 	private var lastReportedPaused: Boolean? = null
 	private var lastTickMs = 0L
+
+	/**
+	 * The command echo (PROTOCOL §5.2-5.3, rules in `DoEcho.kt`): the `applied` every report
+	 * carries, and the directive still waiting to be seen in the player.
+	 *
+	 * In a flow and not in plain fields like the guards above, because two coroutines move it:
+	 * the frame loop ([handleDo], `welcome`) and the reporter. Every change is one
+	 * compare-and-set ([moveEcho]).
+	 */
+	private val doEcho = MutableStateFlow(DoEcho())
+
+	/**
+	 * The queue the player was left holding, paused, by a load that failed and was not a
+	 * transfer's: a queue the hub's session does not have. While the player still shows
+	 * exactly that, the reporter says nothing, or the pause this device has just done itself
+	 * would be reported with the OLD queue's index and position (see [afterFailedLoad]).
+	 */
+	private val heldAfterFailedLoad = MutableStateFlow<HeldQueue?>(null)
 
 	init {
 		startRemoteMirror()
@@ -686,6 +706,10 @@ class HubManager(
 			// directly, so nothing built for this connection can end up on its successor.
 			val out = Channel<JsonObject>(Channel.UNLIMITED)
 			outbox = out
+			// `welcome` is the echo's reset point, and it is reset there. Here as well,
+			// because the reporter starts before `welcome` is read: a report leaving in
+			// between must not carry the previous connection's number onto this one.
+			resetEcho()
 			val writer = launch {
 				try {
 					for (frame in out) send(Frame.Text(frame.toString()))
@@ -714,6 +738,10 @@ class HubManager(
 						// `loaded` we took ten seconds to earn cannot satisfy the NEXT transfer
 						// to this device — which is how a stale ack used to pass for a fresh one.
 						add("transferAckV2")
+						// PROTOCOL §5.2-5.3: every report echoes the number of the last
+						// directive carried out, and keeps the five duties that makes a
+						// promise of (`DoEcho.kt`, [handleDo], [reporterLoop]).
+						add("cmdEcho")
 					}
 				}
 			})
@@ -1156,6 +1184,10 @@ class HubManager(
 		if (frameRereadsOverrideLists(frameType)) lbBotManager.requestArtistOverridesRefreshSoon()
 		when (frameType) {
 			"welcome" -> {
+				// PROTOCOL §5.2: the one point where both sides forget the directive numbers.
+				// The hub writes no `do` before this frame, so nothing of this connection is
+				// lost, and nothing of the last one survives.
+				resetEcho()
 				val id = msg["deviceId"]?.jsonPrimitive?.content
 				if (id != null) {
 					_myDeviceId.value = id
@@ -1467,117 +1499,198 @@ class HubManager(
 
 	private suspend fun handleDo(msg: JsonObject) {
 		hubDrivenUntilMs = nowMs() + 2000
-		when (msg["cmd"]?.jsonPrimitive?.content) {
-			"load" -> {
-				val transferId = msg["transferId"]?.jsonPrimitive?.contentOrNullSafe()
-				// The hub sends the deadline it is holding us to (§7.2). Keeping our own would let a
-				// slow load land after the rollback — audio on a device no client thinks is active.
-				val budgetMs = msg["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000L
-				val tracks = msg["tracks"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
-				// Resolve 1:1 (placeholders for un-synced songs) so the hub index
-				// stays aligned — dropping a song would shift the index and play
-				// the wrong track.
-				val songs = resolveQueue(tracks)
-				if (songs.isEmpty()) {
-					Logger.e("HubManager", "do:load — empty track list")
-					// PROTOCOL §7.1: the hub commits the active slot before sending this load, so
-					// staying silent would leave the whole stack believing this device took a
-					// session it cannot play a note of.
-					sendLoaded(false, "nothing in the queue resolved", transferId)
-					return
+		val cmd = msg["cmd"]?.jsonPrimitive?.content
+		// PROTOCOL §5.2: the hub numbers the directives that change what a report says. The
+		// number is owed back on EVERY way out of this function (§5.3, duty 1: carried out,
+		// refused, failed or superseded), hence the `finally`. And only once the command has
+		// run (duty 2), hence every player call below is awaited: each used to be posted to
+		// the main thread and left, while the reporter went on describing the state before it.
+		val seq = msg["seq"]?.jsonPrimitive?.intOrNull
+		val connection = doEcho.value.connection
+		// What the command should leave in the player; null where there is nothing to wait for.
+		var expectIndex: Int? = null
+		var expectPositionMs: Long? = null
+		var expectation: DoExpectation? = null
+		// The report owed the moment `applied` moves (duty 4).
+		var echo: EchoReport = EchoReport.FromPlayer
+		var cancelled = false
+		try {
+			when (cmd) {
+				"load" -> {
+					val transferId = msg["transferId"]?.jsonPrimitive?.contentOrNullSafe()
+					// The hub sends the deadline it is holding us to (§7.2). Keeping our own would let a
+					// slow load land after the rollback — audio on a device no client thinks is active.
+					val budgetMs = msg["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000L
+					val tracks = msg["tracks"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
+					val index = msg["index"]?.jsonPrimitive?.intOrNull ?: 0
+					val positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L
+					// Whatever an earlier failed load left the player holding, this one replaces.
+					heldAfterFailedLoad.value = null
+					// Resolve 1:1 (placeholders for un-synced songs) so the hub index
+					// stays aligned — dropping a song would shift the index and play
+					// the wrong track.
+					val songs = resolveQueue(tracks)
+					if (songs.isEmpty()) {
+						Logger.e("HubManager", "do:load — empty track list")
+						// PROTOCOL §7.1: the hub commits the active slot before sending this load, so
+						// staying silent would leave the whole stack believing this device took a
+						// session it cannot play a note of.
+						sendLoaded(false, "nothing in the queue resolved", transferId)
+						echo = afterFailedLoad(transferId, index, positionMs, songs)
+						return
+					}
+					val play = msg["play"]?.jsonPrimitive?.booleanOrNull ?: true
+					lastQueueSig = songs.joinToString(",") { it.id }
+					// ACK_RESERVE_MS is kept back for this frame's own trip: answering AT the deadline is
+					// the same as not answering, because the hub has already rolled the slot back by then.
+					val outcome = mediaPlayer.awaitRemoteQueueLoad(
+						songs, index, positionMs, play,
+						(budgetMs - ACK_RESERVE_MS).coerceAtLeast(1_000L)
+					)
+					// A superseded load has no standing to answer for a queue it no longer owns.
+					if (outcome.error == "superseded by a newer load") return
+					sendLoaded(outcome.ok, outcome.error, transferId)
+					if (!outcome.ok) {
+						Logger.w("HubManager", "do:load failed: ${outcome.error}")
+						echo = afterFailedLoad(transferId, index, positionMs, songs)
+					}
+					// No expectation: the awaited outcome above IS the look at the player.
 				}
-				val index = msg["index"]?.jsonPrimitive?.intOrNull ?: 0
-				val positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L
-				val play = msg["play"]?.jsonPrimitive?.booleanOrNull ?: true
-				lastQueueSig = songs.joinToString(",") { it.id }
-				// ACK_RESERVE_MS is kept back for this frame's own trip: answering AT the deadline is
-				// the same as not answering, because the hub has already rolled the slot back by then.
-				val outcome = mediaPlayer.awaitRemoteQueueLoad(
-					songs, index, positionMs, play,
-					(budgetMs - ACK_RESERVE_MS).coerceAtLeast(1_000L)
+
+				"play" -> mediaPlayer.awaitRemoteResume()
+				"pause" -> mediaPlayer.awaitRemotePause()
+
+				"jump" -> {
+					val index = msg["index"]?.jsonPrimitive?.intOrNull ?: 0
+					mediaPlayer.awaitRemotePlayAt(index)
+					expectIndex = index
+				}
+
+				"seek" -> {
+					val positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L
+					val durationMs = mediaPlayer.localUiState.value.currentSong
+						?.duration?.inWholeMilliseconds ?: 0L
+					// With no duration to seek within, the seek is refused: nothing to wait for.
+					if (durationMs > 0) {
+						mediaPlayer.awaitRemoteSeek((positionMs.toFloat() / durationMs).coerceIn(0f, 1f))
+						expectPositionMs = positionMs
+					}
+				}
+
+				"queueChanged" -> {
+					val tracks = msg["tracks"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
+					val songs = resolveQueue(tracks)
+					if (songs.isEmpty()) return
+					val index = msg["index"]?.jsonPrimitive?.intOrNull ?: 0
+					lastQueueSig = songs.joinToString(",") { it.id }
+					// Edits the queue around the current track without restarting
+					// it (falls back to a reload when the current track changed).
+					mediaPlayer.awaitRemoteQueueReconcile(songs, index)
+					expectIndex = index
+				}
+
+				// Emptying the queue can't ride on `queueChanged` — it carries a track
+				// list, and an empty one is indistinguishable from "nothing to apply".
+				"clear" -> {
+					lastQueueSig = ""
+					// Stops as well: an emptied player that still says "playing" is what the
+					// next report used to tell every device.
+					mediaPlayer.awaitRemoteClear()
+				}
+
+				"setVolume" -> {
+					val level = msg["level"]?.jsonPrimitive?.intOrNull ?: 100
+					mediaPlayer.setPlayerVolume(level / 100f)
+				}
+
+				"setRepeat" -> {
+					// media3 constants: 0 = off, 1 = one, 2 = all
+					val mode = when (msg["mode"]?.jsonPrimitive?.content) {
+						"one" -> 1
+						"all" -> 2
+						else -> 0
+					}
+					mediaPlayer.applyRemoteRepeat(mode)
+				}
+
+				"setShuffle" -> mediaPlayer.applyRemoteShuffle(
+					msg["on"]?.jsonPrimitive?.booleanOrNull ?: false
 				)
-				// A superseded load has no standing to answer for a queue it no longer owns.
-				if (outcome.error == "superseded by a newer load") return
-				sendLoaded(outcome.ok, outcome.error, transferId)
-				if (!outcome.ok) Logger.w("HubManager", "do:load failed: ${outcome.error}")
-			}
 
-			"play" -> mediaPlayer.resume()
-			"pause" -> mediaPlayer.pause()
-			"jump" -> mediaPlayer.playAt(msg["index"]?.jsonPrimitive?.intOrNull ?: 0)
-
-			"seek" -> {
-				val positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L
-				val durationMs = mediaPlayer.localUiState.value.currentSong
-					?.duration?.inWholeMilliseconds ?: 0L
-				if (durationMs > 0) {
-					mediaPlayer.seek((positionMs.toFloat() / durationMs).coerceIn(0f, 1f))
+				"release" -> {
+					// Stop, THEN the final report and `released`: the hub resumes the next device
+					// at the spot these two name, so they are read once the pause has run. They
+					// used to leave before it, with the player still moving.
+					mediaPlayer.awaitRemotePause()
+					// We're no longer the active device; the next time we claim it, the
+					// guards must not still describe this handed-off session.
+					resetReporterGuards()
+					// A release sends its own report and no other follows it (§5.3, duty 4). A
+					// directive still waiting on the player is judged by the state it reads.
+					echo = EchoReport.None
+					val seen = echoPlayerState(mediaPlayer.localUiState.value)
+					moveEcho { it.evaluated(seen, nowMs()) }
+					// `applied` before the state, as in every report (see [reporterLoop]).
+					val applied = doEcho.value.applied
+					val state = mediaPlayer.localUiState.value
+					val positionMs = positionOf(state)
+					sendFrame(buildJsonObject {
+						put("t", "report")
+						put("positionMs", positionMs)
+						put("index", state.currentIndex.coerceAtLeast(0))
+						put("isPlaying", false)
+						put("applied", applied)
+					})
+					sendFrame(buildJsonObject {
+						put("t", "released")
+						put("positionMs", positionMs)
+						put("index", state.currentIndex.coerceAtLeast(0))
+						// §7.2 — name the handoff this belongs to, so a duplicate from an earlier
+						// one cannot complete it (and rewind the session to where we were then).
+						msg["transferId"]?.jsonPrimitive?.contentOrNullSafe()?.let { put("transferId", it) }
+					})
 				}
 			}
-
-			"queueChanged" -> {
-				val tracks = msg["tracks"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
-				val songs = resolveQueue(tracks)
-				if (songs.isEmpty()) return
-				val index = msg["index"]?.jsonPrimitive?.intOrNull ?: 0
-				lastQueueSig = songs.joinToString(",") { it.id }
-				// Edits the queue around the current track without restarting
-				// it (falls back to a reload when the current track changed).
-				mediaPlayer.reconcileRemoteQueue(songs, index)
-			}
-
-			// Emptying the queue can't ride on `queueChanged` — it carries a track
-			// list, and an empty one is indistinguishable from "nothing to apply".
-			"clear" -> {
-				lastQueueSig = ""
-				mediaPlayer.clearQueue()
-			}
-
-			"setVolume" -> {
-				val level = msg["level"]?.jsonPrimitive?.intOrNull ?: 100
-				mediaPlayer.setPlayerVolume(level / 100f)
-			}
-
-			"setRepeat" -> {
-				// media3 constants: 0 = off, 1 = one, 2 = all
-				val mode = when (msg["mode"]?.jsonPrimitive?.content) {
-					"one" -> 1
-					"all" -> 2
-					else -> 0
-				}
-				mediaPlayer.applyRemoteRepeat(mode)
-			}
-
-			"setShuffle" -> mediaPlayer.applyRemoteShuffle(
-				msg["on"]?.jsonPrimitive?.booleanOrNull ?: false
-			)
-
-			"release" -> {
-				// Final position report, THEN released — the hub uses that
-				// report to resume the next device at our exact spot.
-				mediaPlayer.pause()
-				// We're no longer the active device; the next time we claim it, the
-				// guards must not still describe this handed-off session.
-				resetReporterGuards()
-				val state = mediaPlayer.localUiState.value
-				val positionMs = state.currentSong?.duration
-					?.inWholeMilliseconds?.let { (state.progress * it).toLong() } ?: 0L
-				sendFrame(buildJsonObject {
-					put("t", "report")
-					put("positionMs", positionMs)
-					put("index", state.currentIndex.coerceAtLeast(0))
-					put("isPlaying", false)
-				})
-				sendFrame(buildJsonObject {
-					put("t", "released")
-					put("positionMs", positionMs)
-					put("index", state.currentIndex.coerceAtLeast(0))
-					// §7.2 — name the handoff this belongs to, so a duplicate from an earlier
-					// one cannot complete it (and rewind the session to where we were then).
-					msg["transferId"]?.jsonPrimitive?.contentOrNullSafe()?.let { put("transferId", it) }
-				})
-			}
+			// Reached only when the command ran: an early return above is a refusal, and a
+			// refusal has nothing to wait for.
+			if (seq != null) expectation = doExpectation(cmd, seq, expectIndex, expectPositionMs, nowMs())
+		} catch (e: CancellationException) {
+			// The connection this directive came in on is being torn down, and the next
+			// `welcome` starts the numbers over: nothing is owed on its behalf.
+			cancelled = true
+			throw e
+		} finally {
+			if (seq != null && !cancelled) settleDirective(connection, seq, expectation, echo)
 		}
+	}
+
+	/**
+	 * What a load answered `loaded{ok:false}` owes the hub besides that answer (PROTOCOL
+	 * §5.3, duty 4), as the report to send when `applied` moves.
+	 *
+	 * A transfer's load (it carried a `transferId`): none. The hub rolls the slot back on the
+	 * answer alone, and a report would describe a player it has already given up on.
+	 *
+	 * Any other load: this device still holds the session, so it stops, and says so. That
+	 * report repeats the load's OWN index and position under "not playing", and is not read
+	 * from the player: the player may still hold the queue it had before, and the hub would
+	 * write that queue's index and position over the new one's.
+	 */
+	private suspend fun afterFailedLoad(
+		transferId: String?,
+		index: Int,
+		positionMs: Long,
+		songs: List<DomainSong>
+	): EchoReport {
+		if (transferId != null) return EchoReport.None
+		mediaPlayer.awaitRemotePause()
+		// The same goes for the reporter, which would report that pause from the old queue.
+		// Marked AFTER the pause has run and BEFORE `applied` moves: [reporterLoop] reads
+		// `applied`, then this, then the player, so a report that carries the new number has
+		// seen the mark, and one that has not seen it carries the old number and is dropped.
+		val left = mediaPlayer.localUiState.value
+		if (left.queue !== songs) heldAfterFailedLoad.value = HeldQueue(left.queue)
+		return EchoReport.OfFailedLoad(index, positionMs)
 	}
 
 	private suspend fun resolveSongs(ids: List<String>): List<DomainSong> {
@@ -1729,37 +1842,150 @@ class HubManager(
 	// Outbound: reports + queue publishing
 	// ------------------------------------------------------------------ //
 
-	private suspend fun reporterLoop() {
+	private suspend fun reporterLoop(): Unit = coroutineScope {
+		// The deadline of a directive still waiting to be seen in the player (PROTOCOL §5.3,
+		// duty 5). A coroutine of its own, because a pause, a clear or a paused seek that did
+		// not take emits nothing further for the collector below to judge it by.
+		launch {
+			doEcho.collectLatest { echo ->
+				val waiting = echo.pending ?: return@collectLatest
+				delay((waiting.deadlineMs - nowMs()).coerceIn(0L, DO_ECHO_DEADLINE_MS))
+				// The deadline IS this delay, whatever the wall clock says by now.
+				if (moveEcho { it.settled(echo.connection, waiting.seq) }) {
+					sendEchoReport(EchoReport.FromPlayer)
+				}
+			}
+		}
 		mediaPlayer.localUiState.collect { state ->
 			try {
 				val now = nowMs()
-				val positionMs = state.currentSong?.duration
-					?.inWholeMilliseconds?.let { (state.progress * it).toLong() } ?: 0L
+				// A directive waiting on the player is judged by every state it emits.
+				judgeWaitingDirective(now)
 
 				if (routeLocalPlayIfRemote(state, now)) return@collect
-				publishQueueIfOurs(state, positionMs, now)
+				publishQueueIfOurs(state, positionOf(state), now)
 
 				if (!isActiveDevice()) return@collect
 
-				val stateChanged = state.currentIndex != lastReportedIndex ||
-					state.isPaused != lastReportedPaused
-				val tickDue = !state.isPaused && now - lastTickMs >= 1000
+				// `applied` is read BEFORE the player's state, never after. The number moves
+				// only once a directive's effect is in the player, so a state read after the
+				// number cannot be older than the number claims. Read the other way round,
+				// the state this collector was handed (from before a skip) could leave with
+				// the number the frame loop set after it, and the hub would believe it.
+				val applied = doEcho.value.applied
+				val held = heldAfterFailedLoad.value
+				val current = mediaPlayer.localUiState.value
+				if (held != null) {
+					// Paused over a queue the hub does not have: nothing true to say about
+					// the session's index or position. Any change ends it: playing publishes
+					// this queue (above), and a new queue is no longer the one held.
+					if (current.isPaused && current.queue === held.queue) return@collect
+					heldAfterFailedLoad.compareAndSet(held, null)
+				}
+
+				val stateChanged = current.currentIndex != lastReportedIndex ||
+					current.isPaused != lastReportedPaused
+				val tickDue = !current.isPaused && now - lastTickMs >= 1000
 
 				if (stateChanged || tickDue) {
-					lastReportedIndex = state.currentIndex
-					lastReportedPaused = state.isPaused
+					lastReportedIndex = current.currentIndex
+					lastReportedPaused = current.isPaused
 					lastTickMs = now
-					sendFrame(buildJsonObject {
-						put("t", "report")
-						put("positionMs", positionMs)
-						put("index", state.currentIndex.coerceAtLeast(0))
-						put("isPlaying", !state.isPaused)
-					})
+					sendFrame(reportOf(current, applied))
 				}
 			} catch (e: Exception) {
 				Logger.e("HubManager", "report failed", e)
 			}
 		}
+	}
+
+	// --- The command echo (PROTOCOL §5.2-5.3; the rules are in DoEcho.kt) ----------------------
+
+	/** `applied` is 0 again and nothing is waited for: a new connection, and its `welcome`. */
+	private fun resetEcho() {
+		doEcho.update { it.onNewConnection() }
+		heldAfterFailedLoad.value = null
+	}
+
+	/**
+	 * Change the echo state in one compare-and-set, and say whether `applied` moved. A move
+	 * obliges whoever made it to report at once (§5.3, duty 4): the frame loop and the
+	 * reporter can both try, and exactly one of them is told true.
+	 */
+	private inline fun moveEcho(transform: (DoEcho) -> DoEcho): Boolean {
+		while (true) {
+			val before = doEcho.value
+			val after = transform(before)
+			if (doEcho.compareAndSet(before, after)) {
+				return after.connection == before.connection && after.applied > before.applied
+			}
+		}
+	}
+
+	private fun echoPlayerState(state: PlayerUiState) = EchoPlayerState(
+		isPaused = state.isPaused,
+		// As a report gives it.
+		index = state.currentIndex.coerceAtLeast(0),
+		positionMs = positionOf(state),
+		queueEmpty = state.queue.isEmpty()
+	)
+
+	/**
+	 * A numbered directive is over. With nothing to wait for (a load, a refusal, a failure)
+	 * `applied` moves now. Otherwise its [expectation] is registered and judged AT ONCE against
+	 * the player: the command has run, so the value is there, and a pause, a clear or a paused
+	 * seek emits nothing more — waiting for the next emission would cost the whole deadline.
+	 */
+	private fun settleDirective(connection: Int, seq: Int, expectation: DoExpectation?, echo: EchoReport) {
+		val moved = if (expectation == null) {
+			moveEcho { it.settled(connection, seq) }
+		} else {
+			val seen = echoPlayerState(mediaPlayer.localUiState.value)
+			val now = nowMs()
+			moveEcho { it.expecting(connection, expectation).evaluated(seen, now) }
+		}
+		if (moved) sendEchoReport(echo)
+	}
+
+	/** The reporter's side of the same judgement: the waiting directive against the player now. */
+	private fun judgeWaitingDirective(now: Long) {
+		if (doEcho.value.pending == null) return
+		val seen = echoPlayerState(mediaPlayer.localUiState.value)
+		if (moveEcho { it.evaluated(seen, now) }) sendEchoReport(EchoReport.FromPlayer)
+	}
+
+	/**
+	 * The report owed the moment `applied` moves: read from the player then, and sent whether
+	 * or not this device believes it is the active one. The hub decides that, and right after
+	 * a transfer in this device's own idea of it can be a frame behind.
+	 */
+	private fun sendEchoReport(echo: EchoReport) {
+		// `applied` before the state: see [reporterLoop].
+		val applied = doEcho.value.applied
+		when (echo) {
+			EchoReport.None -> return
+			EchoReport.FromPlayer -> enqueue(reportOf(mediaPlayer.localUiState.value, applied))
+			is EchoReport.OfFailedLoad -> enqueue(buildJsonObject {
+				put("t", "report")
+				put("positionMs", echo.positionMs.coerceAtLeast(0))
+				put("index", echo.index.coerceAtLeast(0))
+				put("isPlaying", false)
+				put("applied", applied)
+			})
+		}
+	}
+
+	/** Where [state]'s playhead is: the player's fraction of the library's duration. */
+	private fun positionOf(state: PlayerUiState): Long =
+		state.currentSong?.duration?.inWholeMilliseconds?.let { (state.progress * it).toLong() } ?: 0L
+
+	/** One `report` of [state]. [applied] must have been read before [state] was. */
+	private fun reportOf(state: PlayerUiState, applied: Int): JsonObject = buildJsonObject {
+		put("t", "report")
+		put("positionMs", positionOf(state))
+		put("index", state.currentIndex.coerceAtLeast(0))
+		put("isPlaying", !state.isPaused)
+		put("applied", applied)
 	}
 
 	private var lastRoutedAtMs = 0L
@@ -1921,6 +2147,21 @@ class HubManager(
 		const val HUB_QUEUE_ADOPT_OVERLAP = 0.5
 	}
 }
+
+/** The report this device owes the hub the moment `applied` moves (PROTOCOL §5.3, duty 4). */
+private sealed interface EchoReport {
+	/** The player's state, read at that moment. */
+	data object FromPlayer : EchoReport
+
+	/** None: a `release` sends its own, and a transfer's failed load is the hub's to roll back. */
+	data object None : EchoReport
+
+	/** "Not playing", at the index and position the failed load itself named. */
+	data class OfFailedLoad(val index: Int, val positionMs: Long) : EchoReport
+}
+
+/** A queue by identity: the list object the player holds, not what is in it. */
+private class HeldQueue(val queue: List<DomainSong>)
 
 // Small helpers for tolerant JSON access ------------------------------------
 
