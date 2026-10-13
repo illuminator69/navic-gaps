@@ -116,7 +116,12 @@ data class RemoteSessionState(
 	 * still carrying the old position are ignored until it lapses (`CommandHold.kt`). A
 	 * snapshot built from a `session` frame carries none.
 	 */
-	val seekHold: SeekHold? = null
+	val seekHold: SeekHold? = null,
+	/**
+	 * Values this device has commanded and the hub has not answered for yet (`ActPins.kt`):
+	 * the fields above show them, and each pin keeps what the hub last said underneath.
+	 */
+	val pins: ActPins = ActPins()
 ) {
 	val nowPlaying: RemoteTrack? get() = tracks.getOrNull(index)
 }
@@ -455,9 +460,31 @@ class HubManager(
 	}
 
 	// Controller actions for the remote-control UI (drive the ACTIVE device).
-	fun actPlayPause() = sendAct("playpause")
-	fun actPlay() = sendAct("play")
-	fun actPause() = sendAct("pause")
+	/**
+	 * The play button. A hub that answers acts is sent `play` or `pause`, whichever the button
+	 * was offering, and not the hub-side toggle: the mirror shows the new state at once, and a
+	 * toggle would then be applied to a state the user was not looking at.
+	 */
+	fun actPlayPause() {
+		if (!hubAcksActs || !_connected.value) return sendAct("playpause")
+		commandPlaying(!_remoteSession.value.isPlaying)
+	}
+
+	fun actPlay() = commandPlaying(true)
+	fun actPause() = commandPlaying(false)
+
+	private fun commandPlaying(playing: Boolean) {
+		val action = if (playing) "play" else "pause"
+		val cid = pinCid() ?: return sendAct(action)
+		// Pinned before it is sent: the ack cannot then be here first.
+		pushRemoteProgress(_remoteSession.updateAndGet { it.pinPlaying(playing, cid, nowMs()) })
+		sendAsync(buildJsonObject {
+			put("t", "act")
+			put("action", action)
+			put("cid", cid)
+		})
+	}
+
 	fun actNext() = sendAct("next")
 	fun actPrevious() = sendAct("previous")
 
@@ -472,18 +499,26 @@ class HubManager(
 	 * `RemoteSessionPlayer`.
 	 */
 	fun actSeek(positionMs: Long) {
+		// A hub that answers acts: the target is pinned until this act's ack, and no clock
+		// decides (`ActPins.kt`). Otherwise the timed hold.
+		val cid = pinCid()
+		// Not while the socket is down: the frame is dropped, and the mirror would show a
+		// seek the receiver never got.
+		if (_connected.value) {
+			val now = nowMs()
+			val session = _remoteSession.updateAndGet {
+				if (cid != null) it.pinPosition(positionMs, cid, now) else it.afterSeekSent(positionMs, now)
+			}
+			// Straight into the player state as well, not only through the mirror's collector:
+			// the slider that was just let go reads the playhead on its very next frame.
+			pushRemoteProgress(session)
+		}
 		sendAsync(buildJsonObject {
 			put("t", "act")
 			put("action", "seek")
 			put("positionMs", positionMs)
+			cid?.let { put("cid", it) }
 		})
-		// Not while the socket is down: that frame was dropped, and the mirror would show a
-		// seek the receiver never got.
-		if (!_connected.value) return
-		val session = _remoteSession.updateAndGet { it.afterSeekSent(positionMs, nowMs()) }
-		// Straight into the player state as well, not only through the mirror's collector: the
-		// slider that was just let go reads the playhead on its very next frame.
-		pushRemoteProgress(session)
 	}
 
 	fun actJump(index: Int) {
@@ -496,12 +531,20 @@ class HubManager(
 
 	/** Set the ACTIVE remote device's volume (0..100). */
 	fun actSetVolume(level: Int) {
+		val target = level.coerceIn(0, 100)
+		val cid = pinCid()
+		if (cid != null) _volumePin.value = VolumePin(target, cid, nowMs(), _activeDeviceId.value)
 		sendAsync(buildJsonObject {
 			put("t", "act")
 			put("action", "volume")
-			put("level", level.coerceIn(0, 100))
+			put("level", target)
+			cid?.let { put("cid", it) }
 		})
 	}
+
+	/** The level this device commanded and the hub has not answered for yet, else null. */
+	fun pinnedVolume(): Int? =
+		_volumePin.value?.takeIf { it.stands(_activeDeviceId.value, nowMs()) }?.level
 
 	/** Reorder the session queue on the active device (move [from] → [to]). */
 	fun actMoveQueueItem(from: Int, to: Int) {
@@ -560,6 +603,53 @@ class HubManager(
 		})
 	}
 
+	// --- Acts the hub answers (PROTOCOL §5.1 and §5.4; the pin rules are in ActPins.kt) ----------
+
+	/**
+	 * `welcome.features` listed `actAck`: every act carries a `cid` and the hub answers it with
+	 * an `ack`, written after the frames the act caused. False from the moment a socket opens
+	 * until its `welcome`, and for a hub that does not say so, which is then sent what it
+	 * always was.
+	 */
+	@Volatile
+	private var hubAcksActs = false
+
+	// A StateFlow for its compare-and-set: acts are sent from the UI thread and the player's.
+	private val cidCounter = MutableStateFlow(0L)
+
+	private fun nextCid(): String = "n${cidCounter.updateAndGet { it + 1 }}"
+
+	/**
+	 * The `cid` for an act whose value is about to be pinned, or null when there is nothing to
+	 * pin by: a hub that answers no acts, or no link, where the frame is dropped.
+	 */
+	private fun pinCid(): String? = if (hubAcksActs && _connected.value) nextCid() else null
+
+	/** An act on its way to a hub that answers acts gets a `cid`, unless its sender pinned by one. */
+	private fun withCid(obj: JsonObject): JsonObject {
+		if (!hubAcksActs || "cid" in obj) return obj
+		if (obj["t"]?.jsonPrimitive?.contentOrNullSafe() != "act") return obj
+		return JsonObject(obj + ("cid" to JsonPrimitive(nextCid())))
+	}
+
+	private val _volumePin = MutableStateFlow<VolumePin?>(null)
+
+	/** The volume this device commanded for the active device, until the hub answers ([pinnedVolume]). */
+	val volumePin: StateFlow<VolumePin?> = _volumePin.asStateFlow()
+
+	/** The hub answered act [cid]: what it pinned gives way to what the hub said. */
+	private fun releasePins(cid: String) {
+		_remoteSession.update { it.afterAck(cid) }
+		_volumePin.update { pin -> pin?.takeIf { it.cid != cid } }
+	}
+
+	/** Pins whose ack did not come in [ACT_PIN_MS]. Run from the mirror's tick. */
+	private fun expirePins() {
+		val now = nowMs()
+		if (!_remoteSession.value.pins.none) _remoteSession.update { it.afterPinExpiry(now) }
+		_volumePin.update { pin -> pin?.takeIf { it.stands(_activeDeviceId.value, now) } }
+	}
+
 	fun currentTimeMs(): Long = nowMs()
 
 	// ------------------------------------------------------------------ //
@@ -595,6 +685,7 @@ class HubManager(
 		scope.launch {
 			while (currentCoroutineContext().isActive) {
 				delay(250)
+				expirePins()
 				evaluateRemoteActive()
 				refreshMirror(_remoteSession.value)
 			}
@@ -710,6 +801,8 @@ class HubManager(
 			// because the reporter starts before `welcome` is read: a report leaving in
 			// between must not carry the previous connection's number onto this one.
 			resetEcho()
+			// What the last hub answered says nothing about this one, until its `welcome`.
+			hubAcksActs = false
 			val writer = launch {
 				try {
 					for (frame in out) send(Frame.Text(frame.toString()))
@@ -819,9 +912,9 @@ class HubManager(
 		}
 	}
 
-	private suspend fun sendFrame(obj: JsonObject) = enqueue(obj)
+	private suspend fun sendFrame(obj: JsonObject) = enqueue(withCid(obj))
 
-	private fun sendAsync(obj: JsonObject) = enqueue(obj)
+	private fun sendAsync(obj: JsonObject) = enqueue(withCid(obj))
 
 	// ------------------------------------------------------------------ //
 	// "Mixed for You" — hub-owned recipes, regenerated locally.
@@ -1193,7 +1286,12 @@ class HubManager(
 					_myDeviceId.value = id
 					preferenceManager.hubDeviceId = id
 				}
-				msg["session"]?.let { applySession(it.jsonObject) }
+				// Before anything below sends an act. A `welcome` also ends every pin: the acts
+				// they wait on went to a socket that is gone.
+				hubAcksActs = (msg["features"] as? JsonArray)
+					?.any { (it as? JsonPrimitive)?.contentOrNull == "actAck" } == true
+				_volumePin.value = null
+				msg["session"]?.let { applySession(it.jsonObject, keepPins = false) }
 				msg["devices"]?.let { parseDevices(it.asObjectList()) }
 				welcomedAtMs = nowMs()
 				_connected.value = true
@@ -1342,40 +1440,65 @@ class HubManager(
 				Logger.e("HubManager", "lb frame ignored", e)
 			}
 
-			"error" -> {
-				val code = msg["code"]?.jsonPrimitive?.content
-				val message = msg["message"]?.jsonPrimitive?.content
-				Logger.e("HubManager", "hub error: $code $message")
-				// A refused mix is not a connection problem, and must not be written
-				// into `_connectionError` — that flow is rendered by the device
-				// picker and the navi-connect settings screen, where "a mix needs a
-				// name and a known kind" reads as the hub being broken. The hub
-				// answers these rather than dropping them precisely because the
-				// client has already shown the user a mix it believes it saved, so
-				// they go to the screen that made the claim.
-				if (code == "bad_mix" || code == "unknown_mix") {
-					_mixErrors.tryEmit(message ?: "That mix could not be saved")
-					return
+			// The hub's answer to one act of ours, written after every frame that act caused: the
+			// mirror already holds the outcome, so the value pinned when the act was sent gives
+			// way to it. The ack of an act that pinned nothing releases nothing. A refusal
+			// changed nothing on the hub and is told here and nowhere else, with the code and
+			// message an `error` frame would have carried. `ok` with a code (`no_active_device`)
+			// is an act the session took although no device heard it, and is not a failure.
+			"ack" -> {
+				msg["cid"]?.jsonPrimitive?.contentOrNullSafe()?.let { releasePins(it) }
+				if (msg["ok"]?.jsonPrimitive?.booleanOrNull == false) {
+					onHubError(
+						msg["code"]?.jsonPrimitive?.contentOrNullSafe(),
+						msg["message"]?.jsonPrimitive?.contentOrNullSafe()
+					)
 				}
-				_connectionError.value = when (code) {
-					// Both mean "the transfer you just asked for did not happen" — say which,
-					// because the two have different fixes (turn the speaker on vs. try again).
-					"target_unreachable" -> message ?: "That device isn't responding"
-					"load_failed" -> message ?: "That device could not start playback"
-					else -> message ?: code
-				}
-				// A bad token never resolves by retrying — stop the reconnect loop.
-				if (code == "auth") authFailed = true
 			}
+
+			"error" -> onHubError(
+				msg["code"]?.jsonPrimitive?.content,
+				msg["message"]?.jsonPrimitive?.content
+			)
 		}
 	}
 
-	private fun applySession(obj: JsonObject) {
+	/** A failure the hub reported: an `error` frame, or the refusal in an act's `ack`. */
+	private fun onHubError(code: String?, message: String?) {
+		Logger.e("HubManager", "hub error: $code $message")
+		// A refused mix is not a connection problem, and must not be written
+		// into `_connectionError` — that flow is rendered by the device
+		// picker and the navi-connect settings screen, where "a mix needs a
+		// name and a known kind" reads as the hub being broken. The hub
+		// answers these rather than dropping them precisely because the
+		// client has already shown the user a mix it believes it saved, so
+		// they go to the screen that made the claim.
+		if (code == "bad_mix" || code == "unknown_mix") {
+			_mixErrors.tryEmit(message ?: "That mix could not be saved")
+			return
+		}
+		_connectionError.value = when (code) {
+			// Both mean "the transfer you just asked for did not happen" — say which,
+			// because the two have different fixes (turn the speaker on vs. try again).
+			"target_unreachable" -> message ?: "That device isn't responding"
+			"load_failed" -> message ?: "That device could not start playback"
+			else -> message ?: code
+		}
+		// A bad token never resolves by retrying — stop the reconnect loop.
+		if (code == "auth") authFailed = true
+	}
+
+	/**
+	 * Take a `session` snapshot into the mirror. A timed seek hold ends here: the hub's own
+	 * position is the answer it was waiting for. Pins do not ([keepPins]): the snapshot may
+	 * have left the hub before the act did, so its values go under them (`underPins`) and
+	 * only the act's ack lets them through. A `welcome` passes false and starts clean.
+	 */
+	private fun applySession(obj: JsonObject, keepPins: Boolean = true) {
 		_activeDeviceId.value =
 			obj["activeDeviceId"]?.jsonPrimitive?.contentOrNullSafe()
-		// A whole new snapshot, so a seek hold ends here too: the hub's own position is the
-		// answer the hold was waiting for.
-		_remoteSession.value = RemoteSessionState(
+		val now = nowMs()
+		val snapshot = RemoteSessionState(
 			tracks = obj["queue"]?.asObjectList()?.mapNotNull { t ->
 				val id = t["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
 				RemoteTrack(
@@ -1390,11 +1513,13 @@ class HubManager(
 			index = obj["index"]?.jsonPrimitive?.intOrNull ?: 0,
 			isPlaying = obj["isPlaying"]?.jsonPrimitive?.booleanOrNull ?: false,
 			positionMs = obj["positionMs"]?.jsonPrimitive?.longOrNull ?: 0L,
-			positionAtMs = nowMs(),
+			positionAtMs = now,
 			repeat = obj["repeat"]?.jsonPrimitive?.contentOrNullSafe() ?: "none",
 			shuffle = obj["shuffle"]?.jsonPrimitive?.booleanOrNull ?: false,
 			savedQueueId = obj["savedQueueId"]?.jsonPrimitive?.contentOrNullSafe()
 		)
+		// `update`: an act pins from another thread, and its pin must not be lost under this frame.
+		_remoteSession.update { shown -> if (keepPins) snapshot.underPins(shown, now) else snapshot }
 	}
 
 	/**

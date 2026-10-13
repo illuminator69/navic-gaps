@@ -112,8 +112,12 @@ class RemoteSessionPlayer(
 	 * the level reported to the system in between was still the old one. So the level just
 	 * commanded stands in for the frame until a frame agrees with it, the active device changes
 	 * or [VOLUME_HOLD_MS] passes (`volumeHoldStands`).
+	 *
+	 * A hub that answers acts needs no clock for this: the level is pinned in [HubManager]
+	 * until the ack of the act that sent it (`ActPins.kt`), and that pin is read first.
 	 */
 	private fun effectiveVolume(): Int {
+		hubManager.pinnedVolume()?.let { return it }
 		// One read of the list for both the level and "is it a later list".
 		val devices = hubManager.devices.value
 		val frameLevel = remoteVolume(devices)
@@ -137,6 +141,9 @@ class RemoteSessionPlayer(
 		hubManager.actSetVolume(target)
 		// With the socket down that frame was dropped, and there is no answer to wait for.
 		if (!hubManager.connected.value) return
+		// Pinned by the hub client: the collector on `volumePin` re-reads the level when the
+		// pin is set and again when the ack, or its deadline, lets the frame's level through.
+		if (hubManager.pinnedVolume() != null) return
 		commanded = VolumeCommand(
 			level = target,
 			atMs = SystemClock.elapsedRealtime(),
@@ -176,6 +183,11 @@ class RemoteSessionPlayer(
 		// slider. Without this the system volume UI would show a stale level.
 		scope.launch {
 			hubManager.devices.collect { invalidateState() }
+		}
+		// A level this device commanded stands in for the list's until the hub answers, so
+		// both its coming and its going change what `effectiveVolume` reports.
+		scope.launch {
+			hubManager.volumePin.collect { invalidateState() }
 		}
 		scope.launch {
 			while (isActive) {

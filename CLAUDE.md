@@ -401,6 +401,20 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   `onPlaybackResumption` first, or a media button after a swipe reaches an empty service (likely
   `ForegroundServiceDidNotStartInTimeException`).
 
+- **A value this device commanded is pinned until the hub answers for it (I-031).** With
+  `actAck` in `welcome.features` every `act` carries a `cid` (`HubManager.withCid`; the hub
+  answers each with an `ack`, written after the frames the act caused), and play state, a seek
+  target and a volume level are shown at once and held until the ack of the **newest** act on
+  that value, 2.5 s without one, or a `welcome`. The rules are pure functions in `ActPins.kt`
+  (`ActPinsTest`). The mirror's own fields hold what is SHOWN and each pin keeps what the hub
+  last said underneath, so every reader of `remoteSession` is covered unchanged; `applySession`
+  lays a snapshot **under** the pins (`underPins`) instead of replacing the mirror, because a
+  `session` frame may have left the hub before the act arrived. The play button sends `play` or
+  `pause`, never the hub-side `playpause`, since a toggle applied to a state the user was not
+  looking at undoes the tap. A refusal arrives in the ack only (`ok:false`) and goes through
+  `onHubError`, the `error` frame's own path. Against a hub without `actAck` nothing carries a
+  `cid` and the timed holds of `CommandHold.kt` stand in. Feishin's `act-pins.ts` is the twin.
+
 The cast bridge's own rules — self-exclusion on reconnect, join-don't-launch, release by pausing
 rather than stopping — are protocol-level and live in navi-connect's `CLAUDE.md` and `PROTOCOL.md`,
 because both clients must agree on them.

@@ -49,6 +49,9 @@ internal fun RemoteSessionState.afterSeekSent(targetMs: Long, nowMs: Long): Remo
  * before that seek, and is left out: the position and its timestamp stay the seek's. The first
  * position that is not ends the hold, as does a frame for another queue slot, which is a track
  * change and not an echo.
+ *
+ * With a hub that answers acts the seek is a pin and not a hold (`ActPins.kt`), and so is a
+ * play state this device commanded: the frame's value is then kept under the pin.
  */
 internal fun RemoteSessionState.afterProgress(
 	index: Int?,
@@ -61,13 +64,24 @@ internal fun RemoteSessionState.afterProgress(
 	val lagging = hold != null && positionMs != null && nextIndex == this.index &&
 		nowMs - hold.atMs in 0 until SEEK_HOLD_MS &&
 		abs(positionMs - hold.targetMs) >= SEEK_HOLD_FAR_MS
+	// Pins (`ActPins.kt`): a pinned field keeps what is shown, and the frame's value goes
+	// under the pin. A position pin does not outlive its track.
+	val play = pins.play
+	val pinned = pins.position?.takeIf { nextIndex == this.index }
+	val keepPosition = lagging || pinned != null
 	return copy(
 		index = nextIndex,
-		isPlaying = isPlaying ?: this.isPlaying,
-		positionMs = if (lagging) this.positionMs else positionMs ?: this.positionMs,
-		positionAtMs = if (lagging) positionAtMs else nowMs,
+		isPlaying = if (play != null) this.isPlaying else isPlaying ?: this.isPlaying,
+		positionMs = if (keepPosition) this.positionMs else positionMs ?: this.positionMs,
+		positionAtMs = if (keepPosition) positionAtMs else nowMs,
 		// A frame with no position neither confirms the seek nor contradicts it.
-		seekHold = if (lagging || positionMs == null) hold else null
+		seekHold = if (lagging || positionMs == null) hold else null,
+		pins = if (pins.none) pins else ActPins(
+			play = play?.copy(under = isPlaying ?: play.under),
+			position = pinned?.let {
+				if (positionMs != null) it.copy(underMs = positionMs, underAtMs = nowMs) else it
+			}
+		)
 	)
 }
 
