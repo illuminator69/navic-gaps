@@ -27,6 +27,7 @@ import paige.navic.domain.manager.VOLUME_HOLD_MS
 import paige.navic.domain.manager.VolumeCommand
 import paige.navic.domain.manager.volumeHoldStands
 import kotlin.time.Clock
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.firstOrNull
 
@@ -48,7 +49,9 @@ class RemoteSessionPlayer(
 	looper: Looper,
 	private val hubManager: HubManager,
 	private val sessionManager: SessionManager,
-	private val scope: CoroutineScope
+	private val scope: CoroutineScope,
+	/** Whether the volume buttons are the playing device's right now (`VolumeKeys.kt`). */
+	private val volumeKeysGoRemote: StateFlow<Boolean>
 ) : SimpleBasePlayer(looper) {
 
 	private val availableCommands = Player.Commands.Builder()
@@ -65,8 +68,7 @@ class RemoteSessionPlayer(
 			Player.COMMAND_GET_METADATA,
 			// Volume keys. Declaring these plus a PLAYBACK_TYPE_REMOTE DeviceInfo is
 			// what makes Android route the hardware rocker to the session instead of
-			// the phone's own music stream — which, while another device is playing,
-			// changes nothing anyone can hear. No VolumeProviderCompat is involved:
+			// the phone's own music stream. No VolumeProviderCompat is involved:
 			// SimpleBasePlayer's device-volume handlers are the modern equivalent.
 			Player.COMMAND_GET_DEVICE_VOLUME,
 			Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
@@ -76,7 +78,16 @@ class RemoteSessionPlayer(
 
 	// The hub's scale is 0..100, so it is used unchanged rather than mapped onto a
 	// coarser one: a step of 1 is what the picker's slider already sends.
-	private val deviceInfo = DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE)
+	private val remoteDeviceInfo = DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE)
+		.setMinVolume(0)
+		.setMaxVolume(100)
+		.build()
+
+	// Declared while the buttons are the phone's own: a remote session takes them from every
+	// app, and the system shows no slider for it (`VolumeKeys.kt`). media3 moves the platform
+	// session between remote and local playback when this changes. The range stays the hub's,
+	// so the level reported beside it is always inside it.
+	private val localDeviceInfo = DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_LOCAL)
 		.setMinVolume(0)
 		.setMaxVolume(100)
 		.build()
@@ -189,6 +200,12 @@ class RemoteSessionPlayer(
 		scope.launch {
 			hubManager.volumePin.collect { invalidateState() }
 		}
+		// Presses taken by the app's own window (`MainActivity.dispatchKeyEvent`) step here too.
+		hubManager.remoteVolumePress = { direction -> pressVolume(direction * VOLUME_STEP) }
+		// Navic left the screen, came back, or the phone was locked: the buttons change hands.
+		scope.launch {
+			volumeKeysGoRemote.collect { invalidateState() }
+		}
 		scope.launch {
 			while (isActive) {
 				delay(1000)
@@ -249,7 +266,7 @@ class RemoteSessionPlayer(
 
 		return State.Builder()
 			.setAvailableCommands(availableCommands)
-			.setDeviceInfo(deviceInfo)
+			.setDeviceInfo(if (volumeKeysGoRemote.value) remoteDeviceInfo else localDeviceInfo)
 			.setDeviceVolume(effectiveVolume())
 			.setPlaybackState(if (tracks.isEmpty()) Player.STATE_IDLE else Player.STATE_READY)
 			.setPlayWhenReady(
@@ -308,16 +325,26 @@ class RemoteSessionPlayer(
 	}
 
 	override fun handleIncreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-		commandVolume(effectiveVolume() + VOLUME_STEP)
+		pressVolume(+VOLUME_STEP)
 		return Futures.immediateVoidFuture()
 	}
 
 	override fun handleDecreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-		commandVolume(effectiveVolume() - VOLUME_STEP)
+		pressVolume(-VOLUME_STEP)
 		return Futures.immediateVoidFuture()
 	}
 
-	override fun handleRelease(): ListenableFuture<*> = Futures.immediateVoidFuture()
+	/** One press of the rocker: command the step, and cue the app's own volume bar. */
+	private fun pressVolume(step: Int) {
+		val target = (effectiveVolume() + step).coerceIn(0, 100)
+		commandVolume(target)
+		hubManager.noteHardwareVolume(target)
+	}
+
+	override fun handleRelease(): ListenableFuture<*> {
+		hubManager.remoteVolumePress = null
+		return Futures.immediateVoidFuture()
+	}
 
 	private companion object {
 		/** One rocker press. 1-in-100 would need a hundred presses to cross the range. */

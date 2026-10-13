@@ -30,6 +30,7 @@ import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.exoplayer.AudioGainProcessor
+import paige.navic.shared.AppPresence
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
 
@@ -112,6 +113,10 @@ actual val platformModule = module {
 		CastBridgeManager(androidApplication(), get(), get()).apply { start() }
 	}
 	single<CastBridgeStatus> { get<CastBridgeManager>() }
+
+	// Eager: it counts started activities, so it has to exist before the first one starts.
+	// Read by the playback service to decide who the volume buttons belong to.
+	single(createdAtStart = true) { AppPresence(androidApplication()) }
 
 	// Eager as well: nothing injects it, and it has to be listening before the first network
 	// change. It kicks the main hub socket only, never the bridges above.

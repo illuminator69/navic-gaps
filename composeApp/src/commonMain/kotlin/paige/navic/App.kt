@@ -158,6 +158,7 @@ import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.components.common.RailAmbient
+import paige.navic.ui.components.common.RemoteVolumeHud
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import paige.navic.ui.screens.genre.GenreDetailScreen
 import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
@@ -458,6 +459,9 @@ fun App() {
 				// finishes — and the sheet must go on saying what was written. A fork line:
 				// without it the "Fix album match" and "Wrong edition?" rows open nothing.
 				AlbumMatchHost()
+				// navi-connect: the level the phone's volume buttons set on the device that is
+				// playing, drawn by the app itself. A fork line, like the one above.
+				RemoteVolumeHud()
 			}
 		}
 	}

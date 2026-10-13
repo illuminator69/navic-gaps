@@ -156,6 +156,7 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 	private val sessionManager: SessionManager by inject()
 	private val preferenceManager: PreferenceManager by inject()
 	private val hubManager: HubManager by inject()
+	private val appPresence: AppPresence by inject()
 	private val equaliserManager: EqualiserManager by inject()
 	private val audioGainProcessor: AudioGainProcessor by inject()
 	private val imageLoader: ImageLoader by inject()
@@ -346,7 +347,10 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 		// blocked by the facade (the queue can't be mutated through it) — transfer
 		// playback here first.
 		remotePlayer =
-			RemoteSessionPlayer(Looper.getMainLooper(), hubManager, sessionManager, serviceScope)
+			RemoteSessionPlayer(
+				Looper.getMainLooper(), hubManager, sessionManager, serviceScope,
+				appPresence.volumeKeysGoRemote
+			)
 		serviceScope.launch {
 			hubManager.isRemoteActive.collect { remote ->
 				val session = mediaLibrarySession ?: return@collect

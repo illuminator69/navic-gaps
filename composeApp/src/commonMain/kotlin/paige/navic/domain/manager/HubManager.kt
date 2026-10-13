@@ -14,6 +14,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -545,6 +546,41 @@ class HubManager(
 	/** The level this device commanded and the hub has not answered for yet, else null. */
 	fun pinnedVolume(): Int? =
 		_volumePin.value?.takeIf { it.stands(_activeDeviceId.value, nowMs()) }?.level
+
+	private val _hardwareVolume = MutableSharedFlow<Int>(
+		extraBufferCapacity = 1,
+		onBufferOverflow = BufferOverflow.DROP_OLDEST
+	)
+
+	/**
+	 * A level the phone's volume buttons have just commanded for the playing device: the cue
+	 * for the app's own volume bar (`RemoteVolumeHud`, `VolumeKeys.kt`). A level set from a
+	 * slider in the app is not announced here.
+	 */
+	val hardwareVolume: SharedFlow<Int> = _hardwareVolume.asSharedFlow()
+
+	fun noteHardwareVolume(level: Int) {
+		_hardwareVolume.tryEmit(level.coerceIn(0, 100))
+	}
+
+	/**
+	 * Steps the playing device's volume one press up (+1) or down (-1). Set by the remote
+	 * player facade, which owns the stepping and the level it steps from; null where there is
+	 * none.
+	 */
+	@Volatile
+	var remoteVolumePress: ((direction: Int) -> Unit)? = null
+
+	/**
+	 * A volume button pressed in the app's own window while another device plays. True when the
+	 * press was taken for that device; false leaves it to the system.
+	 */
+	fun pressRemoteVolume(up: Boolean): Boolean {
+		if (!_isRemoteActive.value) return false
+		val press = remoteVolumePress ?: return false
+		press(if (up) 1 else -1)
+		return true
+	}
 
 	/** Reorder the session queue on the active device (move [from] → [to]). */
 	fun actMoveQueueItem(from: Int, to: Int) {

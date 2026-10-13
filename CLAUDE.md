@@ -356,6 +356,18 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
 - **`builder.setMimeType(mimeType)`** in `MediaPlayer.android.kt` is load-bearing for the Cast
   `MediaItemConverter`. (There is **no** `SafeMediaItemConverter` class in this tree, despite older
   docs naming one.)
+- **Who the volume buttons belong to during remote playback is decided, not left to the
+  session (`VolumeKeys.kt`).** A session declared remote takes the buttons from every app, and
+  whether the system then draws a slider depends on the Android build: the user's phone drew
+  none, the API 37 emulator drew a cast row. So `RemoteSessionPlayer` declares
+  `PLAYBACK_TYPE_REMOTE` only while Navic is on screen or the phone is locked
+  (`AppPresence`, `volumeKeysGoRemote`) and `PLAYBACK_TYPE_LOCAL` otherwise, where the buttons
+  move the phone's own volume with the system's slider. On screen, `MainActivity.dispatchKeyEvent`
+  takes the press before the system sees it (`HubManager.pressRemoteVolume`), and
+  `RemoteVolumeHud` (composed once in `App.kt`, a fork line) draws the level; a sheet or dialog
+  is a window of its own and reaches the session instead. `AppPresence`'s receiver is
+  **exported**: "unlocked" (`ACTION_USER_PRESENT`) is sent by the system UI's uid, and a
+  not-exported receiver never heard it, which left the phone "locked" after an unlock.
 - **The output-device chip** in the shade reads "This phone" during remote playback and cannot be
   fixed by media3 alone: `DeviceInfo.routingControllerId` would have to name a real `MediaRouter2`
   routing session, i.e. a `MediaRoute2ProviderService` publishing the hub's devices. Deliberately

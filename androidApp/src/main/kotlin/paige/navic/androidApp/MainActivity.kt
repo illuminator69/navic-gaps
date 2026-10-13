@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,14 +18,51 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import paige.navic.App
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.domain.manager.PermissionManager
+
+/** The least time between two steps while a volume button is held down. */
+private const val HELD_VOLUME_STEP_MS = 150L
 
 class MainActivity : ComponentActivity() {
 
 	private val lbBot: LbBotManager by inject()
 	private val permissionManager: PermissionManager by inject()
+	private val hubManager: HubManager by inject()
+
+	private var volumePressTaken = false
+	private var volumePressAtMs = 0L
+
+	/**
+	 * While another device plays, a volume button pressed in Navic is that device's, and Navic
+	 * draws the level itself (`RemoteVolumeHud`). Taken here, before the system sees it, so that
+	 * what happens does not depend on whether this Android version draws a slider for a remote
+	 * session: some do and some do not. A sheet or a dialog is a window of its own and does not
+	 * pass through here; there the session, declared remote while Navic is on screen, gets the
+	 * press (`VolumeKeys.kt`).
+	 */
+	override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+		val up = when (event.keyCode) {
+			KeyEvent.KEYCODE_VOLUME_UP -> true
+			KeyEvent.KEYCODE_VOLUME_DOWN -> false
+			else -> return super.dispatchKeyEvent(event)
+		}
+		if (event.action != KeyEvent.ACTION_DOWN) {
+			// The release of a press that was taken is taken with it.
+			val taken = volumePressTaken
+			volumePressTaken = false
+			return taken || super.dispatchKeyEvent(event)
+		}
+		val now = SystemClock.uptimeMillis()
+		// A held button repeats every 50 ms; a step each time would cross the range in a second.
+		if (event.repeatCount > 0 && volumePressTaken && now - volumePressAtMs < HELD_VOLUME_STEP_MS) return true
+		if (!hubManager.pressRemoteVolume(up)) return super.dispatchKeyEvent(event)
+		volumePressTaken = true
+		volumePressAtMs = now
+		return true
+	}
 
 	private val requestNotifications =
 		registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
