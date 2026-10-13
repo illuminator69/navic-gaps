@@ -428,6 +428,15 @@ device's own hub link was up** (`bridgeIsStale` in `BridgeLiveness.kt`): the clo
 during a hub outage, when no bridge can get in and a teardown would close a cast channel that is
 still advancing the speaker's queue. It logs one line when it fires.
 
+**Cast discovery waits for the local-network permission on Android 17 (B-099).** An app that
+calls `NsdManager.discoverServices` there without `ACCESS_LOCAL_NETWORK` is not refused: the
+system raises its own "Choose a device to connect" chooser over the app. `CastBridgeManager` is
+`createdAtStart`, so a fresh install opened on that chooser before the first screen had asked
+for the permission, and with the permission declined the re-query raised it again once a minute.
+`followDiscoveryPermission` starts and stops `CastDiscovery` on `castDiscoveryAllowed`
+(`BridgeLiveness.kt`), looked at every 5 s; the permission itself is still asked for by
+`checkLocalNetworkPermission` in `App.kt`.
+
 ---
 
 ## 5. Data and sync

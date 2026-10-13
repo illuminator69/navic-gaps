@@ -69,4 +69,14 @@ class BridgeLivenessTest {
 		assertFalse(stale(hubUpSince = now - 60_000L, now = now))
 		assertTrue(stale(hubUpSince = now - BRIDGE_STALE_MS - 1, now = now))
 	}
+
+	@Test
+	fun discoveryWaitsForTheLocalNetworkPermissionWhereTheSystemHasOne() {
+		// Android 17: searching without it raises the system's device chooser over the app.
+		assertFalse(castDiscoveryAllowed(sdk = 37, localNetworkGranted = false))
+		assertTrue(castDiscoveryAllowed(sdk = 37, localNetworkGranted = true))
+		// Older systems do not know the permission and report it as not granted.
+		assertTrue(castDiscoveryAllowed(sdk = 36, localNetworkGranted = false))
+		assertTrue(castDiscoveryAllowed(sdk = 24, localNetworkGranted = false))
+	}
 }

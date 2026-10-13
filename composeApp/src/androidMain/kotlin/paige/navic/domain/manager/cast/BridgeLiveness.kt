@@ -60,3 +60,13 @@ internal fun bridgeIsStale(
 	val hubUp = hubUpSinceMs ?: return false
 	return nowMs - maxOf(downSinceMs, hubUp) > BRIDGE_STALE_MS
 }
+
+/**
+ * May this app search the local network for speakers? (B-099)
+ *
+ * From Android 17 (API 37) a search made without `ACCESS_LOCAL_NETWORK` raises the system's own
+ * device chooser over the app, so there it waits for the permission. Older systems have no such
+ * permission, and report it as not granted.
+ */
+internal fun castDiscoveryAllowed(sdk: Int, localNetworkGranted: Boolean): Boolean =
+	sdk < 37 || localNetworkGranted

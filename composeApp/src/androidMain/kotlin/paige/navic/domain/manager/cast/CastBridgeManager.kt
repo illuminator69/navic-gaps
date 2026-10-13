@@ -1,6 +1,9 @@
 package paige.navic.domain.manager.cast
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +58,9 @@ private const val MISSING_GRACE_MS = 90_000L
  */
 private const val RECONCILE_TICK_MS = 30_000L
 
+/** How often [CastBridgeManager] looks again at whether it may search for speakers. */
+private const val DISCOVERY_GATE_MS = 5_000L
+
 /**
  * Owns Chromecast discovery and decides which speakers *this* device bridges into the hub.
  *
@@ -70,7 +76,9 @@ class CastBridgeManager(
 	private val preferenceManager: PreferenceManager
 ) : CastBridgeStatus {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+	private val appContext = context.applicationContext
 	private val discovery = CastDiscovery(context)
+	private var discoveryGate: Job? = null
 
 	private val bridges = mutableMapOf<String, CastDeviceBridge>()
 	private val bridgesMutex = Mutex()
@@ -142,9 +150,38 @@ class CastBridgeManager(
 		return row.bridgedBy != me
 	}
 
+	/**
+	 * Discovery runs only while the system lets this app see the local network (B-099).
+	 *
+	 * On Android 17 an app that searches without `ACCESS_LOCAL_NETWORK` is not refused: the
+	 * system puts its own "Choose a device to connect" chooser over the app, listing the
+	 * speakers itself. This manager starts with the process, before the first screen has asked
+	 * for the permission, so a fresh install opened on that chooser, and with the permission
+	 * declined the once-a-minute re-query raised it again for as long as the app ran. The
+	 * permission is asked for by the app's first screen (`checkLocalNetworkPermission`); this
+	 * loop only notices the answer, and a later change of it in the system settings.
+	 */
+	private fun followDiscoveryPermission() {
+		discoveryGate?.cancel()
+		discoveryGate = scope.launch {
+			while (isActive) {
+				val allowed = castDiscoveryAllowed(
+					sdk = Build.VERSION.SDK_INT,
+					localNetworkGranted = appContext.checkSelfPermission(
+						Manifest.permission.ACCESS_LOCAL_NETWORK
+					) == PackageManager.PERMISSION_GRANTED
+				)
+				if (allowed != discovery.running.value) {
+					if (allowed) discovery.start() else discovery.stop()
+				}
+				delay(DISCOVERY_GATE_MS)
+			}
+		}
+	}
+
 	fun start() {
 		stopping = false
-		discovery.start()
+		followDiscoveryPermission()
 		scope.launch {
 			// Re-evaluate whenever the world changes: a new speaker appears, a speaker moves,
 			// or the hub's device list shifts (which is how "Feishin just quit" reaches us).
@@ -183,6 +220,7 @@ class CastBridgeManager(
 	 * before starting again.
 	 */
 	fun stop(): Job {
+		discoveryGate?.cancel()
 		discovery.stop()
 		// Cancelled first, so nothing can reconcile a new bridge into existence behind us.
 		stopping = true
