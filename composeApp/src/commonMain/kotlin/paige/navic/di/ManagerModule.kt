@@ -49,8 +49,10 @@ val managerModule = module {
 	// The lb-bot index mirror's sync worker. Constructed by HubManager and SyncManager (both
 	// createdAtStart), which own its three triggers: welcome, the `index` frame, the 15-min cycle.
 	singleOf(::LbIndexSync)
+	// The last two get()s are fork-only bindings each platform module registers:
+	// HubSocketClientFactory and HubLocalDevice.
 	single(createdAtStart = true) {
-		HubManager(get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
+		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
 	}
 	// createdAtStart, and never lazily: a cast session is precisely the case where no screen is
 	// open and no local player is running, so nothing else would ever construct this.

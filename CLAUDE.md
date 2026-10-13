@@ -33,7 +33,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 
 | Area | Entry points |
 |---|---|
-| Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7) |
+| Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7), and what this device is and its media volume from `HubLocalDevice` (§4) |
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
@@ -96,10 +96,10 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    providers. Every throwing local must end the merge with exactly one provider.
 
    Fork-only Koin bindings are the easiest to lose, because upstream's modules never had them.
-   `HubSocketClientFactory` (B-045) is registered in **both** `PlatformModule.android.kt` and
-   `PlatformModule.ios.kt` and consumed by `HubManager`'s last `get()` in `ManagerModule.kt`; a
-   merge that drops a registration compiles, and `HubManager` is `createdAtStart`, so the app dies
-   at launch with `NoDefinitionFoundException`.
+   `HubSocketClientFactory` (B-045) and `HubLocalDevice` (I-032, §4) are each registered in
+   **both** `PlatformModule.android.kt` and `PlatformModule.ios.kt` and consumed by `HubManager`'s
+   last two `get()`s in `ManagerModule.kt`; a merge that drops a registration compiles, and
+   `HubManager` is `createdAtStart`, so the app dies at launch with `NoDefinitionFoundException`.
 
    **A fourth mechanism fails with no error at all: an optional argument at a call site.** A
    nullable lambda that defaults to `null` is an entry point that exists only where a caller
@@ -426,6 +426,24 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   looking at undoes the tap. A refusal arrives in the ack only (`ok:false`) and goes through
   `onHubError`, the `error` frame's own path. Against a hub without `actAck` nothing carries a
   `cid` and the timed holds of `CommandHold.kt` stand in. Feishin's `act-pins.ts` is the twin.
+
+- **A device's row says what the device is and how loud it is, and the phone's volume is its
+  media volume (I-032, I-033, B-114).** `hello` carries `kind`: `phone` or `tablet` by the
+  600 dp line, and a cast bridge reads `group` / `tv` / `speaker` off the `ca` bits of the TXT
+  record (`CastTraits.kt`). The speaker's name goes out bare: the 📺 prefix is gone, the row's
+  icon comes from `kind`, and nothing may tell a cast row by its name (the id is `cast-<id>`,
+  the platform `chromecast`). `do:setVolume` sets `AudioManager.STREAM_MUSIC` through
+  `HubLocalDevice` (`AndroidHubLocalDevice`) and puts the player's gain back to 1. It used to
+  set that gain, which nothing showed, nothing reset, and which stayed in force for local
+  playback afterwards, while the hardware buttons moved a different quantity. The level the
+  system holds is read from the system and reported with `deviceState {volume}`: after
+  `welcome`, after a directive even when nothing moved (a phone has 15 to 25 steps, so the row
+  told 37 comes to say 40), and on every change whoever made it, at most 4 a second. A bridge
+  reports its receiver's level the same way, from RECEIVER_STATUS, while it holds a cast
+  connection. The picker's order, its status words and "paused" for an active device that is
+  not playing are pure functions in `DeviceRows.kt` (`DeviceRowsTest`), read by the picker, the
+  navi-connect settings list and the line over the now-playing title. iOS registers
+  `PlainHubLocalDevice`: nothing reported, the gain as before.
 
 The cast bridge's own rules — self-exclusion on reconnect, join-don't-launch, release by pausing
 rather than stopping — are protocol-level and live in navi-connect's `CLAUDE.md` and `PROTOCOL.md`,

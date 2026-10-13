@@ -31,6 +31,8 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.activeDeviceWord
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.layouts.NestedTopBar
 
 /**
@@ -49,6 +51,9 @@ fun NaviConnectScreen() {
 	val myDeviceId by hubManager.myDeviceId.collectAsState()
 	val activeDeviceId by hubManager.activeDeviceId.collectAsState()
 	val connectionError by hubManager.connectionError.collectAsState()
+	// The active device's play state, whichever device that is: the blended player state is
+	// the session's while another device plays and this player's otherwise.
+	val playerState by koinInject<MediaPlayerViewModel>().steadyState.collectAsState()
 
 	// Surface a hub-side error (bad token, target offline, …) the moment it arrives, so a wrong
 	// token reads as an actual error instead of "just never connects".
@@ -208,7 +213,7 @@ fun NaviConnectScreen() {
 						Text(
 							buildString {
 								append(if (device.online) "online" else "offline")
-								if (device.isActive) append(" · playing")
+								if (device.isActive) append(" · ${activeDeviceWord(!playerState.isPaused)}")
 								if (device.id == myDeviceId) append(" · this device")
 							},
 							style = MaterialTheme.typography.bodySmall,

@@ -27,6 +27,7 @@ import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.remoteSessionCue
 import paige.navic.ui.navigation.NowPlayingSheetController
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainExplicitStatus
@@ -54,7 +55,8 @@ fun NowPlayingInfoRow(
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.steadyState.collectAsState()
 	val song = playerState.currentSong
-	// Spotify-style "Playing on <device>" cue when the session runs on another device.
+	// Spotify-style "Playing on <device>" cue when the session runs on another device, and
+	// "Paused on <device>" while it holds the session without playing.
 	val hubManager = koinInject<HubManager>()
 	val isRemoteActive by hubManager.isRemoteActive.collectAsState()
 	val hubDevices by hubManager.devices.collectAsState()
@@ -75,7 +77,7 @@ fun NowPlayingInfoRow(
 		Column(Modifier.weight(1f)) {
 			if (isRemoteActive) {
 				Text(
-					"Playing on $remoteDeviceName",
+					remoteSessionCue(remoteDeviceName, sessionPlaying = !playerState.isPaused),
 					style = MaterialTheme.typography.labelMedium,
 					color = MaterialTheme.colorScheme.primary
 				)

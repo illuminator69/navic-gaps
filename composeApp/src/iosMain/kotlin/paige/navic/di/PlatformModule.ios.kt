@@ -22,7 +22,9 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.NoopCastBridgeStatus
 import paige.navic.domain.manager.PermissionManager
+import paige.navic.domain.manager.PlainHubLocalDevice
 import paige.navic.domain.manager.DownloadForegroundController
+import paige.navic.domain.manager.HubLocalDevice
 import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
@@ -94,6 +96,8 @@ actual val platformModule = module {
 	single<HubSocketClientFactory> {
 		HubSocketClientFactory { HttpClient { install(WebSockets) { pingIntervalMillis = 10_000 } } }
 	}
+	// HubManager's second platform binding: a phone that reports no volume and sets none.
+	single<HubLocalDevice> { PlainHubLocalDevice() }
 	singleOf(::AppIconManager)
 	singleOf(::PermissionManager)
 	singleOf(::LinkManager)

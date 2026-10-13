@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.isActive
@@ -82,7 +85,12 @@ data class HubDevice(
 	 */
 	val reachable: Boolean? = null,
 	/** For a virtual device, the hub id of the client bridging it. */
-	val bridgedBy: String? = null
+	val bridgedBy: String? = null,
+	/**
+	 * What the device said it is in `hello` (`computer`, `phone`, `tablet`, `speaker`, `tv`,
+	 * `group`), for the icon its row draws; null if it never said (`DeviceRows.kt`).
+	 */
+	val kind: String? = null
 ) {
 	/** Can the session be handed here right now? Unknown reachability is permissive. */
 	val transferable: Boolean get() = online && reachable != false
@@ -145,7 +153,8 @@ class HubManager(
 	private val savedQueueRepository: SavedQueueRepository,
 	private val lbBotManager: LbBotManager,
 	private val lbIndexSync: LbIndexSync,
-	socketClientFactory: HubSocketClientFactory
+	socketClientFactory: HubSocketClientFactory,
+	private val localDevice: HubLocalDevice
 ) : RemotePlaybackRouter {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	// Protocol-level WS pings, so a half-open socket (Wi-Fi→cellular, a NAT timeout) fails and
@@ -856,6 +865,8 @@ class HubManager(
 					if (savedId.isNotEmpty()) put("id", savedId) else put("id", JsonNull)
 					put("name", preferenceManager.hubDeviceName.ifBlank { "Navic" })
 					put("platform", "android")
+					// The icon every picker draws for this device (PROTOCOL §3.1).
+					put("kind", localDevice.kind)
 					putJsonArray("caps") {
 						add("receiver")
 						add("controller")
@@ -876,6 +887,7 @@ class HubManager(
 			})
 
 			val reporter = launch { reporterLoop() }
+			val volumeReporter = launch { volumeReportLoop() }
 			// Keepalive. A paused remote session is completely silent in BOTH directions (we only
 			// report while we're the active device, and the hub only fans out progress off those
 			// reports), so without this the socket idles out and reconnects — which is what made
@@ -899,6 +911,7 @@ class HubManager(
 				out.close()
 				writer.cancel()
 				reporter.cancel()
+				volumeReporter.cancel()
 				pinger.cancel()
 			}
 		}
@@ -1643,7 +1656,8 @@ class HubManager(
 				isActive = d["isActive"]?.jsonPrimitive?.booleanOrNull ?: false,
 				volume = d["volume"]?.jsonPrimitive?.intOrNull ?: 100,
 				reachable = d["reachable"]?.jsonPrimitive?.booleanOrNull,
-				bridgedBy = d["bridgedBy"]?.jsonPrimitive?.contentOrNullSafe()
+				bridgedBy = d["bridgedBy"]?.jsonPrimitive?.contentOrNullSafe(),
+				kind = d["kind"]?.jsonPrimitive?.contentOrNullSafe()
 			)
 		}
 	}
@@ -1759,10 +1773,7 @@ class HubManager(
 					mediaPlayer.awaitRemoteClear()
 				}
 
-				"setVolume" -> {
-					val level = msg["level"]?.jsonPrimitive?.intOrNull ?: 100
-					mediaPlayer.setPlayerVolume(level / 100f)
-				}
+				"setVolume" -> applyVolumeDirective(msg["level"]?.jsonPrimitive?.intOrNull ?: 100)
 
 				"setRepeat" -> {
 					// media3 constants: 0 = off, 1 = one, 2 = all
@@ -1823,6 +1834,49 @@ class HubManager(
 		} finally {
 			if (seq != null && !cancelled) settleDirective(connection, seq, expectation, echo)
 		}
+	}
+
+	/**
+	 * `do:setVolume`: the phone's media volume, where the platform lets it be set, and the
+	 * player's own gain back at full, so that the two never multiply. Elsewhere the gain is
+	 * the volume, as it was.
+	 *
+	 * The level the system then holds is reported even when it did not move (PROTOCOL §5.3):
+	 * the hub has just written the level it ASKED for on this device's row, and a phone has
+	 * 15 to 25 steps, so the level it holds is seldom that number.
+	 */
+	private fun applyVolumeDirective(level: Int) {
+		if (localDevice.setMediaVolume(level.coerceIn(0, 100))) {
+			mediaPlayer.setPlayerVolume(1f)
+			volumeReportsAsked.update { it + 1 }
+		} else {
+			mediaPlayer.setPlayerVolume(level.coerceIn(0, 100) / 100f)
+		}
+	}
+
+	/** Bumped to have the current level reported again although it did not change. */
+	private val volumeReportsAsked = MutableStateFlow(0)
+
+	/**
+	 * Tells the hub this device's media volume (`deviceState.volume`, PROTOCOL §5.3): once
+	 * after `welcome`, then on every change whoever made it, at most one every
+	 * [VOLUME_REPORT_GAP_MS] and always the last value. Says nothing where the platform
+	 * reports no volume.
+	 */
+	private suspend fun volumeReportLoop() {
+		// The hub reads nothing but `hello` before it has answered it.
+		_connected.first { it }
+		combine(localDevice.mediaVolume, volumeReportsAsked) { level, _ -> level }
+			.filterNotNull()
+			// The newest level waits out the gap; the ones it replaced are never sent.
+			.conflate()
+			.collect { level ->
+				enqueue(buildJsonObject {
+					put("t", "deviceState")
+					put("volume", level)
+				})
+				delay(VOLUME_REPORT_GAP_MS)
+			}
 	}
 
 	/**

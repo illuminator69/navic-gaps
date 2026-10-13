@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -18,19 +19,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.CastBridgeState
 import paige.navic.domain.manager.CastBridgeStatus
+import paige.navic.domain.manager.DeviceKindIcon
 import paige.navic.domain.manager.HubDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.PreviewManager
+import paige.navic.domain.manager.deviceKindIcon
+import paige.navic.domain.manager.deviceRowStatus
+import paige.navic.domain.manager.pickerOrder
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Computer
+import paige.navic.icons.outlined.Devices
+import paige.navic.icons.outlined.Smartphone
+import paige.navic.icons.outlined.Speaker
+import paige.navic.icons.outlined.SpeakerGroup
+import paige.navic.icons.outlined.Tablet
+import paige.navic.icons.outlined.Tv
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import paige.navic.shared.MediaPlayerViewModel
 import kotlin.math.roundToInt
@@ -38,9 +53,11 @@ import kotlin.math.roundToInt
 /**
  * Spotify-style "Connect to a device" sheet: lists navi-connect devices and
  * transfers playback to the chosen one (the hub resumes it from the same spot,
- * preserving the play/pause state). Each row shows the device name + platform +
- * status so two clients are distinguishable; offline devices auto-hide and
- * manually-hidden ones are tucked behind a "Show offline & hidden" toggle.
+ * preserving the play/pause state). Each row shows what the device is (an icon for
+ * its `kind`), its name, platform and status, so two clients are distinguishable;
+ * offline devices auto-hide and manually-hidden ones are tucked behind a
+ * "Show offline & hidden" toggle. What a row says and where it stands are the
+ * rules in `DeviceRows.kt`.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,8 +85,11 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 	}
 	var showExtra by remember { mutableStateOf(false) }
 
-	val visibleDevices = devices.filter { it.online && it.id !in hiddenIds }
-	val extraDevices = devices.filter { !it.online || it.id in hiddenIds }
+	// The playing device, this device, the rest by name, and last what cannot take the
+	// session (`pickerOrder`); the same order inside the offline-and-hidden fold.
+	val ordered = pickerOrder(devices, myDeviceId)
+	val visibleDevices = ordered.filter { it.online && it.id !in hiddenIds }
+	val extraDevices = ordered.filter { !it.online || it.id in hiddenIds }
 
 	// A preview's audio comes from the preview sidecar, not from Navidrome, and a
 	// Chromecast fetches the stream URL ITSELF. So a cast can only work when the hub
@@ -81,17 +101,27 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 	val previewManager = koinInject<PreviewManager>()
 	val previewStatus by previewManager.status.collectAsState()
 	LaunchedEffect(previewManager.routeSignature) { previewManager.ensureAvailability() }
-	val queueHasPreview = mediaPlayer.uiState.collectAsState().value.queue
-		.any { PreviewManager.isPreviewId(it.id) }
+	// The blended state: the session's while another device plays, this player's otherwise.
+	// So `isPaused` is the active device's, whichever device that is.
+	val playerState by mediaPlayer.steadyState.collectAsState()
+	val queueHasPreview = playerState.queue.any { PreviewManager.isPreviewId(it.id) }
 	val blockPreviewCast = queueHasPreview && !previewStatus.previewCastable
+	val sessionPlaying = !playerState.isPaused
 
 	val renderDevice: @Composable (HubDevice) -> Unit = { device ->
 		val isHidden = device.id in hiddenIds
 		Row(
 			modifier = Modifier.fillMaxWidth(),
-			horizontalArrangement = Arrangement.SpaceBetween,
+			horizontalArrangement = Arrangement.spacedBy(16.dp),
 			verticalAlignment = Alignment.CenterVertically
 		) {
+			// What the device is, as it said in `hello`; the playing device's in the accent colour.
+			Icon(
+				imageVector = deviceKindIcon(device.kind).imageVector(),
+				contentDescription = null,
+				tint = if (device.isActive) MaterialTheme.colorScheme.primary
+					else MaterialTheme.colorScheme.onSurfaceVariant
+			)
 			Column(Modifier.weight(1f)) {
 				Text(device.name, style = MaterialTheme.typography.bodyLarge)
 				Text(
@@ -105,19 +135,7 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 							}
 						)
 						append(" · ")
-						append(
-							when {
-								device.isActive -> "playing"
-								device.id == myDeviceId -> "this device"
-								// `online` on a Chromecast row means the BRIDGING CLIENT's socket is
-								// up, not the speaker. A TV that is off in another house stays online
-								// and used to be offered as a perfectly good target — the transfer
-								// then committed and every device showed a playing bar over silence.
-								device.online && !device.transferable -> "not responding"
-								device.online -> "available"
-								else -> "offline"
-							}
-						)
+						append(deviceRowStatus(device, myDeviceId, sessionPlaying).label)
 					},
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -187,13 +205,15 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 				)
 			}
 
-			visibleDevices.forEach { renderDevice(it) }
+			// Keyed by id: the order follows the session, and a row's own state must follow
+			// its device and not its place in the list.
+			visibleDevices.forEach { key(it.id) { renderDevice(it) } }
 
 			if (extraDevices.isNotEmpty()) {
 				TextButton(onClick = { showExtra = !showExtra }) {
 					Text((if (showExtra) "Hide" else "Show") + " offline & hidden (${extraDevices.size})")
 				}
-				if (showExtra) extraDevices.forEach { renderDevice(it) }
+				if (showExtra) extraDevices.forEach { key(it.id) { renderDevice(it) } }
 			}
 
 			// Volume for the active remote device (mirrors Feishin's remote-bar
@@ -251,4 +271,15 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 			Spacer(Modifier.height(24.dp))
 		}
 	}
+}
+
+/** The outline drawn for a device of this kind. */
+private fun DeviceKindIcon.imageVector(): ImageVector = when (this) {
+	DeviceKindIcon.COMPUTER -> Icons.Outlined.Computer
+	DeviceKindIcon.PHONE -> Icons.Outlined.Smartphone
+	DeviceKindIcon.TABLET -> Icons.Outlined.Tablet
+	DeviceKindIcon.SPEAKER -> Icons.Outlined.Speaker
+	DeviceKindIcon.TV -> Icons.Outlined.Tv
+	DeviceKindIcon.GROUP -> Icons.Outlined.SpeakerGroup
+	DeviceKindIcon.GENERIC -> Icons.Outlined.Devices
 }

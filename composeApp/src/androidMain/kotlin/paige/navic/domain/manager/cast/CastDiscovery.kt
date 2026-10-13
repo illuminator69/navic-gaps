@@ -60,7 +60,9 @@ data class DiscoveredCast(
 	 * Kept because it is the ONLY identifier a lost-service callback carries — it has no TXT
 	 * record, so [id] and [name] are both unavailable at that point.
 	 */
-	val serviceName: String? = null
+	val serviceName: String? = null,
+	/** `group`, `tv` or `speaker`, from the TXT `ca` capability bits ([castKind]); null if it says none. */
+	val kind: String? = null
 )
 
 /**
@@ -289,9 +291,10 @@ class CastDiscovery(private val context: Context) {
 }
 
 /**
- * Reads the two TXT fields the bridge needs: `id` (stable device id) and `fn` (friendly name) —
+ * Reads the TXT fields the bridge needs: `id` (stable device id) and `fn` (friendly name) —
  * the same pair Feishin's `serviceToDevice()` uses, so both clients derive the same `cast-<id>`
- * and can recognise each other's registrations.
+ * and can recognise each other's registrations — and `ca`, the capability bits that say whether
+ * this is a speaker, a TV or a group.
  */
 private fun NsdServiceInfo.toDiscoveredCast(): DiscoveredCast? {
 	@Suppress("DEPRECATION")
@@ -310,6 +313,7 @@ private fun NsdServiceInfo.toDiscoveredCast(): DiscoveredCast? {
 		name = txtValue("fn") ?: serviceName ?: "Chromecast",
 		host = hostAddress,
 		port = if (port > 0) port else CastProtocol.CAST_PORT,
-		serviceName = serviceName
+		serviceName = serviceName,
+		kind = castKind(txtValue("ca"))
 	)
 }

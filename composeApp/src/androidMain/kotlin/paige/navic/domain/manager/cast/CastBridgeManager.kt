@@ -278,6 +278,7 @@ class CastBridgeManager(
 					// id, and pinning the first-seen host is how a bridge dials a dead IP forever.
 					existing.updateHost(device.host)
 					existing.friendlyName = device.name
+					existing.kind = device.kind
 					// CLAIMING until the hub says welcome. A bridge object that exists proves only
 					// that we intend to bridge this speaker — CastScrobbler gates on BRIDGING to
 					// decide it is the one client responsible for the play, so the difference is
@@ -400,6 +401,7 @@ class CastBridgeManager(
 			val bridge = CastDeviceBridge(
 				deviceId = device.id,
 				friendlyName = device.name,
+				kind = device.kind,
 				host = device.host,
 				hubUrl = hubUrl,
 				token = token,

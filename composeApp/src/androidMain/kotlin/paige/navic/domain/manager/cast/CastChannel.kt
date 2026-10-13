@@ -11,8 +11,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -134,6 +137,15 @@ internal class CastChannel(
 		extraBufferCapacity = 8,
 		onBufferOverflow = BufferOverflow.DROP_OLDEST
 	)
+
+	private val _volume = MutableStateFlow<Int?>(null)
+
+	/**
+	 * The receiver's own volume, 0..100 with a muted receiver at 0, from the last
+	 * RECEIVER_STATUS on this connection: the answer to a status request or to SET_VOLUME, and
+	 * the push the receiver sends every sender when its volume moves. Null until one was read.
+	 */
+	val volume: StateFlow<Int?> = _volume.asStateFlow()
 
 	/**
 	 * Why the last [launchOrJoin] failed, in words the user can act on.
@@ -521,7 +533,10 @@ internal class CastChannel(
 		// Spontaneous status (no requestId, or requestId 0) — the device telling us it changed
 		// state on its own: track finished, someone pressed play on a Google Home speaker, etc.
 		if (frame.namespace == CastProtocol.NS_RECEIVER && envelope.type == "RECEIVER_STATUS") {
-			obj.toReceiverStatus()?.let { _receiverStatus.tryEmit(it) }
+			obj.toReceiverStatus()?.let { status ->
+				receiverVolumeLevel(status.volume?.level, status.volume?.muted)?.let { _volume.value = it }
+				_receiverStatus.tryEmit(status)
+			}
 		}
 
 		if (frame.namespace == CastProtocol.NS_MEDIA && envelope.type == "MEDIA_STATUS") {

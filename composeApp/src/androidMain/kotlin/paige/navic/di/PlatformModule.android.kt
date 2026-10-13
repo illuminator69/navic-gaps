@@ -14,6 +14,7 @@ import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
 import paige.navic.data.database.MIGRATION_CACHE_22_23
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
+import paige.navic.domain.manager.AndroidHubLocalDevice
 import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.AudioGainManager
 import paige.navic.domain.manager.CastBridgeStatus
@@ -23,6 +24,7 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.DownloadForegroundController
+import paige.navic.domain.manager.HubLocalDevice
 import paige.navic.domain.manager.HubNetworkKick
 import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.pingingWebSocketClient
@@ -105,6 +107,9 @@ actual val platformModule = module {
 	// The hub socket's client, with OkHttp-level pings (B-045). HubManager is createdAtStart, so
 	// losing this registration fails every launch rather than silently dropping the pings.
 	single<HubSocketClientFactory> { HubSocketClientFactory { pingingWebSocketClient() } }
+	// What the hub is told this phone is, and its media volume, read from the system and set
+	// there. HubManager's other fork-only binding: lost, every launch fails the same way.
+	single<HubLocalDevice> { AndroidHubLocalDevice(androidApplication()) }
 
 	// Eager: discovery has to already be running when the picker opens, and the bridge has to be
 	// up for the speaker to appear in OTHER clients' pickers whether or not this phone's UI is

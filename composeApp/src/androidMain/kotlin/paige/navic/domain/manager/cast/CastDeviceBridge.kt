@@ -19,6 +19,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,6 +41,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import paige.navic.domain.manager.VOLUME_REPORT_GAP_MS
 import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.util.Logger
 import java.net.InetSocketAddress
@@ -150,6 +154,8 @@ private data class BridgeTrack(
 internal class CastDeviceBridge(
 	private val deviceId: String,
 	@Volatile var friendlyName: String,
+	/** `group`, `tv` or `speaker` for the picker's icon, or null (`castKind`). Said at each `hello`. */
+	@Volatile var kind: String?,
 	host: String,
 	private val hubUrl: String,
 	private val token: String,
@@ -411,10 +417,12 @@ internal class CastDeviceBridge(
 				put("token", token)
 				put("device", buildJsonObject {
 					put("id", hubDeviceId)
-					// The 📺 prefix matches Feishin's naming so the same speaker reads
-					// identically whichever client happens to be bridging it.
-					put("name", "📺 $friendlyName")
+					// The speaker's own name, bare, as Feishin's bridge sends it: the same
+					// speaker reads identically whichever client is bridging it. What it is
+					// goes in `kind`, and a picker draws that (PROTOCOL §12.2).
+					put("name", friendlyName)
 					put("platform", "chromecast")
+					kind?.let { put("kind", it) }
 					// `loadAck` (PROTOCOL §7.1) makes a failed cast load visible immediately instead
 					// of leaving the hub convinced this speaker took the session for ~20 seconds.
 					// transferAckV2 (§7.2): every `loaded`/`released` echoes the directive's
@@ -463,7 +471,8 @@ internal class CastDeviceBridge(
 				// packet; only a run of them is a speaker that has gone away.
 				// Read once: ensureCast() can hold this mutex for the whole session-setup
 				// budget, and taking it twice per tick doubles the wait for no benefit.
-				val channelOpen = castMutex.withLock { channel?.isOpen == true }
+				val open = castMutex.withLock { channel?.takeIf { it.isOpen } }
+				val channelOpen = open != null
 				val reachable = probed || channelOpen ||
 					failures < REACHABILITY_FAILS_BEFORE_DOWN
 				if (reachable != lastReportedReachable) {
@@ -474,6 +483,10 @@ internal class CastDeviceBridge(
 					put("t", "deviceState")
 					put("reachable", reachable)
 					put("appRunning", channelOpen)
+					// The receiver's level, while a connection to it is held: said again on
+					// every tick and so on each `welcome`, whose first tick this is. The hub
+					// passes it on only when it differs from what the row says.
+					open?.volume?.value?.let { put("volume", it) }
 				})
 				delay(DEVICE_STATE_INTERVAL_MS)
 			}
@@ -753,6 +766,23 @@ internal class CastDeviceBridge(
 
 	private fun observeChannel(ch: CastChannel) {
 		scope.launch { ch.status.collect { onCastStatus(it) } }
+		// The receiver's volume, for the speaker's row (PROTOCOL §12.2): the level this
+		// connection read when it opened, and every change after it, whoever made it — a
+		// hub directive, the Google Home app, the buttons on the speaker. At most one every
+		// VOLUME_REPORT_GAP_MS, the newest always sent, until the connection closes.
+		scope.launch {
+			val reports = launch {
+				ch.volume.filterNotNull().conflate().collect { level ->
+					sendFrame(buildJsonObject {
+						put("t", "deviceState")
+						put("volume", level)
+					})
+					delay(VOLUME_REPORT_GAP_MS)
+				}
+			}
+			ch.closedEvents.first()
+			reports.cancel()
+		}
 		scope.launch {
 			ch.closedEvents.collect {
 				if (tearingDown || destroyed) return@collect
