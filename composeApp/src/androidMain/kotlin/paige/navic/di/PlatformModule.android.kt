@@ -23,6 +23,7 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.DownloadForegroundController
+import paige.navic.domain.manager.HubNetworkKick
 import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.domain.manager.NotificationManager
@@ -111,4 +112,10 @@ actual val platformModule = module {
 		CastBridgeManager(androidApplication(), get(), get()).apply { start() }
 	}
 	single<CastBridgeStatus> { get<CastBridgeManager>() }
+
+	// Eager as well: nothing injects it, and it has to be listening before the first network
+	// change. It kicks the main hub socket only, never the bridges above.
+	single(createdAtStart = true) {
+		HubNetworkKick(androidApplication(), get()).apply { start() }
+	}
 }

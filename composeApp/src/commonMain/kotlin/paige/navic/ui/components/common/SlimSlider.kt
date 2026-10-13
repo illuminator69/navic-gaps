@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,9 +30,15 @@ fun SlimSlider(
 	value: Float,
 	onValueChange: (Float) -> Unit,
 	modifier: Modifier = Modifier,
-	enabled: Boolean = true
+	enabled: Boolean = true,
+	// navi-connect: the gesture is over, as Material's Slider reports it — after a tap, and when
+	// a drag ends or is cancelled. A caller that previews the drag commits here.
+	onValueChangeFinished: (() -> Unit)? = null
 ) {
 	var sliderWidth by remember { mutableFloatStateOf(0f) }
+	// The gesture blocks below restart only when the width changes, so they would keep the
+	// callback of whichever composition measured it.
+	val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
 
 	Box(
 		modifier = modifier
@@ -45,11 +52,15 @@ fun SlimSlider(
 					if (sliderWidth > 0 && enabled) {
 						val newValue = (offset.x / sliderWidth).coerceIn(0f, 1f)
 						onValueChange(newValue)
+						currentOnValueChangeFinished?.invoke()
 					}
 				}
 			}
 			.pointerInput(sliderWidth) {
-				detectDragGestures { change, _ ->
+				detectDragGestures(
+					onDragEnd = { currentOnValueChangeFinished?.invoke() },
+					onDragCancel = { currentOnValueChangeFinished?.invoke() }
+				) { change, _ ->
 					if (sliderWidth > 0 && enabled) {
 						val newValue = (change.position.x / sliderWidth).coerceIn(0f, 1f)
 						onValueChange(newValue)

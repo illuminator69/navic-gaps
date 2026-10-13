@@ -20,8 +20,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -105,7 +108,13 @@ data class RemoteSessionState(
 	val repeat: String = "none",
 	val shuffle: Boolean = false,
 	/** Saved-queue history id of the current session (the "Now Playing" record), or null. */
-	val savedQueueId: String? = null
+	val savedQueueId: String? = null,
+	/**
+	 * A seek this device has just sent, which [positionMs] already shows. `progress` frames
+	 * still carrying the old position are ignored until it lapses (`CommandHold.kt`). A
+	 * snapshot built from a `session` frame carries none.
+	 */
+	val seekHold: SeekHold? = null
 ) {
 	val nowPlaying: RemoteTrack? get() = tracks.getOrNull(index)
 }
@@ -179,6 +188,15 @@ class HubManager(
 
 	/** When our socket dropped, so a brief reconnect doesn't tear the remote view down. */
 	private var disconnectedAtMs = 0L
+
+	/** When the hub said `welcome` on the current socket; the backoff asks how long it then held. */
+	private var welcomedAtMs = 0L
+
+	/**
+	 * Cuts the reconnect loop's wait short, carrying why. Conflated: a burst of kicks is one
+	 * kick. See [kickReconnect].
+	 */
+	private val reconnectKick = Channel<String>(Channel.CONFLATED)
 
 	/**
 	 * Losing the socket does NOT move playback — it only blinds us. Tearing the remote view down
@@ -335,6 +353,20 @@ class HubManager(
 		_mixes.value = emptyList()
 	}
 
+	/**
+	 * Something outside says the hub may be reachable again (Android: a default network became
+	 * available, `HubNetworkKick`): dial now instead of sitting out the rest of the backoff,
+	 * which is up to 30 s of "disconnected" on a phone that is back online.
+	 *
+	 * A no-op while the link is up, and it never ends an attempt in flight: it only cuts the
+	 * wait between two. The loop resets its backoff on a kick and keeps kicked attempts
+	 * [KICK_FLOOR_MS] apart. Safe from any thread.
+	 */
+	fun kickReconnect(reason: String) {
+		if (_connected.value) return
+		reconnectKick.trySend(reason)
+	}
+
 	/** Controller action: hand playback to another device (state preserved). */
 	fun transfer(targetDeviceId: String) {
 		// Transferring to the device that's already active is a no-op. (The hub guards
@@ -409,12 +441,29 @@ class HubManager(
 	fun actNext() = sendAct("next")
 	fun actPrevious() = sendAct("previous")
 
+	/**
+	 * Seek the active device. Callers send ONE seek per gesture: a slider previews its own drag
+	 * and calls this on release.
+	 *
+	 * The target goes into the mirror at once and is held against the `progress` frames still
+	 * on their way from before it (`CommandHold.kt`). The hub's answer is a round trip away,
+	 * and until it landed every reader of the mirror showed the playhead back where it had
+	 * been: the sliders here, and the lock-screen and notification scrubber through
+	 * `RemoteSessionPlayer`.
+	 */
 	fun actSeek(positionMs: Long) {
 		sendAsync(buildJsonObject {
 			put("t", "act")
 			put("action", "seek")
 			put("positionMs", positionMs)
 		})
+		// Not while the socket is down: that frame was dropped, and the mirror would show a
+		// seek the receiver never got.
+		if (!_connected.value) return
+		val session = _remoteSession.updateAndGet { it.afterSeekSent(positionMs, nowMs()) }
+		// Straight into the player state as well, not only through the mirror's collector: the
+		// slider that was just let go reads the playhead on its very next frame.
+		pushRemoteProgress(session)
 	}
 
 	fun actJump(index: Int) {
@@ -501,6 +550,8 @@ class HubManager(
 	// routed separately by the UI when isRemoteActive).
 	// ------------------------------------------------------------------ //
 
+	// Written by the mirror's two coroutines, read by actSeek on the caller's thread.
+	@Volatile
 	private var remoteUiBase: PlayerUiState? = null
 	private var remoteSig = ""
 
@@ -580,7 +631,10 @@ class HubManager(
 	// ------------------------------------------------------------------ //
 
 	private suspend fun runLoop() {
-		var backoffMs = INITIAL_BACKOFF_MS
+		val backoff = HubReconnectBackoff(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS, STABLE_LINK_MS)
+		var lastKickedAtMs = 0L
+		// A kick left from before this loop has no wait to cut: the first dial is immediate.
+		reconnectKick.tryReceive()
 		while (currentCoroutineContext().isActive) {
 			try {
 				connectOnce()
@@ -591,8 +645,13 @@ class HubManager(
 			wsSession = null
 			if (wasConnected) {
 				disconnectedAtMs = nowMs()
-				backoffMs = INITIAL_BACKOFF_MS  // the link worked; reset the backoff
+				// A kick that came in while this link was still dialling asked for the link
+				// it then got. Dropped while `connected` still reads true, so a kick for THIS
+				// drop cannot be the one thrown away.
+				reconnectKick.tryReceive()
 			}
+			// The backoff starts over only for a link that held (Q-048): not on `welcome`.
+			backoff.onLinkEnded(welcomedAtMs.takeIf { wasConnected }, nowMs())
 			_connected.value = false
 			evaluateRemoteActive()
 			// The hub rejected our token — retrying with the same bad token would
@@ -602,8 +661,16 @@ class HubManager(
 				Logger.e("HubManager", "hub auth rejected — stopping reconnect until settings change")
 				return
 			}
-			delay(backoffMs)
-			backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+			val waitMs = backoff.next()
+			val waitFromMs = nowMs()
+			val kick = withTimeoutOrNull(waitMs) { reconnectKick.receive() }
+			if (kick != null) {
+				backoff.reset()
+				val now = nowMs()
+				delay(kickedWaitMs(now - lastKickedAtMs, waitMs - (now - waitFromMs), KICK_FLOOR_MS))
+				lastKickedAtMs = nowMs()
+				Logger.i("HubManager", "hub reconnect kicked: $kick")
+			}
 		}
 	}
 
@@ -1096,6 +1163,7 @@ class HubManager(
 				}
 				msg["session"]?.let { applySession(it.jsonObject) }
 				msg["devices"]?.let { parseDevices(it.asObjectList()) }
+				welcomedAtMs = nowMs()
 				_connected.value = true
 				_connectionError.value = null
 				// Settle window. applySession has just set _activeDeviceId, but
@@ -1170,14 +1238,19 @@ class HubManager(
 			// A partial progress frame must NOT reset the fields it omits: defaulting
 			// a missing isPlaying to false / positionMs to 0 snapped the scrubber and
 			// flickered a paused state. Keep the previous mirror value for anything absent.
+			// And a position from before a seek this device just sent is not applied
+			// ([afterProgress]). `update`, not a read and a write: actSeek writes the mirror
+			// from another thread, and its target must not be lost under this frame.
 			"progress" -> {
-				val prev = _remoteSession.value
-				_remoteSession.value = prev.copy(
-					index = msg["index"]?.jsonPrimitive?.intOrNull ?: prev.index,
-					isPlaying = msg["isPlaying"]?.jsonPrimitive?.booleanOrNull ?: prev.isPlaying,
-					positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull ?: prev.positionMs,
-					positionAtMs = nowMs()
-				)
+				val now = nowMs()
+				_remoteSession.update { prev ->
+					prev.afterProgress(
+						index = msg["index"]?.jsonPrimitive?.intOrNull,
+						isPlaying = msg["isPlaying"]?.jsonPrimitive?.booleanOrNull,
+						positionMs = msg["positionMs"]?.jsonPrimitive?.longOrNull,
+						nowMs = now
+					)
+				}
 				followSavedQueueCursor()
 			}
 
@@ -1268,6 +1341,8 @@ class HubManager(
 	private fun applySession(obj: JsonObject) {
 		_activeDeviceId.value =
 			obj["activeDeviceId"]?.jsonPrimitive?.contentOrNullSafe()
+		// A whole new snapshot, so a seek hold ends here too: the hub's own position is the
+		// answer the hold was waiting for.
 		_remoteSession.value = RemoteSessionState(
 			tracks = obj["queue"]?.asObjectList()?.mapNotNull { t ->
 				val id = t["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
@@ -1810,6 +1885,16 @@ class HubManager(
 		/** Reconnect backoff: the protocol mandates exponential backoff, not a fixed retry. */
 		const val INITIAL_BACKOFF_MS = 1_000L
 		const val MAX_BACKOFF_MS = 30_000L
+
+		/** How long past `welcome` a link has to hold before the backoff starts over (Q-048). */
+		const val STABLE_LINK_MS = 10_000L
+
+		/**
+		 * The least time between two kicked attempts. Each `welcome` costs a saved-queue sync,
+		 * an index pull and a 2000 ms settle window, so a flapping network must not buy one per
+		 * flap.
+		 */
+		const val KICK_FLOOR_MS = 2_000L
 
 		/**
 		 * How long the remote view survives a lost socket before falling back to local. Comfortably

@@ -42,10 +42,12 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -461,11 +463,30 @@ private fun BoxScope.MiniPlayerProgressBar(
 	val rawProgress by player.progress.collectAsState()
 
 	var dragging by remember { mutableStateOf(false) }
+	// Where the finger is while a REMOTE drag is in progress, null otherwise: previewed here and
+	// sent to the hub once, on release (see NowPlayingProgressBar).
+	var dragValue by remember { mutableStateOf<Float?>(null) }
+	// `pointerInput(Unit)` below runs its block once, so the block would keep the values of the
+	// composition that started it: the duration of whichever track was playing then (a remote
+	// seek after a track change landed at the wrong place) and whether playback was remote then.
+	val currentDurationMs by rememberUpdatedState(durationMs)
+	val currentIsRemoteActive by rememberUpdatedState(isRemoteActive)
+	val seekable = hasSong
+		&& preferenceManager.miniPlayerProgressStyle == MiniPlayerProgressStyle.Seekable
+		&& isInteractive
+	// The gesture goes away with its modifier, and one cut off mid-drag reports no end: without
+	// this the bar would stay where the finger last was.
+	LaunchedEffect(seekable) {
+		if (!seekable) {
+			dragging = false
+			dragValue = null
+		}
+	}
 	val alpha by animateFloatAsState(
 		if (dragging) 1f else .7f
 	)
 	val progress by animateFloatAsState(
-		rawProgress.coerceIn(0f, 1f)
+		(dragValue ?: rawProgress).coerceIn(0f, 1f)
 	)
 	val alignment = if (detached) Alignment.BottomStart else Alignment.TopStart
 	Box(
@@ -518,10 +539,7 @@ private fun BoxScope.MiniPlayerProgressBar(
 				.fillMaxWidth()
 				.height(14.dp)
 				.then(
-					if (hasSong
-						&& preferenceManager.miniPlayerProgressStyle == MiniPlayerProgressStyle.Seekable
-						&& isInteractive
-					)
+					if (seekable)
 						Modifier.pointerInput(Unit) {
 							detectDragGestures(
 								onDragStart = {
@@ -530,15 +548,27 @@ private fun BoxScope.MiniPlayerProgressBar(
 								},
 								onDragEnd = {
 									dragging = false
+									val fraction = dragValue
+									dragValue = null
+									if (fraction != null && currentIsRemoteActive) {
+										hubManager.actSeek((fraction * currentDurationMs).toLong())
+									}
 									haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
+								},
+								// Without this a cancelled drag left `dragging` set for good. A
+								// cancelled drag sends nothing.
+								onDragCancel = {
+									dragging = false
+									dragValue = null
 								}
 							) { change, _ ->
 								val fraction =
 									(change.position.x / size.width.toFloat())
 										.coerceIn(0f, 1f)
-								if (isRemoteActive) {
-									hubManager.actSeek((fraction * durationMs).toLong())
+								if (currentIsRemoteActive) {
+									dragValue = fraction
 								} else {
+									dragValue = null
 									player.seek(fraction)
 								}
 								change.consume()

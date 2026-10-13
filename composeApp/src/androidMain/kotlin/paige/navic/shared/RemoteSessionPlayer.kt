@@ -2,6 +2,7 @@ package paige.navic.shared
 
 import android.net.Uri
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.C
@@ -14,12 +15,17 @@ import androidx.media3.common.util.UnstableApi
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.HubDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.RemoteTrack
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.VOLUME_HOLD_MS
+import paige.navic.domain.manager.VolumeCommand
+import paige.navic.domain.manager.volumeHoldStands
 import kotlin.time.Clock
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.firstOrNull
@@ -82,15 +88,70 @@ class RemoteSessionPlayer(
 	 * active id arrive in separate frames, so a device that is momentarily absent from the list
 	 * made the hardware rocker jump to half volume and then stay there until the next update.
 	 */
-	private fun remoteVolume(): Int {
+	private fun remoteVolume(devices: List<HubDevice> = hubManager.devices.value): Int {
 		val activeId = hubManager.activeDeviceId.value
-		val known = hubManager.devices.value.firstOrNull { it.id == activeId }?.volume
+		val known = devices.firstOrNull { it.id == activeId }?.volume
 		if (known != null) lastKnownVolume = known
 		return lastKnownVolume
 	}
 
 	@Volatile
 	private var lastKnownVolume: Int = 100
+
+	// The level this device last asked for, and the device list it was sent over: only a later
+	// list can confirm it. Touched on the player's looper only, like the handlers below.
+	private var commanded: VolumeCommand? = null
+	private var commandedOver: List<HubDevice>? = null
+	private var volumeHoldExpiry: Job? = null
+
+	/**
+	 * The level to step from and to report to the system.
+	 *
+	 * [remoteVolume] is the last `devices` frame, and the hub's answer to a volume command is a
+	 * round trip away: two quick presses of the rocker both stepped from the same number, and
+	 * the level reported to the system in between was still the old one. So the level just
+	 * commanded stands in for the frame until a frame agrees with it, the active device changes
+	 * or [VOLUME_HOLD_MS] passes (`volumeHoldStands`).
+	 */
+	private fun effectiveVolume(): Int {
+		// One read of the list for both the level and "is it a later list".
+		val devices = hubManager.devices.value
+		val frameLevel = remoteVolume(devices)
+		val command = commanded ?: return frameLevel
+		val stands = volumeHoldStands(
+			command = command,
+			frameLevel = frameLevel,
+			frameIsNewer = devices !== commandedOver,
+			activeDeviceId = hubManager.activeDeviceId.value,
+			nowMs = SystemClock.elapsedRealtime()
+		)
+		if (stands) return command.level
+		commanded = null
+		commandedOver = null
+		return frameLevel
+	}
+
+	/** Send [level] to the active receiver and hold it until the hub's answer is in. */
+	private fun commandVolume(level: Int) {
+		val target = level.coerceIn(0, 100)
+		hubManager.actSetVolume(target)
+		// With the socket down that frame was dropped, and there is no answer to wait for.
+		if (!hubManager.connected.value) return
+		commanded = VolumeCommand(
+			level = target,
+			atMs = SystemClock.elapsedRealtime(),
+			activeDeviceId = hubManager.activeDeviceId.value
+		)
+		commandedOver = hubManager.devices.value
+		// A hold that lapses with no frame after it changes the level this player reports, and
+		// nothing else would tell media3 to read it again. A little past the hold, so that the
+		// read finds it lapsed.
+		volumeHoldExpiry?.cancel()
+		volumeHoldExpiry = scope.launch {
+			delay(VOLUME_HOLD_MS + 50)
+			invalidateState()
+		}
+	}
 
 	// Ignore transport commands briefly after this facade is swapped into the
 	// session. media3 / the system controller re-syncs state on swap-in and can
@@ -177,7 +238,7 @@ class RemoteSessionPlayer(
 		return State.Builder()
 			.setAvailableCommands(availableCommands)
 			.setDeviceInfo(deviceInfo)
-			.setDeviceVolume(remoteVolume())
+			.setDeviceVolume(effectiveVolume())
 			.setPlaybackState(if (tracks.isEmpty()) Player.STATE_IDLE else Player.STATE_READY)
 			.setPlayWhenReady(
 				session.isPlaying,
@@ -230,17 +291,17 @@ class RemoteSessionPlayer(
 		// No grace guard here, unlike the transport handlers: a volume re-sync on
 		// swap-in sends the value we just reported, so echoing it back is harmless,
 		// and swallowing a real key press in the first 1.5s would be worse.
-		hubManager.actSetVolume(deviceVolume.coerceIn(0, 100))
+		commandVolume(deviceVolume)
 		return Futures.immediateVoidFuture()
 	}
 
 	override fun handleIncreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-		hubManager.actSetVolume((remoteVolume() + VOLUME_STEP).coerceIn(0, 100))
+		commandVolume(effectiveVolume() + VOLUME_STEP)
 		return Futures.immediateVoidFuture()
 	}
 
 	override fun handleDecreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-		hubManager.actSetVolume((remoteVolume() - VOLUME_STEP).coerceIn(0, 100))
+		commandVolume(effectiveVolume() - VOLUME_STEP)
 		return Futures.immediateVoidFuture()
 	}
 

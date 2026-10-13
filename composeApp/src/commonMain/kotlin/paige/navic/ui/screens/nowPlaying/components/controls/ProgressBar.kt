@@ -8,9 +8,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -41,13 +44,34 @@ fun NowPlayingProgressBar() {
 	val progress by player.progress.collectAsState()
 	val enabled = playerState.currentSong != null
 
-	// While remote, seeking drives the hub (in ms); otherwise the local player.
+	// Where the finger is while a REMOTE drag is in progress, null otherwise. One for all the
+	// slider styles below, since only one of them is composed.
+	var dragValue by remember { mutableStateOf<Float?>(null) }
+	val shown = dragValue ?: progress
+	// A slider disabled under the finger may never report the end of that drag.
+	LaunchedEffect(enabled) {
+		if (!enabled) dragValue = null
+	}
+
+	// While remote, a drag is only previewed here and sent to the hub ONCE, on release: every
+	// sample used to be an `act:seek`, i.e. a seek on the playing device and a session broadcast
+	// from the hub to every client. HubManager.actSeek then holds the target in the mirror, so
+	// the thumb does not go back to the old position while the hub's answer is on its way.
+	// The local player still follows the finger, as upstream has it.
 	val onSeek: (Float) -> Unit = { fraction ->
 		if (isRemoteActive) {
+			dragValue = fraction
+		} else {
+			dragValue = null
+			player.seek(fraction)
+		}
+	}
+	val onSeekFinished: () -> Unit = {
+		val fraction = dragValue
+		dragValue = null
+		if (fraction != null && isRemoteActive) {
 			val durationMs = playerState.currentSong?.duration?.inWholeMilliseconds ?: 0L
 			hubManager.actSeek((fraction * durationMs).toLong())
-		} else {
-			player.seek(fraction)
 		}
 	}
 	val waveHeight by animateDpAsState(
@@ -59,8 +83,9 @@ fun NowPlayingProgressBar() {
 	when (preferenceManager.nowPlayingSliderStyle) {
 		NowPlayingSliderStyle.Flat -> {
 			Slider(
-				value = progress,
+				value = shown,
 				onValueChange = onSeek,
+				onValueChangeFinished = onSeekFinished,
 				modifier = Modifier.padding(horizontal = 16.dp),
 				enabled = enabled
 			)
@@ -69,8 +94,9 @@ fun NowPlayingProgressBar() {
 		NowPlayingSliderStyle.Squiggly, NowPlayingSliderStyle.Yoyo -> {
 			val isYoyo = preferenceManager.nowPlayingSliderStyle == NowPlayingSliderStyle.Yoyo
 			WavySlider(
-				value = progress,
+				value = shown,
 				onValueChange = onSeek,
+				onValueChangeFinished = onSeekFinished,
 				modifier = Modifier.padding(
 					horizontal = if (isYoyo) 7.dp else 14.dp
 				),
@@ -104,8 +130,9 @@ fun NowPlayingProgressBar() {
 
 		NowPlayingSliderStyle.Slim -> {
 			SlimSlider(
-				value = progress,
+				value = shown,
 				onValueChange = onSeek,
+				onValueChangeFinished = onSeekFinished,
 				modifier = Modifier.padding(horizontal = 16.dp),
 				enabled = enabled
 			)
