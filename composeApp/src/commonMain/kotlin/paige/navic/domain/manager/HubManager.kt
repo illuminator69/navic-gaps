@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.isActive
@@ -90,7 +92,12 @@ data class HubDevice(
 	 * What the device said it is in `hello` (`computer`, `phone`, `tablet`, `speaker`, `tv`,
 	 * `group`), for the icon its row draws; null if it never said (`DeviceRows.kt`).
 	 */
-	val kind: String? = null
+	val kind: String? = null,
+	/**
+	 * What the device's current socket said it does (`hello.device.caps`). Read here for
+	 * `idleVolume`: it applies a volume command while it is not the playing device.
+	 */
+	val caps: Set<String> = emptySet()
 ) {
 	/** Can the session be handed here right now? Unknown reachability is permissive. */
 	val transferable: Boolean get() = online && reachable != false
@@ -130,10 +137,22 @@ data class RemoteSessionState(
 	 * Values this device has commanded and the hub has not answered for yet (`ActPins.kt`):
 	 * the fields above show them, and each pin keeps what the hub last said underneath.
 	 */
-	val pins: ActPins = ActPins()
+	val pins: ActPins = ActPins(),
+	/**
+	 * The session's sleep timer as the last `session` frame gave it, with its end on this
+	 * device's clock (`SessionSleepTimer.kt`); null when none is set, and from a hub that
+	 * holds none.
+	 */
+	val sleepTimer: SessionSleepTimer? = null
 ) {
 	val nowPlaying: RemoteTrack? get() = tracks.getOrNull(index)
 }
+
+/** `welcome.features`: the hub reads `target` on a `volume` act (PROTOCOL §5.1). */
+const val HUB_FEATURE_VOLUME_TARGET = "volumeTarget"
+
+/** `welcome.features`: the hub holds the session's sleep timer (PROTOCOL §5.1). */
+const val HUB_FEATURE_SLEEP_TIMER = "sleepTimer"
 
 /**
  * navi-connect hub client: makes Navic a Spotify-Connect-style device against
@@ -190,6 +209,34 @@ class HubManager(
 
 	/** True when playback is live on ANOTHER device — show/route the remote view. */
 	val isRemoteActive: StateFlow<Boolean> = _isRemoteActive.asStateFlow()
+
+	private val _hubFeatures = MutableStateFlow<Set<String>>(emptySet())
+
+	/**
+	 * What the hub on the current socket said it understands beyond the base protocol
+	 * (`welcome.features`, PROTOCOL §3.1). Empty from the moment a socket opens until its
+	 * `welcome`, and for a hub that says nothing. It outlives the socket it came from, so
+	 * ask [hubOffers], or read it together with [connected].
+	 */
+	val hubFeatures: StateFlow<Set<String>> = _hubFeatures.asStateFlow()
+
+	/** The link is up and the hub at its other end listed [feature]. */
+	fun hubOffers(feature: String): Boolean = _connected.value && feature in _hubFeatures.value
+
+	/**
+	 * The session's sleep timer where this device can vouch for it (`sessionTimerInForce`):
+	 * what the sleep-timer controls show on every device, playing or not.
+	 */
+	val sessionSleepTimer: StateFlow<SessionSleepTimer?> =
+		combine(
+			_remoteSession, _connected, _hubFeatures, _activeDeviceId, _myDeviceId
+		) { session, connected, features, active, me ->
+			sessionTimerInForce(
+				timer = session.sleepTimer,
+				hubHoldsTimers = connected && HUB_FEATURE_SLEEP_TIMER in features,
+				isActiveDevice = me != null && me == active
+			)
+		}.stateIn(scope, SharingStarted.Eagerly, null)
 
 	/**
 	 * Last hub-side error the user should know about (bad token, target offline, …).
@@ -539,22 +586,45 @@ class HubManager(
 		})
 	}
 
-	/** Set the ACTIVE remote device's volume (0..100). */
-	fun actSetVolume(level: Int) {
-		val target = level.coerceIn(0, 100)
-		val cid = pinCid()
-		if (cid != null) _volumePin.value = VolumePin(target, cid, nowMs(), _activeDeviceId.value)
+	/**
+	 * Set a device's volume (0..100): the ACTIVE device's, or with [targetDeviceId] that of a
+	 * device that is not playing (`act:volume` with `target`, PROTOCOL §5.1), so that a
+	 * speaker can be turned down before music is sent to it.
+	 *
+	 * True when the level was pinned: it then shows for that device at once
+	 * ([pinnedVolume]) and until the hub's ack, which for a refusal (`target_offline`,
+	 * `target_unreachable`, `not_supported`) lets the device list's old level show again.
+	 */
+	fun actSetVolume(level: Int, targetDeviceId: String? = null): Boolean {
+		val wanted = level.coerceIn(0, 100)
+		val active = _activeDeviceId.value
+		// The playing device is the default, and naming it changes nothing.
+		val target = targetDeviceId?.takeIf { it != active }
+		// A hub that does not read `target` would set the ACTIVE device's volume instead.
+		if (target != null && !hubOffers(HUB_FEATURE_VOLUME_TARGET)) return false
+		// With no device playing there is nothing to pin an untargeted level on.
+		val pinnedOn = target ?: active
+		val cid = if (pinnedOn != null) pinCid() else null
+		// Pinned before it is sent: the ack cannot then be here first.
+		if (cid != null && pinnedOn != null) {
+			_volumePins.update { it.pinned(pinnedOn, wanted, cid, nowMs()) }
+		}
 		sendAsync(buildJsonObject {
 			put("t", "act")
 			put("action", "volume")
-			put("level", target)
+			put("level", wanted)
+			target?.let { put("target", it) }
 			cid?.let { put("cid", it) }
 		})
+		return cid != null
 	}
 
-	/** The level this device commanded and the hub has not answered for yet, else null. */
-	fun pinnedVolume(): Int? =
-		_volumePin.value?.takeIf { it.stands(_activeDeviceId.value, nowMs()) }?.level
+	/**
+	 * The level this device commanded for [deviceId] and the hub has not answered for yet,
+	 * else null. Without an id: for the playing device.
+	 */
+	fun pinnedVolume(deviceId: String? = _activeDeviceId.value): Int? =
+		_volumePins.value.levelFor(deviceId, nowMs())
 
 	private val _hardwareVolume = MutableSharedFlow<Int>(
 		extraBufferCapacity = 1,
@@ -677,22 +747,80 @@ class HubManager(
 		return JsonObject(obj + ("cid" to JsonPrimitive(nextCid())))
 	}
 
-	private val _volumePin = MutableStateFlow<VolumePin?>(null)
+	private val _volumePins = MutableStateFlow(VolumePins())
 
-	/** The volume this device commanded for the active device, until the hub answers ([pinnedVolume]). */
-	val volumePin: StateFlow<VolumePin?> = _volumePin.asStateFlow()
+	/**
+	 * The volumes this device commanded, by device, until the hub answers for each
+	 * ([pinnedVolume]). Collected for its changes; the level to show is asked of [pinnedVolume].
+	 */
+	val volumePins: StateFlow<VolumePins> = _volumePins.asStateFlow()
 
 	/** The hub answered act [cid]: what it pinned gives way to what the hub said. */
 	private fun releasePins(cid: String) {
 		_remoteSession.update { it.afterAck(cid) }
-		_volumePin.update { pin -> pin?.takeIf { it.cid != cid } }
+		_volumePins.update { it.afterAck(cid) }
 	}
 
 	/** Pins whose ack did not come in [ACT_PIN_MS]. Run from the mirror's tick. */
 	private fun expirePins() {
 		val now = nowMs()
 		if (!_remoteSession.value.pins.none) _remoteSession.update { it.afterPinExpiry(now) }
-		_volumePin.update { pin -> pin?.takeIf { it.stands(_activeDeviceId.value, now) } }
+		_volumePins.update { it.afterExpiry(now) }
+	}
+
+	// --- The session's sleep timer (PROTOCOL §5.1; the rules are in SessionSleepTimer.kt) --------
+
+	/**
+	 * The link is up to a hub that holds the session's sleep timer: the timed option is then
+	 * an act, and no timer is armed on this device.
+	 */
+	val holdsSleepTimers: Boolean get() = hubOffers(HUB_FEATURE_SLEEP_TIMER)
+
+	/** Set the session's sleep timer to [minutes] from now, replacing one that runs; 0 turns it off. */
+	fun actSleepTimer(minutes: Int) {
+		sendAsync(buildJsonObject {
+			put("t", "act")
+			put("action", "sleepTimer")
+			put("minutes", minutes.coerceIn(0, SLEEP_TIMER_MAX_MINUTES))
+		})
+	}
+
+	/**
+	 * Turn the session's sleep timer off, if this device knows of one. Through the hub when
+	 * the link is up, and its `session` frame then clears the mirror. With the link down the
+	 * act cannot be sent, so only this device's own guard is disarmed: a hub that still holds
+	 * the timer says so again at the next `welcome`.
+	 */
+	fun cancelSleepTimer() {
+		if (_remoteSession.value.sleepTimer == null) return
+		if (holdsSleepTimers) actSleepTimer(0)
+		else _remoteSession.update { it.copy(sleepTimer = null) }
+	}
+
+	/**
+	 * The playing device's own end of the session's sleep timer (`sleepGuard`): what stops the
+	 * music when the hub's pause cannot reach this device. A timer the mirror still holds
+	 * well past its end is forgotten here, once, and if this device is the one playing it
+	 * pauses itself. A frame that replaced the timer in the meantime keeps its own.
+	 */
+	private suspend fun guardSleepTimer() {
+		val timer = _remoteSession.value.sleepTimer ?: return
+		val local = mediaPlayer.localUiState.value
+		val verdict = sleepGuard(
+			timer = timer,
+			isActiveDevice = isActiveDevice(),
+			isPlaying = !local.isPaused && local.queue.isNotEmpty(),
+			nowMs = nowMs()
+		)
+		if (verdict == SleepGuard.WAIT) return
+		var forgotten = false
+		_remoteSession.update {
+			forgotten = it.sleepTimer == timer
+			if (forgotten) it.copy(sleepTimer = null) else it
+		}
+		if (!forgotten || verdict != SleepGuard.PAUSE) return
+		Logger.i("HubManager", "sleep timer ran out and the hub's pause did not come: pausing here")
+		mediaPlayer.awaitRemotePause()
 	}
 
 	fun currentTimeMs(): Long = nowMs()
@@ -731,6 +859,13 @@ class HubManager(
 			while (currentCoroutineContext().isActive) {
 				delay(250)
 				expirePins()
+				try {
+					guardSleepTimer()
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					Logger.e("HubManager", "sleep timer guard failed", e)
+				}
 				evaluateRemoteActive()
 				refreshMirror(_remoteSession.value)
 			}
@@ -848,6 +983,7 @@ class HubManager(
 			resetEcho()
 			// What the last hub answered says nothing about this one, until its `welcome`.
 			hubAcksActs = false
+			_hubFeatures.value = emptySet()
 			val writer = launch {
 				try {
 					for (frame in out) send(Frame.Text(frame.toString()))
@@ -882,6 +1018,10 @@ class HubManager(
 						// directive carried out, and keeps the five duties that makes a
 						// promise of (`DoEcho.kt`, [handleDo], [reporterLoop]).
 						add("cmdEcho")
+						// PROTOCOL §5.1: a `do:setVolume` is applied whenever it arrives, also
+						// while another device plays, so this device's row can be turned down
+						// before music is sent to it. Only where the system's volume can be set.
+						if (localDevice.setsMediaVolume) add(CAP_IDLE_VOLUME)
 					}
 				}
 			})
@@ -1337,9 +1477,13 @@ class HubManager(
 				}
 				// Before anything below sends an act. A `welcome` also ends every pin: the acts
 				// they wait on went to a socket that is gone.
-				hubAcksActs = (msg["features"] as? JsonArray)
-					?.any { (it as? JsonPrimitive)?.contentOrNull == "actAck" } == true
-				_volumePin.value = null
+				val features = (msg["features"] as? JsonArray)
+					?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+					?.toSet()
+					.orEmpty()
+				_hubFeatures.value = features
+				hubAcksActs = "actAck" in features
+				_volumePins.value = VolumePins()
 				msg["session"]?.let { applySession(it.jsonObject, keepPins = false) }
 				msg["devices"]?.let { parseDevices(it.asObjectList()) }
 				welcomedAtMs = nowMs()
@@ -1565,7 +1709,16 @@ class HubManager(
 			positionAtMs = now,
 			repeat = obj["repeat"]?.jsonPrimitive?.contentOrNullSafe() ?: "none",
 			shuffle = obj["shuffle"]?.jsonPrimitive?.booleanOrNull ?: false,
-			savedQueueId = obj["savedQueueId"]?.jsonPrimitive?.contentOrNullSafe()
+			savedQueueId = obj["savedQueueId"]?.jsonPrimitive?.contentOrNullSafe(),
+			// `remainingMs` was true when the frame was built: counted down from here on.
+			sleepTimer = (obj["sleepTimer"] as? JsonObject)?.let { timer ->
+				sessionSleepTimer(
+					remainingMs = (timer["remainingMs"] as? JsonPrimitive)?.longOrNull,
+					minutes = (timer["minutes"] as? JsonPrimitive)?.intOrNull,
+					setBy = (timer["setBy"] as? JsonPrimitive)?.contentOrNull,
+					arrivedAtMs = now
+				)
+			}
 		)
 		// `update`: an act pins from another thread, and its pin must not be lost under this frame.
 		_remoteSession.update { shown -> if (keepPins) snapshot.underPins(shown, now) else snapshot }
@@ -1657,7 +1810,11 @@ class HubManager(
 				volume = d["volume"]?.jsonPrimitive?.intOrNull ?: 100,
 				reachable = d["reachable"]?.jsonPrimitive?.booleanOrNull,
 				bridgedBy = d["bridgedBy"]?.jsonPrimitive?.contentOrNullSafe(),
-				kind = d["kind"]?.jsonPrimitive?.contentOrNullSafe()
+				kind = d["kind"]?.jsonPrimitive?.contentOrNullSafe(),
+				caps = (d["caps"] as? JsonArray)
+					?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+					?.toSet()
+					.orEmpty()
 			)
 		}
 	}
@@ -1673,8 +1830,21 @@ class HubManager(
 	}
 
 	private suspend fun handleDo(msg: JsonObject) {
-		hubDrivenUntilMs = nowMs() + 2000
 		val cmd = msg["cmd"]?.jsonPrimitive?.content
+		// A volume directive is not playback, and with the `idleVolume` cap it comes while
+		// ANOTHER device plays (PROTOCOL §5.1). It must not open the hub-driven window: for
+		// those two seconds a play started on this device would be neither routed to the
+		// playing device nor published. It changes nothing a report says, so the hub gives
+		// it no `seq` and there is no echo to wait for; one that did carry a number is
+		// owed it back at once.
+		if (cmd == "setVolume") {
+			applyVolumeDirective(msg["level"]?.jsonPrimitive?.intOrNull ?: 100)
+			msg["seq"]?.jsonPrimitive?.intOrNull?.let {
+				settleDirective(doEcho.value.connection, it, null, EchoReport.FromPlayer)
+			}
+			return
+		}
+		hubDrivenUntilMs = nowMs() + 2000
 		// PROTOCOL §5.2: the hub numbers the directives that change what a report says. The
 		// number is owed back on EVERY way out of this function (§5.3, duty 1: carried out,
 		// refused, failed or superseded), hence the `finally`. And only once the command has
@@ -1773,8 +1943,6 @@ class HubManager(
 					mediaPlayer.awaitRemoteClear()
 				}
 
-				"setVolume" -> applyVolumeDirective(msg["level"]?.jsonPrimitive?.intOrNull ?: 100)
-
 				"setRepeat" -> {
 					// media3 constants: 0 = off, 1 = one, 2 = all
 					val mode = when (msg["mode"]?.jsonPrimitive?.content) {
@@ -1839,7 +2007,8 @@ class HubManager(
 	/**
 	 * `do:setVolume`: the phone's media volume, where the platform lets it be set, and the
 	 * player's own gain back at full, so that the two never multiply. Elsewhere the gain is
-	 * the volume, as it was.
+	 * the volume, as it was. Applied whenever it arrives, playing or not, and nothing here
+	 * sends an act: the level goes back to the hub as a report only.
 	 *
 	 * The level the system then holds is reported even when it did not move (PROTOCOL §5.3):
 	 * the hub has just written the level it ASKED for on this device's row, and a phone has

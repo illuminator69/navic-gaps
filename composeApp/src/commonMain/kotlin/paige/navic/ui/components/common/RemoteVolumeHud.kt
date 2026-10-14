@@ -52,7 +52,9 @@ fun RemoteVolumeHud() {
 	val hubManager = koinInject<HubManager>()
 	val devices by hubManager.devices.collectAsState()
 	val activeId by hubManager.activeDeviceId.collectAsState()
-	val pin by hubManager.volumePin.collectAsState()
+	// The playing device's pin. A level commanded for some other row is not this bar's.
+	val pins by hubManager.volumePins.collectAsState()
+	val pin = activeId?.let { pins.byDevice[it] }
 	val active = devices.firstOrNull { it.id == activeId }
 
 	var commanded by remember { mutableIntStateOf(0) }

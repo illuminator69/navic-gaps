@@ -1,5 +1,6 @@
 package paige.navic.ui.components.sheets
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,11 +28,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.CastBridgeState
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.DeviceKindIcon
+import paige.navic.domain.manager.HUB_FEATURE_VOLUME_TARGET
 import paige.navic.domain.manager.HubDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
@@ -38,6 +43,7 @@ import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.deviceKindIcon
 import paige.navic.domain.manager.deviceRowStatus
 import paige.navic.domain.manager.pickerOrder
+import paige.navic.domain.manager.rowVolumeOffered
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Computer
 import paige.navic.icons.outlined.Devices
@@ -46,6 +52,7 @@ import paige.navic.icons.outlined.Speaker
 import paige.navic.icons.outlined.SpeakerGroup
 import paige.navic.icons.outlined.Tablet
 import paige.navic.icons.outlined.Tv
+import paige.navic.icons.outlined.VolumeUp
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import paige.navic.shared.MediaPlayerViewModel
 import kotlin.math.roundToInt
@@ -72,6 +79,10 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 	val myDeviceId by hubManager.myDeviceId.collectAsState()
 	val activeDeviceId by hubManager.activeDeviceId.collectAsState()
 	val speakers by castBridgeStatus.speakers.collectAsState()
+	val hubFeatures by hubManager.hubFeatures.collectAsState()
+	// A row's own volume needs a hub that reads `target`: an older one would set the
+	// PLAYING device's level instead.
+	val hubSetsRowVolumes = connected && HUB_FEATURE_VOLUME_TARGET in hubFeatures
 
 	// Snapshot-backed pref → reading recomposes when the hidden set changes.
 	val hiddenIds = remember(preferenceManager.hubHiddenDeviceIds) {
@@ -110,6 +121,7 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 
 	val renderDevice: @Composable (HubDevice) -> Unit = { device ->
 		val isHidden = device.id in hiddenIds
+		Column {
 		Row(
 			modifier = Modifier.fillMaxWidth(),
 			horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -173,6 +185,25 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 				}
 			}
 		}
+		// The volume of a device that is not playing, so that it can be turned down before
+		// music is sent to it. Under its own row, in line with the name; it opens and closes
+		// as the row gains or loses the right to one (`rowVolumeOffered`).
+		AnimatedVisibility(visible = rowVolumeOffered(device, myDeviceId, hubSetsRowVolumes)) {
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(start = 40.dp),
+				horizontalArrangement = Arrangement.spacedBy(12.dp),
+				verticalAlignment = Alignment.CenterVertically
+			) {
+				Icon(
+					imageVector = Icons.Outlined.VolumeUp,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(20.dp)
+				)
+				HubVolumeSlider(device, hubManager, Modifier.weight(1f))
+			}
+		}
+		}
 	}
 
 	ModalBottomSheet(
@@ -221,21 +252,12 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 			// never touches this device's local volume.
 			val activeDevice = devices.firstOrNull { it.id == activeDeviceId }
 			if (connected && activeDevice != null && activeDevice.id != myDeviceId) {
-				var volume by remember(activeDevice.volume) {
-					mutableStateOf(activeDevice.volume.toFloat())
-				}
 				Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
 					Text(
 						"Volume · ${activeDevice.name}",
 						style = MaterialTheme.typography.titleMedium
 					)
-					Slider(
-						value = volume,
-						onValueChange = { volume = it },
-						// Commit on release only — don't flood the socket while dragging.
-						onValueChangeFinished = { hubManager.actSetVolume(volume.roundToInt()) },
-						valueRange = 0f..100f
-					)
+					HubVolumeSlider(activeDevice, hubManager)
 				}
 			}
 
@@ -271,6 +293,43 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 			Spacer(Modifier.height(24.dp))
 		}
 	}
+}
+
+/**
+ * A hub device's volume: the playing device's, and a picker row's own.
+ *
+ * It previews the drag and commits on release only, so the socket carries one act per
+ * gesture. From the release on it shows the level that was let go, never the old one: the
+ * hub client pins it until the hub answers for that act (`ActPins.kt`), and what shows then
+ * is the hub's word: the level the device settled on, or after a refusal the level the row
+ * never stopped having.
+ */
+@Composable
+private fun HubVolumeSlider(device: HubDevice, hubManager: HubManager, modifier: Modifier = Modifier) {
+	var dragged by remember { mutableStateOf<Float?>(null) }
+	// A hub that answers no acts pins nothing. The released level then stands until that
+	// hub's next word on this device, as it always did.
+	var released by remember(device.volume) { mutableStateOf<Float?>(null) }
+	// The pin a release sets is in the manager before this composition's copy of the flow
+	// has it, and drawn from the copy alone the frame in between showed the old level. So
+	// the manager is asked first. The copy is read on every pass all the same: it is what
+	// recomposes this when a pin goes, and it still holds the pin for the moment in which
+	// the manager has released it and the new device list has not been drawn yet.
+	val collected = hubManager.volumePins.collectAsState().value.byDevice[device.id]?.level
+	val pinned = hubManager.pinnedVolume(device.id) ?: collected
+	Slider(
+		value = dragged ?: pinned?.toFloat() ?: released ?: device.volume.toFloat(),
+		onValueChange = { dragged = it },
+		onValueChangeFinished = {
+			dragged?.let { level ->
+				val isPinned = hubManager.actSetVolume(level.roundToInt(), device.id)
+				released = if (isPinned) null else level
+			}
+			dragged = null
+		},
+		valueRange = 0f..100f,
+		modifier = modifier.semantics { contentDescription = "Volume · ${device.name}" }
+	)
 }
 
 /** The outline drawn for a device of this kind. */

@@ -239,11 +239,55 @@ class ActPinsTest {
 
 	@Test
 	fun aVolumePinStandsForItsDeviceUntilItsDeadline() {
-		val pin = VolumePin(level = 40, cid = "n1", atMs = t0, deviceId = "speaker")
-		assertTrue(pin.stands("speaker", t0 + ACT_PIN_MS - 1))
-		assertFalse(pin.stands("speaker", t0 + ACT_PIN_MS))
-		// Playback moved: the level was commanded for the device it left.
-		assertFalse(pin.stands("phone", t0 + 100))
-		assertFalse(pin.stands(null, t0 + 100))
+		val pins = VolumePins().pinned("speaker", level = 40, cid = "n1", nowMs = t0)
+		assertEquals(40, pins.levelFor("speaker", t0 + ACT_PIN_MS - 1))
+		assertNull(pins.levelFor("speaker", t0 + ACT_PIN_MS))
+		// A clock set back ends it too.
+		assertNull(pins.levelFor("speaker", t0 - 1))
+		// Playback moved: the level was commanded for the device it left, and stays there.
+		assertNull(pins.levelFor("phone", t0 + 100))
+		assertNull(pins.levelFor(null, t0 + 100))
+	}
+
+	@Test
+	fun eachDevicesVolumeIsPinnedAndAnsweredOnItsOwn() {
+		// The playing speaker turned down, then the kitchen's row before music is sent there.
+		val pins = VolumePins()
+			.pinned("speaker", level = 40, cid = "n1", nowMs = t0)
+			.pinned("kitchen", level = 15, cid = "n2", nowMs = t0 + 300)
+		assertEquals(40, pins.levelFor("speaker", t0 + 400))
+		assertEquals(15, pins.levelFor("kitchen", t0 + 400))
+
+		val afterFirstAck = pins.afterAck("n1")
+		assertNull(afterFirstAck.levelFor("speaker", t0 + 400))
+		assertEquals(15, afterFirstAck.levelFor("kitchen", t0 + 400))
+		// The hub refused the second (`not_supported`): its ack releases the row all the same,
+		// and the row shows the level the device list never stopped holding.
+		assertEquals(VolumePins(), afterFirstAck.afterAck("n2"))
+	}
+
+	@Test
+	fun aNewerLevelForADeviceIsNotReleasedByTheOlderActsAck() {
+		val pins = VolumePins()
+			.pinned("kitchen", level = 30, cid = "n1", nowMs = t0)
+			.pinned("kitchen", level = 55, cid = "n2", nowMs = t0 + 200)
+		// The first drag's ack lands while the second is still on its way.
+		val afterOld = pins.afterAck("n1")
+		assertEquals(55, afterOld.levelFor("kitchen", t0 + 300))
+		assertEquals(pins, afterOld)
+		assertNull(afterOld.afterAck("n2").levelFor("kitchen", t0 + 300))
+	}
+
+	@Test
+	fun aVolumePinWithNoAckGoesWhenItsTimeIsUpAndTakesNoOtherWithIt() {
+		val pins = VolumePins()
+			.pinned("speaker", level = 40, cid = "n1", nowMs = t0)
+			.pinned("kitchen", level = 15, cid = "n2", nowMs = t0 + 1_000)
+		assertEquals(pins, pins.afterExpiry(t0 + ACT_PIN_MS - 1))
+		val later = pins.afterExpiry(t0 + ACT_PIN_MS)
+		assertEquals(setOf("kitchen"), later.byDevice.keys)
+		assertEquals(VolumePins(), later.afterExpiry(t0 + 1_000 + ACT_PIN_MS))
+		// An ack for an act that pinned nothing changes nothing.
+		assertEquals(pins, pins.afterAck("n9"))
 	}
 }

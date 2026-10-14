@@ -445,6 +445,23 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   navi-connect settings list and the line over the now-playing title. iOS registers
   `PlainHubLocalDevice`: nothing reported, the gain as before.
 
+- **A device that is not playing can be turned down, and the timed sleep timer is the
+  session's (I-033, I-034, B-113).** `hello` carries the `idleVolume` cap on Android
+  (`HubLocalDevice`): `do:setVolume` is applied whenever it arrives, carries no `seq`, and
+  neither arms the hub-driven window nor counts as a directive to echo. With `volumeTarget`
+  in `welcome.features` (`HubManager.hubOffers`) the picker gives a slider to every row that
+  `rowVolumeOffered` allows — online, responding, has the cap, not the playing device, not this
+  one — committed on release as `act:volume {level, target}`; the level is pinned per device id
+  (`VolumePins` in `ActPins.kt`) until that act's ack. With `sleepTimer` in the features the
+  TIMED mode of `SleepTimerManager` sends `act:sleepTimer {minutes}` and arms nothing here;
+  `session.sleepTimer` is mirrored as `HubManager.sessionSleepTimer`, counted down on this
+  device's clock from the moment its frame arrived, and shown on every device
+  (`shownSleepMode`). The song-count and end-of-queue modes stay local. The rules are pure
+  functions in `SessionSleepTimer.kt` (`SessionSleepTimerTest`), the guard among them: the
+  playing device pauses itself 5 s after the timer's end if no frame has cleared it, which is
+  what stops the music when the hub link has dropped. The cast bridge does not take
+  `idleVolume`: a speaker it holds no connection to gets no row slider from this client.
+
 The cast bridge's own rules — self-exclusion on reconnect, join-don't-launch, release by pausing
 rather than stopping — are protocol-level and live in navi-connect's `CLAUDE.md` and `PROTOCOL.md`,
 because both clients must agree on them.

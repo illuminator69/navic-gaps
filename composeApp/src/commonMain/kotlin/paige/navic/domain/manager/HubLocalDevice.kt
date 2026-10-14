@@ -33,13 +33,26 @@ interface HubLocalDevice {
 	 * be set, and the caller then falls back to the player's own gain.
 	 */
 	fun setMediaVolume(level: Int): Boolean
+
+	/**
+	 * Whether [setMediaVolume] works on this device, whatever is or is not playing. It is what
+	 * `hello` promises with the [CAP_IDLE_VOLUME] cap, asked at every `hello`.
+	 */
+	val setsMediaVolume: Boolean
 }
+
+/**
+ * `hello.device.caps`, and a row's `caps`: the device applies a `do:setVolume` whenever one
+ * arrives, also while it is not the playing device (PROTOCOL §3.1, §5.1).
+ */
+const val CAP_IDLE_VOLUME = "idleVolume"
 
 /** A phone that reports no volume and sets none: iOS, where the hub's volume stays the player's gain. */
 class PlainHubLocalDevice : HubLocalDevice {
 	override val kind: String = "phone"
 	override val mediaVolume: StateFlow<Int?> = MutableStateFlow<Int?>(null).asStateFlow()
 	override fun setMediaVolume(level: Int): Boolean = false
+	override val setsMediaVolume: Boolean = false
 }
 
 /** The least time between two `deviceState` volume reports: at most 4 a second (PROTOCOL §5.3). */

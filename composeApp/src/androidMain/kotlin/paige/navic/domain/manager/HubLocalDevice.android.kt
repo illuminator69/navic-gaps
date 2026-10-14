@@ -97,9 +97,12 @@ class AndroidHubLocalDevice(context: Context) : HubLocalDevice {
 		main.postDelayed(reread, OUTPUT_SETTLE_MS)
 	}
 
+	// A device whose volume is fixed (some TVs and cars) ignores the call.
+	override val setsMediaVolume: Boolean
+		get() = audio?.isVolumeFixed == false
+
 	override fun setMediaVolume(level: Int): Boolean {
 		val manager = audio ?: return false
-		// A device whose volume is fixed (some TVs and cars) ignores the call.
 		if (manager.isVolumeFixed) return false
 		return try {
 			manager.setStreamVolume(

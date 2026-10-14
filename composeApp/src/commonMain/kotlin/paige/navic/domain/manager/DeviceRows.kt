@@ -80,3 +80,15 @@ fun pickerOrder(devices: List<HubDevice>, myDeviceId: String?): List<HubDevice> 
 			}
 		}.thenBy { it.name.lowercase() }.thenBy { it.id }
 	)
+
+/**
+ * Does [device]'s row carry a volume slider of its own? Only where a level set there will
+ * land: the hub reads a `target` ([hubSetsRowVolumes]: the link is up and `welcome.features`
+ * has `volumeTarget`; an older hub would move the PLAYING device instead), the device is
+ * online and responding, and it promised to apply a volume while idle (`idleVolume`). Not on
+ * the playing device, which has its own slider, nor on this one, whose volume is under the
+ * user's thumb already.
+ */
+fun rowVolumeOffered(device: HubDevice, myDeviceId: String?, hubSetsRowVolumes: Boolean): Boolean =
+	hubSetsRowVolumes && device.transferable && CAP_IDLE_VOLUME in device.caps &&
+		!device.isActive && device.id != myDeviceId

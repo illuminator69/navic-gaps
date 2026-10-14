@@ -13,9 +13,10 @@ package paige.navic.domain.manager
  * the pin goes: at the ack of the newest act on that value, after [ACT_PIN_MS] without one, and
  * at any `welcome`. An older act's ack releases nothing, because a newer act replaced its `cid`.
  *
- * Pinned: play state and position here, volume in [VolumePin] (it lives in the device list,
- * not in the session). Skips and queue edits are not pinned: under shuffle the controller
- * cannot know the next index. Free of the socket so that the rules run in a test (`ActPinsTest`).
+ * Pinned: play state and position here, volume in [VolumePins] (it lives in the device list,
+ * not in the session, and any device's can be commanded, not only the playing one's). Skips
+ * and queue edits are not pinned: under shuffle the controller cannot know the next index.
+ * Free of the socket so that the rules run in a test (`ActPinsTest`).
  */
 
 /** How long a pin stands with no ack: the act was lost, or the hub is holding it for a transfer. */
@@ -42,11 +43,42 @@ data class ActPins(val play: PlayPin? = null, val position: PositionPin? = null)
 	val none: Boolean get() = play == null && position == null
 }
 
-/** A volume this device commanded for [deviceId], until the ack for [cid]. */
-data class VolumePin(val level: Int, val cid: String, val atMs: Long, val deviceId: String?) {
-	fun stands(activeDeviceId: String?, nowMs: Long): Boolean =
-		deviceId == activeDeviceId && pinIsYoung(atMs, nowMs)
+/** A volume this device commanded for one device, until the ack for [cid]. */
+data class VolumePin(val level: Int, val cid: String, val atMs: Long)
+
+/**
+ * The volumes this device has commanded and the hub has not answered for yet, by the id of
+ * the device each was commanded for: the playing device (its slider, the hardware buttons)
+ * and any row of the picker (`act:volume` with a `target`, PROTOCOL §5.1).
+ *
+ * A pin belongs to its device and not to "the active one": when playback moves, the level
+ * stays on the device it was set for, and the new playing device has none. A newer command
+ * for a device replaces its pin, so the older act's ack releases nothing.
+ */
+data class VolumePins(val byDevice: Map<String, VolumePin> = emptyMap()) {
+	/** The pin standing for [deviceId] at [nowMs], else null. */
+	fun pinFor(deviceId: String?, nowMs: Long): VolumePin? =
+		deviceId?.let { byDevice[it] }?.takeIf { pinIsYoung(it.atMs, nowMs) }
+
+	/** The level to show for [deviceId] in place of the device list's, else null. */
+	fun levelFor(deviceId: String?, nowMs: Long): Int? = pinFor(deviceId, nowMs)?.level
 }
+
+/** The pins once this device has sent [level] for [deviceId] as act [cid]. */
+internal fun VolumePins.pinned(deviceId: String, level: Int, cid: String, nowMs: Long): VolumePins =
+	VolumePins(byDevice + (deviceId to VolumePin(level, cid, nowMs)))
+
+/**
+ * The pins after the hub's ack for act [cid], accepted or refused: the device list already
+ * holds the level the hub settled on, the old one if it refused, and that shows again.
+ */
+internal fun VolumePins.afterAck(cid: String): VolumePins =
+	if (byDevice.values.none { it.cid == cid }) this else VolumePins(byDevice.filterValues { it.cid != cid })
+
+/** The pins with every one older than [ACT_PIN_MS] released: its ack is not coming in time. */
+internal fun VolumePins.afterExpiry(nowMs: Long): VolumePins =
+	if (byDevice.values.all { pinIsYoung(it.atMs, nowMs) }) this
+	else VolumePins(byDevice.filterValues { pinIsYoung(it.atMs, nowMs) })
 
 /** Not `<`: a wall clock set back must end a pin, not extend it. */
 private fun pinIsYoung(atMs: Long, nowMs: Long): Boolean = nowMs - atMs in 0 until ACT_PIN_MS

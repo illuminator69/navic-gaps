@@ -152,7 +152,7 @@ class RemoteSessionPlayer(
 		hubManager.actSetVolume(target)
 		// With the socket down that frame was dropped, and there is no answer to wait for.
 		if (!hubManager.connected.value) return
-		// Pinned by the hub client: the collector on `volumePin` re-reads the level when the
+		// Pinned by the hub client: the collector on `volumePins` re-reads the level when the
 		// pin is set and again when the ack, or its deadline, lets the frame's level through.
 		if (hubManager.pinnedVolume() != null) return
 		commanded = VolumeCommand(
@@ -198,7 +198,7 @@ class RemoteSessionPlayer(
 		// A level this device commanded stands in for the list's until the hub answers, so
 		// both its coming and its going change what `effectiveVolume` reports.
 		scope.launch {
-			hubManager.volumePin.collect { invalidateState() }
+			hubManager.volumePins.collect { invalidateState() }
 		}
 		// Presses taken by the app's own window (`MainActivity.dispatchKeyEvent`) step here too.
 		hubManager.remoteVolumePress = { direction -> pressVolume(direction * VOLUME_STEP) }
