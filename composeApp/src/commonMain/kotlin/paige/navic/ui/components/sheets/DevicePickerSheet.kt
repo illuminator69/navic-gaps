@@ -185,9 +185,10 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 				}
 			}
 		}
-		// The volume of a device that is not playing, so that it can be turned down before
-		// music is sent to it. Under its own row, in line with the name; it opens and closes
-		// as the row gains or loses the right to one (`rowVolumeOffered`).
+		// Every other device's volume, under its own row whether it plays or not, so that one
+		// can be turned down before music is sent to it and a device's slider does not move
+		// when playback does. It opens and closes as the row gains or loses the right to one
+		// (`rowVolumeOffered`).
 		AnimatedVisibility(visible = rowVolumeOffered(device, myDeviceId, hubSetsRowVolumes)) {
 			Row(
 				modifier = Modifier.fillMaxWidth().padding(start = 40.dp),
@@ -245,20 +246,6 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 					Text((if (showExtra) "Hide" else "Show") + " offline & hidden (${extraDevices.size})")
 				}
 				if (showExtra) extraDevices.forEach { key(it.id) { renderDevice(it) } }
-			}
-
-			// Volume for the active remote device (mirrors Feishin's remote-bar
-			// volume). The hub forwards `do setVolume` to that device ONLY, so it
-			// never touches this device's local volume.
-			val activeDevice = devices.firstOrNull { it.id == activeDeviceId }
-			if (connected && activeDevice != null && activeDevice.id != myDeviceId) {
-				Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-					Text(
-						"Volume · ${activeDevice.name}",
-						style = MaterialTheme.typography.titleMedium
-					)
-					HubVolumeSlider(activeDevice, hubManager)
-				}
 			}
 
 			// Chromecasts reach the list ABOVE, as ordinary hub devices, once somebody bridges

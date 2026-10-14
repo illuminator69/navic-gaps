@@ -2,6 +2,8 @@ package paige.navic.domain.manager
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /*
  * The rules in DeviceRows.kt and the volume arithmetic of HubLocalDevice.kt: what a device's
@@ -157,5 +159,20 @@ class DeviceRowsTest {
 	fun aStreamWithNoRangeHasOneStepAndIsFull() {
 		assertEquals(3, streamIndexForLevel(40, minIndex = 3, maxIndex = 3))
 		assertEquals(100, levelForStreamIndex(3, minIndex = 3, maxIndex = 3))
+	}
+
+	@Test
+	fun everyOtherDeviceKeepsItsSliderInItsOwnRowWherePlaybackIs() {
+		val idle = device(id = "desk").copy(caps = setOf("receiver", CAP_IDLE_VOLUME))
+		val playing = device(id = "desk", isActive = true)
+		// The playing device: on any hub, since it is the hub's default target.
+		assertTrue(rowVolumeOffered(playing, myDeviceId = "phone", hubSetsRowVolumes = false))
+		// Idle: only where the hub reads a target and the device takes a volume while idle.
+		assertTrue(rowVolumeOffered(idle, myDeviceId = "phone", hubSetsRowVolumes = true))
+		assertFalse(rowVolumeOffered(idle, myDeviceId = "phone", hubSetsRowVolumes = false))
+		assertFalse(rowVolumeOffered(device(id = "desk"), myDeviceId = "phone", hubSetsRowVolumes = true))
+		// Never this device's own row, and never a device that cannot hear it.
+		assertFalse(rowVolumeOffered(playing, myDeviceId = "desk", hubSetsRowVolumes = true))
+		assertFalse(rowVolumeOffered(device(id = "desk", isActive = true, online = false), myDeviceId = "phone", hubSetsRowVolumes = true))
 	}
 }

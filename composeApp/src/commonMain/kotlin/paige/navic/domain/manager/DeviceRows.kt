@@ -82,13 +82,17 @@ fun pickerOrder(devices: List<HubDevice>, myDeviceId: String?): List<HubDevice> 
 	)
 
 /**
- * Does [device]'s row carry a volume slider of its own? Only where a level set there will
- * land: the hub reads a `target` ([hubSetsRowVolumes]: the link is up and `welcome.features`
- * has `volumeTarget`; an older hub would move the PLAYING device instead), the device is
- * online and responding, and it promised to apply a volume while idle (`idleVolume`). Not on
- * the playing device, which has its own slider, nor on this one, whose volume is under the
- * user's thumb already.
+ * Does [device]'s row carry a volume slider? Every other device's volume is set in its own
+ * row, playing or not, so a device's slider stays where it was when playback moves. It used
+ * to sit at the foot of the picker while the device played and in its row while it did not:
+ * two places for one device, and which one depended on where the music was.
+ *
+ * Only where a level set there will land: the device is online and responding, and either it
+ * is the playing device (the hub's default target, on any hub) or the hub reads a `target`
+ * ([hubSetsRowVolumes]: the link is up and `welcome.features` has `volumeTarget`; an older hub
+ * would move the PLAYING device instead) and the device promised to apply a volume while idle
+ * (`idleVolume`). Never on this device's own row: its volume is the phone's own buttons'.
  */
 fun rowVolumeOffered(device: HubDevice, myDeviceId: String?, hubSetsRowVolumes: Boolean): Boolean =
-	hubSetsRowVolumes && device.transferable && CAP_IDLE_VOLUME in device.caps &&
-		!device.isActive && device.id != myDeviceId
+	device.id != myDeviceId && device.transferable &&
+		(device.isActive || hubSetsRowVolumes && CAP_IDLE_VOLUME in device.caps)
