@@ -486,7 +486,7 @@ fun QueueScreen() {
 									val hue = ((kotlin.math.atan2(it[1], it[0]) * 180f /
 										kotlin.math.PI.toFloat()) + 360f) % 360f
 									Color.hsv(hue, 0.45f, 0.85f)
-								} ?: Color(0xFFEE7B90)
+								} ?: MaterialTheme.colorScheme.tertiary
 								Row(
 									verticalAlignment = Alignment.CenterVertically,
 									horizontalArrangement = Arrangement.spacedBy(6.dp)
