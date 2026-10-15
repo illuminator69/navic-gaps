@@ -1,24 +1,20 @@
 package paige.navic.ui.screens.nowPlaying.components.controls
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import paige.navic.icons.outlined.Check
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,15 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.blurEffect
 import dev.chrisbanes.haze.hazeEffect
@@ -67,7 +55,6 @@ fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: Haze
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	val mode by radioManager.autoplayMode.collectAsState()
-	if (mode != AutoplayMode.Adaptive) return
 
 	val character = preferenceManager.moodCharacter
 
@@ -82,108 +69,71 @@ fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: Haze
 		}
 	}
 
-	val popupShape = RoundedCornerShape(20.dp)
 	val frost = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
 	val frostBorder = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
 
-	val belowCentered = remember {
-		object : PopupPositionProvider {
-			override fun calculatePosition(
-				anchorBounds: IntRect,
-				windowSize: IntSize,
-				layoutDirection: LayoutDirection,
-				popupContentSize: IntSize
-			): IntOffset {
-				val x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
-				val y = anchorBounds.bottom + 12
-				return IntOffset(x.coerceAtLeast(0), y)
+	// Eased in and out beside the autoplay selector rather than appearing in one frame: the row
+	// is centred, so the selector slides aside instead of jumping (I-039).
+	AnimatedVisibility(
+		visible = mode == AutoplayMode.Adaptive,
+		modifier = modifier,
+		enter = fadeIn() + expandHorizontally(),
+		exit = fadeOut() + shrinkHorizontally()
+	) {
+		Box {
+			// A 48dp target around the 38dp frosted circle, as an IconButton holds its icon:
+			// the circle alone was a 38dp target, under the minimum.
+			Box(
+				modifier = Modifier
+					.size(48.dp)
+					.clip(CircleShape)
+					.clickable {
+						if (!justDismissed) expanded = !expanded
+					},
+				contentAlignment = Alignment.Center
+			) {
+				Box(
+					modifier = Modifier
+						.size(38.dp)
+						.clip(CircleShape)
+						.then(
+							if (hazeState != null) {
+								Modifier.hazeEffect(state = hazeState) { blurEffect { blurRadius = 20.dp } }
+							} else {
+								Modifier
+							}
+						)
+						.background(if (hazeState != null) frost.copy(alpha = 0.5f) else frost)
+						.border(1.dp, frostBorder, CircleShape),
+					contentAlignment = Alignment.Center
+				) {
+					Icon(
+						imageVector = Icons.Outlined.Speed,
+						contentDescription = "Mood Flow character",
+						modifier = Modifier.size(18.dp)
+					)
+				}
 			}
-		}
-	}
-
-	val origin = TransformOrigin(0.5f, 0f)
-	val visibleState = remember { MutableTransitionState(false) }
-	visibleState.targetState = expanded
-
-	Box(modifier) {
-		Box(
-			modifier = Modifier
-				.size(38.dp)
-				.clip(CircleShape)
-				.then(
-					if (hazeState != null) {
-						Modifier.hazeEffect(state = hazeState) { blurEffect { blurRadius = 20.dp } }
-					} else {
-						Modifier
-					}
-				)
-				.background(if (hazeState != null) frost.copy(alpha = 0.5f) else frost)
-				.border(1.dp, frostBorder, CircleShape)
-				.clickable {
-					if (!justDismissed) expanded = !expanded
-				},
-			contentAlignment = Alignment.Center
-		) {
-			Icon(
-				imageVector = Icons.Outlined.Speed,
-				contentDescription = "Mood Flow character",
-				modifier = Modifier.size(18.dp)
-			)
-		}
-
-		if (visibleState.currentState || visibleState.targetState) {
-			Popup(
-				popupPositionProvider = belowCentered,
+			// M3's menu, as upstream's are; it was a hand-made popup placed by a pixel offset.
+			DropdownMenu(
+				expanded = expanded,
 				onDismissRequest = {
 					expanded = false
 					justDismissed = true
 				}
 			) {
-				AnimatedVisibility(
-					visibleState = visibleState,
-					enter = scaleIn(
-						animationSpec = spring(
-							dampingRatio = Spring.DampingRatioMediumBouncy,
-							stiffness = Spring.StiffnessMediumLow
-						),
-						transformOrigin = origin
-					) + fadeIn(),
-					exit = scaleOut(
-						animationSpec = spring(stiffness = Spring.StiffnessMedium),
-						transformOrigin = origin
-					) + fadeOut()
-				) {
-					Column(
-						modifier = Modifier
-							.width(220.dp)
-							.clip(popupShape)
-							.background(frost)
-							.border(1.dp, frostBorder, popupShape)
-							.padding(vertical = 6.dp),
-						horizontalAlignment = Alignment.CenterHorizontally
-					) {
-						MoodCharacter.entries.forEach { option ->
-							val selected = option == character
-							Text(
-								text = option.label,
-								style = MaterialTheme.typography.labelLarge,
-								color = if (selected) {
-									MaterialTheme.colorScheme.primary
-								} else {
-									MaterialTheme.colorScheme.onSurface
-								},
-								textAlign = TextAlign.Center,
-								modifier = Modifier
-									.fillMaxWidth()
-									.clip(RoundedCornerShape(14.dp))
-									.clickable {
-										preferenceManager.moodCharacter = option
-										expanded = false
-									}
-									.padding(horizontal = 24.dp, vertical = 12.dp)
-							)
+				MoodCharacter.entries.forEach { option ->
+					DropdownMenuItem(
+						text = { Text(option.label) },
+						onClick = {
+							preferenceManager.moodCharacter = option
+							expanded = false
+						},
+						leadingIcon = {
+							if (option == character) Icon(Icons.Outlined.Check, contentDescription = null)
+							else Spacer(Modifier.size(24.dp))
 						}
-					}
+					)
 				}
 			}
 		}

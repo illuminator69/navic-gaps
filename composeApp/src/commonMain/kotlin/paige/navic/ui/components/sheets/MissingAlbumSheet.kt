@@ -1,5 +1,11 @@
 package paige.navic.ui.components.sheets
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.ui.theme.defaultFont
+import paige.navic.ui.util.rememberCoverAmbient
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,12 +15,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,7 +72,6 @@ import navic.composeapp.generated.resources.title_missing_album
 import navic.composeapp.generated.resources.title_sources
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import paige.navic.domain.manager.AllFilesNote
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.allFilesNote
@@ -260,34 +261,53 @@ fun MissingAlbumSheet(
 		}
 	}
 
-	ModalBottomSheet(onDismissRequest = onDismissRequest) {
-		Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				RemoteCoverArt(
-					url = LbBotManager.caaCoverUrl(release.rgid),
-					modifier = Modifier.size(64.dp)
+	val preferenceManager = koinInject<PreferenceManager>()
+	// Washed in the release's own cover, as an owned album's sheet is in its: from the Cover Art
+	// Archive's URL, an unowned release having no Navidrome cover id.
+	val ambient = rememberCoverAmbient(
+		coverArtId = null,
+		paletteUrl = LbBotManager.caaCoverUrl(release.rgid).ifBlank { null }
+	)
+	ModalBottomSheet(onDismissRequest = onDismissRequest, ambient = ambient) {
+		// Upstream's tall-sheet layout (the song sheet's): a fixed header over ONE scrolling
+		// body. The tracklist and the sources used to be two lists capped at 180 and 340dp in a
+		// column that did not scroll, so on a short screen the sources were cut off (B-043).
+		Row(
+			modifier = Modifier.padding(horizontal = 20.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			RemoteCoverArt(
+				url = LbBotManager.caaCoverUrl(release.rgid),
+				modifier = Modifier.size(64.dp),
+				shape = preferenceManager.coverArtShape.decreasedShape
+			)
+			Column(Modifier.padding(start = 12.dp)) {
+				Text(
+					release.title,
+					style = MaterialTheme.typography.titleLarge,
+					fontFamily = defaultFont(round = 100f),
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis
 				)
-				Column(Modifier.padding(start = 12.dp)) {
-					Text(
-						release.title,
-						style = MaterialTheme.typography.titleMedium,
-						maxLines = 2,
-						overflow = TextOverflow.Ellipsis
-					)
-					Text(
-						listOfNotNull(
-							detail?.artist?.takeIf { it.isNotBlank() },
-							release.year.takeIf { it.isNotBlank() },
-							stringResource(Res.string.title_missing_album)
-						).joinToString(" • "),
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant
-					)
-				}
+				Text(
+					listOfNotNull(
+						detail?.artist?.takeIf { it.isNotBlank() },
+						release.year.takeIf { it.isNotBlank() },
+						stringResource(Res.string.title_missing_album)
+					).joinToString(" • "),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
 			}
+		}
+		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
 
-			Spacer(Modifier.height(16.dp))
-
+		Column(
+			Modifier
+				.verticalScroll(rememberScrollState())
+				.padding(horizontal = 20.dp)
+				.padding(bottom = 24.dp)
+		) {
 			if (loadingDetail) {
 				Box(Modifier.fillMaxWidth().height(72.dp), Alignment.Center) {
 					CircularProgressIndicator(Modifier.size(24.dp))
@@ -507,8 +527,10 @@ internal fun AlbumSources(
 	// compare candidates, not to scroll past all of them at once.
 	var expanded by remember { mutableStateOf(-1) }
 
-	LazyColumn(Modifier.heightIn(max = 340.dp)) {
-		itemsIndexed(sources) { index, source ->
+	// A plain column: it sits in the sheet's one scroll, and a capped list inside it was the
+	// second scroll that cut the sources off (B-043).
+	Column {
+		sources.forEachIndexed { index, source ->
 			Column(
 				Modifier
 					.fillMaxWidth()
@@ -638,8 +660,8 @@ private fun Tracklist(tracklist: LbTracklist?) {
 		}
 		return
 	}
-	LazyColumn(Modifier.heightIn(max = 180.dp)) {
-		items(tracklist.tracks) { track ->
+	Column {
+		tracklist.tracks.forEach { track ->
 			Row(
 				Modifier.fillMaxWidth().padding(vertical = 3.dp),
 				verticalAlignment = Alignment.CenterVertically

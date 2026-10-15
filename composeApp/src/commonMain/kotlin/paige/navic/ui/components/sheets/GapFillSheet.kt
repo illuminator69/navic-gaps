@@ -1,5 +1,11 @@
 package paige.navic.ui.components.sheets
 
+import com.kyant.capsule.ContinuousCapsule
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.ui.theme.defaultFont
+import paige.navic.ui.util.rememberCoverAmbient
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -70,7 +75,6 @@ import navic.composeapp.generated.resources.info_tracks_present
 import navic.composeapp.generated.resources.title_fill_gaps
 import navic.composeapp.generated.resources.title_sources
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbGap
 import paige.navic.domain.manager.LbGapSource
@@ -189,37 +193,48 @@ fun GapFillSheet(
 		}
 	}
 
-	ModalBottomSheet(onDismissRequest = onDismissRequest) {
-		// B-043: ONE scrolling column. The track and source lists used to be LazyColumns capped
-		// at 240/300 dp inside a column that didn't scroll: fully expanded and taller than the
-		// screen, neither inner list scrolled, so sources past the second and the actions below
-		// them were unreachable. Tens of rows at most — nothing here needs to be lazy.
+	val preferenceManager = koinInject<PreferenceManager>()
+	// Washed in the album's cover, as its own sheet is.
+	ModalBottomSheet(onDismissRequest = onDismissRequest, ambient = rememberCoverAmbient(coverArtId)) {
+		// Upstream's tall-sheet layout: the album fixed at the top, then ONE scrolling column
+		// (B-043). The track and source lists used to be LazyColumns capped at 240/300 dp inside
+		// a column that didn't scroll: fully expanded and taller than the screen, neither inner
+		// list scrolled, so sources past the second and the actions below them were unreachable.
+		// Tens of rows at most — nothing here needs to be lazy.
+		Row(
+			modifier = Modifier.padding(horizontal = 20.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			CoverArt(
+				coverArtId = coverArtId,
+				modifier = Modifier.size(64.dp),
+				shape = preferenceManager.coverArtShape.decreasedShape
+			)
+			Column(Modifier.padding(start = 12.dp)) {
+				Text(
+					albumTitle,
+					style = MaterialTheme.typography.titleLarge,
+					fontFamily = defaultFont(round = 100f),
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis
+				)
+				Text(
+					if (gap != null && gap.total > 0)
+						stringResource(Res.string.info_tracks_present, gap.present, gap.total)
+					else stringResource(Res.string.title_fill_gaps),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			}
+		}
+		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
+
 		Column(
 			Modifier
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = 20.dp)
 				.padding(bottom = 24.dp)
 		) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				CoverArt(coverArtId = coverArtId, modifier = Modifier.size(64.dp))
-				Column(Modifier.padding(start = 12.dp)) {
-					Text(
-						albumTitle,
-						style = MaterialTheme.typography.titleMedium,
-						maxLines = 2,
-						overflow = TextOverflow.Ellipsis
-					)
-					Text(
-						if (gap != null && gap.total > 0)
-							stringResource(Res.string.info_tracks_present, gap.present, gap.total)
-						else stringResource(Res.string.title_fill_gaps),
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant
-					)
-				}
-			}
-
-			Spacer(Modifier.height(16.dp))
 
 			LbErrorLine(error)
 
@@ -321,9 +336,11 @@ fun GapFillSheet(
 						color = MaterialTheme.colorScheme.error
 					)
 				} else {
-				Row(
+				// Stacked full-width capsules, as upstream's changelog sheet stacks its two: side
+				// by side, "Search again" and "Recheck album" squeezed each other at a large font.
+				Column(
 					Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.spacedBy(8.dp)
+					verticalArrangement = Arrangement.spacedBy(8.dp)
 				) {
 					// "Find sources", not "download": a gap fill has the same
 					// wrong-pressing hazard as a whole-album download and rather
@@ -338,7 +355,8 @@ fun GapFillSheet(
 						Button(
 							onClick = { act { lbBot.gapSearch(groupId) } },
 							enabled = !working && !searching && !transferInFlight,
-							modifier = Modifier.weight(1f)
+							modifier = Modifier.fillMaxWidth(),
+							shape = ContinuousCapsule
 						) {
 							if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
 							else Text(stringResource(
@@ -349,11 +367,19 @@ fun GapFillSheet(
 						}
 					}
 					if (transferInFlight) {
-						OutlinedButton(onClick = { act { lbBot.gapCancel(groupId) } }) {
+						OutlinedButton(
+							onClick = { act { lbBot.gapCancel(groupId) } },
+							modifier = Modifier.fillMaxWidth(),
+							shape = ContinuousCapsule
+						) {
 							Text(stringResource(Res.string.action_cancel))
 						}
 					} else {
-						OutlinedButton(onClick = { act { lbBot.gapRescan(groupId) } }) {
+						OutlinedButton(
+							onClick = { act { lbBot.gapRescan(groupId) } },
+							modifier = Modifier.fillMaxWidth(),
+							shape = ContinuousCapsule
+						) {
 							Text(stringResource(Res.string.action_recheck_album))
 						}
 					}

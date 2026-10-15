@@ -3,6 +3,8 @@ package paige.navic.ui.components.common
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,9 +30,10 @@ import paige.navic.icons.outlined.Check
  * pages use it for every such choice (Downloads' sections, My Listening's tabs and periods, Fresh's
  * scope), so there is one chip style in the app rather than one per page.
  *
- * The row scrolls sideways only when the chips are wider than it, at a large font on a phone.
+ * The row scrolls sideways only when the chips are wider than it, at a large font on a phone;
+ * with [wrap] (inside a sheet, where every choice should be in view) it wraps onto more lines.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun <T> PageChips(
 	options: List<T>,
@@ -39,16 +42,10 @@ fun <T> PageChips(
 	onSelect: (T) -> Unit,
 	modifier: Modifier = Modifier,
 	enabled: (T) -> Boolean = { true },
-	contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp)
+	contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp),
+	wrap: Boolean = false
 ) {
-	Row(
-		modifier = modifier
-			.fillMaxWidth()
-			.horizontalScroll(rememberScrollState())
-			.padding(contentPadding)
-			.selectableGroup(),
-		horizontalArrangement = Arrangement.spacedBy(8.dp)
-	) {
+	val chips: @Composable () -> Unit = {
 		options.forEach { option ->
 			val isSelected = option == selected
 			FilterChip(
@@ -72,5 +69,23 @@ fun <T> PageChips(
 				} else null
 			)
 		}
+	}
+	if (wrap) {
+		FlowRow(
+			modifier = modifier
+				.fillMaxWidth()
+				.padding(contentPadding)
+				.selectableGroup(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp)
+		) { chips() }
+	} else {
+		Row(
+			modifier = modifier
+				.fillMaxWidth()
+				.horizontalScroll(rememberScrollState())
+				.padding(contentPadding)
+				.selectableGroup(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp)
+		) { chips() }
 	}
 }

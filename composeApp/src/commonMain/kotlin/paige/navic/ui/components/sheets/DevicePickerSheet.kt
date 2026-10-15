@@ -1,5 +1,8 @@
 package paige.navic.ui.components.sheets
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -135,7 +138,12 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 					else MaterialTheme.colorScheme.onSurfaceVariant
 			)
 			Column(Modifier.weight(1f)) {
-				Text(device.name, style = MaterialTheme.typography.bodyLarge)
+				Text(
+					device.name,
+					style = MaterialTheme.typography.bodyLarge,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
 				Text(
 					buildString {
 						append(
@@ -213,15 +221,17 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 		// Cover-tinted surface + cover-themed content (see the shared wrapper).
 		ambient = rememberNowPlayingCoverAmbient()
 	) {
+		// Layout only (I-039; the transfer controls below are round-b's and were not run): a
+		// title over a divider, as upstream's sheets head theirs, and the list in a scroll, so a
+		// long device list and the Chromecast section under it stay reachable.
+		SheetHeader("Connect to a device")
 		Column(
-			modifier = Modifier.padding(horizontal = 24.dp),
+			modifier = Modifier
+				.verticalScroll(rememberScrollState())
+				.padding(horizontal = 24.dp)
+				.padding(top = 12.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
-			Text(
-				"Connect to a device",
-				style = MaterialTheme.typography.titleLarge,
-				color = MaterialTheme.colorScheme.primary
-			)
 			if (!connected) {
 				Text(
 					connectionError ?: "Not connected to the hub",
@@ -263,7 +273,12 @@ fun DevicePickerSheet(onDismissRequest: () -> Unit) {
 			}
 			speakers.forEach { speaker ->
 				Column {
-					Text(speaker.name, style = MaterialTheme.typography.bodyLarge)
+					Text(
+						speaker.name,
+						style = MaterialTheme.typography.bodyLarge,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
 					Text(
 						when (speaker.state) {
 							CastBridgeState.BRIDGING -> "ready · transfer to it above"

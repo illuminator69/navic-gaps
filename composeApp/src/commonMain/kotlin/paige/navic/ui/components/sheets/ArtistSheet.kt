@@ -130,12 +130,8 @@ fun ArtistSheet(
 				)
 			},
 			headlineContent = {
-				MarqueeText(
-					artist.name,
-					style = MaterialTheme.typography.bodyLarge.copy(
-						color = MaterialTheme.colorScheme.primary
-					)
-				)
+				// Upstream's headline: the sheet's onSurface, not the accent (I-039).
+				MarqueeText(artist.name, style = MaterialTheme.typography.bodyLarge)
 			},
 			supportingContent = {
 				Text(

@@ -167,12 +167,8 @@ fun CollectionSheet(
 				)
 			},
 			headlineContent = {
-				MarqueeText(
-					collection?.name.orEmpty(),
-					style = MaterialTheme.typography.bodyLarge.copy(
-						color = MaterialTheme.colorScheme.primary
-					)
-				)
+				// Upstream's headline: the sheet's onSurface, not the accent (I-039).
+				MarqueeText(collection?.name.orEmpty(), style = MaterialTheme.typography.bodyLarge)
 			},
 			supportingContent = {
 				MarqueeText(

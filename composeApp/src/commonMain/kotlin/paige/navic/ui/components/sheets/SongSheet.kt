@@ -189,14 +189,19 @@ fun SongSheet(
 						}
 					},
 					inlineContent = InlineExplicitIcon,
-					style = MaterialTheme.typography.bodyLarge.copy(
-						color = MaterialTheme.colorScheme.primary
-					),
 				)
 			},
+			// Upstream's line, artists and all as links (I-039: the fork had made it a plain
+			// string, which also printed "•  •" for a song with no album or year).
 			supportingContent = {
 				MarqueeText(
-					"${song.albumTitle ?: ""} • ${song.artistName} • ${song.year ?: ""}"
+					buildSongInfoString(
+						song = song,
+						onClickArtist = { id ->
+							onDismissRequest()
+							onViewArtistId?.invoke(id) ?: backStack.add(Screen.ArtistDetail(id))
+						}
+					)
 				)
 			},
 			leadingContent = {
@@ -208,7 +213,7 @@ fun SongSheet(
 			},
 			colors = colors
 		)
-		if (rating != null && onSetRating != null) {
+		if (rating != null && onSetRating != null && preferenceManager.enableRatings) {
 			RatingRow(
 				rating = rating,
 				setRating = onSetRating
