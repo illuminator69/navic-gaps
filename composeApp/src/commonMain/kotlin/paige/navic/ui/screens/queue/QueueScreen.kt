@@ -6,7 +6,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,17 +19,19 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
@@ -39,81 +44,92 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import paige.navic.domain.models.DomainSong
-import androidx.lifecycle.compose.dropUnlessResumed
-import kotlinx.collections.immutable.persistentListOf
-import paige.navic.di.LocalNavStack
-import paige.navic.domain.manager.RadioManager
-import paige.navic.ui.components.sheets.SongSheet
-import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousRoundedRectangle
+import kotlin.time.DurationUnit
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_clear_queue
+import navic.composeapp.generated.resources.action_delete_download
+import navic.composeapp.generated.resources.action_download_next
+import navic.composeapp.generated.resources.action_download_queue
 import navic.composeapp.generated.resources.action_undo
+import navic.composeapp.generated.resources.count_remaining_songs
 import navic.composeapp.generated.resources.count_songs
+import navic.composeapp.generated.resources.info_duration_left
 import navic.composeapp.generated.resources.info_no_queue
 import navic.composeapp.generated.resources.info_no_songs
+import navic.composeapp.generated.resources.queue_generator_audiomuse
+import navic.composeapp.generated.resources.queue_generator_fingerprint
+import navic.composeapp.generated.resources.queue_generator_mood_flow
 import navic.composeapp.generated.resources.tab_related
 import navic.composeapp.generated.resources.tab_up_next
 import navic.composeapp.generated.resources.undo_queue_cleared
 import navic.composeapp.generated.resources.undo_queue_moved
 import navic.composeapp.generated.resources.undo_queue_removed
 import navic.composeapp.generated.resources.undo_queue_replaced
-import paige.navic.shared.QueueUndoKind
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.di.LocalPlatformContext
-import paige.navic.domain.manager.HubManager
-import paige.navic.icons.Icons
-import paige.navic.icons.outlined.PlaylistRemove
-import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.queue.components.QueueScreenItem
-import paige.navic.ui.screens.queue.components.RelatedSongItem
-import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
-import navic.composeapp.generated.resources.action_delete_download
-import navic.composeapp.generated.resources.action_download_next
-import navic.composeapp.generated.resources.action_download_queue
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.di.LocalSheetState
+import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.settings.AutoplayMode
+import paige.navic.domain.models.settings.QueueInfoType
+import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.PlaylistRemove
+import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.shared.QueueUndoKind
+import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
+import paige.navic.ui.screens.queue.components.QueueScreenItem
+import paige.navic.ui.screens.queue.components.RelatedSongItem
+import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
 import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.draggableItemsIndexed
 import paige.navic.ui.util.rememberDraggableListState
-import kotlin.time.DurationUnit
 
 /** A queue slot with a stable id so reorders animate (see [QueueScreen]). */
 private data class QueueEntry(val uid: Long, val song: DomainSong)
@@ -265,31 +281,41 @@ fun QueueScreen() {
 		}
 	}
 
-	val totalDurationText = remember(queue) {
-		val totalSeconds = queue.sumOf { it.duration.toInt(DurationUnit.SECONDS) }
-
+	// Upstream's queue info: a tap on it switches between the whole queue and what is left of
+	// it (`queueInfoType`). The fork had dropped the switch with the line it rebuilt.
+	val preferenceManager = koinInject<PreferenceManager>()
+	val infoType = preferenceManager.queueInfoType
+	val fromIndex = playingIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+	val songsText = when (infoType) {
+		QueueInfoType.Full -> pluralStringResource(Res.plurals.count_songs, queue.size, queue.size)
+		QueueInfoType.Remaining -> pluralStringResource(
+			Res.plurals.count_remaining_songs,
+			queue.size - fromIndex,
+			queue.size - fromIndex
+		)
+	}
+	val durationText = remember(queue, infoType, fromIndex, playerState.progress) {
+		var totalMillis = queue.sumOf { it.duration.inWholeMilliseconds }
+		if (infoType == QueueInfoType.Remaining) {
+			val pastMillis = queue.take(fromIndex).sumOf { it.duration.inWholeMilliseconds }
+			val current = queue.getOrNull(fromIndex)
+			val elapsedCurrent = (current?.duration?.inWholeMilliseconds ?: 0L) * playerState.progress
+			totalMillis -= pastMillis + elapsedCurrent.toLong()
+		}
+		val totalSeconds = totalMillis.coerceAtLeast(0L) / 1000
 		val hours = totalSeconds / 3600
 		val minutes = (totalSeconds % 3600) / 60
 		val seconds = totalSeconds % 60
-
 		buildString {
-			if (hours > 0) {
-				append("${hours}h ")
-			}
-
-			if (minutes > 0 || hours > 0) {
-				append("${minutes}m ")
-			}
-
+			if (hours > 0) append("${hours}h ")
+			if (minutes > 0 || hours > 0) append("${minutes}m ")
 			append("${seconds}s")
 		}
 	}
-
-	val songsText = pluralStringResource(
-		Res.plurals.count_songs,
-		queue.size,
-		queue.size
-	)
+	val totalDurationText = when (infoType) {
+		QueueInfoType.Full -> durationText
+		QueueInfoType.Remaining -> stringResource(Res.string.info_duration_left, durationText)
+	}
 
 	// Short-lived undo for the last destructive queue edit (clear/remove/move/replace). The VM
 	// owns the ~6 s lifetime; this just surfaces it and routes the Undo tap back.
@@ -373,67 +399,108 @@ fun QueueScreen() {
 			if (shownTab == 0) {
 				Column(modifier = Modifier.fillMaxSize()) {
 					if (queue.isNotEmpty()) {
-						Row(
+						// Upstream's row (a tappable count and a 36dp tonal Clear queue), with the
+						// AudioMuse generator on a line of its own under it. In the same row its
+						// label ("Sonic Fingerprint • 100 songs • 6h 40m 12s") had no weight and
+						// no line limit: measured first, it took the width and squeezed Clear
+						// queue to a wrapped sliver.
+						val radioManager = koinInject<RadioManager>()
+						val audioMuseManager = koinInject<AudioMuseManager>()
+						val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
+						val autoplayMode by radioManager.autoplayMode.collectAsState()
+						val moodCentroid by audioMuseManager.lastMoodCentroid.collectAsState()
+						Column(
 							modifier = Modifier
 								.fillMaxWidth()
-								.padding(horizontal = 24.dp, vertical = 8.dp),
-							horizontalArrangement = Arrangement.SpaceBetween,
-							verticalAlignment = Alignment.CenterVertically
+								.padding(horizontal = 24.dp, vertical = 8.dp)
 						) {
-							val radioManager = org.koin.compose.koinInject<paige.navic.domain.manager.RadioManager>()
-							val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
-								val audioMuseManager =
-									org.koin.compose.koinInject<paige.navic.domain.manager.AudioMuseManager>()
-								val autoplayMode by radioManager.autoplayMode.collectAsState()
-								val moodCentroid by audioMuseManager.lastMoodCentroid.collectAsState()
-								// Scoped generator indicator: name the active AudioMuse generator and,
-								// for Mood Flow, tint by the live 2D mood centroid (else logo pink).
-								val generatorLabel = when (autoplayMode) {
-									paige.navic.domain.models.settings.AutoplayMode.Adaptive -> "Mood Flow"
-									paige.navic.domain.models.settings.AutoplayMode.Fingerprint ->
-										"Sonic Fingerprint"
-									else -> "AudioMuse mix"
+							Row(
+								modifier = Modifier.fillMaxWidth(),
+								horizontalArrangement = Arrangement.SpaceBetween,
+								verticalAlignment = Alignment.CenterVertically
+							) {
+								Row(
+									modifier = Modifier
+										.weight(1f)
+										.heightIn(min = 36.dp)
+										.clickable {
+											preferenceManager.queueInfoType = when (infoType) {
+												QueueInfoType.Full -> QueueInfoType.Remaining
+												QueueInfoType.Remaining -> QueueInfoType.Full
+											}
+										},
+									verticalAlignment = Alignment.CenterVertically
+								) {
+									Text(
+										text = "$songsText • $totalDurationText",
+										style = MaterialTheme.typography.titleMedium,
+										fontWeight = FontWeight.SemiBold,
+										fontFamily = defaultFont(round = 100f),
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+										maxLines = 1,
+										overflow = TextOverflow.Ellipsis
+									)
 								}
+								Row(verticalAlignment = Alignment.CenterVertically) {
+									// Downloads are local files, so this is meaningless while another device holds
+									// the session (its queue can be remote placeholders not in our library).
+									if (!isRemoteActive) {
+										QueueDownloadMenuButton(
+											queue = queue,
+											fromIndex = playerState.currentIndex
+										)
+									}
+									FilledTonalButton(
+										onClick = {
+											haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+											player.captureQueueUndo(QueueUndoKind.CLEAR)
+											if (isRemoteActive) hubManager.actClearQueue()
+											else player.clearQueue()
+										},
+										colors = ButtonDefaults.filledTonalButtonColors(),
+										contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+										// At least upstream's 36dp: a fixed 36 clipped the label's
+										// descenders at 1.3x font.
+										modifier = Modifier.heightIn(min = 36.dp)
+									) {
+										Text(stringResource(Res.string.action_clear_queue), maxLines = 1)
+									}
+								}
+							}
+							if (isAudioMuseMix) {
+								// Which AudioMuse generator fills the queue. Its colour (the AudioMuse
+								// palette; for Mood Flow the live mood's hue) is a dot; the words are in
+								// the sheet's own colours.
+								val generatorLabel = stringResource(
+									when (autoplayMode) {
+										AutoplayMode.Adaptive -> Res.string.queue_generator_mood_flow
+										AutoplayMode.Fingerprint -> Res.string.queue_generator_fingerprint
+										else -> Res.string.queue_generator_audiomuse
+									}
+								)
 								val generatorColor = moodCentroid?.takeIf {
-									autoplayMode ==
-										paige.navic.domain.models.settings.AutoplayMode.Adaptive && it.size >= 2
+									autoplayMode == AutoplayMode.Adaptive && it.size >= 2
 								}?.let {
 									val hue = ((kotlin.math.atan2(it[1], it[0]) * 180f /
 										kotlin.math.PI.toFloat()) + 360f) % 360f
-									androidx.compose.ui.graphics.Color.hsv(hue, 0.45f, 0.85f)
-								} ?: androidx.compose.ui.graphics.Color(0xFFEE7B90)
-							Text(
-								text = if (isAudioMuseMix) {
-									"$generatorLabel • $songsText • $totalDurationText"
-								} else {
-									"$songsText • $totalDurationText"
-								},
-								style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-								color = if (isAudioMuseMix) {
-									// AudioMuse logo pink
-									generatorColor
-								} else {
-									MaterialTheme.colorScheme.onSurfaceVariant
-								}
-							)
-							Row(verticalAlignment = Alignment.CenterVertically) {
-								// Downloads are local files, so this is meaningless while another device holds
-								// the session (its queue can be remote placeholders not in our library).
-								if (!isRemoteActive) {
-									QueueDownloadMenuButton(
-										queue = queue,
-										fromIndex = playerState.currentIndex
-									)
-								}
-								TextButton(
-									onClick = {
-										haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-										player.captureQueueUndo(QueueUndoKind.CLEAR)
-										if (isRemoteActive) hubManager.actClearQueue()
-										else player.clearQueue()
-									}
+									Color.hsv(hue, 0.45f, 0.85f)
+								} ?: Color(0xFFEE7B90)
+								Row(
+									verticalAlignment = Alignment.CenterVertically,
+									horizontalArrangement = Arrangement.spacedBy(6.dp)
 								) {
-									Text(stringResource(Res.string.action_clear_queue))
+									Box(
+										Modifier
+											.size(8.dp)
+											.background(generatorColor, CircleShape)
+									)
+									Text(
+										generatorLabel,
+										style = MaterialTheme.typography.labelLarge,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+										maxLines = 1,
+										overflow = TextOverflow.Ellipsis
+									)
 								}
 							}
 						}

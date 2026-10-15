@@ -1168,4 +1168,8 @@
 	<string name="notice_about_unreachable">Couldn't reach lb-bot. What is shown is unchanged.</string>
 	<string name="notice_about_error">lb-bot answered an error (%1$d). What is shown is unchanged.</string>
 	<string name="notice_about_error_said">lb-bot answered an error (%1$d): %2$s. What is shown is unchanged.</string>
+	<!-- navi-connect I-039: the fork UI pass. -->
+	<string name="queue_generator_mood_flow">Mood Flow</string>
+	<string name="queue_generator_fingerprint">Sonic Fingerprint</string>
+	<string name="queue_generator_audiomuse">AudioMuse mix</string>
 </resources>

@@ -66,10 +66,14 @@ internal data class BottomSheetScene<T : Any>(
 			ambient = rememberNowPlayingCoverAmbient(),
 			// Hosts whole pages (the queue, playback speed): left as it was (see the wrapper).
 			animateContentHeight = false,
+			// Upstream's insets for this scene: the top only. The pages it hosts pad their own
+			// lists by the navigation bar, so a bottom inset here as well (the wrapper's default)
+			// left an empty strip a navigation bar tall at the end of the queue.
+			contentWindowInsets = { WindowInsets.systemBars.only(WindowInsetsSides.Top) },
 			dragHandle = {
 				Surface(
 					modifier = Modifier.padding(vertical = 5.dp),
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					color = MaterialTheme.colorScheme.primary,
 					shape = ContinuousCapsule,
 				) {
 					Box(Modifier.size(width = 32.dp, height = 4.dp))
