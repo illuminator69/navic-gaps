@@ -1,51 +1,52 @@
 package paige.navic.ui.screens.downloads
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_remove_from_wishlist
 import navic.composeapp.generated.resources.info_wishlist_empty
 import navic.composeapp.generated.resources.info_wishlist_empty_hint
 import navic.composeapp.generated.resources.info_wishlist_unsupported
-import navic.composeapp.generated.resources.title_wishlist
 import navic.composeapp.generated.resources.wishlist_attempts
 import navic.composeapp.generated.resources.wishlist_never_searched
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.di.LocalNavStack
+import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbWishlistItem
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.RemoteCoverArt
-import paige.navic.ui.components.layouts.NestedTopBar
-import paige.navic.ui.components.layouts.PullToRefreshBox
-import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.common.SwipeToDismissBox
+import paige.navic.ui.screens.downloads.viewmodels.WishlistUi
 
 /**
  * The wishlist: what you asked for and nobody had.
@@ -56,72 +57,59 @@ import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
  * identically and immediately — so the retry that does make sense is a slow one,
  * measured in hours, run by lb-bot rather than by a button here.
  *
- * Which is why this screen has no "retry" control. It shows what is still being
- * looked for and how hard, and lets you stop wanting it. A landing arrives as the
- * hub's ordinary `library` frame and removes the row by itself.
+ * Which is why this list has no "retry" control. It shows what is still being
+ * looked for and how hard, and lets you stop wanting it: a swipe, as a song leaves
+ * the queue. A landing arrives as the hub's ordinary `library` frame and removes
+ * the row by itself.
  */
-@Composable
-fun WishlistScreen() {
-	val viewModel = koinViewModel<WishlistViewModel>()
-	val state by viewModel.state.collectAsStateWithLifecycle()
-	val backStack = LocalNavStack.current
-
-	Scaffold(
-		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_wishlist)) }) },
-		contentWindowInsets = WindowInsets.statusBars
-	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
-			finished = !state.loading,
-			onRefresh = { viewModel.load() },
-			key = state.items.size
-		) {
-			Column(
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+internal fun LazyListScope.wishlistSection(
+	state: WishlistUi,
+	onOpen: (LbWishlistItem) -> Unit,
+	onRemove: (LbWishlistItem) -> Unit
+) {
+	when {
+		state.loading && state.items.isEmpty() -> item(key = "loading") {
+			Box(
 				Modifier
-					.fillMaxSize()
-					.verticalScroll(rememberScrollState())
-					.padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp)
-			) {
-				when {
-					state.loading && state.items.isEmpty() -> Box(
-						Modifier.fillMaxWidth().padding(vertical = 64.dp),
-						contentAlignment = Alignment.Center
-					) { CircularProgressIndicator() }
+					.fillMaxWidth()
+					.padding(vertical = 64.dp),
+				contentAlignment = Alignment.Center
+			) { ContainedLoadingIndicator() }
+		}
 
-					// lb-bot absent or too old for the route. Says which, rather than
-					// showing an empty list that looks like "you want nothing".
-					!state.supported -> ContentUnavailable(
-						modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-						icon = Icons.Outlined.Download,
-						label = stringResource(Res.string.info_wishlist_unsupported)
-					)
+		// lb-bot absent or too old for the route. Says which, rather than
+		// showing an empty list that looks like "you want nothing".
+		!state.supported -> item(key = "unsupported") {
+			ContentUnavailable(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(vertical = 64.dp),
+				icon = Icons.Outlined.Download,
+				label = stringResource(Res.string.info_wishlist_unsupported)
+			)
+		}
 
-					state.items.isEmpty() -> ContentUnavailable(
-						modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-						icon = Icons.Outlined.Download,
-						label = stringResource(Res.string.info_wishlist_empty),
-						description = stringResource(Res.string.info_wishlist_empty_hint)
-					)
+		state.items.isEmpty() -> item(key = "empty") {
+			ContentUnavailable(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(vertical = 64.dp),
+				icon = Icons.Outlined.Download,
+				label = stringResource(Res.string.info_wishlist_empty),
+				description = stringResource(Res.string.info_wishlist_empty_hint)
+			)
+		}
 
-					else -> Form {
-						state.items.forEach { item ->
-							WishlistRow(
-								item = item,
-								onClick = {
-									backStack.add(
-										Screen.ExternalAlbum(
-											rgid = item.rgid,
-											artistName = item.artist,
-											title = item.title
-										)
-									)
-								},
-								onRemove = { viewModel.remove(item.rgid) }
-							)
-						}
-					}
-				}
-			}
+		else -> itemsIndexed(state.items, key = { _, item -> item.rgid }) { index, item ->
+			WishlistRow(
+				item = item,
+				index = index,
+				count = state.items.size,
+				onClick = { onOpen(item) },
+				onRemove = { onRemove(item) },
+				modifier = Modifier.animateItem()
+			)
 		}
 	}
 }
@@ -129,60 +117,104 @@ fun WishlistScreen() {
 @Composable
 private fun WishlistRow(
 	item: LbWishlistItem,
+	index: Int,
+	count: Int,
 	onClick: () -> Unit,
-	onRemove: () -> Unit
+	onRemove: () -> Unit,
+	modifier: Modifier = Modifier
 ) {
-	FormRow(onClick = onClick) {
-		RemoteCoverArt(
-			url = item.coverUrl,
-			modifier = Modifier.size(44.dp).padding(end = 12.dp),
-			contentDescription = null
-		)
-		Column(Modifier.weight(1f)) {
-			Text(
-				item.title.ifBlank { item.artist }.ifBlank { item.rgid },
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			Text(
-				item.artist,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			// How hard lb-bot has looked. "Still looking" and "looked forty times"
-			// are different answers to "why have I not got this yet", and without
-			// the count the row reads as though nothing is happening at all.
-			Text(
-				if (item.attempts > 0) {
-					stringResource(Res.string.wishlist_attempts, item.attempts)
-				} else {
-					stringResource(Res.string.wishlist_never_searched)
-				},
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
-			// lb-bot's own words for the last attempt. It is additive, outside the
-			// frozen contract and blank before the first re-search, so it renders
-			// only when there is something to say — but when there is, it is the
-			// difference between "still nobody has it" and a reason worth acting on.
-			if (item.lastReason.isNotBlank()) {
-				Text(
-					item.lastReason,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 2,
-					overflow = TextOverflow.Ellipsis
+	val preferenceManager = koinInject<PreferenceManager>()
+	val dismissState = rememberSwipeToDismissBoxState()
+	val scope = rememberCoroutineScope()
+	val shapes: ListItemShapes = segmentedShapes(
+		index = index,
+		count = count,
+		dismissDirection = dismissState.dismissDirection
+	)
+
+	SwipeToDismissBox(
+		modifier = modifier,
+		state = dismissState,
+		onDismiss = {
+			onRemove()
+			// The row goes when lb-bot's answer drops it from the list. A remove that did not
+			// take leaves the list as it was, and the row slides back rather than vanishing
+			// until the next refresh brings it back.
+			scope.launch { dismissState.reset() }
+		},
+		backgroundContent = {
+			Box(
+				modifier = Modifier
+					.fillMaxSize()
+					.clip(shapes.shape)
+					.background(
+						if (dismissState.dismissDirection == SwipeToDismissBoxValue.Settled)
+							Color.Transparent
+						else MaterialTheme.colorScheme.errorContainer
+					)
+					.padding(horizontal = 20.dp)
+			) {
+				Icon(
+					imageVector = Icons.Outlined.Delete,
+					contentDescription = stringResource(Res.string.action_remove_from_wishlist),
+					tint = MaterialTheme.colorScheme.onErrorContainer,
+					modifier = Modifier.align(
+						when (dismissState.dismissDirection) {
+							SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+							else -> Alignment.CenterEnd
+						}
+					)
 				)
 			}
 		}
-		IconButton(onClick = onRemove) {
-			Icon(
-				Icons.Outlined.Delete,
-				contentDescription = stringResource(Res.string.action_remove_from_wishlist),
-				modifier = Modifier.size(20.dp)
-			)
-		}
+	) {
+		SegmentedListItem(
+			onClick = onClick,
+			shapes = shapes,
+			colors = downloadsRowColors(),
+			contentPadding = SongRowDefaults.ContentPadding,
+			leadingContent = {
+				RemoteCoverArt(
+					url = item.coverUrl,
+					modifier = Modifier.size(50.dp),
+					shape = preferenceManager.coverArtShape.decreasedShape
+				)
+			},
+			content = {
+				Text(
+					item.title.ifBlank { item.artist }.ifBlank { item.rgid },
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			},
+			supportingContent = {
+				Column {
+					Text(item.artist, maxLines = 1, overflow = TextOverflow.Ellipsis)
+					// How hard lb-bot has looked. "Still looking" and "looked forty times"
+					// are different answers to "why have I not got this yet", and without
+					// the count the row reads as though nothing is happening at all.
+					Text(
+						if (item.attempts > 0) {
+							stringResource(Res.string.wishlist_attempts, item.attempts)
+						} else {
+							stringResource(Res.string.wishlist_never_searched)
+						},
+						style = MaterialTheme.typography.bodySmall
+					)
+					// lb-bot's own words for the last attempt. It is additive, outside the
+					// frozen contract and blank before the first re-search, so it renders
+					// only when there is something to say — but when there is, it is the
+					// difference between "still nobody has it" and a reason worth acting on.
+					if (item.lastReason.isNotBlank()) {
+						Text(
+							item.lastReason,
+							style = MaterialTheme.typography.bodySmall,
+							maxLines = 2,
+							overflow = TextOverflow.Ellipsis
+						)
+					}
+				}
+			}
+		)
 	}
 }

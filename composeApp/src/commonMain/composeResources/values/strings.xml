@@ -587,8 +587,6 @@
 	<string name="queue_kind_radio">Radio</string>
 	<string name="queue_kind_mood_flow">Mood Flow</string>
 	<string name="queue_kind_journey">Journey</string>
-	<string name="title_download_center">Download center</string>
-	<string name="subtitle_download_center">Manage active, queued and failed downloads</string>
 	<string name="section_download_settings">Download settings</string>
 	<string name="setting_download_wifi_only">Wi-Fi only</string>
 	<string name="setting_download_wifi_only_desc">Pause downloads on mobile data</string>
@@ -1204,4 +1202,10 @@
 	<string name="info_navi_connect_where_matches">Artist, album and name matches are in Library Matches, and the listening history's sync in My Listening, both on the library's home page.</string>
 	<string name="option_expressive_blur">Expressive blur</string>
 	<string name="subtitle_expressive_blur">Real frosted-glass blur over the Mood Flow background (experimental)</string>
+	<string name="title_downloads">Downloads</string>
+	<string name="subtitle_downloads_page">Active, queued and failed downloads, also on the library's home page</string>
+	<string name="option_downloads_device">On this device</string>
+	<string name="option_downloads_fills">From Soulseek</string>
+	<string name="info_no_fills">Nothing is coming from Soulseek</string>
+	<string name="info_paste_link">A link to an album, a track or an artist, from a streaming service or MusicBrainz, opens its page here.</string>
 </resources>

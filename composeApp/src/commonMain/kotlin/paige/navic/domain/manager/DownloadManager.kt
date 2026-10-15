@@ -923,7 +923,7 @@ class DownloadManager(
 		/**
 		 * A row that had no coroutine behind it when the app next started — a real
 		 * process death mid-transfer — and whose song is gone, so it could not be resumed. Named rather than written twice, because the
-		 * Download Center is the only place a user ever learns which of the two
+		 * Downloads page is the only place a user ever learns which of the two
 		 * happened and the words are the whole signal.
 		 */
 		const val INTERRUPTED_ERROR = "Interrupted"

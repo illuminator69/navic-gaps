@@ -42,7 +42,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
-| Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/settings/DownloadCenterScreen.kt` |
+| Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/downloads/*` (`DownloadsScreen` with `WishlistSection` and `PasteLinkSheet`: one library-home page, chips for this device's downloads, lb-bot's fills and the wishlist; it was Settings' Download Center plus a Wishlist page, I-039). What holds downloads back (Wi-Fi only, charging only, how many at once) is in Settings › Data & storage |
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
@@ -187,8 +187,8 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     Grep `PersistentViewModelStoreOwner` against both parents after a merge; a fork-only root tab
     added later needs its own row here. Anything else that must outlive its screen belongs in a
     process-scoped manager, never in a ViewModel on a popped entry. A ViewModel that must start
-    such work itself shields it instead: `DownloadCenterViewModel` (a settings detail pane, not a
-    tab) runs its cancel / retry / another-source / allow-mp3 / wishlist POSTs through
+    such work itself shields it instead: `DownloadCenterViewModel` (the Downloads page's, a pushed
+    page, not a tab) runs its cancel / retry / another-source / allow-mp3 / wishlist POSTs through
     `launchToCompletion`, i.e. `withContext(NonCancellable)` inside `viewModelScope` — before that,
     a Cancel tapped just before backing out was cancelled with the pane and the download kept
     running. A new lb-bot action on that screen goes through the same helper.
@@ -1016,7 +1016,7 @@ for the permission, and with the permission declined the re-query raised it agai
     Feishin's `artist-merge.ts` is the hand-mirrored twin.
 - **A failed lb-bot poll is not an answer.** Collapsing it into the default `unknown` state makes
   it indistinguishable from "nothing is filling this". A failed poll goes through `noteError` — the
-  row keeps its state and the Download Center says "Can't reach lb-bot — last checked Ns ago" after
+  row keeps its state and the Downloads page says "Can't reach lb-bot — last checked Ns ago" after
   two missed ticks; a real `unknown` is bounded patience on the clock (30 s grace after the tap, two
   minutes continuous before `gave_up`). The poll is one `GET /lb/fills` for every due row, 5 s
   backing off to 10/20 s while the payload is unchanged, and 30 s while the hub socket is up and

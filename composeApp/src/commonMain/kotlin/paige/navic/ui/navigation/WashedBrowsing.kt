@@ -22,8 +22,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	Screen.PlaylistList::class, Screen.ArtistList::class, Screen.GenreList::class,
 	Screen.SongList::class, Screen.RadioList::class, Screen.Fresh::class, Screen.Discover::class,
 	Screen.MixList::class, Screen.Search::class, Screen.Statistics::class,
-	// The fork's two lb-bot pages (I-026): pushed pages, not tabs, washed like the tabs are.
-	Screen.Listening::class, Screen.LibraryMatches::class
+	// The fork's pushed pages (I-026, I-039): not tabs, washed like the tabs are.
+	Screen.Listening::class, Screen.LibraryMatches::class, Screen.Downloads::class
 )
 
 /**

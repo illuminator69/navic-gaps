@@ -72,7 +72,14 @@ import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pending_actions
-import navic.composeapp.generated.resources.subtitle_download_center
+import navic.composeapp.generated.resources.subtitle_downloads_page
+import navic.composeapp.generated.resources.section_download_settings
+import navic.composeapp.generated.resources.setting_download_charging_only
+import navic.composeapp.generated.resources.setting_download_charging_only_desc
+import navic.composeapp.generated.resources.setting_download_concurrency
+import navic.composeapp.generated.resources.setting_download_concurrency_desc
+import navic.composeapp.generated.resources.setting_download_wifi_only
+import navic.composeapp.generated.resources.setting_download_wifi_only_desc
 import navic.composeapp.generated.resources.subtitle_download_quality
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_pending_actions
@@ -81,7 +88,7 @@ import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
 import navic.composeapp.generated.resources.title_danger_zone
 import navic.composeapp.generated.resources.title_data_storage
-import navic.composeapp.generated.resources.title_download_center
+import navic.composeapp.generated.resources.title_downloads
 import navic.composeapp.generated.resources.title_download_quality
 import navic.composeapp.generated.resources.title_library_download
 import navic.composeapp.generated.resources.title_network
@@ -107,6 +114,9 @@ import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsNavItem
+import paige.navic.ui.screens.settings.components.SettingsSliderItem
+import paige.navic.ui.screens.settings.components.SettingsToggleItem
+import kotlin.math.roundToInt
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 
 @Composable
@@ -259,6 +269,52 @@ fun SettingsDataStorageScreen() {
 					)
 				}
 
+				// navi-connect (I-039): what holds downloads back. The downloads themselves, lb-bot's
+				// and the wishlist are the library's Downloads page, which the last row opens.
+				SettingsGroup(title = { Text(stringResource(Res.string.section_download_settings)) }) {
+					SettingsToggleItem(
+						checked = preferenceManager.downloadWifiOnly,
+						onCheckedChange = { preferenceManager.downloadWifiOnly = it },
+						content = { Text(stringResource(Res.string.setting_download_wifi_only)) },
+						supportingContent = { Text(stringResource(Res.string.setting_download_wifi_only_desc)) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
+					)
+					SettingsToggleItem(
+						checked = preferenceManager.downloadChargingOnly,
+						onCheckedChange = { preferenceManager.downloadChargingOnly = it },
+						content = { Text(stringResource(Res.string.setting_download_charging_only)) },
+						supportingContent = {
+							Text(stringResource(Res.string.setting_download_charging_only_desc))
+						},
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
+					)
+					// Persisted; the permit count applies from the next app start (DownloadManager).
+					SettingsSliderItem(
+						value = preferenceManager.downloadMaxConcurrency.toFloat(),
+						valueRange = 1f..10f,
+						steps = 8,
+						onValueChange = { preferenceManager.downloadMaxConcurrency = it.roundToInt() },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4),
+						content = {
+							Column {
+								Text(stringResource(Res.string.setting_download_concurrency))
+								Text(
+									stringResource(Res.string.setting_download_concurrency_desc),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+						},
+						trailingContent = { Text("${preferenceManager.downloadMaxConcurrency}") }
+					)
+					SettingsNavItem(
+						onClick = dropUnlessResumed { backStack.add(Screen.Downloads()) },
+						content = { Text(stringResource(Res.string.title_downloads)) },
+						supportingContent = { Text(stringResource(Res.string.subtitle_downloads_page)) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
+					)
+				}
+
 				SettingsGroup(title = { Text(stringResource(Res.string.title_sync_control)) }) {
 					SegmentedListItem(
 						onClick = {},
@@ -305,7 +361,7 @@ fun SettingsDataStorageScreen() {
 
 				SettingsGroup(title = { Text(stringResource(Res.string.title_cache_management)) }) {
 					// navi-connect: the pending actions have a page of their own (what each is and
-					// why it waits), and the downloads one (Download Center).
+					// why it waits).
 					SettingsNavItem(
 						onClick = dropUnlessResumed { backStack.add(Screen.Settings.PendingActions) },
 						content = { Text(stringResource(Res.string.option_pending_actions)) },
@@ -317,7 +373,7 @@ fun SettingsDataStorageScreen() {
 								)
 							)
 						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 5)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
 					)
 
 					SegmentedListItem(
@@ -332,21 +388,14 @@ fun SettingsDataStorageScreen() {
 								) + downloadsSizeMb
 							)
 						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 5)
-					)
-
-					SettingsNavItem(
-						onClick = dropUnlessResumed { backStack.add(Screen.Settings.DownloadCenter) },
-						content = { Text(stringResource(Res.string.title_download_center)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_download_center)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 5)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
 					)
 
 					SegmentedListItem(
 						onClick = {},
 						content = { Text(stringResource(Res.string.option_image_cache_size)) },
 						supportingContent = { Text(imageCacheSizeMb) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 5)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4)
 					)
 
 					SegmentedListItem(
@@ -418,7 +467,7 @@ fun SettingsDataStorageScreen() {
 							}
 						},
 						trailingContent = offlineIcon,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = 5)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
 					)
 				}
 

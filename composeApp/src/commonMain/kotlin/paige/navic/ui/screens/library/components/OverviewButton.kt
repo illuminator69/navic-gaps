@@ -34,6 +34,7 @@ import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_discover_mixes
+import navic.composeapp.generated.resources.title_downloads
 import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_library_matches
 import navic.composeapp.generated.resources.title_listening
@@ -48,6 +49,7 @@ import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.outlined.Album
+import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.filled.Headphones
@@ -129,11 +131,13 @@ data class OverviewButtonSpec(
 )
 
 /**
- * How many buttons the home page shows: four, or six once there are five to show. Always even —
- * an odd count leaves a hole in the two-column grid — and never fewer than the primaries, so a
- * fifth button (My Listening) adds a row rather than pushing Random off the page.
+ * How many buttons the home page shows: four, or the primaries rounded up to even once there are
+ * more than four. Always even — an odd count leaves a hole in the two-column grid — and never
+ * fewer than the primaries, so a fifth button (My Listening) adds a row rather than pushing Random
+ * off the page.
  */
-internal fun overviewButtonCount(primary: Int): Int = if (primary <= 4) 4 else 6
+internal fun overviewButtonCount(primary: Int): Int =
+	if (primary <= 4) 4 else primary + primary % 2
 
 /**
  * Whether the home offers Library Matches: **wherever the lb-bot layer is on**
@@ -150,10 +154,10 @@ internal fun libraryMatchesOffered(lbConfigured: Boolean, overridesSupported: Bo
 
 /**
  * The longest the primary list gets: Discover, Mixed for You, Fresh, My Listening, Library
- * Matches and Random. [overviewButtonCount] never shows fewer than there are, so this is also
- * the most buttons the home page has; a seventh primary would have to raise both.
+ * Matches, Downloads and Random. [overviewButtonCount] never shows fewer than there are, so the
+ * home page has at most this rounded up to even: eight, the eighth a filler.
  */
-internal const val OVERVIEW_PRIMARY_MAX = 6
+internal const val OVERVIEW_PRIMARY_MAX = 7
 
 /**
  * The home page's four buttons — six where My Listening is offered too.
@@ -251,6 +255,16 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 					)
 				)
 			}
+			// Downloads (I-039) is always there: this device's offline files are upstream's
+			// feature, and the page is where they are listed. It was the Download Center in
+			// Settings, which is where nobody looks for what is downloading.
+			add(
+				OverviewButtonSpec(
+					Icons.Outlined.Download,
+					Res.string.title_downloads,
+					Screen.Downloads()
+				)
+			)
 			add(
 				OverviewButtonSpec(
 					Icons.Outlined.Shuffle,
@@ -276,7 +290,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 1..6 long and `filler` is 3, so there is always enough to fill the count.
+		// `primary` is 2..7 long and `filler` is 3, so there is always enough to fill the count.
 		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }

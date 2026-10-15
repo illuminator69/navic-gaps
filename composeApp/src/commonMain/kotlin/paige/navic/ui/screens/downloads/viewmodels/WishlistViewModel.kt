@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbWishlistItem
@@ -38,7 +39,8 @@ class WishlistViewModel(
 		}
 	}
 
-	fun load() {
+	/** Read the list again; the returned job ends with the read, which is when a pull-to-refresh does. */
+	fun load(): Job =
 		viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true)
 			val up = lbBotManager.ensureAvailability() && lbBotManager.supportsWishlist
@@ -52,7 +54,6 @@ class WishlistViewModel(
 				items = lbBotManager.wishlist().sortedByDescending { it.addedAt }
 			)
 		}
-	}
 
 	/**
 	 * Remove, and adopt the list lb-bot hands back.

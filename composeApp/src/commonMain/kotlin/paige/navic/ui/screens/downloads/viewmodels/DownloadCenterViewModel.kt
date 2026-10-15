@@ -19,7 +19,6 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 
 /** One download plus the song it belongs to — the rows are useless without a title. */
@@ -41,17 +40,9 @@ data class DownloadCenterState(
 	val totalSize: Long = 0L
 )
 
-/** User-tunable download constraints, mirrored from [PreferenceManager] for the UI. */
-data class DownloadSettings(
-	val wifiOnly: Boolean = false,
-	val chargingOnly: Boolean = false,
-	val maxConcurrency: Int = 4
-)
-
 class DownloadCenterViewModel(
 	private val downloadManager: DownloadManager,
 	private val songDao: SongDao,
-	private val preferenceManager: PreferenceManager,
 	private val lbBotManager: LbBotManager
 ) : ViewModel() {
 
@@ -197,21 +188,20 @@ class DownloadCenterViewModel(
 	 */
 	suspend fun resolveLink(url: String) = lbBotManager.resolveLink(url)
 
-	/** As [wishlistSupported], for the paste box. */
+	/**
+	 * Whether the page offers lb-bot's two chips: wherever the lb-bot layer is on, as the home
+	 * offers Library Matches. Each chip then says for itself what is not reachable or not
+	 * supported, rather than the chip blinking in once the hub has spoken.
+	 */
+	val lbConfigured: Boolean
+		get() = lbBotManager.isConfigured
+
+	/** As [wishlistSupported], for the paste-a-link action. */
 	val resolveLinkSupported: Boolean
 		get() = lbBotManager.supportsResolveLink
 
 	private val _state = MutableStateFlow(DownloadCenterState())
 	val state = _state.asStateFlow()
-
-	private val _settings = MutableStateFlow(
-		DownloadSettings(
-			wifiOnly = preferenceManager.downloadWifiOnly,
-			chargingOnly = preferenceManager.downloadChargingOnly,
-			maxConcurrency = preferenceManager.downloadMaxConcurrency
-		)
-	)
-	val settings = _settings.asStateFlow()
 
 	/** True while transfers are being held back by Wi-Fi-only / charging-only constraints. */
 	val constrained = downloadManager.downloadsConstrained.stateIn(
@@ -221,23 +211,6 @@ class DownloadCenterViewModel(
 	val totalSize = downloadManager.downloadSize.stateIn(
 		viewModelScope, SharingStarted.WhileSubscribed(5000), 0L
 	)
-
-	fun setWifiOnly(value: Boolean) {
-		preferenceManager.downloadWifiOnly = value
-		_settings.value = _settings.value.copy(wifiOnly = value)
-	}
-
-	fun setChargingOnly(value: Boolean) {
-		preferenceManager.downloadChargingOnly = value
-		_settings.value = _settings.value.copy(chargingOnly = value)
-	}
-
-	/** Persisted; the semaphore permit count applies from the next app start (see DownloadManager). */
-	fun setMaxConcurrency(value: Int) {
-		val clamped = value.coerceIn(1, 10)
-		preferenceManager.downloadMaxConcurrency = clamped
-		_settings.value = _settings.value.copy(maxConcurrency = clamped)
-	}
 
 	init {
 		viewModelScope.launch(Dispatchers.IO) {

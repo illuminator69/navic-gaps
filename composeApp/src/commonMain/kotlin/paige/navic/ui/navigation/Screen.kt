@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.ui.screens.downloads.DownloadsSection
 
 @Immutable
 @Serializable
@@ -152,16 +153,17 @@ sealed interface Screen : NavKey {
 	data class MixList(val nested: Boolean = false) : Screen
 
 	/**
-	 * Releases lb-bot could not find a source for and is still looking for.
+	 * Downloads (I-039): what this device holds offline, what lb-bot is getting from Soulseek,
+	 * and the wishlist (releases nobody was sharing, which lb-bot keeps looking for), one chip
+	 * each on a library page. [section] is the chip it opens on.
 	 *
-	 * Its own destination rather than a fourth list inside the Download Center: the
-	 * Download Center answers "what is happening now", and a wishlist entry is
-	 * explicitly the opposite — something that is not happening, on a timescale of
-	 * hours.
+	 * The wishlist stays its own chip rather than a fourth group under the others: they answer
+	 * "what is happening now", and a wishlist entry is explicitly the opposite, something that
+	 * is not happening, on a timescale of hours.
 	 */
 	@Immutable
 	@Serializable
-	data object Wishlist : Screen
+	data class Downloads(val section: DownloadsSection = DownloadsSection.Device) : Screen
 
 	/**
 	 * My Listening (I-006): aggregates over the user's ListenBrainz history, mirrored and
@@ -279,10 +281,6 @@ sealed interface Screen : NavKey {
 		@Immutable
 		@Serializable
 		data object DataStorage : Settings
-
-		@Immutable
-		@Serializable
-		data object DownloadCenter : Settings
 
 		/** What is still waiting to be sent to the server, row by row (I-020). */
 		@Immutable

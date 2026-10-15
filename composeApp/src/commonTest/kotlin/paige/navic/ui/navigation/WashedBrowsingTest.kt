@@ -2,6 +2,7 @@ package paige.navic.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.util.CoverPlaceholder
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,7 +26,8 @@ class WashedBrowsingTest {
 		val washed = listOf(
 			Screen.Library(), Screen.Starred(), Screen.AlbumList(), Screen.PlaylistList(),
 			Screen.ArtistList(), Screen.GenreList(), Screen.SongList(), Screen.RadioList(),
-			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics()
+			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics(),
+			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist)
 		)
 		washed.forEach { assertTrue(it.isWashedBrowsing(), "$it should be washed") }
 	}
@@ -45,7 +47,7 @@ class WashedBrowsingTest {
 			Screen.CollectionDetail("al-1", "albums"), Screen.ArtistDetail("ar-1"),
 			Screen.SongDetailScreen("s-1"), Screen.GenreDetail("Rock"),
 			Screen.ExternalAlbum("rg-1"), Screen.ExternalArtist("mb-1"),
-			Screen.ImageView("c-1", "t", "k"), Screen.SavedQueues, Screen.Wishlist, Screen.ShareList,
+			Screen.ImageView("c-1", "t", "k"), Screen.SavedQueues, Screen.ShareList,
 			Screen.SmartPlaylistEditor(), Screen.Login,
 			Screen.Settings.Root, Screen.Settings.Appearance, Screen.Settings.NaviConnect
 		)

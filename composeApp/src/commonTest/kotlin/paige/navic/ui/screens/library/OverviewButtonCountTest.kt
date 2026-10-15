@@ -25,9 +25,15 @@ class OverviewButtonCountTest {
 
 	@Test
 	fun aSixthPrimaryFillsTheSecondRowAndPushesNothingOff() {
-		// Library Matches (I-026) is the sixth: six primaries, six buttons, Random still there.
-		assertEquals(6, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
-		assertEquals(6, OVERVIEW_PRIMARY_MAX)
+		// Library Matches (I-026) was the sixth: six primaries, six buttons, Random still there.
+		assertEquals(6, overviewButtonCount(6))
+	}
+
+	@Test
+	fun aSeventhPrimaryAddsARowWithOneFiller() {
+		// Downloads (I-039) is the seventh: four rows of two, Random still there, one filler.
+		assertEquals(8, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
+		assertEquals(7, OVERVIEW_PRIMARY_MAX)
 	}
 
 	@Test

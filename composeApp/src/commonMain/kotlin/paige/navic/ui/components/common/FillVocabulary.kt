@@ -49,7 +49,7 @@ import paige.navic.domain.manager.LbGapTrack
  * The acquisition vocabulary, PROTOCOL.md §15.2.
  *
  * One state renders the same words and offers the same buttons everywhere a fill
- * is shown — the Download Center, the missing-album sheet, the discography tile —
+ * is shown — the Downloads page, the missing-album sheet, the discography tile —
  * and in Feishin, which implements the same table in `fill-vocabulary.ts`. There
  * is no shared build between the two clients, so the table in PROTOCOL is the
  * contract and this file is Navic's copy of it. Change one, change all three.

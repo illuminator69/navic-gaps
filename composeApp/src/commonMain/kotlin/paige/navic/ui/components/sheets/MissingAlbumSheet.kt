@@ -677,7 +677,7 @@ private fun Tracklist(tracklist: LbTracklist?) {
 @Composable
 internal fun FillProgress(status: LbFillStatus?, onCancel: (() -> Unit)? = null) {
 	if (status == null || status.state == "unknown") return
-	// The same words the Download Center uses (PROTOCOL §15.2): the sheet used to
+	// The same words the Downloads page uses (PROTOCOL §15.2): the sheet used to
 	// carry a second set of labels for the same states.
 	val label = when (status.state) {
 		"failed" -> stringResource(failureHeadline(status.failureKind))
