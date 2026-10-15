@@ -68,6 +68,8 @@ import paige.navic.ui.util.withoutTop
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
 import paige.navic.ui.screens.artist.ArtistListScreenGridItem
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 
 @Composable
 fun LibraryScreenContent(
@@ -80,8 +82,7 @@ fun LibraryScreenContent(
 	continueListening: List<SavedQueueEntity>,
 	activeQueueId: String?,
 	onResumeQueue: (SavedQueueEntity) -> Unit,
-	onPreviewQueue: (SavedQueueEntity) -> Unit,
-	onRemoveQueue: (SavedQueueEntity) -> Unit,
+	onQueueMenu: (SavedQueueEntity) -> Unit,
 	// true when the last full sync failed and we're showing the cached library
 	syncFailed: Boolean,
 
@@ -157,18 +158,15 @@ fun LibraryScreenContent(
 		// Stale-library banner: only when a sync actually failed, so the happy path is unchanged.
 		if (syncFailed) {
 			item(span = { GridItemSpan(maxLineSpan) }) {
-				Text(
-					stringResource(Res.string.banner_sync_failed_cached),
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onErrorContainer,
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(horizontal = 16.dp, vertical = 4.dp)
-						.background(
-							MaterialTheme.colorScheme.errorContainer,
-							RoundedCornerShape(12.dp)
-						)
-						.padding(horizontal = 16.dp, vertical = 10.dp)
+				// An error row as Data & storage's danger zone draws them, leading to the sync's
+				// own status and its manual trigger there.
+				val backStack = LocalNavStack.current
+				SegmentedListItem(
+					modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+					onClick = { backStack.add(Screen.Settings.DataStorage) },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1),
+					colors = SegmentedListItemDefaults.segmentedErrorColors(),
+					content = { Text(stringResource(Res.string.banner_sync_failed_cached)) }
 				)
 			}
 		}
@@ -217,8 +215,7 @@ fun LibraryScreenContent(
 				queue = queue,
 				isActive = queue.id == activeQueueId,
 				onClick = { onResumeQueue(queue) },
-				onPreview = { onPreviewQueue(queue) },
-				onRemove = { onRemoveQueue(queue) }
+				onLongClick = { onQueueMenu(queue) }
 			)
 		}
 

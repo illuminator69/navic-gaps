@@ -300,9 +300,10 @@ class LibraryMatchesViewModel(
 	 * created before that would have read nothing and then sat on "Asking lb-bot…" with nothing
 	 * asking.
 	 */
-	fun read() {
-		viewModelScope.launch { readOverrides() }
-		viewModelScope.launch { readArt() }
+	/** Both reads at once; the returned job ends with the later of them (a pull-to-refresh's end). */
+	fun read(): Job = viewModelScope.launch {
+		launch { readOverrides() }
+		launch { readArt() }
 	}
 
 	private suspend fun readArt() {

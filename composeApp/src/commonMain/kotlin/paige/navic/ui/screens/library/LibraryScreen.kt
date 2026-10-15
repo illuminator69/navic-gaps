@@ -65,6 +65,11 @@ import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import paige.navic.ui.screens.savedqueues.components.SavedQueueSheet
+import paige.navic.ui.screens.savedqueues.savedQueueSubtitle
 
 @Composable
 fun LibraryScreen() {
@@ -160,21 +165,19 @@ fun LibraryScreen() {
 	)
 	val savedQueueActions = rememberSavedQueueActions(savedQueuesViewModel, player)
 	var previewQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
+	var menuQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
 
 	val syncManager = koinInject<paige.navic.domain.manager.SyncManager>()
 	val syncState by syncManager.syncState.collectAsStateWithLifecycle()
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	val homeScope = rememberCoroutineScope()
 
 
 	LaunchedEffect(loginState is LoginUiState.Success) {
 		albumsViewModel.refreshAlbums(false)
-		runCatching {
-			frequentAlbumsState =
-				UiState.Success(albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20))
-			newestAlbumsState =
-				UiState.Success(albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20))
-		}
+		frequentAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20) }
+		newestAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20) }
 		playlistsViewModel.refreshPlaylists(false)
 		artistsViewModel.refreshArtists(false)
 		genresViewModel.refreshGenres(false)
@@ -224,6 +227,12 @@ fun LibraryScreen() {
 				playlistsViewModel.refreshPlaylists(true)
 				artistsViewModel.refreshArtists(true)
 				genresViewModel.refreshGenres(true)
+				// The two light rows reload with the rest: they used to load once, and a failure
+				// then left them shimmering until the app restarted.
+				homeScope.launch {
+					frequentAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20) }
+					newestAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20) }
+				}
 			},
 			key = listOf(albumsState, playlistsState, artistsState, genresState)
 		) {
@@ -236,8 +245,7 @@ fun LibraryScreen() {
 				continueListening = continueListening,
 				activeQueueId = playingQueueId,
 				onResumeQueue = { savedQueueActions.resume(it) },
-				onPreviewQueue = { previewQueue = it },
-				onRemoveQueue = { savedQueueActions.delete(it) },
+				onQueueMenu = { menuQueue = it },
 				syncFailed = syncState.lastSyncFailed && !syncState.isSyncing,
 
 				albumsState = albumsState,
@@ -302,6 +310,18 @@ fun LibraryScreen() {
 		(genresState as? UiState.Error)?.error
 	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
+	menuQueue?.let { target ->
+		SavedQueueSheet(
+			queue = target,
+			subtitle = savedQueueSubtitle(target, target.id == playingQueueId),
+			onDismissRequest = { menuQueue = null },
+			onRestore = { savedQueueActions.restore(target) },
+			onResume = { savedQueueActions.resume(target) },
+			onPreview = { previewQueue = target },
+			onDelete = { savedQueueActions.delete(target) }
+		)
+	}
+
 	previewQueue?.let { target ->
 		SavedQueuePreviewSheet(
 			queue = target,
@@ -343,4 +363,18 @@ fun LibraryScreen() {
 			onRefresh = { playlistsViewModel.refreshPlaylists(true) }
 		)
 	}
+}
+
+/**
+ * One of the home's light top-20 rows, as a state that can end: an error is `Error` (and the row,
+ * having nothing, hides) rather than the `Loading` it used to stay in for the session.
+ */
+private suspend fun homeRow(
+	load: suspend () -> ImmutableList<DomainAlbum>
+): UiState<ImmutableList<DomainAlbum>> = try {
+	UiState.Success(load())
+} catch (e: CancellationException) {
+	throw e
+} catch (e: Exception) {
+	UiState.Error(e, persistentListOf())
 }

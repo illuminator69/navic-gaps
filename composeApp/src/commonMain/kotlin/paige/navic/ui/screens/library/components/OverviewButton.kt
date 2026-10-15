@@ -46,6 +46,8 @@ import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.icons.outlined.Equalizer
+import paige.navic.icons.outlined.Sparkle
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.outlined.Album
@@ -222,7 +224,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 			if (hubConfigured) {
 				add(
 					OverviewButtonSpec(
-						Icons.Outlined.PlaylistPlay,
+						Icons.Outlined.Equalizer,
 						Res.string.title_discover_mixes,
 						Screen.MixList(nested = true)
 					)
@@ -231,7 +233,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 			if (lbBotAvailable) {
 				add(
 					OverviewButtonSpec(
-						Icons.Outlined.Album,
+						Icons.Outlined.Sparkle,
 						Res.string.title_fresh,
 						Screen.Fresh(nested = true)
 					)

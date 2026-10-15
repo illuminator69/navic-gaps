@@ -26,6 +26,7 @@ import navic.composeapp.generated.resources.action_more
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
 import paige.navic.domain.models.settings.BottomBarCollapseMode
+import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.ui.components.common.SegmentedListButton
@@ -70,11 +71,9 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_ok
-import navic.composeapp.generated.resources.action_rename
 import navic.composeapp.generated.resources.info_no_mixes
 import navic.composeapp.generated.resources.info_no_mixes_hint
 import navic.composeapp.generated.resources.mix_new
-import navic.composeapp.generated.resources.mix_preview
 import navic.composeapp.generated.resources.mix_not_connected
 import navic.composeapp.generated.resources.mix_regenerate_failed
 import navic.composeapp.generated.resources.mix_save_current
@@ -261,7 +260,7 @@ fun MixListScreen(nested: Boolean = false) {
 				item(key = "empty") {
 					ContentUnavailable(
 						modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-						icon = Icons.Outlined.PlaylistPlay,
+						icon = Icons.Outlined.Equalizer,
 						label = stringResource(Res.string.info_no_mixes),
 						description = stringResource(Res.string.info_no_mixes_hint)
 					)

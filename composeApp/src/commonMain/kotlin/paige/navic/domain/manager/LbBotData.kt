@@ -151,7 +151,7 @@ internal fun lbErrorClause(error: LbBotManager.LbError): String = when (error) {
  * second user to "set the hub up" would send them to fix the thing that works.
  */
 internal fun lbLayerLine(hubSet: Boolean, hubSaysNoLbBot: Boolean): String? = when {
-	!hubSet -> "lb-bot is reached through the hub. Set the hub up above to see its data here."
+	!hubSet -> "lb-bot is reached through the hub. Set the hub up in Settings, navi-connect, to see its data here."
 	hubSaysNoLbBot -> "This hub says it has no lb-bot set up, so there is nothing to show here."
 	else -> null
 }

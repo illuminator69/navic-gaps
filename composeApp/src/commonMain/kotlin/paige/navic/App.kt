@@ -568,9 +568,6 @@ private fun entryProvider(
 		entry<Screen.ShareList> {
 			ShareListScreen()
 		}
-		entry<Screen.SavedQueues> {
-			SavedQueuesScreen()
-		}
 		// The fork's pushed library pages wear the playing song's colours like its other pages:
 		// `Washed`, i.e. `BrowsingAmbient`, and a line each in `WashedBrowsingScreens` so the
 		// tablet rail follows too (`WashedBrowsingDriftTest` fails when the two disagree).
@@ -582,6 +579,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Downloads> { key ->
 			Washed { DownloadsScreen(key.section) }
+		}
+		entry<Screen.SavedQueues> {
+			Washed { SavedQueuesScreen() }
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)

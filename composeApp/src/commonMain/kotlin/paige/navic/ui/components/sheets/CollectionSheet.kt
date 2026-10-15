@@ -60,6 +60,8 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.icons.outlined.Incomplete
+import paige.navic.icons.outlined.Swap
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Lastfm
 import paige.navic.icons.brand.Musicbrainz
@@ -211,7 +213,8 @@ fun CollectionSheet(
 							)
 						)
 					},
-					leadingContent = { Icon(Icons.Outlined.Download, null) },
+					// Not the download glyph: the album is here, and this completes it (I-039).
+					leadingContent = { Icon(Icons.Outlined.Incomplete, null) },
 					onClick = {
 						platformContext.clickSound()
 						onFillGaps()
@@ -269,7 +272,9 @@ fun CollectionSheet(
 			) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_fix_album_match)) },
-					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
+					// Not View on MusicBrainz's logo, which it used to share: this changes
+					// the match, that one leaves the app (I-039).
+					leadingContent = { Icon(Icons.Outlined.Swap, null) },
 					onClick = {
 						platformContext.clickSound()
 						onFixAlbumMatch()

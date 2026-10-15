@@ -17,6 +17,7 @@ import navic.composeapp.generated.resources.title_fresh_window
 import navic.composeapp.generated.resources.title_sort_by
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
+import paige.navic.icons.outlined.Sparkle
 import paige.navic.icons.outlined.Sort
 import paige.navic.ui.components.common.GroupHeader
 import paige.navic.ui.components.common.PageChips
@@ -203,7 +204,7 @@ fun FreshScreen(nested: Boolean = false) {
 						) {
 							ContentUnavailable(
 								modifier = Modifier.fillMaxWidth(),
-								icon = Icons.Outlined.Album,
+								icon = Icons.Outlined.Sparkle,
 								label = stringResource(
 									when {
 										state.failed -> Res.string.fresh_failed

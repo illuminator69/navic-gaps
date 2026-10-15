@@ -27,7 +27,7 @@ class WashedBrowsingTest {
 			Screen.Library(), Screen.Starred(), Screen.AlbumList(), Screen.PlaylistList(),
 			Screen.ArtistList(), Screen.GenreList(), Screen.SongList(), Screen.RadioList(),
 			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics(),
-			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist)
+			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist), Screen.SavedQueues
 		)
 		washed.forEach { assertTrue(it.isWashedBrowsing(), "$it should be washed") }
 	}
@@ -47,7 +47,7 @@ class WashedBrowsingTest {
 			Screen.CollectionDetail("al-1", "albums"), Screen.ArtistDetail("ar-1"),
 			Screen.SongDetailScreen("s-1"), Screen.GenreDetail("Rock"),
 			Screen.ExternalAlbum("rg-1"), Screen.ExternalArtist("mb-1"),
-			Screen.ImageView("c-1", "t", "k"), Screen.SavedQueues, Screen.ShareList,
+			Screen.ImageView("c-1", "t", "k"), Screen.ShareList,
 			Screen.SmartPlaylistEditor(), Screen.Login,
 			Screen.Settings.Root, Screen.Settings.Appearance, Screen.Settings.NaviConnect
 		)

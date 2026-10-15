@@ -49,6 +49,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtist
+import paige.navic.icons.outlined.Swap
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Lastfm
 import paige.navic.icons.brand.Musicbrainz
@@ -194,7 +195,8 @@ fun ArtistSheet(
 			if (onFixMusicBrainzMatch != null && canFixMatch && lbBot.isConfigured) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_fix_musicbrainz_match)) },
-					leadingContent = { Icon(Icons.Brand.Musicbrainz, null) },
+					// Not View on MusicBrainz's logo: this changes the match (I-039).
+					leadingContent = { Icon(Icons.Outlined.Swap, null) },
 					onClick = {
 						platformContext.clickSound()
 						onFixMusicBrainzMatch()

@@ -1,21 +1,29 @@
 package paige.navic.ui.screens.savedqueues.components
 
-import androidx.compose.foundation.background
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.OutlinedButton
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.theme.defaultFont
+import paige.navic.ui.util.rememberCoverAmbient
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,7 +33,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,7 +41,6 @@ import navic.composeapp.generated.resources.action_close
 import navic.composeapp.generated.resources.action_resume_queue
 import navic.composeapp.generated.resources.queue_resumes_here
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.SavedQueueRepository
@@ -46,7 +52,6 @@ import paige.navic.ui.screens.savedqueues.savedQueueTitle
 import paige.navic.ui.screens.savedqueues.savedQueueCoverArtId
 import paige.navic.ui.screens.savedqueues.trackCountLabel
 import paige.navic.ui.screens.savedqueues.trackDuration
-import paige.navic.ui.components.common.FormButton
 
 /**
  * "Preview queue": what's actually in a saved queue, and where resuming it would land, without
@@ -76,21 +81,29 @@ fun SavedQueuePreviewSheet(
 		if (resumeIndex > 2) listState.scrollToItem(resumeIndex - 2)
 	}
 
-	ModalBottomSheet(onDismissRequest = onDismissRequest) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val coverArtId = savedQueueCoverArtId(queue)
+	// Washed in the resume track's cover, as an album's sheet is in its own.
+	val ambient = rememberCoverAmbient(coverArtId)
+
+	ModalBottomSheet(onDismissRequest = onDismissRequest, ambient = ambient) {
+		// A fixed header over one scrolling list (upstream's tall-sheet layout, as the song
+		// sheet's): the list used to be capped at 360dp inside a sheet that did not scroll.
 		Row(
 			Modifier.fillMaxWidth().padding(horizontal = 20.dp),
 			verticalAlignment = Alignment.CenterVertically
 		) {
 			CoverArt(
-				coverArtId = savedQueueCoverArtId(queue),
+				coverArtId = coverArtId,
 				modifier = Modifier.size(56.dp),
-				shape = RoundedCornerShape(8.dp)
+				shape = preferenceManager.coverArtShape.decreasedShape
 			)
 			Spacer(Modifier.width(14.dp))
 			Column(Modifier.weight(1f)) {
 				Text(
 					savedQueueTitle(queue),
-					style = MaterialTheme.typography.titleMedium,
+					style = MaterialTheme.typography.titleLarge,
+					fontFamily = defaultFont(round = 100f),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
@@ -104,98 +117,88 @@ fun SavedQueuePreviewSheet(
 				)
 			}
 		}
-
-		Spacer(Modifier.height(12.dp))
+		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
 
 		LazyColumn(
 			state = listState,
 			modifier = Modifier
 				.fillMaxWidth()
-				.heightIn(max = 360.dp)
-				.padding(horizontal = 12.dp)
+				.weight(1f, fill = false)
+				.padding(horizontal = 12.dp),
+			verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 		) {
 			itemsIndexed(songs, key = { i, song -> "$i-${song.id}" }) { i, song ->
 				PreviewTrackRow(
-					position = i + 1,
 					song = song,
+					shapes = segmentedShapes(index = i, count = songs.size),
 					isResumePoint = i == resumeIndex
 				)
 			}
 		}
 
-		Spacer(Modifier.height(12.dp))
-
 		Row(
-			Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+			Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
 			horizontalArrangement = Arrangement.spacedBy(8.dp)
 		) {
-			Box(Modifier.weight(1f)) {
-				FormButton(onClick = onDismissRequest) {
-					Text(stringResource(Res.string.action_close))
-				}
+			OutlinedButton(onClick = onDismissRequest, modifier = Modifier.weight(1f)) {
+				Text(stringResource(Res.string.action_close))
 			}
-			Box(Modifier.weight(1f)) {
-				FormButton(
-					onClick = onResume,
-					color = MaterialTheme.colorScheme.primary
-				) {
-					Text(stringResource(Res.string.action_resume_queue))
-				}
+			Button(onClick = onResume, modifier = Modifier.weight(1f)) {
+				Text(stringResource(Res.string.action_resume_queue))
 			}
 		}
-		Spacer(Modifier.height(16.dp))
 	}
 }
 
+/** One track, as the queue draws it; the resume point marked as the queue marks what is playing. */
 @Composable
-private fun PreviewTrackRow(position: Int, song: DomainSong, isResumePoint: Boolean) {
-	Row(
-		Modifier
-			.fillMaxWidth()
-			.clip(RoundedCornerShape(8.dp))
-			.background(
-				if (isResumePoint) MaterialTheme.colorScheme.primaryContainer
-				else androidx.compose.ui.graphics.Color.Transparent
+private fun PreviewTrackRow(song: DomainSong, shapes: ListItemShapes, isResumePoint: Boolean) {
+	SegmentedListItem(
+		selected = isResumePoint,
+		onClick = {},
+		enabled = false,
+		shapes = shapes,
+		colors = ListItemDefaults.colors(
+			containerColor = SongRowDefaults.containerColor(false),
+			disabledContainerColor = SongRowDefaults.containerColor(false),
+			disabledContentColor = SongRowDefaults.contentColor(false),
+			disabledLeadingContentColor = SongRowDefaults.contentColor(false),
+			disabledTrailingContentColor = SongRowDefaults.supportingContentColor(false),
+			disabledSupportingContentColor = SongRowDefaults.supportingContentColor(false),
+			selectedContainerColor = SongRowDefaults.containerColor(true),
+			selectedContentColor = SongRowDefaults.contentColor(true),
+			selectedSupportingContentColor = SongRowDefaults.supportingContentColor(true),
+			selectedTrailingContentColor = SongRowDefaults.supportingContentColor(true)
+		),
+		verticalAlignment = Alignment.CenterVertically,
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			CoverArt(
+				modifier = Modifier.size(SongRowDefaults.CoverSize),
+				coverArtId = song.coverArtId,
+				fallbackAlbumId = song.albumId,
+				shape = SongRowDefaults.CoverShape
 			)
-			.padding(horizontal = 8.dp, vertical = 6.dp),
-		verticalAlignment = Alignment.CenterVertically
-	) {
-		Text(
-			position.toString(),
-			style = MaterialTheme.typography.bodySmall,
-			color = if (isResumePoint) MaterialTheme.colorScheme.onPrimaryContainer
-			else MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.width(28.dp)
-		)
-		Column(Modifier.weight(1f)) {
+		},
+		content = {
 			Text(
 				song.title,
-				style = MaterialTheme.typography.bodyMedium,
 				fontWeight = if (isResumePoint) FontWeight.SemiBold else null,
-				color = if (isResumePoint) MaterialTheme.colorScheme.onPrimaryContainer
-				else MaterialTheme.colorScheme.onSurface,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis
 			)
+		},
+		supportingContent = {
 			Text(
 				listOfNotNull(
 					song.artistName?.takeIf { it.isNotBlank() },
 					song.albumTitle?.takeIf { it.isNotBlank() },
 					stringResource(Res.string.queue_resumes_here).takeIf { isResumePoint }
 				).joinToString(" · "),
-				style = MaterialTheme.typography.bodySmall,
-				color = if (isResumePoint) MaterialTheme.colorScheme.onPrimaryContainer
-				else MaterialTheme.colorScheme.onSurfaceVariant,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis
 			)
-		}
-		Spacer(Modifier.width(8.dp))
-		Text(
-			trackDuration(song),
-			style = MaterialTheme.typography.bodySmall,
-			color = if (isResumePoint) MaterialTheme.colorScheme.onPrimaryContainer
-			else MaterialTheme.colorScheme.onSurfaceVariant
-		)
-	}
+		},
+		trailingContent = { Text(trackDuration(song), style = MaterialTheme.typography.bodySmall) }
+	)
 }

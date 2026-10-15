@@ -52,6 +52,10 @@ class ExternalArtistViewModel(
 	private val _name = MutableStateFlow(artistName)
 	val name = _name.asStateFlow()
 
+	/** Until the mirror or the network has answered, either way: the page shows it is loading. */
+	private val _loading = MutableStateFlow(artistMbid.isNotBlank())
+	val loading = _loading.asStateFlow()
+
 	/** True once the index mirror has answered for this artist; the network is then never
 	 *  asked again, and a network answer landing after it is dropped. Main-thread only. */
 	private var fromMirror = false
@@ -91,12 +95,14 @@ class ExternalArtistViewModel(
 		viewModelScope.launch {
 			if (!lbBotManager.ensureAvailability()) {
 				if (!fromMirror) _discography.value = DiscographyUi(available = false)
+				_loading.value = false
 				return@launch
 			}
 			val data = lbBotManager.discography("mb:$artistMbid", artistMbid)
 			if (fromMirror) return@launch
 			if (data == null) {
 				_discography.value = DiscographyUi(available = false)
+				_loading.value = false
 				return@launch
 			}
 			show(data)
@@ -105,6 +111,7 @@ class ExternalArtistViewModel(
 
 	/** Paint [data], keeping any scan in flight. */
 	private fun show(data: LbDiscography) {
+		_loading.value = false
 		if (data == shown) return
 		shown = data
 		// lb-bot knows the artist's real name once it has scanned them; the name

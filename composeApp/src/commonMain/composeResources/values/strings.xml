@@ -1209,4 +1209,6 @@
 	<string name="info_no_fills">Nothing is coming from Soulseek</string>
 	<string name="info_paste_link">A link to an album, a track or an artist, from a streaming service or MusicBrainz, opens its page here.</string>
 	<string name="title_fresh_window">Released in the last</string>
+	<string name="info_external_artist_unreachable">Can't reach lb-bot, so this artist's discography can't be read.</string>
+	<string name="title_search_artists_external">Artists not in your library</string>
 </resources>

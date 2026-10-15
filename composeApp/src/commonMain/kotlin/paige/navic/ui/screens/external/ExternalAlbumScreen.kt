@@ -1,5 +1,50 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package paige.navic.ui.screens.external
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import com.kyant.capsule.ContinuousCapsule
+import com.kyant.capsule.ContinuousRoundedRectangle
+import org.koin.compose.koinInject
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.domain.manager.LbTrack
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.icons.outlined.Artist
+import paige.navic.icons.outlined.Download
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.theme.defaultFont
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -9,13 +54,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -38,7 +79,6 @@ import navic.composeapp.generated.resources.preview_none_found
 import navic.composeapp.generated.resources.action_view_artist
 import navic.composeapp.generated.resources.info_external_album_index_failed
 import navic.composeapp.generated.resources.title_missing_album
-import navic.composeapp.generated.resources.title_tracklist
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -167,156 +207,84 @@ fun ExternalAlbumScreen(
 			modifier = Modifier.fillMaxSize()
 		)
 	}
+	val listState = rememberLazyListState()
+	// The album page's rule: the title moves into the bar once the cover card has scrolled by.
+	val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
+	val tracks = state.tracklist?.tracks.orEmpty()
 	Scaffold(
 		containerColor = if (coverColors.themed) Color.Transparent else ambientTop,
-		topBar = { NestedTopBar({ Text(heading, maxLines = 1, overflow = TextOverflow.Ellipsis) }) }
+		topBar = {
+			NestedTopBar({
+				AnimatedVisibility(scrolled, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
+					Text(heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				}
+			})
+		},
+		bottomBar = {
+			val scrollManager = LocalBottomBarScrollManager.current
+			val preferVisible =
+				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!platformContext.isLandscape() && preferVisible) {
+				RootBottomBar(scrolled = scrollManager.isTriggered)
+			}
+		}
 	) { innerPadding ->
-		Column(
-			Modifier
-				.padding(innerPadding)
-				.fillMaxSize()
-				.verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp)
+		// The album page's layout: the cover card and its title over the wash, the buttons in
+		// its heading row's capsules, then the tracks as its segmented rows.
+		LazyColumn(
+			state = listState,
+			modifier = Modifier.fillMaxSize(),
+			contentPadding = innerPadding + PaddingValues(bottom = 24.dp)
 		) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
-				RemoteCoverArt(
-					url = LbBotManager.caaCoverUrl(rgid),
-					modifier = Modifier.size(96.dp)
+			item(key = "heading") {
+				ExternalAlbumHeading(
+					rgid = rgid,
+					title = heading,
+					artist = artist,
+					onArtist = openArtist
 				)
-				Column(Modifier.padding(start = 14.dp)) {
-					Text(heading, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-					Row(verticalAlignment = Alignment.CenterVertically) {
-						// The name itself is the control, not just the button below:
-						// a credit rendered next to an album is the thing a person
-						// reaches for, and this page knew who the artist was long
-						// before it could open them.
-						if (artist.isNotBlank()) {
-							Text(
-								artist,
-								style = MaterialTheme.typography.bodySmall,
-								color = if (openArtist != null) {
-									MaterialTheme.colorScheme.primary
-								} else {
-									MaterialTheme.colorScheme.onSurfaceVariant
-								},
-								modifier = if (openArtist != null) {
-									Modifier.clickable(onClick = openArtist)
-								} else {
-									Modifier
-								}
-							)
-							Text(
-								" • ",
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Text(
-							stringResource(Res.string.title_missing_album),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant
-						)
-					}
+			}
+			item(key = "buttons") {
+				ExternalAlbumButtons(
+					onViewArtist = openArtist,
+					onFindSources = { pickerOpen = true }
+				)
+			}
+			// Not fatal, and worth saying: the album is still fully downloadable through the
+			// picker above. What is lost is the index row, so this release keeps listing as
+			// missing on the artist page until a rescan.
+			if (state.indexAddFailed) {
+				item(key = "index-failed") {
+					Text(
+						stringResource(Res.string.info_external_album_index_failed),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						textAlign = TextAlign.Center,
+						modifier = Modifier.fillMaxWidth().padding(horizontal = 31.dp, vertical = 4.dp)
+					)
 				}
 			}
-
-			// The same destination as the name above, kept as a button because that
-			// is the discoverable affordance — a coloured name is only obvious once
-			// you have already guessed. Hidden together with it when nothing
-			// identifies the artist, rather than offering a control that refuses.
-			openArtist?.let { open ->
-				Button(
-					onClick = open,
-					modifier = Modifier.padding(top = 12.dp)
-				) { Text(stringResource(Res.string.action_view_artist)) }
-			}
-
-			Button(
-				onClick = { pickerOpen = true },
-				modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-			) { Text(stringResource(Res.string.action_find_sources)) }
-
-			// Not fatal, and worth saying: the album is still fully downloadable
-			// through the picker above. What is lost is the index row, so this
-			// release keeps listing as missing on the artist page until a rescan.
-			if (state.indexAddFailed) {
-				Text(
-					stringResource(Res.string.info_external_album_index_failed),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(top = 8.dp)
-				)
-			}
-
-			Text(
-				stringResource(Res.string.title_tracklist),
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
-			)
-			HorizontalDivider()
-
 			if (state.loading) {
-				Box(Modifier.fillMaxWidth().height(72.dp), Alignment.Center) {
-					CircularProgressIndicator(Modifier.size(24.dp))
+				item(key = "loading") {
+					Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), Alignment.Center) {
+						ContainedLoadingIndicator(Modifier.size(48.dp))
+					}
 				}
 			} else {
-				// No `present` counting anywhere: presenceKnown is false here by
-				// definition, so every row is just the canonical tracklist.
-				state.tracklist?.tracks.orEmpty().forEach { track ->
-					Row(
-						Modifier.fillMaxWidth().padding(vertical = 6.dp),
-						verticalAlignment = Alignment.CenterVertically
-					) {
-						Text(
-							track.position.toString(),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.size(width = 28.dp, height = 20.dp)
-						)
-						Column(Modifier.weight(1f)) {
-							Text(
-								track.title,
-								style = MaterialTheme.typography.bodyMedium,
-								maxLines = 1,
-								overflow = TextOverflow.Ellipsis
-							)
-							// "Not found" stays on the row that asked, because an
-							// empty resolve is an answer ABOUT THAT TRACK, not a
-							// failure of the page. A snackbar would have scrolled
-							// away by the time the next row is tried.
-							if (previewMissing == track.position) {
-								Text(
-									stringResource(Res.string.preview_none_found),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant
-								)
-							}
-						}
-						// Offered only when the sidecar is actually there. Absent
-						// previews render nothing at all, the same rule the rest of
-						// the lb-bot layer follows.
-						if (previewsAvailable) {
-							if (previewBusy == track.position) {
-								CircularProgressIndicator(
-									Modifier.size(18.dp),
-									strokeWidth = 2.dp
-								)
-							} else {
-								IconButton(
-									onClick = { viewModel.preview(track.position, track.title) },
-									enabled = previewBusy == null
-								) {
-									Icon(
-										Icons.Filled.Play,
-										contentDescription =
-											stringResource(Res.string.action_preview_track),
-										modifier = Modifier.size(20.dp)
-									)
-								}
-							}
-						}
-					}
+				// No `present` counting anywhere: presenceKnown is false here by definition,
+				// so every row is just the canonical tracklist.
+				itemsIndexed(tracks, key = { _, track -> "t:${track.position}:${track.title}" }) { index, track ->
+					ExternalTrackRow(
+						track = track,
+						shapes = segmentedShapes(index = index, count = tracks.size),
+						previewsAvailable = previewsAvailable,
+						busy = previewBusy == track.position,
+						anyBusy = previewBusy != null,
+						missing = previewMissing == track.position,
+						onPreview = { viewModel.preview(track.position, track.title) }
+					)
 				}
 			}
 		}
@@ -330,4 +298,177 @@ fun ExternalAlbumScreen(
 			onDismissRequest = { pickerOpen = false }
 		)
 	}
+}
+
+/**
+ * The album page's heading (`CollectionDetailScreenHeadingRow`) for a release with no Navidrome
+ * cover: the Cover Art Archive's front as the floating card, the title, the artist as a link
+ * wherever there is somewhere for it to go, and where the album stands.
+ */
+@Composable
+private fun ExternalAlbumHeading(
+	rgid: String,
+	title: String,
+	artist: String,
+	onArtist: (() -> Unit)?
+) {
+	val coverCardShape = ContinuousRoundedRectangle(18.dp)
+	Box(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(top = 24.dp, bottom = 6.dp),
+		contentAlignment = Alignment.Center
+	) {
+		RemoteCoverArt(
+			url = LbBotManager.caaCoverUrl(rgid),
+			contentDescription = title,
+			shape = coverCardShape,
+			modifier = Modifier
+				.size(212.dp)
+				.dropShadow(coverCardShape, Shadow(radius = 30.dp, color = Color.Black, alpha = 0.5f))
+		)
+	}
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = 31.dp)
+			.padding(top = 10.dp, bottom = 8.dp),
+		horizontalAlignment = Alignment.CenterHorizontally
+	) {
+		Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+		// The name itself is a control wherever the artist can be identified: a credit beside
+		// an album is the thing a person reaches for.
+		if (artist.isNotBlank()) {
+			Text(
+				artist,
+				color = if (onArtist != null) MaterialTheme.colorScheme.primary
+				else LocalContentColor.current.copy(alpha = 0.7f),
+				style = MaterialTheme.typography.bodyMedium,
+				fontFamily = defaultFont(grade = 100, round = 100f),
+				modifier = if (onArtist != null) Modifier.clickable(onClick = onArtist) else Modifier
+			)
+		}
+		Text(
+			stringResource(Res.string.title_missing_album),
+			color = LocalContentColor.current.copy(alpha = 0.7f),
+			style = MaterialTheme.typography.bodySmall,
+			fontFamily = defaultFont(grade = 100, round = 100f)
+		)
+	}
+}
+
+/**
+ * The album page's heading buttons (`CollectionDetailScreenHeadingRowButtons`): a glass capsule
+ * for the artist, kept as a button because a coloured name is only obvious once you have already
+ * guessed, and the filled one for the action this page exists for. The artist's is left out when
+ * nothing identifies the artist, rather than offered as a control that refuses.
+ */
+@Composable
+private fun ExternalAlbumButtons(onViewArtist: (() -> Unit)?, onFindSources: () -> Unit) {
+	Row(
+		modifier = Modifier.padding(horizontal = 31.dp, vertical = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		val glassColors = ButtonDefaults.outlinedButtonColors(
+			containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f)
+		)
+		onViewArtist?.let { open ->
+			OutlinedButton(
+				modifier = Modifier.height(44.dp),
+				onClick = open,
+				shape = ContinuousCapsule,
+				colors = glassColors
+			) {
+				Icon(Icons.Outlined.Artist, null, modifier = Modifier.size(22.dp).padding(end = 4.dp))
+				Text(
+					stringResource(Res.string.action_view_artist),
+					maxLines = 1,
+					fontFamily = defaultFont(round = 100f)
+				)
+			}
+		}
+		Button(
+			modifier = Modifier.weight(1f).height(44.dp),
+			onClick = onFindSources,
+			shape = ContinuousCapsule
+		) {
+			Icon(Icons.Outlined.Download, null, modifier = Modifier.size(22.dp).padding(end = 4.dp))
+			Text(
+				stringResource(Res.string.action_find_sources),
+				maxLines = 1,
+				autoSize = TextAutoSize.StepBased(minFontSize = 1.sp, maxFontSize = 15.sp),
+				fontWeight = FontWeight.SemiBold,
+				fontFamily = defaultFont(round = 100f)
+			)
+		}
+	}
+}
+
+/**
+ * One track of the canonical tracklist, as the album page's segmented row: its number, its
+ * title, and a 30-second preview where the sidecar is there. "Not found" stays on the row that
+ * asked, because an empty resolve is an answer about that track, not a failure of the page.
+ */
+@Composable
+private fun ExternalTrackRow(
+	track: LbTrack,
+	shapes: ListItemShapes,
+	previewsAvailable: Boolean,
+	busy: Boolean,
+	anyBusy: Boolean,
+	missing: Boolean,
+	onPreview: () -> Unit
+) {
+	SegmentedListItem(
+		modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
+		contentPadding = SongRowDefaults.ContentPadding,
+		onClick = onPreview,
+		enabled = previewsAvailable && !anyBusy,
+		shapes = shapes,
+		colors = ListItemDefaults.segmentedColors(
+			containerColor = SongRowDefaults.containerColor(false),
+			contentColor = SongRowDefaults.contentColor(false),
+			disabledContainerColor = SongRowDefaults.containerColor(false),
+			disabledContentColor = SongRowDefaults.contentColor(false),
+			disabledLeadingContentColor = SongRowDefaults.supportingContentColor(false),
+			disabledSupportingContentColor = SongRowDefaults.supportingContentColor(false),
+			disabledTrailingContentColor = SongRowDefaults.supportingContentColor(false)
+		),
+		verticalAlignment = Alignment.CenterVertically,
+		leadingContent = {
+			Text(
+				text = track.position.toString(),
+				modifier = Modifier.width(25.dp),
+				style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+				color = SongRowDefaults.supportingContentColor(false),
+				maxLines = 1,
+				textAlign = TextAlign.Center,
+				autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
+			)
+		},
+		content = {
+			Column {
+				Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				if (missing) {
+					Text(stringResource(Res.string.preview_none_found), style = MaterialTheme.typography.bodySmall)
+				}
+			}
+		},
+		// Offered only when the sidecar is actually there. Absent previews render nothing at
+		// all, the same rule the rest of the lb-bot layer follows.
+		trailingContent = if (previewsAvailable) {
+			{
+				if (busy) {
+					CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+				} else {
+					Icon(
+						Icons.Filled.Play,
+						contentDescription = stringResource(Res.string.action_preview_track),
+						modifier = Modifier.size(20.dp)
+					)
+				}
+			}
+		} else null
+	)
 }

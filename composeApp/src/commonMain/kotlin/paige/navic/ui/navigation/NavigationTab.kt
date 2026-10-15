@@ -27,6 +27,8 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
+import paige.navic.icons.outlined.Equalizer
+import paige.navic.icons.outlined.Sparkle
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Album
 import paige.navic.icons.filled.Artist
@@ -105,17 +107,19 @@ enum class NavigationTab(
 	),
 	FRESH(
 		destination = Screen.Fresh(),
-		iconFilled = Icons.Filled.Album,
-		iconOutlined = Icons.Outlined.Album,
+		// New releases, not the Albums tab's record: a tab bar holding both read as two
+		// Albums tabs (I-039).
+		iconFilled = Icons.Outlined.Sparkle,
+		iconOutlined = Icons.Outlined.Sparkle,
 		label = Res.string.title_fresh
 	),
 	MIXES(
 		destination = Screen.MixList(),
-		// The autoplay/queue glyph, not a radio dial: "station" and "radio" are both
-		// already taken in this app's vocabulary (see Mix's own docs), and reusing
-		// the Radio icon would undo the naming care the model went to.
-		iconFilled = Icons.Outlined.PlaylistPlay,
-		iconOutlined = Icons.Outlined.PlaylistPlay,
+		// Not a radio dial: "station" and "radio" are both already taken in this app's
+		// vocabulary (see Mix's own docs). Nor the Playlists tab's glyph, which it used to
+		// share (I-039): levels, for a blend that is generated.
+		iconFilled = Icons.Outlined.Equalizer,
+		iconOutlined = Icons.Outlined.Equalizer,
 		label = Res.string.title_discover_mixes
 	),
 	DISCOVER(

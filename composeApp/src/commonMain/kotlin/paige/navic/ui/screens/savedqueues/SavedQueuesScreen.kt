@@ -1,26 +1,44 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package paige.navic.ui.screens.savedqueues
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.OutlinedTextField
+import navic.composeapp.generated.resources.action_more
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.ui.components.common.PageChips
+import paige.navic.ui.components.common.SegmentedListButton
+import paige.navic.ui.components.common.SegmentedListButtonDefaults
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.components.layouts.TopBarButton
+import paige.navic.ui.screens.savedqueues.components.SavedQueueSheet
+import paige.navic.ui.util.withoutTop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +46,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,13 +63,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_clear_queue_history
 import navic.composeapp.generated.resources.action_delete_other_queues
-import navic.composeapp.generated.resources.action_delete_queue
 import navic.composeapp.generated.resources.action_ok
-import navic.composeapp.generated.resources.action_preview_queue
-import navic.composeapp.generated.resources.action_rename
-import navic.composeapp.generated.resources.action_restore_queue
-import navic.composeapp.generated.resources.action_resume_queue
-import navic.composeapp.generated.resources.action_save_as_playlist
 import navic.composeapp.generated.resources.filter_all
 import navic.composeapp.generated.resources.info_no_saved_queues
 import navic.composeapp.generated.resources.info_no_saved_queues_hint
@@ -75,7 +86,6 @@ import paige.navic.di.LocalNavStack
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Badge
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.MoreVert
 import paige.navic.icons.outlined.Queue
@@ -89,11 +99,6 @@ import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueueMessage
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
 import kotlinx.coroutines.isActive
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormRow
-import paige.navic.ui.components.common.FormButton
-import paige.navic.ui.components.common.Dropdown
-import paige.navic.ui.components.common.DropdownItem
 
 /**
  * The Symfonium-style "select media queue" list: every queue Navic has auto-captured (rolling cache
@@ -158,10 +163,72 @@ fun SavedQueuesScreen() {
 		filtered.sortedByDescending { it.id == activeId }
 	}
 
+	var sheetTarget by remember { mutableStateOf<SavedQueueEntity?>(null) }
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
+
 	Scaffold(
-		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_saved_queues)) }) },
+		topBar = {
+			Column {
+				NestedTopBar(
+					title = { Text(stringResource(Res.string.title_saved_queues)) },
+					// The two bulk deletes live behind the bar's overflow, as upstream keeps a
+					// page's rarer actions: two slabs under the list read as an alarm.
+					actions = {
+						if (rows.isNotEmpty()) {
+							var menuOpen by remember { mutableStateOf(false) }
+							Box {
+								TopBarButton(onClick = { menuOpen = true }) {
+									Icon(
+										Icons.Outlined.MoreVert,
+										contentDescription = stringResource(Res.string.action_more)
+									)
+								}
+								DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+									if (activeId != null && rows.size > 1) {
+										DropdownMenuItem(
+											text = { Text(stringResource(Res.string.action_delete_other_queues)) },
+											onClick = {
+												menuOpen = false
+												deleteOthersOpen = true
+											}
+										)
+									}
+									DropdownMenuItem(
+										text = { Text(stringResource(Res.string.action_clear_queue_history)) },
+										onClick = {
+											menuOpen = false
+											clearAllOpen = true
+										}
+									)
+								}
+							}
+						}
+					}
+				)
+				// Only worth a filter row when there's more than one kind to choose between.
+				if (presentKinds.size > 1) {
+					PageChips(
+						options = listOf<String?>(null) + presentKinds,
+						selected = kindFilter,
+						label = { kind ->
+							if (kind == null) stringResource(Res.string.filter_all) else queueKindLabel(kind)
+						},
+						onSelect = { kindFilter = it },
+						contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
+					)
+				}
+			}
+		},
 		snackbarHost = { SnackbarHost(snackbarHostState) },
-		contentWindowInsets = WindowInsets.statusBars
+		bottomBar = {
+			val scrollManager = LocalBottomBarScrollManager.current
+			val preferVisible =
+				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!platformContext.isLandscape() && preferVisible) {
+				RootBottomBar(scrolled = scrollManager.isTriggered)
+			}
+		}
 	) { innerPadding ->
 		when {
 			// Room hasn't emitted yet. Without this the empty state flashed on every entry.
@@ -170,7 +237,7 @@ fun SavedQueuesScreen() {
 					.padding(innerPadding)
 					.fillMaxSize(),
 				contentAlignment = Alignment.Center
-			) { CircularProgressIndicator() }
+			) { ContainedLoadingIndicator() }
 
 			rows.isEmpty() -> ContentUnavailable(
 				modifier = Modifier
@@ -181,78 +248,49 @@ fun SavedQueuesScreen() {
 				description = stringResource(Res.string.info_no_saved_queues_hint)
 			)
 
-			else -> Column(
-				Modifier
-					.padding(innerPadding)
+			else -> LazyColumn(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
 					.fillMaxSize()
-					.verticalScroll(rememberScrollState())
-					.padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp)
+					.padding(horizontal = 16.dp),
+				contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 24.dp),
+				verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 			) {
-				// Only worth a filter row when there's more than one kind to choose between.
-				if (presentKinds.size > 1) {
-					Row(
-						Modifier
-							.fillMaxWidth()
-							.horizontalScroll(rememberScrollState())
-							.padding(bottom = 8.dp),
-						horizontalArrangement = Arrangement.spacedBy(8.dp)
-					) {
-						FilterChip(
-							selected = kindFilter == null,
-							onClick = { kindFilter = null },
-							label = { Text(stringResource(Res.string.filter_all)) }
-						)
-						presentKinds.forEach { kind ->
-							FilterChip(
-								selected = kindFilter == kind,
-								onClick = { kindFilter = kind },
-								label = { Text(queueKindLabel(kind)) }
-							)
-						}
-					}
-				}
-
-				Form {
-					visibleQueues.forEach { queue ->
-						SavedQueueRow(
-							queue = queue,
-							isActive = queue.id == activeId,
-							onClick = dropUnlessResumed {
-								actions.restore(queue)
-								backStack.remove(Screen.SavedQueues)
-							},
-							onResume = dropUnlessResumed {
-								actions.resume(queue)
-								backStack.remove(Screen.SavedQueues)
-							},
-							onPreview = { previewTarget = queue },
-							onSaveAsPlaylist = { saveTarget = queue },
-							onRename = { renameTarget = queue },
-							onDelete = { actions.delete(queue) }
-						)
-					}
-				}
-
-				// Both are destructive, but two full-width red slabs stacked at the bottom of the list
-				// read as an alarm. Only the narrower-scoped action carries the error tint; "Clear
-				// all" stays neutral until its confirm dialog, which is where the warning belongs.
-				Spacer(Modifier.height(8.dp))
-				if (activeId != null && rows.size > 1) {
-					FormButton(
-						onClick = { deleteOthersOpen = true },
-						color = MaterialTheme.colorScheme.errorContainer
-					) {
-						Text(stringResource(Res.string.action_delete_other_queues))
-					}
-				}
-				FormButton(onClick = { clearAllOpen = true }) {
-					Text(
-						stringResource(Res.string.action_clear_queue_history),
-						color = MaterialTheme.colorScheme.error
+				itemsIndexed(visibleQueues, key = { _, queue -> queue.id }) { index, queue ->
+					SavedQueueRow(
+						queue = queue,
+						shapes = segmentedShapes(index = index, count = visibleQueues.size),
+						isActive = queue.id == activeId,
+						onClick = dropUnlessResumed {
+							actions.restore(queue)
+							backStack.remove(Screen.SavedQueues)
+						},
+						onMenu = { sheetTarget = queue },
+						modifier = Modifier.animateItem()
 					)
 				}
 			}
 		}
+	}
+
+	sheetTarget?.let { target ->
+		SavedQueueSheet(
+			queue = target,
+			subtitle = savedQueueSubtitle(target, target.id == activeId),
+			onDismissRequest = { sheetTarget = null },
+			onRestore = {
+				actions.restore(target)
+				backStack.remove(Screen.SavedQueues)
+			},
+			onResume = {
+				actions.resume(target)
+				backStack.remove(Screen.SavedQueues)
+			},
+			onPreview = { previewTarget = target },
+			onSaveAsPlaylist = { saveTarget = target },
+			onRename = { renameTarget = target },
+			onDelete = { actions.delete(target) }
+		)
 	}
 
 	renameTarget?.let { target ->
@@ -320,122 +358,73 @@ fun SavedQueuesScreen() {
 	}
 }
 
+/**
+ * One saved queue, as a segmented library row: the art of the track it resumes on (matching the
+ * title, never a generic glyph nor a peer's cover URL, which points at ITS server with ITS auth),
+ * its name, its kind and size, and where it came from when the title is not already saying it.
+ * The live queue is marked as the queue marks its playing track, and says so in words.
+ */
 @Composable
 private fun SavedQueueRow(
 	queue: SavedQueueEntity,
+	shapes: ListItemShapes,
 	isActive: Boolean,
 	onClick: () -> Unit,
-	onResume: () -> Unit,
-	onPreview: () -> Unit,
-	onSaveAsPlaylist: () -> Unit,
-	onRename: () -> Unit,
-	onDelete: () -> Unit
+	onMenu: () -> Unit,
+	modifier: Modifier = Modifier
 ) {
-	val displayName = savedQueueTitle(queue)
+	val preferenceManager = koinInject<PreferenceManager>()
 	val sourceLine = savedQueueSourceLine(queue)
-
-	FormRow(
+	SegmentedListItem(
+		selected = isActive,
 		onClick = onClick,
-		color = if (isActive) MaterialTheme.colorScheme.surfaceContainerHighest else null
-	) {
-		// Art of the track this queue will resume on, matching the title — not a generic glyph, and
-		// not a peer's cover URL (which points at ITS server with ITS auth).
-		CoverArt(
-			coverArtId = savedQueueCoverArtId(queue),
-			contentDescription = null,
-			modifier = Modifier.size(48.dp),
-			shape = RoundedCornerShape(6.dp)
-		)
-		Spacer(Modifier.width(14.dp))
-		Column(Modifier.weight(1f)) {
+		onLongClick = onMenu,
+		shapes = shapes,
+		modifier = modifier,
+		colors = ListItemDefaults.colors(
+			containerColor = SongRowDefaults.containerColor(false),
+			supportingContentColor = SongRowDefaults.supportingContentColor(false),
+			selectedContainerColor = SongRowDefaults.containerColor(true),
+			selectedContentColor = SongRowDefaults.contentColor(true),
+			selectedSupportingContentColor = SongRowDefaults.supportingContentColor(true)
+		),
+		verticalAlignment = Alignment.CenterVertically,
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			CoverArt(
+				coverArtId = savedQueueCoverArtId(queue),
+				contentDescription = null,
+				modifier = Modifier.size(50.dp),
+				shape = preferenceManager.coverArtShape.decreasedShape
+			)
+		},
+		content = {
 			Text(
-				displayName,
+				savedQueueTitle(queue),
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
-				fontWeight = if (isActive) FontWeight.SemiBold else null,
-				color = if (isActive) MaterialTheme.colorScheme.primary
-				else MaterialTheme.colorScheme.onSurface
+				fontWeight = if (isActive) FontWeight.SemiBold else null
 			)
-			// Names the source kind so generated sessions read differently from ordinary queues even
-			// inside the "All" filter, and says outright which row is live — colour alone was easy to
-			// miss, and Feishin labels it.
-			Text(
-				savedQueueSubtitle(queue, isActive),
-				style = MaterialTheme.typography.bodyMedium,
-				color = if (isActive) MaterialTheme.colorScheme.primary
-				else MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			// Where it came from, only when the title isn't already saying it.
-			sourceLine?.let { line ->
-				Text(
-					line,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
+		},
+		supportingContent = {
+			Column {
+				Text(savedQueueSubtitle(queue, isActive), maxLines = 1, overflow = TextOverflow.Ellipsis)
+				sourceLine?.let { line ->
+					Text(
+						line,
+						style = MaterialTheme.typography.bodySmall,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
+		},
+		trailingContent = {
+			IconButton(onClick = onMenu) {
+				Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(Res.string.action_more))
 			}
 		}
-
-		var menuOpen by remember { mutableStateOf(false) }
-		Box {
-			IconButton(onClick = { menuOpen = true }) {
-				Icon(Icons.Outlined.MoreVert, contentDescription = null)
-			}
-			Dropdown(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_restore_queue)) },
-					onClick = {
-						menuOpen = false
-						onClick()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Queue, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_resume_queue)) },
-					onClick = {
-						menuOpen = false
-						onResume()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Queue, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_preview_queue)) },
-					onClick = {
-						menuOpen = false
-						onPreview()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Queue, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_save_as_playlist)) },
-					onClick = {
-						menuOpen = false
-						onSaveAsPlaylist()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Badge, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_rename)) },
-					onClick = {
-						menuOpen = false
-						onRename()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Badge, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_delete_queue)) },
-					onClick = {
-						menuOpen = false
-						onDelete()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Delete, null) }
-				)
-			}
-		}
-	}
+	)
 }
 
 @Composable
@@ -451,12 +440,17 @@ private fun ConfirmDialog(
 		icon = { Icon(Icons.Outlined.Delete, null) },
 		title = { Text(title) },
 		buttons = {
-			FormButton(onClick = onConfirm, color = MaterialTheme.colorScheme.error) {
-				Text(confirmLabel)
-			}
-			FormButton(onClick = onDismissRequest) {
-				Text(stringResource(Res.string.action_cancel))
-			}
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onConfirm,
+				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+				colors = SegmentedListButtonDefaults.errorColors()
+			) { Text(confirmLabel) }
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onDismissRequest,
+				shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+			) { Text(stringResource(Res.string.action_cancel)) }
 		},
 		content = { Text(message) }
 	)
@@ -476,18 +470,21 @@ private fun QueueNameDialog(
 		onDismissRequest = onDismissRequest,
 		title = { Text(title) },
 		buttons = {
-			FormButton(
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
 				onClick = { onConfirm(nameState.text.toString()) },
-				color = MaterialTheme.colorScheme.primary
-			) {
-				Text(stringResource(Res.string.action_ok))
-			}
-			FormButton(onClick = onDismissRequest) {
-				Text(stringResource(Res.string.action_cancel))
-			}
+				enabled = nameState.text.isNotBlank(),
+				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+				colors = SegmentedListButtonDefaults.primaryColors()
+			) { Text(stringResource(Res.string.action_ok)) }
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onDismissRequest,
+				shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+			) { Text(stringResource(Res.string.action_cancel)) }
 		},
 		content = {
-			TextField(
+			OutlinedTextField(
 				state = nameState,
 				label = { Text(label) },
 				lineLimits = TextFieldLineLimits.SingleLine

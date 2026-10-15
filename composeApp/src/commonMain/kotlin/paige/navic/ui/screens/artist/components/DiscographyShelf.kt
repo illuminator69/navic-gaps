@@ -1,18 +1,17 @@
 package paige.navic.ui.screens.artist.components
 
+import paige.navic.domain.manager.LbFillEntry
+import paige.navic.ui.components.layouts.ArtCarouselItem
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,12 +19,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.time.Clock
 import kotlinx.collections.immutable.toImmutableList
@@ -56,7 +52,6 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.components.common.AcquireButton
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.screens.artist.viewmodels.DiscographyEntry
@@ -109,11 +104,17 @@ fun DiscographyShelf(
 		return
 	}
 
+	// The fills lb-bot is running, read once for the whole shelf rather than once per tile.
+	val lbBot = koinInject<LbBotManager>()
+	val ledger by lbBot.ledger.collectAsState()
 	ui.sections.forEach { section ->
 		ArtCarousel(sectionTitle(section.type), section.entries.toImmutableList()) { entry ->
+			val rgid = entry.release?.rgid.orEmpty()
 			DiscographyTile(
 				entry = entry,
 				artistName = artistName,
+				running = if (rgid.isBlank()) null
+				else ledger.firstOrNull { it.key == rgid && it.isRunning },
 				onClick = { onOpenEntry(entry) },
 				onLongClick = { onSelectEntry(entry) }
 			)
@@ -251,104 +252,88 @@ private fun sectionTitle(type: String): String = when (type) {
 	else -> type.replaceFirstChar { it.uppercase() }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * One release, as upstream's carousel card (`ArtCarouselItem`) in the user's cover shape. Owned,
+ * just landed, or absent, which is faded and carries the one-tap acquire (or the progress of the
+ * fill already running) over its artwork; a partly-owned album carries how many tracks it lacks.
+ */
 @Composable
 private fun DiscographyTile(
 	entry: DiscographyEntry,
 	artistName: String,
+	running: LbFillEntry?,
 	onClick: () -> Unit,
 	onLongClick: () -> Unit
 ) {
 	val present = entry.presentTracks
 	val total = entry.totalTracks
+	// Only a genuinely absent release is faded. An owned one and a just-landed one both read as
+	// "yours".
+	val absent = !entry.owned && !entry.pendingSync
+	val rgid = entry.release?.rgid.orEmpty()
 
-	Column(Modifier.width(150.dp)) {
-		Box(Modifier.fillMaxWidth()) {
-			val artModifier = Modifier
-				.fillMaxWidth()
-				.clip(MaterialTheme.shapes.large)
-			if (entry.owned) {
-				CoverArt(
-					coverArtId = entry.album?.coverArtId,
-					contentDescription = null,
-					modifier = artModifier,
-					shape = RectangleShape,
-					onClick = onClick,
-					onLongClick = onLongClick
-				)
-			} else if (entry.pendingSync) {
-				// In the library but not in Room yet — a fill that just landed. Shown
-				// at full strength: it is not missing, and fading it would say the
-				// opposite of what just happened.
-				// The click handlers are not optional here. RemoteCoverArt defaults
-				// both to null, so this branch — alone of the three — rendered a
-				// tile nothing could tap, which made `openPendingSync` unreachable
-				// on OWNED artist pages too, not just external ones.
-				RemoteCoverArt(
-					url = LbBotManager.caaCoverUrl(entry.release?.rgid.orEmpty()),
-					contentDescription = null,
-					modifier = artModifier,
-					shape = RectangleShape,
-					onClick = onClick,
-					onLongClick = onLongClick
-				)
-			} else {
-				// Cover Art Archive, fetched with NO Navidrome headers attached —
-				// see RemoteCoverArt for why that distinction is not cosmetic.
-				RemoteCoverArt(
-					url = LbBotManager.caaCoverUrl(entry.release?.rgid.orEmpty()),
-					contentDescription = null,
-					modifier = artModifier.alpha(ABSENT_ALPHA),
-					shape = RectangleShape,
-					onClick = onClick
-				)
-				// One tap to fetch a genuinely absent record. Only on this branch:
-				// an owned tile opens the album and a pendingSync tile is a fill
-				// that already landed, and offering to fetch either is the trap
-				// this shelf's three branches exist to keep apart.
-				//
-				// A gap row is deliberately excluded too: an album the library
-				// holds 9 of 12 tracks of goes through the Fill-gaps workspace,
-				// which is a different pipeline from acquiring a release outright.
-				val rgid = entry.release?.rgid.orEmpty()
-				if (rgid.isNotBlank() && entry.gapGroupId == null) {
-					// A fill already running shows its progress here instead of a
-					// button offering to start another one — the tile used to keep
-					// the acquire control up through the whole download.
-					val lbBot = koinInject<LbBotManager>()
-					val ledger by lbBot.ledger.collectAsState()
-					val running = ledger.firstOrNull { it.key == rgid && it.isRunning }
-					if (running != null) {
-						Box(
-							Modifier
-								.align(Alignment.TopEnd)
-								.padding(6.dp)
-								.size(28.dp)
-								.background(
-									MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-									RoundedCornerShape(50)
-								),
-							contentAlignment = Alignment.Center
-						) {
-							if (running.total > 0 || running.bytesTotal > 0L) {
-								CircularProgressIndicator(
-									progress = { running.percent / 100f },
-									modifier = Modifier.size(20.dp),
-									strokeWidth = 2.dp
-								)
-							} else {
-								CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-							}
+	ArtCarouselItem(
+		coverArtId = entry.album?.coverArtId,
+		title = entry.title,
+		subtitle = when {
+			entry.pendingSync -> stringResource(Res.string.info_pending_sync)
+			entry.owned -> entry.year
+			else -> stringResource(Res.string.info_not_in_library)
+		},
+		contentDescription = entry.title,
+		onSelect = if (absent) ({}) else onLongClick,
+		cover = if (entry.owned) null else { source ->
+			// In the library but not in Room yet (a fill that just landed) is shown at full
+			// strength: it is not missing. Both come from the Cover Art Archive, fetched with NO
+			// Navidrome headers attached (see RemoteCoverArt for why that is not cosmetic).
+			RemoteCoverArt(
+				url = LbBotManager.caaCoverUrl(rgid),
+				contentDescription = null,
+				modifier = Modifier
+					.fillMaxWidth()
+					.then(if (absent) Modifier.alpha(ABSENT_ALPHA) else Modifier),
+				interactionSource = source
+			)
+		},
+		coverOverlay = {
+			// One tap to fetch a genuinely absent record. Only there: an owned tile opens the
+			// album and a just-landed one is a fill that already landed, and offering to fetch
+			// either is the trap this shelf's three cases exist to keep apart. A gap row is
+			// excluded too: an album the library holds 9 of 12 tracks of goes through the
+			// Fill-gaps workspace, a different pipeline from acquiring a release outright.
+			if (absent && rgid.isNotBlank() && entry.gapGroupId == null) {
+				if (running != null) {
+					// A fill already running shows its progress instead of a button
+					// offering to start another one.
+					Box(
+						Modifier
+							.align(Alignment.TopEnd)
+							.padding(6.dp)
+							.size(28.dp)
+							.background(
+								MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+								RoundedCornerShape(50)
+							),
+						contentAlignment = Alignment.Center
+					) {
+						if (running.total > 0 || running.bytesTotal > 0L) {
+							CircularProgressIndicator(
+								progress = { running.percent / 100f },
+								modifier = Modifier.size(20.dp),
+								strokeWidth = 2.dp
+							)
+						} else {
+							CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
 						}
-					} else {
-						AcquireButton(
-							rgid = rgid,
-							artist = artistName,
-							album = entry.release?.title.orEmpty(),
-							onReview = onClick,
-							modifier = Modifier.align(Alignment.TopEnd)
-						)
 					}
+				} else {
+					AcquireButton(
+						rgid = rgid,
+						artist = artistName,
+						album = entry.release?.title.orEmpty(),
+						onReview = onClick,
+						modifier = Modifier.align(Alignment.TopEnd)
+					)
 				}
 			}
 			if (entry.gapGroupId != null && present != null && total != null && total > 0) {
@@ -369,38 +354,9 @@ private fun DiscographyTile(
 						.padding(horizontal = 8.dp, vertical = 2.dp)
 				)
 			}
-		}
-
-		// Only a genuinely absent release is faded. An owned one and a just-landed
-		// one both read as "yours".
-		val dimmed = !entry.owned && !entry.pendingSync
-
-		Text(
-			text = entry.title,
-			style = MaterialTheme.typography.bodyMedium,
-			fontWeight = FontWeight.Medium,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier
-				.padding(top = 8.dp, start = 4.dp, end = 4.dp)
-				.alpha(if (dimmed) ABSENT_ALPHA else 1f)
-		)
-		Text(
-			text = when {
-				entry.pendingSync -> stringResource(Res.string.info_pending_sync)
-				entry.owned -> entry.year
-				else -> stringResource(Res.string.info_not_in_library)
-			},
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(start = 4.dp, end = 4.dp)
-				.alpha(if (dimmed) ABSENT_ALPHA else 1f)
-		)
-	}
+		},
+		onClick = onClick
+	)
 }
 
 private const val ABSENT_ALPHA = 0.45f

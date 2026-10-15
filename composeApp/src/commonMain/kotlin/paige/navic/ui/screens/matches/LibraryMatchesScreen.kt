@@ -1,23 +1,42 @@
 package paige.navic.ui.screens.matches
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import navic.composeapp.generated.resources.title_navi_connect
+import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.icons.Icons
+import paige.navic.icons.brand.Musicbrainz
+import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.GroupHeader
+import paige.navic.ui.components.common.PageChips
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.layouts.PullToRefreshBox
+import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.util.withoutTop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -139,56 +158,101 @@ fun LibraryMatchesScreen() {
 		if (heldInLibrary(id, artistArt)) ({ backStack.add(Screen.ArtistDetail(id)) }) else null
 	}
 
-	Scaffold(
-		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_library_matches)) }) },
-		contentWindowInsets = WindowInsets.statusBars
-	) { innerPadding ->
-		LazyColumn(
-			modifier = Modifier.fillMaxSize().padding(top = innerPadding.calculateTopPadding()),
-			contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp)
-		) {
-			if (layerLine != null) {
-				item(key = "layer") { Muted(layerLine) }
-				return@LazyColumn
-			}
+	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
+	val scope = rememberCoroutineScope()
+	var pulling by remember { mutableStateOf(false) }
 
-			item(key = "sections") {
-				Row(
-					Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp)
-				) {
-					offered.forEach { entry ->
-						val count = when (entry) {
-							MatchesSection.TO_CHECK -> matches.rows.size.takeIf { matchesKnown }
-							MatchesSection.ARTISTS -> overrides.rows.size.takeIf { overridesKnown }
-							// A shown list is a loaded one (`overrideListShown`).
-							MatchesSection.ALBUMS -> albumRows.rows.size
-							MatchesSection.MERGES -> mergeRows.rows.size
-						}
-						FilterChip(
-							selected = entry == section,
-							onClick = { chosen = entry },
-							label = { Text(matchesSectionLabel(entry, count)) }
-						)
-					}
+	Scaffold(
+		topBar = {
+			Column {
+				NestedTopBar({ Text(stringResource(Res.string.title_library_matches)) })
+				// The four sections are the page's own, so they sit under its title as upstream's
+				// search categories do.
+				if (layerLine == null && offered.size > 1) {
+					PageChips(
+						options = offered,
+						selected = section,
+						label = { entry ->
+							val count = when (entry) {
+								MatchesSection.TO_CHECK -> matches.rows.size.takeIf { matchesKnown }
+								MatchesSection.ARTISTS -> overrides.rows.size.takeIf { overridesKnown }
+								// A shown list is a loaded one (`overrideListShown`).
+								MatchesSection.ALBUMS -> albumRows.rows.size
+								MatchesSection.MERGES -> mergeRows.rows.size
+							}
+							matchesSectionLabel(entry, count)
+						},
+						onSelect = { chosen = it },
+						contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
+					)
 				}
 			}
+		},
+		bottomBar = {
+			val scrollManager = LocalBottomBarScrollManager.current
+			val preferVisible =
+				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!platformContext.isLandscape() && preferVisible) {
+				RootBottomBar(scrolled = scrollManager.isTriggered)
+			}
+		}
+	) { innerPadding ->
+		// No hub, or one without lb-bot: this whole layer is off, and the page says which, with
+		// the way to the settings that set it up, rather than showing empty lists.
+		if (layerLine != null) {
+			Column(
+				modifier = Modifier
+					.fillMaxSize()
+					.padding(innerPadding)
+					.padding(horizontal = 32.dp),
+				verticalArrangement = Arrangement.Center,
+				horizontalAlignment = Alignment.CenterHorizontally
+			) {
+				ContentUnavailable(
+					modifier = Modifier.fillMaxWidth(),
+					icon = Icons.Brand.Musicbrainz,
+					label = layerLine
+				)
+				Button(
+					onClick = { backStack.add(Screen.Settings.NaviConnect) },
+					modifier = Modifier.padding(top = 16.dp)
+				) { Text(stringResource(Res.string.title_navi_connect)) }
+			}
+			return@Scaffold
+		}
 
+		PullToRefreshBox(
+			isRefreshing = pulling,
+			onRefresh = {
+				scope.launch {
+					pulling = true
+					viewModel.read().join()
+					pulling = false
+				}
+			},
+			modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
+		) {
+		LazyColumn(
+			modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+			contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 24.dp)
+		) {
 			when (section) {
 				MatchesSection.TO_CHECK -> {
 					item(key = "c:note") {
-						Column {
+						Column(Modifier.padding(bottom = 8.dp)) {
 							if (matchesKnown) Muted(MATCHES_TO_CHECK_BLURB)
 							matchesNote(matches.data, matches.rows.size)?.let { Muted(it) }
 						}
 					}
-					if (matchesKnown) items(matches.rows, key = { "c:${it.ndArtistId}" }) { row ->
+					if (matchesKnown) itemsIndexed(matches.rows, key = { _, it -> "c:${it.ndArtistId}" }) { index, row ->
 						MatchListRow(
 							art = libraryArtistArt(row.ndArtistId, artistArt),
+							shapes = segmentedShapes(index = index, count = matches.rows.size),
 							title = row.name.ifBlank { row.ndArtistId },
 							lines = listOf(matchDetail(row)),
 							onOpen = openArtist(row.ndArtistId),
-							below = {
+							actions = {
 								OutlinedButton(enabled = busyOverride == null, onClick = { viewModel.choose(row) }) {
 									Text("Choose…")
 								}
@@ -203,16 +267,21 @@ fun LibraryMatchesScreen() {
 				}
 
 				MatchesSection.ARTISTS -> {
-					item(key = "a:note") { overridesNote(overrides.data, overrides.rows.size)?.let { Muted(it) } }
-					if (overridesKnown) items(overrides.rows, key = { "a:${it.ndArtistId}" }) { row ->
+					item(key = "a:note") {
+						overridesNote(overrides.data, overrides.rows.size)?.let {
+							Box(Modifier.padding(bottom = 8.dp)) { Muted(it) }
+						}
+					}
+					if (overridesKnown) itemsIndexed(overrides.rows, key = { _, it -> "a:${it.ndArtistId}" }) { index, row ->
 						MatchListRow(
 							art = libraryArtistArt(row.ndArtistId, artistArt),
+							shapes = segmentedShapes(index = index, count = overrides.rows.size),
 							// An orphan (its Navidrome artist re-minted by a retag) is still listed,
 							// by the name lb-bot stored; with no name at all, by the id.
 							title = row.name.ifBlank { row.ndArtistId },
 							lines = listOf(row.mbid, overrideTagLine(row)),
 							onOpen = openArtist(row.ndArtistId),
-							trailing = {
+							actions = {
 								OutlinedButton(
 									enabled = busyOverride == null,
 									onClick = { viewModel.removeOverride(row.ndArtistId) }
@@ -223,16 +292,21 @@ fun LibraryMatchesScreen() {
 				}
 
 				MatchesSection.ALBUMS -> {
-					item(key = "l:note") { albumRowsNote(albumRows.data, albumRows.rows.size)?.let { Muted(it) } }
-					items(albumRows.rows, key = { "l:${it.id}" }) { row ->
+					item(key = "l:note") {
+						albumRowsNote(albumRows.data, albumRows.rows.size)?.let {
+							Box(Modifier.padding(bottom = 8.dp)) { Muted(it) }
+						}
+					}
+					itemsIndexed(albumRows.rows, key = { _, it -> "l:${it.id}" }) { index, row ->
 						val held = heldInLibrary(row.albumId, albumArt)
 						MatchListRow(
 							art = matchAlbumArt(row.albumId, row.coverUrl, albumArt),
+							shapes = segmentedShapes(index = index, count = albumRows.rows.size),
 							title = albumRowTitle(row),
 							// A state this build has never heard of is not put into words: no line.
 							lines = listOf(row.releaseMbid, albumRowDetail(row)) + albumRowProblems(row),
 							onOpen = if (held) ({ backStack.add(Screen.CollectionDetail(row.albumId, "library")) }) else null,
-							trailing = {
+							actions = {
 								OutlinedButton(
 									// At rest, nothing of this page's out, and no job the manager
 									// still follows for the row or its album — it would refuse it.
@@ -246,15 +320,20 @@ fun LibraryMatchesScreen() {
 				}
 
 				MatchesSection.MERGES -> {
-					item(key = "m:note") { mergeRowsNote(mergeRows.data, mergeRows.rows.size)?.let { Muted(it) } }
-					items(mergeRows.rows, key = { "m:${it.id}" }) { row ->
+					item(key = "m:note") {
+						mergeRowsNote(mergeRows.data, mergeRows.rows.size)?.let {
+							Box(Modifier.padding(bottom = 8.dp)) { Muted(it) }
+						}
+					}
+					itemsIndexed(mergeRows.rows, key = { _, it -> "m:${it.id}" }) { index, row ->
 						MatchListRow(
 							// The artist the names were merged INTO: the one that is still there.
 							art = libraryArtistArt(row.into.ndArtistId, artistArt),
+							shapes = segmentedShapes(index = index, count = mergeRows.rows.size),
 							title = mergeRowTitle(row),
 							lines = listOf(row.mbid, mergeRowDetail(row)) + mergeRowProblems(row),
 							onOpen = openArtist(row.into.ndArtistId),
-							trailing = {
+							actions = {
 								OutlinedButton(
 									enabled = busyUndo == null && mergeRowCanUndo(row) &&
 										mergeJobInWay(
@@ -272,7 +351,7 @@ fun LibraryMatchesScreen() {
 
 			// What the last Remove, Keep, Choose or Undo came to, in lb-bot's words where it refused.
 			item(key = "lines") {
-				Column {
+				Column(Modifier.padding(top = 8.dp)) {
 					if (overrideLine.isNotBlank()) Muted(overrideLine)
 					if (undoLine.isNotBlank()) Muted(undoLine)
 				}
@@ -280,9 +359,8 @@ fun LibraryMatchesScreen() {
 
 			// The index mirror, quietly, with its own Refresh: it reports only what the mirror did.
 			item(key = "mirror") {
-				Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-					HorizontalDivider()
-					Text("Index mirror", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+				Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+					GroupHeader(title = "Index mirror")
 					Muted(mirrorLine(viewModel.mirrorSupported, mirror))
 					if (viewModel.mirrorSupported) Muted(indexLine)
 					OutlinedButton(enabled = !refreshing, onClick = { viewModel.refresh() }) {
@@ -290,6 +368,7 @@ fun LibraryMatchesScreen() {
 					}
 				}
 			}
+		}
 		}
 	}
 
@@ -322,45 +401,59 @@ private fun Muted(text: String) {
 }
 
 /**
- * One row of any section: the picture, the name (a link when [onOpen] is set — an id is only a
- * link when its page exists), the muted lines under it, and the row's action — at the end of the
- * row ([trailing]), or under the text where there are two ([below]).
+ * One row of any section, as a segmented library row: the picture, the name, the muted lines under
+ * it, and the row's actions under those, so a row with two keeps its title. The whole row is the
+ * link when [onOpen] is set (an id is only a link when its page exists); a row with nowhere to go
+ * is drawn inert, in its usual colours.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MatchListRow(
 	art: LbArt,
+	shapes: ListItemShapes,
 	title: String,
 	lines: List<String>,
 	onOpen: (() -> Unit)?,
-	trailing: (@Composable () -> Unit)? = null,
-	below: (@Composable RowScope.() -> Unit)? = null
+	actions: @Composable () -> Unit
 ) {
-	Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			LbArtImage(art, Modifier.size(48.dp), contentDescription = title, onClick = onOpen)
-			Column(Modifier.weight(1f)) {
-				Text(
-					title,
-					style = MaterialTheme.typography.bodyLarge,
-					color = if (onOpen != null) MaterialTheme.colorScheme.primary
-					else MaterialTheme.colorScheme.onSurface,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-					modifier = if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier
-				)
-				lines.filter { it.isNotBlank() }.forEach { Muted(it) }
-			}
-			trailing?.invoke()
-		}
-		if (below != null) {
-			Row(
-				modifier = Modifier.padding(start = 60.dp, top = 4.dp),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				content = below
+	val preferenceManager = koinInject<PreferenceManager>()
+	val container = SongRowDefaults.containerColor(false)
+	val supporting = SongRowDefaults.supportingContentColor(false)
+	SegmentedListItem(
+		onClick = onOpen ?: {},
+		enabled = onOpen != null,
+		shapes = shapes,
+		modifier = Modifier.padding(bottom = SegmentedListItemDefaults.SegmentedGap),
+		colors = ListItemDefaults.colors(
+			containerColor = container,
+			supportingContentColor = supporting,
+			disabledContainerColor = container,
+			disabledContentColor = MaterialTheme.colorScheme.onSurface,
+			disabledLeadingContentColor = MaterialTheme.colorScheme.onSurface,
+			disabledSupportingContentColor = supporting
+		),
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			LbArtImage(
+				art,
+				Modifier.size(50.dp),
+				contentDescription = title,
+				shape = if (art is LbArt.Library && art.isArtist) {
+					preferenceManager.artistImageShape.decreasedShape
+				} else preferenceManager.coverArtShape.decreasedShape
 			)
+		},
+		content = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		supportingContent = {
+			Column {
+				lines.filter { it.isNotBlank() }.forEach {
+					Text(it, style = MaterialTheme.typography.bodySmall)
+				}
+				FlowRow(
+					modifier = Modifier.padding(top = 6.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp)
+				) { actions() }
+			}
 		}
-	}
+	)
 }
