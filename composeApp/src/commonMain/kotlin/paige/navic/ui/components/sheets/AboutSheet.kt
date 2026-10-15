@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import paige.navic.domain.manager.LbMeta
@@ -64,18 +63,16 @@ fun AboutSheet(
 		sheetTitle = title,
 		ambient = rememberCoverAmbient(coverArtId)
 	) {
+		// A fixed header above the text (B-121): a long article makes this sheet taller than the
+		// screen, and with the title inside the scroll there was nowhere to take hold of it.
+		SheetHeader(title)
 		Column(
 			modifier = Modifier
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = 20.dp)
-				.padding(bottom = 32.dp),
+				.padding(top = 12.dp, bottom = 32.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
-			Text(
-				title,
-				style = MaterialTheme.typography.titleLarge,
-				fontWeight = FontWeight.Bold
-			)
 			// Wikidata's one-liner is often present when there is no article at
 			// all, which is exactly when it earns its place. It lives HERE rather
 			// than in the header: in the header it replaced a 220-character

@@ -29,7 +29,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.currentCoroutineContext
@@ -150,23 +149,18 @@ fun MbidMatchSheet(
 		sheetTitle = title,
 		ambient = rememberCoverAmbient(coverArtId)
 	) {
+		// A fixed header above the body (B-121): the results can make this sheet taller than the
+		// screen, and with the title inside the scroll there was nowhere to take hold of it.
+		SheetHeader(title, artistName)
 		// ONE scrolling column, as GapFillSheet learned (B-043): a capped inner list inside a
 		// column that does not scroll leaves everything under it unreachable on a short screen.
 		Column(
 			modifier = Modifier
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = 20.dp)
-				.padding(bottom = 32.dp),
+				.padding(top = 12.dp, bottom = 32.dp),
 			verticalArrangement = Arrangement.spacedBy(8.dp)
 		) {
-			Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-			Text(
-				artistName,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
 			// Where the id in force came from: nothing, Navidrome's tag, or the user's own pick
 			// (which may differ from the tag, equal it, or stand in for a tag that is missing).
 			SheetCaption(

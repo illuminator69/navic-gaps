@@ -500,6 +500,15 @@ fun AlbumMatchSheet(
 		sheetTitle = title,
 		ambient = rememberCoverAmbient(coverArtId)
 	) {
+		// The header stays put above the body (B-121): this sheet is always taller than the
+		// screen, and with the title inside the scroll there was nowhere to take hold of it.
+		SheetHeader(
+			title,
+			listOf(
+				state?.album.orEmpty().ifBlank { albumTitle },
+				state?.artist.orEmpty().ifBlank { artistName }
+			).filter { it.isNotBlank() }.joinToString(" • ")
+		)
 		// ONE scrolling column, as GapFillSheet learned (B-043): the edition list, the table and
 		// the cover grid are tens of rows at most, and an inner list capped inside a column that
 		// does not scroll leaves everything under it out of reach on a short screen.
@@ -507,20 +516,9 @@ fun AlbumMatchSheet(
 			modifier = Modifier
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = 20.dp)
-				.padding(bottom = 32.dp),
+				.padding(top = 12.dp, bottom = 32.dp),
 			verticalArrangement = Arrangement.spacedBy(8.dp)
 		) {
-			Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-			Text(
-				listOf(
-					state?.album.orEmpty().ifBlank { albumTitle },
-					state?.artist.orEmpty().ifBlank { artistName }
-				).filter { it.isNotBlank() }.joinToString(" • "),
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
 
 			val current = load
 			val shown = job

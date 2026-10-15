@@ -1440,6 +1440,23 @@ true of invented *album art*, and not of an icon naming the kind.
   insets, so the keyboard is still followed at once. The two navigation scenes that host whole
   pages (`NowPlayingScene`, `BottomSheetScene`) pass `false`. A new fork sheet gets this by
   using the wrapper; don't reach for Material's `ModalBottomSheet` directly.
+  **Never while a finger is on the sheet** (B-121, 2026-10-15). Near the top of the screen
+  Material gives the content more room as the sheet is dragged down (the status bar's share
+  of the top inset shrinks), so a drag changes the content's height every frame. Eased, that
+  height lagged, the resting place moved under the drag and the sheet snapped back: a
+  full-height sheet (Fix album match, MusicBrainz match, a long About) could not be swiped away,
+  and "stuttered up and down". Measured on the VM emulator with the sheet's offset logged: with
+  easing the offset bounced between 3 and 124 px over a 1200 px swipe; with it off during the
+  touch the offset followed the finger and the sheet dismissed. The wrapper watches the pointer
+  on the Initial pass (never consuming) and drops the easing while one is down.
+- **An ambient sheet's drag handle sits below the status bar** (B-121). The ambient branch used
+  to hand Material zero insets so the gradient could reach every edge; the handle then sat in
+  the status-bar band of a full-height sheet, where a pull opens the notification shade. Material
+  now gets the TOP inset (as upstream's `BottomSheetScene` passes `systemBars.only(Top)`), the
+  bottom and sides are still applied inside the gradient, and the container is the gradient's
+  top colour, so the band shows no seam. A tall sheet also keeps its title and first line
+  OUTSIDE its one scrolling column (`SheetHeader` in `LbBotCommon.kt`, as upstream's Song and
+  Collection sheets keep theirs), so there is always somewhere to take hold of it.
 - **Leaving the now-playing sheet goes through `NowPlayingSheetController.requestHide { … }`.** The
   player is an `OverlayScene` bottom sheet, so `backStack.remove(Screen.NowPlaying)` plus
   `add(destination)` in one frame destroys it outright — the player vanishes and the next screen

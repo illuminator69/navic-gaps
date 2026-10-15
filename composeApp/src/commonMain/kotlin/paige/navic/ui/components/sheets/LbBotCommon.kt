@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.AboutRefreshNotice
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbSourceFile
+import paige.navic.ui.theme.defaultFont
 
 /**
  * What went wrong, in words the user can act on.
@@ -130,6 +132,39 @@ fun LbErrorLine(error: LbBotManager.LbError?, modifier: Modifier = Modifier) {
 		color = MaterialTheme.colorScheme.error,
 		modifier = modifier.fillMaxWidth().padding(vertical = 6.dp)
 	)
+}
+
+/**
+ * The fixed top of a tall fork sheet: title, an optional line under it, a divider — OUTSIDE the
+ * sheet's scrolling body. Upstream's tall sheets (Song, Collection) keep their header out of the
+ * list for the same reason: there is always somewhere to take hold of the sheet that is not a
+ * scroll, which on a full-height sheet is the difference between dragging it and scrolling it
+ * (B-121). The title is set as upstream's ChangelogSheet sets its own.
+ */
+@Composable
+internal fun SheetHeader(title: String, subtitle: String? = null) {
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+		verticalArrangement = Arrangement.spacedBy(2.dp)
+	) {
+		Text(
+			title,
+			style = MaterialTheme.typography.titleLarge,
+			fontFamily = defaultFont(round = 100f)
+		)
+		if (!subtitle.isNullOrBlank()) {
+			Text(
+				subtitle,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+	}
+	HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 }
 
 @Composable
