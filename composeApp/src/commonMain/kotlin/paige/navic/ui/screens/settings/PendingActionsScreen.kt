@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -42,8 +44,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.domain.manager.PendingActionKind
 import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Delete
-import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.viewmodels.PendingActionRow
 import paige.navic.ui.screens.settings.viewmodels.PendingActionsViewModel
@@ -132,25 +137,32 @@ fun PendingActionsScreen() {
 				}
 
 				queue.isEmpty() -> item(key = "empty") {
-					Text(
-						stringResource(Res.string.info_pending_actions_empty),
-						style = MaterialTheme.typography.bodyMedium,
-						modifier = Modifier.padding(vertical = 24.dp)
+					ContentUnavailable(
+						modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+						icon = Icons.Outlined.Check,
+						label = stringResource(Res.string.info_pending_actions_empty)
 					)
 				}
 
-				else -> items(queue, key = { it.id }) { row ->
-					PendingRow(row, onRemove = { viewModel.remove(row.id) })
+				else -> itemsIndexed(queue, key = { _, row -> row.id }) { index, row ->
+					PendingRow(
+						row = row,
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = index, count = queue.size),
+						onRemove = { viewModel.remove(row.id) }
+					)
 				}
 			}
 		}
 	}
 }
 
+/** One action waiting for the server: upstream's segmented list row, the kind above the title. */
 @Composable
-private fun PendingRow(row: PendingActionRow, onRemove: () -> Unit) {
-	FormRow(modifier = Modifier.padding(bottom = 3.dp)) {
-		Column(Modifier.weight(1f)) {
+private fun PendingRow(row: PendingActionRow, shapes: ListItemShapes, onRemove: () -> Unit) {
+	SegmentedListItem(
+		onClick = {},
+		shapes = shapes,
+		overlineContent = {
 			Text(
 				when (val kind = row.kind) {
 					PendingActionKind.Scrobble -> stringResource(Res.string.pending_action_scrobble)
@@ -159,25 +171,22 @@ private fun PendingRow(row: PendingActionRow, onRemove: () -> Unit) {
 					is PendingActionKind.Rate -> stringResource(Res.string.pending_action_rate, kind.stars)
 					PendingActionKind.DeletePlaylist ->
 						stringResource(Res.string.pending_action_delete_playlist)
-				},
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.primary
+				}
 			)
-			Text(row.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-			if (row.queuedAt.isNotBlank()) {
-				Text(
-					stringResource(Res.string.info_pending_action_queued, row.queuedAt),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant
+		},
+		supportingContent = if (row.queuedAt.isNotBlank()) {
+			{ Text(stringResource(Res.string.info_pending_action_queued, row.queuedAt)) }
+		} else null,
+		trailingContent = {
+			IconButton(onClick = onRemove) {
+				Icon(
+					Icons.Outlined.Delete,
+					contentDescription = stringResource(Res.string.action_remove_pending_action),
+					modifier = Modifier.size(20.dp)
 				)
 			}
 		}
-		IconButton(onClick = onRemove) {
-			Icon(
-				Icons.Outlined.Delete,
-				contentDescription = stringResource(Res.string.action_remove_pending_action),
-				modifier = Modifier.size(20.dp)
-			)
-		}
+	) {
+		Text(row.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }

@@ -19,13 +19,13 @@ import kotlinx.collections.immutable.persistentListOf
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_ok
+import navic.composeapp.generated.resources.action_smart_playlist
 import navic.composeapp.generated.resources.option_playlist_name
 import navic.composeapp.generated.resources.title_create_playlist
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
-import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistAdd
@@ -33,8 +33,8 @@ import paige.navic.ui.components.common.SegmentedListButton
 import paige.navic.ui.components.common.SegmentedListButtonDefaults
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
-import paige.navic.ui.components.common.FormButton
 
 @Composable
 fun PlaylistCreateDialog(
@@ -44,6 +44,7 @@ fun PlaylistCreateDialog(
 	navigateAfterwards: Boolean = true,
 	onSmartRequested: (() -> Unit)? = null
 ) {
+	val buttonCount = if (onSmartRequested != null) 3 else 2
 	val viewModel = koinViewModel<PlaylistCreateDialogViewModel>(
 		key = songs.joinToString { it.id },
 		parameters = { parametersOf(songs) }
@@ -78,28 +79,32 @@ fun PlaylistCreateDialog(
 				onClick = viewModel::create,
 				enabled = state !is UiState.Loading && viewModel.name.text.isNotBlank(),
 				colors = SegmentedListButtonDefaults.primaryColors(),
-				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2)
+				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = buttonCount)
 			) {
 				if (state is UiState.Loading) {
 					CircularProgressIndicator(Modifier.size(20.dp))
 				}
 				Text(stringResource(Res.string.action_ok))
 			}
+			// navi-connect: a smart playlist instead, as a third button of upstream's stack.
 			if (onSmartRequested != null) {
-				FormButton(
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
 					onClick = {
 						onDismissRequest()
 						onSmartRequested()
 					},
 					enabled = state !is UiState.Loading,
-					content = { Text("Smart…") }
-				)
+					shapes = SegmentedListButtonDefaults.shapes(index = 1, count = buttonCount)
+				) {
+					Text(stringResource(Res.string.action_smart_playlist))
+				}
 			}
-			FormButton(
-				onClick = {
-					onDismissRequest()
-				},
-				enabled = state !is UiState.Loading
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onDismissRequest,
+				enabled = state !is UiState.Loading,
+				shapes = SegmentedListButtonDefaults.shapes(index = buttonCount - 1, count = buttonCount)
 			) {
 				Text(stringResource(Res.string.action_cancel))
 			}

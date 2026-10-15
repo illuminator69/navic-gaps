@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -51,25 +52,25 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.koin.compose.koinInject
+import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.manager.PlaylistDownloadManager
 import paige.navic.domain.manager.PlaylistDownloadPolicy
+import paige.navic.domain.manager.createRediscoveryPlaylists
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.outlined.Close
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.util.rememberLibraryTabBackground
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormRow
-import paige.navic.data.database.dao.PlaylistDao
-import paige.navic.domain.manager.createRediscoveryPlaylists
-import paige.navic.ui.components.common.FormTitle
-import paige.navic.ui.screens.settings.components.SettingSelectionRow
-import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingsChoiceItem
+import paige.navic.ui.screens.settings.components.SettingsGroup
+import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
+import paige.navic.ui.screens.settings.components.SettingsToggleItem
 
 // ---------------------------------------------------------------------------
 // Rule model: a curated subset of Navidrome's criteria fields/operators.
@@ -290,36 +291,6 @@ private fun applyOfflinePolicy(
 // ---------------------------------------------------------------------------
 
 /**
- * A borderless input that reads as one more form row: no outline, its own
- * [surfaceContainerHigh][MaterialTheme.colorScheme] fill, rounded to match [FormRow].
- */
-@Composable
-internal fun FormTextField(
-	value: String,
-	onValueChange: (String) -> Unit,
-	placeholder: String,
-	modifier: Modifier = Modifier,
-	keyboardType: KeyboardType = KeyboardType.Text
-) {
-	TextField(
-		value = value,
-		onValueChange = onValueChange,
-		placeholder = { Text(placeholder) },
-		singleLine = true,
-		keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-		modifier = modifier.clip(ContinuousRoundedRectangle(5.dp)),
-		colors = TextFieldDefaults.colors(
-			focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-			unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-			focusedIndicatorColor = Color.Transparent,
-			unfocusedIndicatorColor = Color.Transparent,
-			disabledIndicatorColor = Color.Transparent,
-			errorIndicatorColor = Color.Transparent
-		)
-	)
-}
-
-/**
  * Editor for Navidrome SERVER-SIDE smart playlists: rule rows are converted to
  * the criteria JSON the native API accepts; the server keeps the playlist
  * auto-updated and every Subsonic client sees it as a normal playlist.
@@ -408,134 +379,142 @@ fun SmartPlaylistEditorScreen(playlistId: String? = null) {
 			NestedTopBar({ Text(if (editing) "Edit smart playlist" else "New smart playlist") })
 		}
 	) { innerPadding ->
+		// Upstream's settings parts (SettingsGroup and its choice and toggle items), as its own
+		// settings screens are built; this editor was built from the Form rows upstream removed,
+		// on an opaque surface of its own.
 		Column(
 			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
+				.padding(innerPadding)
 				.fillMaxSize()
-				.background(rememberLibraryTabBackground())
 				.verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp, vertical = 8.dp)
+				.padding(horizontal = 16.dp, vertical = 8.dp),
+			verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 		) {
 			// --- General ---------------------------------------------------
-			FormTitle("General")
-			Form {
-				FormRow {
-					FormTextField(
-						value = name,
-						onValueChange = { name = it },
-						placeholder = "Playlist name",
-						modifier = Modifier.fillMaxWidth()
-					)
-				}
-				SettingSelectionRow(
-					title = { Text("Match") },
-					items = persistentListOf(true, false),
+			SettingsGroup(title = { Text("General") }) {
+				OutlinedTextField(
+					value = name,
+					onValueChange = { name = it },
+					label = { Text("Playlist name") },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+				)
+				SettingsChoiceItem(
+					choices = persistentListOf(true, false),
+					selectedChoice = matchAll,
+					onChoiceSelected = { matchAll = it },
 					label = { if (it) "All rules" else "Any rule" },
-					selection = matchAll,
-					onSelect = { matchAll = it }
+					content = { Text("Match") },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
 				)
-				// Offered on creation only. Switching an existing playlist between the
-				// two would mean converting a live smart playlist into a snapshot or
-				// back, and those are two different records on the server — so an
-				// edit states which kind it is instead of offering to change it.
+				// Offered on creation only. Switching an existing playlist between the two
+				// would mean converting a live smart playlist into a snapshot or back, and
+				// those are two different records on the server — so an edit states which
+				// kind it is instead of offering to change it.
 				if (editing) {
-					FormRow {
-						Text("Collect", modifier = Modifier.weight(1f))
-						Text(
-							if (matchAlbums) "Whole albums" else "Tracks",
-							style = MaterialTheme.typography.bodyMedium,
-							color = MaterialTheme.colorScheme.onSurfaceVariant
-						)
-					}
+					SegmentedListItem(
+						onClick = {},
+						content = { Text("Collect") },
+						trailingContent = { Text(if (matchAlbums) "Whole albums" else "Tracks") },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
+					)
 				} else {
-					SettingSelectionRow(
-						title = { Text("Collect") },
-						items = persistentListOf(false, true),
+					SettingsChoiceItem(
+						choices = persistentListOf(false, true),
+						selectedChoice = matchAlbums,
+						onChoiceSelected = { matchAlbums = it },
 						label = { if (it) "Whole albums" else "Tracks" },
-						selection = matchAlbums,
-						onSelect = { matchAlbums = it }
+						content = { Text("Collect") },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
 					)
 				}
-			}
-
-			if (matchAlbums) {
-				Text(
-					"Navidrome's rules match tracks, so Whole albums is worked out " +
-						"here: the rules are evaluated on the server, then every " +
-						"matching track's full album is included. That makes it a " +
-						"snapshot rather than a live smart playlist — it will not " +
-						"update itself, and there is a Refresh in its menu.",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-				)
+				if (matchAlbums) {
+					Text(
+						"Navidrome's rules match tracks, so Whole albums is worked out " +
+							"here: the rules are evaluated on the server, then every " +
+							"matching track's full album is included. That makes it a " +
+							"snapshot rather than a live smart playlist: it will not " +
+							"update itself, and there is a Refresh in its menu.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+					)
+				}
 			}
 
 			// --- Rules -----------------------------------------------------
-			FormTitle("Rules")
 			rules.forEachIndexed { index, rule ->
-				Form {
-					FormRow {
-						Text(
-							"Rule ${index + 1}",
-							style = MaterialTheme.typography.titleSmall,
-							modifier = Modifier.weight(1f)
-						)
-						if (rules.size > 1) {
-							IconButton(onClick = { rules.removeAt(index) }) {
-								Icon(
-									Icons.Outlined.Close,
-									contentDescription = "Remove rule",
-									tint = MaterialTheme.colorScheme.error,
-									modifier = Modifier.size(20.dp)
-								)
+				SettingsGroup(
+					title = {
+						Row(verticalAlignment = Alignment.CenterVertically) {
+							Text("Rule ${index + 1}", modifier = Modifier.weight(1f))
+							if (rules.size > 1) {
+								IconButton(onClick = { rules.removeAt(index) }) {
+									Icon(
+										Icons.Outlined.Close,
+										contentDescription = "Remove rule",
+										tint = MaterialTheme.colorScheme.error,
+										modifier = Modifier.size(20.dp)
+									)
+								}
 							}
 						}
 					}
-					SettingSelectionRow(
-						title = { Text("Field") },
-						items = FIELDS.toImmutableList(),
-						label = { it.label },
-						selection = rule.field,
-						onSelect = { picked ->
+				) {
+					val isBool = rule.field.type == FieldType.BOOL
+					val count = if (isBool) 3 else 2
+					SettingsChoiceItem(
+						choices = FIELDS.toImmutableList(),
+						selectedChoice = rule.field,
+						onChoiceSelected = { picked ->
 							rule.field = picked
 							rule.operator = operatorsFor(picked.type)[0]
 							rule.value = ""
-						}
-					)
-					SettingSelectionRow(
-						title = { Text("Condition") },
-						items = operatorsFor(rule.field.type).toImmutableList(),
+						},
 						label = { it.label },
-						selection = rule.operator,
-						onSelect = { rule.operator = it }
+						content = { Text("Field") },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
-					if (rule.field.type == FieldType.BOOL) {
-						SettingSwitchRow(
-							title = { Text("Value") },
-							subtitle = { Text(if (rule.boolValue) "true" else "false") },
-							value = rule.boolValue,
-							onSetValue = { rule.boolValue = it }
+					SettingsChoiceItem(
+						choices = operatorsFor(rule.field.type).toImmutableList(),
+						selectedChoice = rule.operator,
+						onChoiceSelected = { rule.operator = it },
+						label = { it.label },
+						content = { Text("Condition") },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
+					)
+					if (isBool) {
+						SettingsToggleItem(
+							checked = rule.boolValue,
+							onCheckedChange = { rule.boolValue = it },
+							content = { Text("Value") },
+							supportingContent = { Text(if (rule.boolValue) "true" else "false") },
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = count)
 						)
 					} else {
-						FormRow {
-							FormTextField(
-								value = rule.value,
-								onValueChange = { rule.value = it },
-								placeholder = when (rule.field.type) {
-									FieldType.NUMBER -> "Number"
-									FieldType.DATE ->
-										if (rule.operator.key == "inTheLast" ||
-											rule.operator.key == "notInTheLast"
-										) "Days" else "YYYY-MM-DD"
+						OutlinedTextField(
+							value = rule.value,
+							onValueChange = { rule.value = it },
+							label = {
+								Text(
+									when (rule.field.type) {
+										FieldType.NUMBER -> "Number"
+										FieldType.DATE ->
+											if (rule.operator.key == "inTheLast" ||
+												rule.operator.key == "notInTheLast"
+											) "Days" else "YYYY-MM-DD"
 
-									else -> "Value"
-								},
+										else -> "Value"
+									}
+								)
+							},
+							singleLine = true,
+							keyboardOptions = KeyboardOptions(
 								keyboardType = if (rule.field.type == FieldType.NUMBER)
-									KeyboardType.Number else KeyboardType.Text,
-								modifier = Modifier.fillMaxWidth()
-							)
-						}
+									KeyboardType.Number else KeyboardType.Text
+							),
+							modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+						)
 					}
 				}
 			}
@@ -549,50 +528,49 @@ fun SmartPlaylistEditorScreen(playlistId: String? = null) {
 				Text("Add rule")
 			}
 
-			Spacer(Modifier.height(20.dp))
-
 			// --- Sorting ---------------------------------------------------
-			FormTitle("Sorting")
-			Form {
-				SettingSelectionRow(
-					title = { Text("Sort by") },
-					items = SORT_OPTIONS.toImmutableList(),
+			SettingsGroup(title = { Text("Sorting") }) {
+				SettingsChoiceItem(
+					choices = SORT_OPTIONS.toImmutableList(),
+					selectedChoice = sort,
+					onChoiceSelected = { sort = it },
 					label = { it.second },
-					selection = sort,
-					onSelect = { sort = it }
+					content = { Text("Sort by") },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
 				)
-				SettingSelectionRow(
-					title = { Text("Order") },
-					items = persistentListOf(false, true),
+				SettingsChoiceItem(
+					choices = persistentListOf(false, true),
+					selectedChoice = descending,
+					onChoiceSelected = { descending = it },
 					label = { if (it) "Descending" else "Ascending" },
-					selection = descending,
-					onSelect = { descending = it }
+					content = { Text("Order") },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
 				)
-				FormRow {
-					FormTextField(
-						value = limitText,
-						onValueChange = { limitText = it },
-						placeholder = "Limit (optional)",
-						keyboardType = KeyboardType.Number,
-						modifier = Modifier.fillMaxWidth()
-					)
-				}
+				OutlinedTextField(
+					value = limitText,
+					onValueChange = { limitText = it },
+					label = { Text("Limit (optional)") },
+					singleLine = true,
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+					modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+				)
 			}
 
 			// --- Visibility ------------------------------------------------
-			FormTitle("Visibility")
-			Form {
-				SettingSwitchRow(
-					title = { Text("Public") },
-					subtitle = { Text("Visible to everyone on the server") },
-					value = isPublic,
-					onSetValue = { isPublic = it }
+			SettingsGroup(title = { Text("Visibility") }) {
+				SettingsToggleItem(
+					checked = isPublic,
+					onCheckedChange = { isPublic = it },
+					content = { Text("Public") },
+					supportingContent = { Text("Visible to everyone on the server") },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
 				)
-				SettingSwitchRow(
-					title = { Text("Offline") },
-					subtitle = { Text("Keep this playlist downloaded on this device") },
-					value = offline,
-					onSetValue = { offline = it }
+				SettingsToggleItem(
+					checked = offline,
+					onCheckedChange = { offline = it },
+					content = { Text("Offline") },
+					supportingContent = { Text("Keep this playlist downloaded on this device") },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
 				)
 			}
 
@@ -700,8 +678,12 @@ fun SmartPlaylistEditorScreen(playlistId: String? = null) {
 			// Opt-in, and idempotent by name: minting playlists in someone's
 			// library unasked would be a surprising thing for a player to do, and
 			// pressing this twice leaves one copy of each, not two.
-			Spacer(Modifier.height(16.dp))
-			FormTitle("Rediscovery")
+			Text(
+				"Rediscovery",
+				style = MaterialTheme.typography.titleSmall,
+				color = MaterialTheme.colorScheme.primary,
+				modifier = Modifier.padding(horizontal = 12.dp)
+			)
 			Text(
 				"Adds four smart playlists — never played, loved but stale, highly " +
 					"rated and long unplayed, deep cuts. Navidrome keeps them current, " +

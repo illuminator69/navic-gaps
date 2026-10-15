@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -16,6 +18,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,19 +29,41 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_navi_connect_save
+import navic.composeapp.generated.resources.action_navi_connect_save_audiomuse
+import navic.composeapp.generated.resources.info_navi_connect_audiomuse
+import navic.composeapp.generated.resources.info_navi_connect_connected
+import navic.composeapp.generated.resources.info_navi_connect_not_connected
+import navic.composeapp.generated.resources.info_navi_connect_where_matches
+import navic.composeapp.generated.resources.option_navi_connect_audiomuse_token
+import navic.composeapp.generated.resources.option_navi_connect_audiomuse_url
+import navic.composeapp.generated.resources.option_navi_connect_device_name
+import navic.composeapp.generated.resources.option_navi_connect_enable
+import navic.composeapp.generated.resources.option_navi_connect_token
+import navic.composeapp.generated.resources.option_navi_connect_url
+import navic.composeapp.generated.resources.title_navi_connect
+import navic.composeapp.generated.resources.title_navi_connect_audiomuse
+import navic.composeapp.generated.resources.title_navi_connect_hub
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.activeDeviceWord
-import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.screens.settings.components.SettingsGroup
+import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
+import paige.navic.ui.screens.settings.components.SettingsToggleItem
 
 /**
- * navi-connect settings: hub connection (enable/url/token/name) and the device
- * list with Spotify-style playback transfer. Strings are intentionally not
- * localised — this is a personal-fork feature.
+ * navi-connect settings: the hub connection (enable, address, token, this device's name) and
+ * AudioMuse's direct address, in upstream's settings parts (`SettingsGroup`, toggle item, the
+ * group gaps). The device list that was here with its own Transfer buttons is gone: devices are
+ * data, not configuration, and the device picker already lists and transfers to them.
  */
 @Composable
 fun NaviConnectScreen() {
@@ -47,13 +72,7 @@ fun NaviConnectScreen() {
 	val lbBotManager = koinInject<LbBotManager>()
 
 	val connected by hubManager.connected.collectAsState()
-	val devices by hubManager.devices.collectAsState()
-	val myDeviceId by hubManager.myDeviceId.collectAsState()
-	val activeDeviceId by hubManager.activeDeviceId.collectAsState()
 	val connectionError by hubManager.connectionError.collectAsState()
-	// The active device's play state, whichever device that is: the blended player state is
-	// the session's while another device plays and this player's otherwise.
-	val playerState by koinInject<MediaPlayerViewModel>().steadyState.collectAsState()
 
 	// Surface a hub-side error (bad token, target offline, …) the moment it arrives, so a wrong
 	// token reads as an actual error instead of "just never connects".
@@ -92,141 +111,113 @@ fun NaviConnectScreen() {
 	}
 
 	Scaffold(
-		topBar = { NestedTopBar({ Text("navi-connect") }) },
+		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_navi_connect)) }) },
 		snackbarHost = { SnackbarHost(snackbarHostState) }
 	) { innerPadding ->
-		Column(
-			modifier = Modifier
-				.padding(innerPadding)
-				.verticalScroll(rememberScrollState())
-				.padding(horizontal = 16.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			Row(
-				modifier = Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.SpaceBetween,
-				verticalAlignment = Alignment.CenterVertically
+		CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+			Column(
+				modifier = Modifier
+					.padding(innerPadding)
+					.verticalScroll(rememberScrollState())
+					.padding(horizontal = 16.dp),
+				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				Column(Modifier.weight(1f)) {
-					Text("Enable navi-connect", style = MaterialTheme.typography.titleMedium)
-					Text(
-						when {
-							connected -> "Connected to hub"
-							connectionError != null -> connectionError!!
-							else -> "Not connected"
+				SettingsGroup(title = { Text(stringResource(Res.string.title_navi_connect_hub)) }) {
+					SettingsToggleItem(
+						checked = enabled,
+						onCheckedChange = {
+							enabled = it
+							applyAndReconnect()
 						},
-						style = MaterialTheme.typography.bodySmall,
-						color = if (!connected && connectionError != null) MaterialTheme.colorScheme.error
-							else MaterialTheme.colorScheme.onSurfaceVariant
+						content = { Text(stringResource(Res.string.option_navi_connect_enable)) },
+						supportingContent = {
+							Text(
+								when {
+									connected -> stringResource(Res.string.info_navi_connect_connected)
+									connectionError != null -> connectionError!!
+									else -> stringResource(Res.string.info_navi_connect_not_connected)
+								},
+								color = if (!connected && connectionError != null) {
+									MaterialTheme.colorScheme.error
+								} else MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						},
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
 					)
-				}
-				Switch(
-					checked = enabled,
-					onCheckedChange = {
-						enabled = it
-						applyAndReconnect()
+					Column(
+						modifier = Modifier.padding(top = 8.dp),
+						verticalArrangement = Arrangement.spacedBy(8.dp)
+					) {
+						OutlinedTextField(
+							value = url,
+							onValueChange = { url = it },
+							label = { Text(stringResource(Res.string.option_navi_connect_url)) },
+							placeholder = { Text("ws://192.168.1.10:4790") },
+							singleLine = true,
+							modifier = Modifier.fillMaxWidth()
+						)
+						// Masked, as upstream's login masks the server password: this is the
+						// hub's shared secret.
+						OutlinedTextField(
+							value = token,
+							onValueChange = { token = it },
+							label = { Text(stringResource(Res.string.option_navi_connect_token)) },
+							singleLine = true,
+							visualTransformation = PasswordVisualTransformation(),
+							keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+							modifier = Modifier.fillMaxWidth()
+						)
+						OutlinedTextField(
+							value = deviceName,
+							onValueChange = { deviceName = it },
+							label = { Text(stringResource(Res.string.option_navi_connect_device_name)) },
+							singleLine = true,
+							modifier = Modifier.fillMaxWidth()
+						)
+						Button(onClick = { applyAndReconnect() }) {
+							Text(stringResource(Res.string.action_navi_connect_save))
+						}
 					}
-				)
-			}
+				}
 
-			OutlinedTextField(
-				value = url,
-				onValueChange = { url = it },
-				label = { Text("Hub URL") },
-				placeholder = { Text("ws://192.168.1.10:4790") },
-				singleLine = true,
-				modifier = Modifier.fillMaxWidth()
-			)
-			OutlinedTextField(
-				value = token,
-				onValueChange = { token = it },
-				label = { Text("Token") },
-				singleLine = true,
-				modifier = Modifier.fillMaxWidth()
-			)
-			OutlinedTextField(
-				value = deviceName,
-				onValueChange = { deviceName = it },
-				label = { Text("Device name") },
-				singleLine = true,
-				modifier = Modifier.fillMaxWidth()
-			)
-			Button(onClick = { applyAndReconnect() }) {
-				Text("Save & reconnect")
-			}
-
-			Text("AudioMuse-AI (Tier 2)", style = MaterialTheme.typography.titleMedium)
-			Text(
-				"Unlocks Sonic Fingerprint autoplay, Mood Flow and mood search. Normally " +
-					"routed through the hub above, which holds the AudioMuse address and " +
-					"token server-side — leave these blank. Fill them in only to reach " +
-					"the core API directly, for a LAN setup with no hub.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
-			OutlinedTextField(
-				value = audioMuseUrl,
-				onValueChange = { audioMuseUrl = it },
-				label = { Text("AudioMuse URL (direct, optional)") },
-				placeholder = { Text("http://192.168.1.10:8000") },
-				singleLine = true,
-				modifier = Modifier.fillMaxWidth()
-			)
-			OutlinedTextField(
-				value = audioMuseToken,
-				onValueChange = { audioMuseToken = it },
-				label = { Text("AudioMuse API token (direct, optional)") },
-				singleLine = true,
-				modifier = Modifier.fillMaxWidth()
-			)
-			Button(onClick = { saveAudioMuse() }) {
-				Text("Save AudioMuse")
-			}
-
-			// What lb-bot holds about the library's artists and albums used to be a section
-			// here ("lb-bot data", I-020). It is a page of its own now, Library Matches
-			// (I-026), and the listening history's status and "Sync now" are in My Listening;
-			// one line says where they went.
-			Text(
-				"Artist, album and name matches are in Library Matches, and the listening " +
-					"history's sync in My Listening — both on the library's home page.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
-
-			Text("Devices", style = MaterialTheme.typography.titleMedium)
-			if (devices.isEmpty()) {
-				Text(
-					"No devices found",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant
-				)
-			}
-			devices.forEach { device ->
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					Column(Modifier.weight(1f)) {
-						Text(device.name, style = MaterialTheme.typography.bodyLarge)
+				SettingsGroup(title = { Text(stringResource(Res.string.title_navi_connect_audiomuse)) }) {
+					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(
-							buildString {
-								append(if (device.online) "online" else "offline")
-								if (device.isActive) append(" · ${activeDeviceWord(!playerState.isPaused)}")
-								if (device.id == myDeviceId) append(" · this device")
-							},
-							style = MaterialTheme.typography.bodySmall,
+							stringResource(Res.string.info_navi_connect_audiomuse),
+							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant
 						)
-					}
-					Button(
-						enabled = device.online && device.id != activeDeviceId,
-						onClick = { hubManager.transfer(device.id) }
-					) {
-						Text(if (device.id == myDeviceId) "Play here" else "Transfer")
+						OutlinedTextField(
+							value = audioMuseUrl,
+							onValueChange = { audioMuseUrl = it },
+							label = { Text(stringResource(Res.string.option_navi_connect_audiomuse_url)) },
+							placeholder = { Text("http://192.168.1.10:8000") },
+							singleLine = true,
+							modifier = Modifier.fillMaxWidth()
+						)
+						OutlinedTextField(
+							value = audioMuseToken,
+							onValueChange = { audioMuseToken = it },
+							label = { Text(stringResource(Res.string.option_navi_connect_audiomuse_token)) },
+							singleLine = true,
+							visualTransformation = PasswordVisualTransformation(),
+							keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+							modifier = Modifier.fillMaxWidth()
+						)
+						Button(onClick = { saveAudioMuse() }) {
+							Text(stringResource(Res.string.action_navi_connect_save_audiomuse))
+						}
 					}
 				}
+
+				// What lb-bot holds about the library used to be a section here (I-020); it is
+				// the Library Matches page now, and the listening sync is in My Listening.
+				Text(
+					stringResource(Res.string.info_navi_connect_where_matches),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(bottom = 24.dp)
+				)
 			}
 		}
 	}

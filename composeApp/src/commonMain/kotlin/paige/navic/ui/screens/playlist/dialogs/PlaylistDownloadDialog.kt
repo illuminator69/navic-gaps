@@ -1,11 +1,18 @@
 package paige.navic.ui.screens.playlist.dialogs
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,16 +38,20 @@ import navic.composeapp.generated.resources.auto_download_mode_rolling
 import navic.composeapp.generated.resources.auto_download_quality
 import navic.composeapp.generated.resources.auto_download_quality_original
 import navic.composeapp.generated.resources.auto_download_rolling_limit
+import navic.composeapp.generated.resources.option_download_kbps
 import navic.composeapp.generated.resources.title_auto_download
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PlaylistDownloadManager
 import paige.navic.domain.manager.PlaylistDownloadPolicy
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormRow
-import paige.navic.ui.screens.playlist.FormTextField
-import paige.navic.ui.screens.settings.components.SettingSelectionRow
-import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Download
+import paige.navic.ui.components.common.SegmentedListButton
+import paige.navic.ui.components.common.SegmentedListButtonDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.dialogs.FormDialog
+import paige.navic.ui.screens.settings.components.SettingsChoiceItem
+import paige.navic.ui.screens.settings.components.SettingsToggleItem
 
 private val QUALITIES = listOf(0, 320, 192, 128)
 private val FORMATS = listOf("", "opus", "mp3")
@@ -113,106 +124,135 @@ fun PlaylistDownloadDialog(
 		MODE_ROLLING to stringResource(Res.string.auto_download_mode_rolling)
 	)
 
-	AlertDialog(
+	val save = {
+		if (mode == MODE_OFF) {
+			manager.removePolicy(playlistId, deleteDownloads = deleteOnDisable)
+		} else {
+			manager.setPolicy(
+				PlaylistDownloadPolicy(
+					playlistId = playlistId,
+					playlistName = playlistName,
+					mode = if (mode == MODE_PERMANENT) {
+						PlaylistDownloadPolicy.MODE_PERMANENT
+					} else {
+						PlaylistDownloadPolicy.MODE_ROLLING
+					},
+					rollingLimit = rollingLimit.toIntOrNull()?.coerceAtLeast(1) ?: 50,
+					budgetBytes = budgetGb.trim().toDoubleOrNull()
+						?.takeIf { it > 0 }
+						?.let { (it * BYTES_PER_GB).toLong() }
+						?: 0L,
+					maxBitRate = quality,
+					format = format
+				)
+			)
+		}
+		onDismissRequest()
+	}
+
+	// Upstream's dialog (FormDialog: icon, title, content, stacked segmented buttons) holding
+	// upstream's settings rows. It was an AlertDialog of the Form rows upstream removed, with
+	// text buttons, and a body that did not scroll: with the keyboard up in landscape the
+	// rolling-cache fields ran off the dialog.
+	FormDialog(
 		onDismissRequest = onDismissRequest,
+		icon = { Icon(Icons.Outlined.Download, contentDescription = null) },
 		title = { Text(stringResource(Res.string.title_auto_download)) },
-		text = {
-			Column(Modifier.fillMaxWidth()) {
-				Text(playlistName, style = MaterialTheme.typography.bodyMedium)
-				Form(bottomPadding = 0.dp) {
-					SettingSelectionRow(
-						title = { Text(stringResource(Res.string.auto_download_mode)) },
-						items = listOf(MODE_OFF, MODE_PERMANENT, MODE_ROLLING).toImmutableList(),
-						label = { modeLabels.getValue(it) },
-						selection = mode,
-						onSelect = { mode = it }
-					)
-
-					if (mode == MODE_ROLLING) {
-						FormRow {
-							FormTextField(
-								value = rollingLimit,
-								onValueChange = { rollingLimit = it },
-								placeholder = stringResource(
-									Res.string.auto_download_rolling_limit
-								),
-								// Was a bare OutlinedTextField with no keyboard hint
-								// and no validation, parsed with `?: 50` — so a typo
-								// silently became fifty songs.
-								keyboardType = KeyboardType.Number,
-								modifier = Modifier.fillMaxWidth()
-							)
-						}
-						FormRow {
-							FormTextField(
-								value = budgetGb,
-								onValueChange = { budgetGb = it },
-								placeholder = stringResource(Res.string.auto_download_budget),
-								keyboardType = KeyboardType.Decimal,
-								modifier = Modifier.fillMaxWidth()
-							)
-						}
-					}
-
-					if (mode != MODE_OFF) {
-						SettingSelectionRow(
-							title = { Text(stringResource(Res.string.auto_download_quality)) },
-							items = QUALITIES.toImmutableList(),
-							label = { if (it == 0) originalQuality else "$it kbps" },
-							selection = quality,
-							onSelect = { quality = it }
-						)
-						SettingSelectionRow(
-							title = { Text(stringResource(Res.string.auto_download_format)) },
-							items = FORMATS.toImmutableList(),
-							label = { it.ifBlank { originalFormat } },
-							selection = format,
-							onSelect = { format = it }
-						)
-					} else if (existing != null) {
-						SettingSwitchRow(
-							title = { Text(stringResource(Res.string.auto_download_delete_files)) },
-							subtitle = {
-								Text(stringResource(Res.string.auto_download_delete_files_hint))
-							},
-							value = deleteOnDisable,
-							onSetValue = { deleteOnDisable = it }
-						)
-					}
-				}
+		buttons = {
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = save,
+				colors = SegmentedListButtonDefaults.primaryColors(),
+				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2)
+			) {
+				Text(stringResource(Res.string.action_save))
 			}
-		},
-		confirmButton = {
-			TextButton(onClick = {
-				if (mode == MODE_OFF) {
-					manager.removePolicy(playlistId, deleteDownloads = deleteOnDisable)
-				} else {
-					manager.setPolicy(
-						PlaylistDownloadPolicy(
-							playlistId = playlistId,
-							playlistName = playlistName,
-							mode = if (mode == MODE_PERMANENT) {
-								PlaylistDownloadPolicy.MODE_PERMANENT
-							} else {
-								PlaylistDownloadPolicy.MODE_ROLLING
-							},
-							rollingLimit = rollingLimit.toIntOrNull()?.coerceAtLeast(1) ?: 50,
-							budgetBytes = budgetGb.trim().toDoubleOrNull()
-								?.takeIf { it > 0 }
-								?.let { (it * BYTES_PER_GB).toLong() }
-								?: 0L,
-							maxBitRate = quality,
-							format = format
-						)
-					)
-				}
-				onDismissRequest()
-			}) { Text(stringResource(Res.string.action_save)) }
-		},
-		dismissButton = {
-			TextButton(onClick = onDismissRequest) {
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onDismissRequest,
+				shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+			) {
 				Text(stringResource(Res.string.action_cancel))
 			}
 		}
-	)
+	) {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.heightIn(max = 420.dp)
+				.verticalScroll(rememberScrollState()),
+			verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+		) {
+			Text(
+				playlistName,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(bottom = 8.dp)
+			)
+			val rows = when {
+				mode == MODE_ROLLING -> 3
+				mode != MODE_OFF -> 3
+				existing != null -> 2
+				else -> 1
+			}
+			SettingsChoiceItem(
+				choices = listOf(MODE_OFF, MODE_PERMANENT, MODE_ROLLING).toImmutableList(),
+				selectedChoice = mode,
+				onChoiceSelected = { mode = it },
+				label = { modeLabels.getValue(it) },
+				content = { Text(stringResource(Res.string.auto_download_mode)) },
+				shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
+			)
+			if (mode != MODE_OFF) {
+				SettingsChoiceItem(
+					choices = QUALITIES.toImmutableList(),
+					selectedChoice = quality,
+					onChoiceSelected = { quality = it },
+					label = {
+						if (it == 0) originalQuality
+						else stringResource(Res.string.option_download_kbps, it)
+					},
+					content = { Text(stringResource(Res.string.auto_download_quality)) },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows)
+				)
+				SettingsChoiceItem(
+					choices = FORMATS.toImmutableList(),
+					selectedChoice = format,
+					onChoiceSelected = { format = it },
+					label = { it.ifBlank { originalFormat } },
+					content = { Text(stringResource(Res.string.auto_download_format)) },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = rows)
+				)
+			} else if (existing != null) {
+				SettingsToggleItem(
+					checked = deleteOnDisable,
+					onCheckedChange = { deleteOnDisable = it },
+					content = { Text(stringResource(Res.string.auto_download_delete_files)) },
+					supportingContent = {
+						Text(stringResource(Res.string.auto_download_delete_files_hint))
+					},
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows)
+				)
+			}
+			if (mode == MODE_ROLLING) {
+				// Number keyboards and validation: a typo used to become fifty songs silently.
+				OutlinedTextField(
+					value = rollingLimit,
+					onValueChange = { rollingLimit = it.filter(Char::isDigit) },
+					label = { Text(stringResource(Res.string.auto_download_rolling_limit)) },
+					singleLine = true,
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+					modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+				)
+				OutlinedTextField(
+					value = budgetGb,
+					onValueChange = { budgetGb = it },
+					label = { Text(stringResource(Res.string.auto_download_budget)) },
+					singleLine = true,
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+					modifier = Modifier.fillMaxWidth()
+				)
+			}
+		}
+	}
 }
