@@ -76,9 +76,9 @@ private const val MODE_ROLLING = 2
  * "Original") set the width of the whole row, and four of them overflowed the
  * dialog and came out squeezed. That is the "text offsetting the button sizes".
  *
- * `SettingSelectionRow` is a full-width row with a dropdown, so a label's length
- * cannot affect the layout at all. It is also the idiom the smart-playlist editor
- * next door already uses, which is where a user arrives from.
+ * Each choice is now upstream's `SettingsChoiceItem`: a full-width row with a
+ * dropdown, so a label's length cannot affect the layout at all, and the idiom the
+ * smart-playlist editor next door uses too.
  */
 @Composable
 fun PlaylistDownloadDialog(

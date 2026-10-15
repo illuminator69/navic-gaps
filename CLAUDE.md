@@ -1522,8 +1522,15 @@ true of invented *album art*, and not of an icon naming the kind.
   (registered per platform; §2 rule 3). OkHttp fails a socket whose pong is a full interval late.
 - **Cast requires publicly reachable stream and cover URLs** — the speaker fetches them itself, so
   a Tailscale or LAN address will not do.
-- `ui/components/common/Form*` components are carried as fork code; upstream deleted them and
-  taking that deletion means rewriting nine settings screens.
+- **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
+  `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
+  `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039
+  rebuilt those on upstream's parts and deleted them (with `SelectionDropdown`). A settings row is a
+  `SettingsGroup` of `SettingsToggleItem` / `SettingsChoiceItem` / `SettingsNavItem` /
+  `SettingsSliderItem`; a list row is a `SegmentedListItem` with `segmentedShapes`; a menu is M3's
+  `DropdownMenu` or, on a row, a sheet on a long press; a dialog's buttons are
+  `SegmentedListButton`s; a one-of choice on a page is `PageChips`. A merge that brings any of the
+  eight back is a merge to redo.
 
 ---
 
