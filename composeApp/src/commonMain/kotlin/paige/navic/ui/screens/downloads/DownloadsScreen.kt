@@ -1,9 +1,7 @@
 package paige.navic.ui.screens.downloads
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,20 +10,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -49,9 +41,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,7 +99,6 @@ import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
@@ -120,6 +108,8 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.FillButton
 import paige.navic.ui.components.common.FillProgressKind
+import paige.navic.ui.components.common.GroupHeader
+import paige.navic.ui.components.common.PageChips
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
@@ -198,16 +188,19 @@ fun DownloadsScreen(initial: DownloadsSection = DownloadsSection.Device) {
 					}
 				)
 				if (sections.size > 1) {
-					DownloadsChips(
-						sections = sections,
+					PageChips(
+						options = sections,
 						selected = shown,
-						count = { chip ->
-							when (chip) {
+						// A count only where there is something: three "(0)"s pushed the last
+						// chip off a phone's width, and said nothing the empty list does not.
+						label = { chip ->
+							val n = when (chip) {
 								DownloadsSection.Device -> state.active.size + state.queued.size +
 									state.failed.size + state.completed.size
 								DownloadsSection.Fills -> fills.size
 								DownloadsSection.Wishlist -> wishlist.items.size
 							}
+							if (n > 0) "${stringResource(chip.label)} ($n)" else stringResource(chip.label)
 						},
 						onSelect = { section = it }
 					)
@@ -298,98 +291,12 @@ fun DownloadsScreen(initial: DownloadsSection = DownloadsSection.Device) {
 	}
 }
 
-/** Upstream's search chips (`SearchScreenChips`), with a count: the check, the small shape. */
-@Composable
-private fun DownloadsChips(
-	sections: List<DownloadsSection>,
-	selected: DownloadsSection,
-	count: (DownloadsSection) -> Int,
-	onSelect: (DownloadsSection) -> Unit
-) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.horizontalScroll(rememberScrollState())
-			.padding(horizontal = 16.dp)
-			.selectableGroup(),
-		horizontalArrangement = Arrangement.spacedBy(8.dp)
-	) {
-		sections.forEach { chip ->
-			val isSelected = chip == selected
-			FilterChip(
-				modifier = Modifier.animateContentSize(
-					if (isSelected) MaterialTheme.motionScheme.fastSpatialSpec()
-					else MaterialTheme.motionScheme.defaultEffectsSpec()
-				),
-				selected = isSelected,
-				onClick = { onSelect(chip) },
-				// A count only where there is something: three "(0)"s pushed the last chip off a
-				// phone's width, and said nothing the empty list below does not.
-				label = {
-					val n = count(chip)
-					Text(
-						if (n > 0) "${stringResource(chip.label)} ($n)" else stringResource(chip.label),
-						maxLines = 1
-					)
-				},
-				shape = MaterialTheme.shapes.small,
-				leadingIcon = if (isSelected) {
-					{
-						Icon(
-							Icons.Outlined.Check,
-							contentDescription = null,
-							modifier = Modifier.size(FilterChipDefaults.IconSize)
-						)
-					}
-				} else null
-			)
-		}
-	}
-}
-
 private val DownloadsSection.label: StringResource
 	get() = when (this) {
 		DownloadsSection.Device -> Res.string.option_downloads_device
 		DownloadsSection.Fills -> Res.string.option_downloads_fills
 		DownloadsSection.Wishlist -> Res.string.title_wishlist
 	}
-
-/** A group's title, in the library home's `header()` style, with its count and its actions. */
-@Composable
-internal fun GroupHeader(
-	title: String,
-	count: Int? = null,
-	modifier: Modifier = Modifier,
-	actions: @Composable RowScope.() -> Unit = {}
-) {
-	Row(
-		modifier = modifier
-			.fillMaxWidth()
-			.heightIn(min = 48.dp)
-			.padding(start = 4.dp, top = 12.dp),
-		verticalAlignment = Alignment.CenterVertically
-	) {
-		Text(
-			title,
-			style = MaterialTheme.typography.titleMediumEmphasized,
-			fontWeight = FontWeight(600),
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier
-				.weight(1f, fill = false)
-				.semantics { heading() }
-		)
-		if (count != null) {
-			Text(
-				"  $count",
-				style = MaterialTheme.typography.titleMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
-		}
-		Spacer(Modifier.weight(1f))
-		actions()
-	}
-}
 
 /** The washed list colours the queue's rows use, so a row reads as a card over the cover. */
 @Composable
@@ -733,24 +640,14 @@ private fun FillsList(
 	}
 
 	Column(verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)) {
-		Row(
-			modifier = Modifier
-				.fillMaxWidth()
-				.horizontalScroll(rememberScrollState())
-				.padding(bottom = 8.dp),
-			horizontalArrangement = Arrangement.spacedBy(8.dp)
-		) {
-			FillFilter.entries.forEach { option ->
-				val count = fills.count(option::matches)
-				FilterChip(
-					selected = filter == option,
-					onClick = { filter = option },
-					enabled = count > 0 || option == FillFilter.ALL,
-					shape = MaterialTheme.shapes.small,
-					label = { Text("${stringResource(option.label)} ($count)", maxLines = 1) }
-				)
-			}
-		}
+		PageChips(
+			options = FillFilter.entries,
+			selected = filter,
+			label = { option -> "${stringResource(option.label)} (${fills.count(option::matches)})" },
+			onSelect = { filter = it },
+			enabled = { option -> option == FillFilter.ALL || fills.any(option::matches) },
+			contentPadding = PaddingValues(bottom = 8.dp)
+		)
 		if (shown.isEmpty()) {
 			// A filter that hides everything must say it was the filter, not that there is
 			// nothing here.

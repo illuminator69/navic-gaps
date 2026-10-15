@@ -1,5 +1,22 @@
 package paige.navic.ui.screens.discover
 
+import paige.navic.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.icons.filled.Headphones
+import paige.navic.icons.outlined.ChevronForward
+import paige.navic.icons.outlined.Route
+import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.PageChips
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.sheets.CollectionSheet
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.clickable
@@ -9,8 +26,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -21,7 +36,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -33,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
@@ -84,8 +97,6 @@ import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.common.AcquireButton
-import paige.navic.ui.components.common.CoverArt
-import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.sheets.MoodSearchSheet
 import paige.navic.domain.manager.RediscoveryPlaylists
@@ -138,6 +149,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 		}
 	)
 	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
 	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
@@ -264,9 +276,9 @@ fun DiscoverScreen(nested: Boolean = false) {
 		snackbarHost = { SnackbarHost(snackbarHostState) },
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested ||
+			val preferVisible =
 				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
-			) {
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -306,30 +318,29 @@ fun DiscoverScreen(nested: Boolean = false) {
 					showListening
 				if (!state.loading && !anyContent) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
-						Text(
-							emptyText,
-							style = MaterialTheme.typography.bodyMedium,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(16.dp)
+						ContentUnavailable(
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(horizontal = 16.dp, vertical = 64.dp),
+							icon = Icons.Outlined.Route,
+							label = emptyText
 						)
 					}
 				}
 
 				if (showListening) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
-						FormRow(
+						SegmentedListItem(
 							modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-							rounding = 14.dp,
-							onClick = { backStack.add(Screen.Listening) }
+							onClick = { backStack.add(Screen.Listening) },
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1),
+							leadingContent = { Icon(Icons.Filled.Headphones, contentDescription = null) },
+							trailingContent = {
+								Icon(Icons.Outlined.ChevronForward, contentDescription = null)
+							},
+							supportingContent = { Text(becauseListening) }
 						) {
-							Column(Modifier.weight(1f)) {
-								Text(titleListening, style = MaterialTheme.typography.titleMedium)
-								Text(
-									becauseListening,
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant
-								)
-							}
+							Text(titleListening)
 						}
 					}
 				}
@@ -341,25 +352,21 @@ fun DiscoverScreen(nested: Boolean = false) {
 							seeAll = true,
 							title = Res.string.title_discover_mixes,
 							destination = Screen.MixList(nested = true),
-							state = UiState.Success(state.mixes),
+							state = rowState(state.mixes, state.loading),
 							key = { it.id },
 							because = becauseMixes
 						) { mix ->
 							// Tapping REGENERATES rather than restoring: a mix stores
 							// a recipe, and the second play being a different
 							// tracklist is the entire distinction from a saved queue.
-							DiscoverMixTile(
-								mix = mix,
-								onClick = { playMix(mix) },
-								modifier = Modifier.width(150.dp)
-							)
+							DiscoverMixTile(mix = mix, onClick = { playMix(mix) })
 						}
 
 						DiscoverRowId.FRESH -> horizontalSection(
 							seeAll = true,
 							title = Res.string.title_discover_fresh,
 							destination = Screen.Fresh(nested = true),
-							state = UiState.Success(state.fresh),
+							state = rowState(state.fresh, state.loading),
 							key = { it.releaseGroupMbid.ifBlank { it.releaseName + it.artist } },
 							because = becauseFresh
 						) { release ->
@@ -368,8 +375,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 								subtitle = release.artist,
 								coverUrl = release.coverUrl
 									.ifBlank { LbBotManager.caaCoverUrl(release.releaseGroupMbid) },
-								owned = release.releaseOwned,
-								modifier = Modifier.animateItem().width(150.dp),
+								modifier = Modifier.animateItem(),
 								// One tap to fetch it, but never blind: the
 								// control reviews lb-bot's ranked sources first
 								// and opens the picker whenever anything is left
@@ -428,12 +434,13 @@ fun DiscoverScreen(nested: Boolean = false) {
 							seeAll = false,
 							title = Res.string.title_discover_similar_artists,
 							destination = null,
-							state = UiState.Success(
+							state = rowState(
 								// Someone with neither a library id nor an MBID
 								// has nowhere to go; that is a name, not a row.
 								state.similarArtists.filter {
 									it.artistId.isNotBlank() || it.mbid.isNotBlank()
-								}
+								},
+								state.loading
 							),
 							key = { it.mbid.ifBlank { it.name } },
 							because = becauseSimilar
@@ -483,28 +490,20 @@ fun DiscoverScreen(nested: Boolean = false) {
 							// axis that exists to offer.
 							if (state.genres.isNotEmpty()) {
 								item(span = { GridItemSpan(maxLineSpan) }) {
-									FlowRow(
-										modifier = Modifier.padding(
-											horizontal = 16.dp,
-											vertical = 4.dp
-										),
-										horizontalArrangement = Arrangement.spacedBy(8.dp)
-									) {
-										state.genres.forEach { genre ->
-											FilterChip(
-												selected = state.genre == genre.id,
-												onClick = { viewModel.setDeezerGenre(genre.id) },
-												label = { Text(genre.name) }
-											)
-										}
-									}
+									PageChips(
+										options = state.genres.map { it.id },
+										selected = state.genre,
+										label = { id -> state.genres.firstOrNull { it.id == id }?.name ?: id },
+										onSelect = { viewModel.setDeezerGenre(it) },
+										modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+									)
 								}
 							}
 							horizontalSection(
 								seeAll = false,
 								title = Res.string.title_discover_charts,
 								destination = null,
-								state = UiState.Success(state.charts),
+								state = rowState(state.charts, state.loading),
 								key = { it.rgid.ifBlank { it.title + it.artist } },
 								because = becauseCharts
 							) { album ->
@@ -516,7 +515,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 							seeAll = false,
 							title = Res.string.title_discover_editorial,
 							destination = null,
-							state = UiState.Success(state.editorial),
+							state = rowState(state.editorial, state.loading),
 							key = { it.rgid.ifBlank { it.title + it.artist } },
 							because = becauseEditorial
 						) { album ->
@@ -527,7 +526,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 							seeAll = false,
 							title = Res.string.title_discover_listenbrainz,
 							destination = null,
-							state = UiState.Success(state.listenBrainz),
+							state = rowState(state.listenBrainz, state.loading),
 							key = { it.playlistId },
 							because = becauseListenBrainz
 						) { playlist ->
@@ -540,6 +539,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 									.removePrefix(LISTENBRAINZ_PLAYLIST_PREFIX),
 								subtitle = playlist.comment.orEmpty(),
 								contentDescription = null,
+								onSelect = { viewModel.openPlaylistSheet(playlist.playlistId) },
 								onClick = {
 									backStack.add(
 										Screen.CollectionDetail(playlist.playlistId, "discover")
@@ -552,7 +552,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 							seeAll = false,
 							title = Res.string.title_discover_rediscovery,
 							destination = null,
-							state = UiState.Success(state.rediscovery),
+							state = rowState(state.rediscovery, state.loading),
 							key = { it.playlistId },
 							because = becauseRediscovery
 						) { playlist ->
@@ -567,6 +567,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 								// per playlist.
 								subtitle = playlist.comment.orEmpty(),
 								contentDescription = null,
+								onSelect = { viewModel.openPlaylistSheet(playlist.playlistId) },
 								onClick = {
 									backStack.add(
 										Screen.CollectionDetail(playlist.playlistId, "discover")
@@ -580,10 +581,15 @@ fun DiscoverScreen(nested: Boolean = false) {
 							// search is reachable only from the bottom of the
 							// Search screen today, which means only people who
 							// already know it exists ever find it.
-							Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+							Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
 								Text(
 									titleMood,
-									style = MaterialTheme.typography.titleMediumEmphasized
+									style = MaterialTheme.typography.titleMediumEmphasized,
+									fontWeight = FontWeight(600),
+									modifier = Modifier
+										.heightIn(min = 32.dp)
+										.padding(top = 12.dp)
+										.semantics { heading() }
 								)
 								Text(
 									becauseMood,
@@ -613,6 +619,18 @@ fun DiscoverScreen(nested: Boolean = false) {
 				}
 			}
 		}
+	}
+
+	// A playlist tile's long press: the playlist list's own sheet, from Room.
+	val sheetPlaylist by viewModel.sheetPlaylist.collectAsStateWithLifecycle()
+	val player = koinInject<MediaPlayerViewModel>()
+	sheetPlaylist?.let { playlist ->
+		CollectionSheet(
+			onDismissRequest = { viewModel.dismissPlaylistSheet() },
+			collection = playlist,
+			onPlayNext = { player.playNext(playlist) },
+			onAddToQueue = { player.addToQueue(playlist) }
+		)
 	}
 
 	// Same sheet SearchScreen opens, same play/enqueue actions — a chip is a second
@@ -647,8 +665,7 @@ private fun BrowseAlbumTile(album: LbBrowseAlbum, onOpen: (LbBrowseAlbum) -> Uni
 		// so this is right for a resolved and an unresolved row alike; the CAA
 		// fallback is only for the case where it sent neither.
 		coverUrl = album.coverUrl.ifBlank { LbBotManager.caaCoverUrl(album.rgid) },
-		owned = album.releaseOwned,
-		modifier = Modifier.width(150.dp),
+
 		// No acquire control on a row with no release-group id: the whole
 		// acquisition path is release-group-shaped, and the one search that could
 		// mint one belongs on the tap, not on every tile in the row. Tapping such a
@@ -672,86 +689,58 @@ private fun BrowseAlbumTile(album: LbBrowseAlbum, onOpen: (LbBrowseAlbum) -> Uni
  *
  * Deliberately not showing a track count or a "last played" line. Both would read
  * as properties of a stored *result*, and the whole point is that a mix has no
- * tracklist until it is played.
+ * tracklist until it is played. Upstream's carousel card, with the mix's face
+ * (`MixArtwork`, which the Mixed for You list draws through too) as its cover.
  */
 @Composable
-private fun DiscoverMixTile(mix: Mix, onClick: () -> Unit, modifier: Modifier = Modifier) {
-	Column(modifier.fillMaxWidth()) {
-		// The seed's cover when one was stamped, a kind-glyph tile otherwise — see
-		// `MixArtwork`, which both this and the Mixed for You row draw through so a
-		// fix cannot reach one and miss the other. It carries its own click target,
-		// so there is no wrapper here: two overlapping ones was a tile where the top
-		// half and the bottom half rippled differently.
-		MixArtwork(
-			mix = mix,
-			onClick = onClick,
-			modifier = Modifier.fillMaxWidth()
-		)
-		Text(
-			mix.name,
-			style = MaterialTheme.typography.bodyMedium,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.padding(top = 6.dp)
-		)
-		Text(
-			mixKindLabel(mix),
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis
-		)
-	}
+private fun DiscoverMixTile(mix: Mix, onClick: () -> Unit) {
+	ArtCarouselItem(
+		coverArtId = null,
+		title = mix.name,
+		subtitle = mixKindLabel(mix),
+		contentDescription = mix.name,
+		cover = { source ->
+			MixArtwork(mix = mix, modifier = Modifier.fillMaxWidth(), interactionSource = source)
+		},
+		onClick = onClick
+	)
 }
 
-/** A cover tile. Unowned art is dimmed, matching the missing-album tiles on the
- *  artist page — the same visual grammar for the same fact. */
+/**
+ * A release lb-bot found, as upstream's carousel card: the cover from its URL rather than a
+ * library id, and the one-tap acquire control over the artwork, where it does not push every
+ * card in the row taller for the sake of the unowned ones.
+ */
 @Composable
 private fun DiscoverAlbumTile(
 	title: String,
 	subtitle: String,
 	coverUrl: String,
-	owned: Boolean,
 	modifier: Modifier = Modifier,
 	onClick: () -> Unit,
 	action: @Composable (() -> Unit)? = null
 ) {
-	Column(modifier.fillMaxWidth()) {
-		Box {
+	ArtCarouselItem(
+		modifier = modifier,
+		coverArtId = null,
+		title = title,
+		subtitle = subtitle,
+		contentDescription = title,
+		cover = { source ->
 			RemoteCoverArt(
 				url = coverUrl,
 				contentDescription = title,
-				onClick = onClick,
-				modifier = Modifier.fillMaxWidth()
+				modifier = Modifier.fillMaxWidth(),
+				interactionSource = source
 			)
-			// Over the artwork rather than under the captions: a row of tiles is
-			// mostly artwork, and a control below the text pushes every tile in
-			// the row taller for the sake of the unowned ones.
-			action?.let {
-				Box(Modifier.align(Alignment.TopEnd)) { it() }
-			}
-		}
-		Text(
-			title,
-			style = MaterialTheme.typography.bodyMedium,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.padding(top = 6.dp)
-		)
-		Text(
-			subtitle,
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis
-		)
-		if (!owned) {
-			Text(
-				stringResource(Res.string.label_not_in_library),
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1
-			)
-		}
-	}
+		},
+		coverOverlay = action?.let { control ->
+			{ Box(Modifier.align(Alignment.TopEnd)) { control() } }
+		},
+		onClick = onClick
+	)
 }
+
+/** A row's state: loading while the page loads and the row has nothing yet, so it shimmers. */
+private fun <T> rowState(items: List<T>, loading: Boolean): UiState<List<T>> =
+	if (items.isEmpty() && loading) UiState.Loading() else UiState.Success(items)

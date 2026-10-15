@@ -2,6 +2,7 @@ package paige.navic.ui.components.sheets
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,6 +60,8 @@ fun <T> SortSheet(
 	onSetViewMode: ((ListViewMode) -> Unit)? = null,
 	selectedFilters: Set<DomainFilter> = emptySet(),
 	onToggleFilter: ((DomainFilter) -> Unit)? = null,
+	/** navi-connect: a page's own further choice, after the rest (Fresh's time window). */
+	extraContent: (@Composable ColumnScope.() -> Unit)? = null,
 	onDismissRequest: () -> Unit
 ) {
 	ModalBottomSheet(
@@ -76,7 +79,9 @@ fun <T> SortSheet(
 				.selectableGroup(),
 			verticalArrangement = Arrangement.spacedBy(2.dp)
 		) {
-			Text(
+			// navi-connect: no sort at all on a page whose order is fixed in some state
+			// (Fresh's "Artists you play"), which then shows only its extra choice.
+			if (entries.isNotEmpty()) Text(
 				text = stringResource(Res.string.title_sort_by),
 				style = MaterialTheme.typography.headlineMedium,
 				fontWeight = FontWeight.Bold,
@@ -227,6 +232,8 @@ fun <T> SortSheet(
 					)
 				}
 			}
+
+			extraContent?.invoke(this)
 		}
 	}
 }

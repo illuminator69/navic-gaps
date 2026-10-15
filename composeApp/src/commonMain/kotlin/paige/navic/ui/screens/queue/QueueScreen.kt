@@ -32,6 +32,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
@@ -756,7 +758,7 @@ private fun QueueDownloadMenuButton(queue: List<DomainSong>, fromIndex: Int) {
 				)
 			}
 		}
-		paige.navic.ui.components.common.Dropdown(
+		DropdownMenu(
 			expanded = menuOpen,
 			onDismissRequest = { menuOpen = false }
 		) {
@@ -768,7 +770,7 @@ private fun QueueDownloadMenuButton(queue: List<DomainSong>, fromIndex: Int) {
 					Res.string.action_delete_download to Icons.Outlined.Delete
 				else -> Res.string.action_download_queue to Icons.Outlined.Download
 			}
-			paige.navic.ui.components.common.DropdownItem(
+			DropdownMenuItem(
 				text = { Text(stringResource(wholeLabel)) },
 				onClick = {
 					menuOpen = false
@@ -788,7 +790,7 @@ private fun QueueDownloadMenuButton(queue: List<DomainSong>, fromIndex: Int) {
 				},
 				leadingIcon = { Icon(wholeIcon, null) }
 			)
-			paige.navic.ui.components.common.DropdownItem(
+			DropdownMenuItem(
 				text = { Text(stringResource(Res.string.action_download_next, DOWNLOAD_NEXT_COUNT)) },
 				onClick = {
 					menuOpen = false

@@ -49,12 +49,13 @@ fun <T> ArtCarousel(
 	destination: NavKey? = null,
 	/** navi-connect: the line naming why a recommendation row is there, as `horizontalSection`'s. */
 	because: String? = null,
+	modifier: Modifier = Modifier,
 	content: @Composable (item: T) -> Unit
 ) {
 	val backStack = LocalNavStack.current
 
 	if (items.isNotEmpty()) {
-		Column {
+		Column(modifier) {
 			Row(
 				modifier = Modifier
 					.fillMaxWidth()
@@ -126,13 +127,15 @@ fun ArtCarouselItem(
 	cover: (@Composable (MutableInteractionSource) -> Unit)? = null,
 	/** navi-connect: laid over the cover (a release's state, a one-tap acquire). */
 	coverOverlay: (@Composable BoxScope.() -> Unit)? = null,
+	/** navi-connect: for a row's item animation (`animateItem`). */
+	modifier: Modifier = Modifier,
 	onClick: () -> Unit = {}
 ) {
 	val focusManager = LocalFocusManager.current
 	val interactionSource = remember { MutableInteractionSource() }
 
 	Column(
-		modifier = Modifier
+		modifier = modifier
 			.width(150.dp)
 			.combinedClickable(
 				interactionSource = interactionSource,

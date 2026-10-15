@@ -11,6 +11,8 @@ import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -54,8 +56,6 @@ import paige.navic.icons.outlined.Sort
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.Dropdown
-import paige.navic.ui.components.common.DropdownItem
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -223,8 +223,8 @@ fun CollectionDetailScreenHeadingRowButtons(
 			}
 			// Anchored inside this Box so the menu opens on the button rather than
 			// at the row's origin.
-			Dropdown(expanded = downloadMenuOpen, onDismissRequest = { downloadMenuOpen = false }) {
-				DropdownItem(
+			DropdownMenu(expanded = downloadMenuOpen, onDismissRequest = { downloadMenuOpen = false }) {
+				DropdownMenuItem(
 					text = {
 						Text(
 							stringResource(
@@ -243,7 +243,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 					},
 					leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null) }
 				)
-				DropdownItem(
+				DropdownMenuItem(
 					text = { Text(stringResource(Res.string.auto_download_ellipsis)) },
 					onClick = {
 						downloadMenuOpen = false

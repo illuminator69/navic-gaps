@@ -2,10 +2,12 @@ package paige.navic.ui.screens.mixes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.ripple
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -14,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.Mix
@@ -60,7 +61,9 @@ import paige.navic.ui.components.common.CoverArt
 fun MixArtwork(
 	mix: Mix,
 	modifier: Modifier = Modifier,
-	onClick: (() -> Unit)? = null
+	onClick: (() -> Unit)? = null,
+	/** A card's own, so the artwork ripples for a press anywhere on the card (as `CoverArt`). */
+	interactionSource: MutableInteractionSource? = null
 ) {
 	val cover = mix.coverArtId.ifBlank { null }
 	if (cover != null) {
@@ -69,6 +72,7 @@ fun MixArtwork(
 			coverArtId = cover,
 			contentDescription = mix.name,
 			onClick = onClick,
+			interactionSource = interactionSource,
 			// Always a record, never a person: an artist mix is seeded from an
 			// artist but the stamped id is that artist's own `ar-` cover, and
 			// letting the inference make it a circle in a row of squares is the
@@ -96,6 +100,10 @@ fun MixArtwork(
 			.aspectRatio(1f)
 			.clip(preferenceManager.coverArtShape.shape)
 			.background(Brush.linearGradient(listOf(top, scheme.surfaceContainerHighest)))
+			.then(
+				if (interactionSource != null) Modifier.indication(interactionSource, ripple())
+				else Modifier
+			)
 			.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
 		contentAlignment = Alignment.Center
 	) {
@@ -108,7 +116,9 @@ fun MixArtwork(
 			// value — two roles can resolve to the same Color under a washed
 			// scheme, and an equality lookup would then pick the wrong `on`.
 			tint = glyph,
-			modifier = Modifier.fillMaxSize().padding(24.dp)
+			// A share of the tile, not a fixed inset: 24dp inside the Mixes list's 32dp
+			// thumbnail left the glyph no room at all.
+			modifier = Modifier.fillMaxSize(0.45f)
 		)
 	}
 }

@@ -19,6 +19,8 @@ import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.domain.manager.LbAlbumCandidate
@@ -141,6 +143,23 @@ class DiscoverViewModel(
 	private val isOnline = connectivityManager.isOnline
 	private val _state = MutableStateFlow(DiscoverUi())
 	val state = _state.asStateFlow()
+
+	/**
+	 * The playlist whose sheet a long press opened (the ListenBrainz and rediscovery tiles), read
+	 * from Room with its songs so the sheet can play and queue it as the playlist list's does.
+	 */
+	private val _sheetPlaylist = MutableStateFlow<DomainPlaylist?>(null)
+	val sheetPlaylist = _sheetPlaylist.asStateFlow()
+
+	fun openPlaylistSheet(playlistId: String) {
+		viewModelScope.launch {
+			_sheetPlaylist.value = playlistDao.getPlaylistById(playlistId)?.toDomainModel()
+		}
+	}
+
+	fun dismissPlaylistSheet() {
+		_sheetPlaylist.value = null
+	}
 
 	/** The load in flight, if any. Above `init`, which starts one: an initialiser placed after
 	 *  it would run afterwards and null out the job `init` had just stored. */

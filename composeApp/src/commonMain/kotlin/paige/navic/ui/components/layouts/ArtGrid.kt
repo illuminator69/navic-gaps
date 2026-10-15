@@ -7,6 +7,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -114,7 +116,20 @@ fun ArtGridItem(
 	// opening one copy dragged the OTHER row's copy into the transition too, and one of the two
 	// popped into place instead of animating. Whatever is passed here must match what's handed to
 	// `Screen.CollectionDetail`, since the detail header rebuilds the same key from it.
-	tab: String
+	tab: String,
+	/**
+	 * navi-connect: a cover drawn instead of `CoverArt`, for a card whose picture is not a
+	 * library id's (a release lb-bot found: its Cover Art Archive URL). Given the card's
+	 * interaction source so the cover ripples for a press anywhere on the card; it takes no
+	 * part in the shared-element transition, having no library page to fly into.
+	 */
+	cover: (@Composable (MutableInteractionSource) -> Unit)? = null,
+	/** navi-connect: laid over the cover (a release's state, a one-tap acquire). */
+	coverOverlay: (@Composable BoxScope.() -> Unit)? = null,
+	/** navi-connect: makes the subtitle its own link (Fresh's artist name). */
+	onSubtitleClick: (() -> Unit)? = null,
+	/** navi-connect: a third line under the subtitle (Fresh's release date, "In library"). */
+	caption: String? = null
 ) {
 	val interactionSource = remember { MutableInteractionSource() }
 	with(LocalSharedTransitionScope.current) {
@@ -132,24 +147,31 @@ fun ArtGridItem(
 				}
 				.then(modifier)
 		) {
-			CoverArt(
-				coverArtId = coverArtId,
-				contentDescription = title,
-				isArtist = isArtist,
-				modifier = Modifier
-					.fillMaxWidth()
-					.sharedElement(
-						sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
-						boundsTransform = BoundsTransform { _, _ ->
-							tween(
-								durationMillis = 500,
-								easing = EmphasizedDecelerateEasing
-							)
-						},
-						animatedVisibilityScope = LocalNavAnimatedContentScope.current
-					),
-				interactionSource = interactionSource
-			)
+			Box(Modifier.fillMaxWidth()) {
+				if (cover != null) {
+					cover(interactionSource)
+				} else {
+					CoverArt(
+						coverArtId = coverArtId,
+						contentDescription = title,
+						isArtist = isArtist,
+						modifier = Modifier
+							.fillMaxWidth()
+							.sharedElement(
+								sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
+								boundsTransform = BoundsTransform { _, _ ->
+									tween(
+										durationMillis = 500,
+										easing = EmphasizedDecelerateEasing
+									)
+								},
+								animatedVisibilityScope = LocalNavAnimatedContentScope.current
+							),
+						interactionSource = interactionSource
+					)
+				}
+				coverOverlay?.invoke(this)
+			}
 			Text(
 				text = title,
 				style = MaterialTheme.typography.titleSmallEmphasized,
@@ -161,6 +183,21 @@ fun ArtGridItem(
 				Text(
 					text = subtitle,
 					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier
+						.fillMaxWidth()
+						.then(
+							if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick)
+							else Modifier
+						),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
+			caption?.ifBlank { null }?.let {
+				Text(
+					text = it,
+					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.fillMaxWidth(),
 					maxLines = 1,

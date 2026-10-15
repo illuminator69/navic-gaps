@@ -1,24 +1,41 @@
 package paige.navic.ui.screens.fresh
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import navic.composeapp.generated.resources.title_fresh_window
+import navic.composeapp.generated.resources.title_sort_by
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.icons.outlined.Sort
+import paige.navic.ui.components.common.GroupHeader
+import paige.navic.ui.components.common.PageChips
+import paige.navic.ui.components.layouts.ArtGrid
+import paige.navic.ui.components.layouts.ArtGridItem
+import paige.navic.ui.components.layouts.TopBarButton
+import paige.navic.ui.components.layouts.artGridPlaceholder
+import paige.navic.ui.components.sheets.SortSheet
+import paige.navic.ui.screens.fresh.viewmodels.FreshUi
+import paige.navic.ui.util.withoutTop
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -28,7 +45,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
@@ -110,6 +126,7 @@ fun FreshScreen(nested: Boolean = false) {
 		}
 	)
 	val preferenceManager = koinInject<PreferenceManager>()
+	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -117,16 +134,31 @@ fun FreshScreen(nested: Boolean = false) {
 	// read, plus one request only when the cached feed has gone stale (FreshViewModel.revalidate).
 	LaunchedEffect(Unit) { viewModel.revalidate() }
 
+	// The order and the window are upstream's sort sheet, as every library list's are; the
+	// scope and the type stay chips, being what the page is OF rather than how it is ordered.
+	val actions: @Composable RowScope.() -> Unit = {
+		FreshSortButton(
+			nested = nested,
+			state = state,
+			onSort = { viewModel.setSort(it) },
+			onDays = { viewModel.setDays(it) }
+		)
+	}
+
 	Scaffold(
 		topBar = {
-			val title = @Composable { Text(stringResource(Res.string.title_fresh)) }
-			if (!nested) RootTopBar(title, scrollBehavior) else NestedTopBar(title)
+			Column {
+				val title = @Composable { Text(stringResource(Res.string.title_fresh)) }
+				if (!nested) RootTopBar(title, scrollBehavior, actions)
+				else NestedTopBar(title, actions = actions)
+				FreshScopeChips(state = state, onScope = { viewModel.setScope(it) })
+			}
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested ||
+			val preferVisible =
 				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
-			) {
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
@@ -140,30 +172,37 @@ fun FreshScreen(nested: Boolean = false) {
 			// screen leaves `all` equal, and the indicator would never be told to stop.
 			key = state.all to state.loading
 		) {
-			LazyVerticalGrid(
-				columns = GridCells.Fixed(2),
-				contentPadding = androidx.compose.foundation.layout.PaddingValues(
-					start = 12.dp,
-					end = 12.dp,
-					bottom = innerPadding.calculateBottomPadding() + 24.dp
-				),
-				horizontalArrangement = Arrangement.spacedBy(12.dp),
-				verticalArrangement = Arrangement.spacedBy(12.dp)
+			// Upstream's grid: its columns follow the user's grid size on a phone and the cover
+			// size beyond, so a tablet shows as many as the album list does rather than two.
+			ArtGrid(
+				modifier = if (!nested) {
+					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+				} else Modifier,
+				contentPadding = innerPadding.withoutTop()
 			) {
-				item(span = { GridItemSpan(maxLineSpan) }) {
-					FreshFilters(
-						state = state,
-						onScope = { viewModel.setScope(it) },
-						onDays = { viewModel.setDays(it) },
-						onSort = { viewModel.setSort(it) },
-						onType = { viewModel.setType(it) }
+				item(span = { GridItemSpan(maxLineSpan) }, key = "types") {
+					PageChips(
+						options = FreshType.entries,
+						selected = state.type,
+						label = { type -> typeLabel(type) + " (${state.typeCounts[type] ?: 0})" },
+						onSelect = { viewModel.setType(it) },
+						contentPadding = PaddingValues(0.dp)
 					)
 				}
 
-				if (state.groups.isEmpty() && !state.loading) {
+				if (state.groups.isEmpty() && state.loading) {
+					artGridPlaceholder()
+					return@ArtGrid
+				}
+
+				if (state.groups.isEmpty()) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
-						Column(horizontalAlignment = Alignment.CenterHorizontally) {
+						Column(
+							modifier = Modifier.padding(vertical = 48.dp),
+							horizontalAlignment = Alignment.CenterHorizontally
+						) {
 							ContentUnavailable(
+								modifier = Modifier.fillMaxWidth(),
 								icon = Icons.Outlined.Album,
 								label = stringResource(
 									when {
@@ -188,13 +227,17 @@ fun FreshScreen(nested: Boolean = false) {
 							}
 						}
 					}
-					return@LazyVerticalGrid
+					return@ArtGrid
 				}
 
 				state.groups.forEach { group ->
 					group.bucket?.let { bucket ->
 						item(span = { GridItemSpan(maxLineSpan) }, key = "h$bucket") {
-							BucketHeader(bucket, group.items.size)
+							GroupHeader(
+								title = bucketLabel(bucket),
+								count = group.items.size,
+								modifier = Modifier.animateItem()
+							)
 						}
 					}
 					items(
@@ -204,7 +247,8 @@ fun FreshScreen(nested: Boolean = false) {
 						FreshTile(
 							release = release,
 							onClick = { open(backStack, release) },
-							onArtistClick = openArtist(backStack, release)
+							onArtistClick = openArtist(backStack, release),
+							modifier = Modifier.animateItem()
 						)
 					}
 				}
@@ -279,85 +323,89 @@ private fun openArtist(backStack: MutableList<NavKey>, release: LbFreshRelease):
 	return null
 }
 
+/**
+ * Whose releases: your artists, everyone's, or the artists you play (only when some row has
+ * plays: a feed whose rows all say 0 is a listens mirror that is off or still importing as
+ * readily as "none of them released anything", and a chip reading "(0)" would claim the second).
+ */
 @Composable
-private fun FreshFilters(
-	state: paige.navic.ui.screens.fresh.viewmodels.FreshUi,
-	onScope: (FreshScope) -> Unit,
-	onDays: (Int) -> Unit,
+private fun FreshScopeChips(state: FreshUi, onScope: (FreshScope) -> Unit) {
+	val scopes = buildList {
+		add(FreshScope.YOURS)
+		add(FreshScope.ALL)
+		if (state.playedOffered) add(FreshScope.PLAYED)
+	}
+	PageChips(
+		options = scopes,
+		selected = state.scope,
+		label = { scope ->
+			when (scope) {
+				FreshScope.YOURS ->
+					stringResource(Res.string.fresh_scope_yours) + " (${state.ownedArtistCount})"
+				FreshScope.ALL -> stringResource(Res.string.fresh_scope_all) + " (${state.all.size})"
+				FreshScope.PLAYED ->
+					stringResource(Res.string.fresh_scope_played) + " (${state.playedCount})"
+			}
+		},
+		onSelect = onScope,
+		contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
+	)
+}
+
+/**
+ * Upstream's sort button and sheet: the order (newest first, or by artist) and the window.
+ * "Artists you play" has its own order, most played first, so there the sheet offers the window
+ * alone: two sort rows would be a control that does nothing.
+ */
+@Composable
+private fun FreshSortButton(
+	nested: Boolean,
+	state: FreshUi,
 	onSort: (FreshSort) -> Unit,
-	onType: (FreshType) -> Unit
+	onDays: (Int) -> Unit
 ) {
-	Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-		Row(
-			Modifier.horizontalScroll(rememberScrollState()),
-			horizontalArrangement = Arrangement.spacedBy(8.dp)
-		) {
-			FilterChip(
-				selected = state.scope == FreshScope.YOURS,
-				onClick = { onScope(FreshScope.YOURS) },
-				label = {
-					Text(
-						stringResource(Res.string.fresh_scope_yours) +
-							" (${state.ownedArtistCount})"
-					)
-				}
-			)
-			FilterChip(
-				selected = state.scope == FreshScope.ALL,
-				onClick = { onScope(FreshScope.ALL) },
-				label = { Text(stringResource(Res.string.fresh_scope_all) + " (${state.all.size})") }
-			)
-			// Only when some row has plays. A feed whose rows all say 0 is a listens mirror
-			// that is off or still importing as readily as "none of them released anything",
-			// and a chip reading "(0)" would claim the second.
-			if (state.playedOffered) {
-				FilterChip(
-					selected = state.scope == FreshScope.PLAYED,
-					onClick = { onScope(FreshScope.PLAYED) },
-					label = {
-						Text(
-							stringResource(Res.string.fresh_scope_played) +
-								" (${state.playedCount})"
+	var expanded by remember { mutableStateOf(false) }
+	val icon = @Composable {
+		Icon(Icons.Outlined.Sort, contentDescription = stringResource(Res.string.title_sort_by))
+	}
+	if (!nested) IconButton(onClick = { expanded = true }) { icon() }
+	else TopBarButton(onClick = { expanded = true }) { icon() }
+	if (expanded) {
+		val entries = remember(state.scope) {
+			if (state.scope == FreshScope.PLAYED) persistentListOf()
+			else FreshSort.entries.toImmutableList()
+		}
+		SortSheet(
+			entries = entries,
+			label = {
+				stringResource(
+					when (it) {
+						FreshSort.DATE -> Res.string.fresh_sort_date
+						FreshSort.ARTIST -> Res.string.fresh_sort_artist
+					}
+				)
+			},
+			selectedSorting = state.sort,
+			onSetSorting = onSort,
+			extraContent = {
+				Text(
+					text = stringResource(Res.string.title_fresh_window),
+					style = MaterialTheme.typography.titleMedium,
+					modifier = Modifier.padding(top = 8.dp)
+				)
+				SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+					WINDOWS.forEachIndexed { index, days ->
+						SegmentedButton(
+							shape = SegmentedButtonDefaults.itemShape(index = index, count = WINDOWS.size),
+							onClick = { onDays(days) },
+							selected = state.days == days,
+							label = { Text(stringResource(Res.string.fresh_window_days, days)) }
 						)
 					}
-				)
-			}
-			WINDOWS.forEach { days ->
-				FilterChip(
-					selected = state.days == days,
-					onClick = { onDays(days) },
-					label = { Text(stringResource(Res.string.fresh_window_days, days)) }
-				)
-			}
-			// "Artists you play" has its own order — most played first — so the two sort
-			// chips would be a control that does nothing. Hidden there, not disabled.
-			if (state.scope != FreshScope.PLAYED) {
-				FilterChip(
-					selected = state.sort == FreshSort.DATE,
-					onClick = { onSort(FreshSort.DATE) },
-					label = { Text(stringResource(Res.string.fresh_sort_date)) }
-				)
-				FilterChip(
-					selected = state.sort == FreshSort.ARTIST,
-					onClick = { onSort(FreshSort.ARTIST) },
-					label = { Text(stringResource(Res.string.fresh_sort_artist)) }
-				)
-			}
-		}
-		Row(
-			Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),
-			horizontalArrangement = Arrangement.spacedBy(8.dp)
-		) {
-			FreshType.entries.forEach { type ->
-				FilterChip(
-					selected = state.type == type,
-					onClick = { onType(type) },
-					label = {
-						Text(typeLabel(type) + " (${state.typeCounts[type] ?: 0})")
-					}
-				)
-			}
-		}
+				}
+			},
+			onDismissRequest = { expanded = false }
+		)
 	}
 }
 
@@ -373,92 +421,56 @@ private fun typeLabel(type: FreshType): String = stringResource(
 )
 
 @Composable
-private fun BucketHeader(bucket: Int, count: Int) {
-	Row(
-		Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(10.dp)
-	) {
-		Text(
-			stringResource(
-				when (bucket) {
-					-1 -> Res.string.fresh_bucket_upcoming
-					0 -> Res.string.fresh_bucket_this_week
-					1 -> Res.string.fresh_bucket_last_week
-					2 -> Res.string.fresh_bucket_two_weeks
-					3 -> Res.string.fresh_bucket_three_weeks
-					else -> Res.string.fresh_bucket_earlier
-				}
-			),
-			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.onSurfaceVariant
-		)
-		HorizontalDivider(Modifier.weight(1f))
-		Text(
-			count.toString(),
-			style = MaterialTheme.typography.labelSmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant
-		)
+private fun bucketLabel(bucket: Int): String = stringResource(
+	when (bucket) {
+		-1 -> Res.string.fresh_bucket_upcoming
+		0 -> Res.string.fresh_bucket_this_week
+		1 -> Res.string.fresh_bucket_last_week
+		2 -> Res.string.fresh_bucket_two_weeks
+		3 -> Res.string.fresh_bucket_three_weeks
+		else -> Res.string.fresh_bucket_earlier
 	}
-}
+)
 
+/**
+ * One release, as upstream's grid card (`ArtGridItem`) with its cover from the Cover Art Archive:
+ * a release nobody owns has no Navidrome art, and plenty of release-groups have no front cover at
+ * all, which `RemoteCoverArt` falls back from rather than showing a broken image. The artist name
+ * is its own link wherever there is somewhere for it to go, as Feishin's tile has always had it.
+ */
 @Composable
 private fun FreshTile(
 	release: LbFreshRelease,
 	onClick: () -> Unit,
-	onArtistClick: (() -> Unit)? = null
+	onArtistClick: (() -> Unit)? = null,
+	modifier: Modifier = Modifier
 ) {
-	// Straight from the Cover Art Archive. A release nobody owns has no Navidrome
-	// art, and plenty of release-groups have no front cover at all — RemoteCoverArt
-	// falls back rather than showing a broken image.
 	val cover = release.coverUrl.ifBlank { LbBotManager.caaCoverUrl(release.releaseGroupMbid) }
 	val upcoming = FreshViewModel.daysSince(release.releaseDate)?.let { it < 0 } == true
-
-	Column(Modifier.fillMaxWidth()) {
-		RemoteCoverArt(
-			url = cover,
-			contentDescription = release.releaseName,
-			onClick = onClick,
-			modifier = Modifier.fillMaxWidth()
-		)
-		Text(
-			release.releaseName,
-			style = MaterialTheme.typography.bodyMedium,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.padding(top = 6.dp)
-		)
-		// The artist name is a tap target wherever there is somewhere for it to
-		// go — Feishin's tile has always linked it, and this one had no artist
-		// affordance at all, so reaching an artist from Fresh meant opening an
-		// album first.
-		Text(
-			release.artist,
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = if (onArtistClick != null) {
-				Modifier.clickable(onClick = onArtistClick)
-			} else {
-				Modifier
-			}
-		)
-		// Only the exact release being on disk earns "in library" — an owned artist
-		// with a brand-new album is still a download, and saying otherwise here
-		// would mislabel the majority of the rows this page exists to show.
-		val badge = when {
-			release.releaseOwned -> stringResource(Res.string.fresh_chip_in_library)
-			upcoming -> stringResource(Res.string.fresh_chip_upcoming)
-			else -> release.releaseDate
-		}
-		if (badge.isNotBlank()) {
-			Text(
-				badge,
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1
-			)
-		}
+	// Only the exact release being on disk earns "in library": an owned artist with a brand-new
+	// album is still a download, and saying otherwise would mislabel most of this page.
+	val caption = when {
+		release.releaseOwned -> stringResource(Res.string.fresh_chip_in_library)
+		upcoming -> stringResource(Res.string.fresh_chip_upcoming)
+		else -> release.releaseDate
 	}
+	ArtGridItem(
+		modifier = modifier,
+		onClick = onClick,
+		coverArtId = null,
+		title = release.releaseName,
+		subtitle = release.artist,
+		id = release.releaseGroupMbid.ifBlank { release.releaseMbid },
+		tab = "fresh",
+		cover = { source ->
+			RemoteCoverArt(
+				url = cover,
+				contentDescription = release.releaseName,
+				modifier = Modifier.fillMaxWidth(),
+				interactionSource = source
+			)
+		},
+		onSubtitleClick = onArtistClick,
+		caption = caption
+	)
 }

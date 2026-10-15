@@ -1,20 +1,50 @@
 package paige.navic.ui.screens.mixes
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
+import androidx.compose.material3.MediumFloatingActionButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.IntOffset
+import navic.composeapp.generated.resources.action_more
+import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
+import paige.navic.domain.models.settings.BottomBarCollapseMode
+import paige.navic.icons.outlined.Add
+import paige.navic.icons.outlined.PlaylistAdd
+import paige.navic.ui.components.common.SegmentedListButton
+import paige.navic.ui.components.common.SegmentedListButtonDefaults
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.layouts.TopBarButton
+import paige.navic.ui.util.withoutTop
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,7 +54,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,17 +92,10 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Badge
 import paige.navic.icons.outlined.Delete
-import paige.navic.icons.outlined.List
 import paige.navic.icons.outlined.MoreVert
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.common.Dropdown
-import paige.navic.ui.components.common.DropdownItem
-import paige.navic.ui.components.common.Form
-import paige.navic.ui.components.common.FormButton
-import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -147,88 +169,128 @@ fun MixListScreen(nested: Boolean = false) {
 		}
 	}
 
+	var sheetTarget by remember { mutableStateOf<Mix?>(null) }
+	val platformContext = LocalPlatformContext.current
+	val scrollManager = LocalBottomBarScrollManager.current
+	val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+	val scaleInSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+	val liveRecipe = recipe
+
+	// "Save what's playing" is the one-tap create: the autoplay settings already in force ARE a
+	// recipe, and until mixes existed they were simply discarded at the end of the session.
+	// Offered only while something is actually steering playback, so it never saves an empty
+	// recipe. A top-bar action, beside the floating button's general "New mix".
+	val actions: @Composable RowScope.() -> Unit = {
+		if (liveRecipe != null && connected) {
+			val icon = @Composable {
+				Icon(
+					Icons.Outlined.PlaylistAdd,
+					contentDescription = stringResource(Res.string.mix_save_current)
+				)
+			}
+			if (!nested) IconButton(onClick = { saveTarget = liveRecipe }) { icon() }
+			else TopBarButton(onClick = { saveTarget = liveRecipe }) { icon() }
+		}
+	}
+
 	// A root tab, so it wears the root chrome — `App.kt` wraps it in `Washed` and it
 	// must not re-enter `NavicTheme` (§6 rule 6). Reached both as a tab and from
 	// Discover's "See all", hence `nested`, exactly like Fresh and Discover.
 	Scaffold(
 		topBar = {
 			val title = @Composable { Text(stringResource(Res.string.title_discover_mixes)) }
-			if (!nested) RootTopBar(title, scrollBehavior) else NestedTopBar(title)
+			if (!nested) RootTopBar(title, scrollBehavior, actions)
+			else NestedTopBar(title, actions = actions)
 		},
 		snackbarHost = { SnackbarHost(snackbarHostState) },
-		bottomBar = {
-			val scrollManager = LocalBottomBarScrollManager.current
-			if (!nested ||
-				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
-			) {
-				RootBottomBar(scrolled = scrollManager.isTriggered)
-			}
-		}
-	) { innerPadding ->
-		Column(
-			Modifier
-				.padding(innerPadding)
-				.fillMaxSize()
-				.verticalScroll(rememberScrollState())
-				.padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp)
-		) {
-			if (mixes.isEmpty()) {
-				ContentUnavailable(
-					// NOT fillMaxSize(): this sits inside a verticalScroll, where the
-					// height constraint is infinite and filling it would blow up. Same
-					// trap the Download Center's empty state hit.
-					modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-					icon = Icons.Outlined.PlaylistPlay,
-					label = stringResource(Res.string.info_no_mixes),
-					description = stringResource(Res.string.info_no_mixes_hint)
-				)
-			} else {
-				Form {
-					mixes.forEach { mix ->
-						MixRow(
-							mix = mix,
-							busy = busyId == mix.id,
-							// `dropUnlessResumed` because regenerating navigates
-							// nowhere but does start playback, and a double tap
-							// during the transition would run the recipe twice.
-							onClick = dropUnlessResumed { viewModel.play(mix) },
-							onPreview = { viewModel.preview(mix) },
-							onRename = { renameTarget = mix },
-							onDelete = { deleteTarget = mix }
+		// "New mix" is the general create, and the only way to reach the `genre` and `artist`
+		// kinds at all: the autoplay modes cannot express them. Upstream's create button, as
+		// on the playlist list.
+		floatingActionButton = {
+			AnimatedContent(
+				connected && (!scrollManager.isTriggered ||
+					preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never),
+				transitionSpec = {
+					val transformOrigin = TransformOrigin(0f, 1f)
+					(slideInHorizontally(slideSpec) { it / 2 }
+						+ scaleIn(scaleInSpec, transformOrigin = transformOrigin)
+						+ slideInVertically(slideSpec) { it / 2 })
+						.togetherWith(slideOutHorizontally(slideSpec) { it / 2 }
+							+ scaleOut(transformOrigin = transformOrigin)
+							+ slideOutVertically(slideSpec) { it / 2 })
+						.using(SizeTransform(clip = false))
+				}
+			) { shown ->
+				if (shown) {
+					MediumFloatingActionButton(
+						shape = MaterialTheme.shapes.large,
+						containerColor = MaterialTheme.colorScheme.primary,
+						onClick = {
+							viewModel.loadSeedOptions()
+							formOpen = true
+						}
+					) {
+						Icon(
+							imageVector = Icons.Outlined.Add,
+							contentDescription = stringResource(Res.string.mix_new),
+							modifier = Modifier.size(26.dp)
 						)
 					}
 				}
 			}
-
-			// Two create paths, and they are not redundant.
-			//
-			// "New mix" is the general one, and the only way to reach the `genre`
-			// and `artist` kinds at all — the autoplay modes below cannot express
-			// them, so before it existed those two recipes could only arrive from
-			// Feishin.
-			//
-			// "Save what's playing" is the one-tap one: the autoplay settings
-			// already in force ARE a recipe, and until mixes existed they were
-			// simply discarded at the end of the session. Offered only while
-			// something is actually steering playback, so it never saves an empty
-			// recipe.
-			if (connected) {
-				Spacer(Modifier.height(8.dp))
-				FormButton(onClick = {
-					viewModel.loadSeedOptions()
-					formOpen = true
-				}) {
-					Text(stringResource(Res.string.mix_new))
-				}
-			}
-			val liveRecipe = recipe
-			if (liveRecipe != null && connected) {
-				Spacer(Modifier.height(8.dp))
-				FormButton(onClick = { saveTarget = liveRecipe }) {
-					Text(stringResource(Res.string.mix_save_current))
-				}
+		},
+		bottomBar = {
+			val preferVisible =
+				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			if (!nested || (!platformContext.isLandscape() && preferVisible)) {
+				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
+	) { innerPadding ->
+		LazyColumn(
+			modifier = Modifier
+				.padding(top = innerPadding.calculateTopPadding())
+				.fillMaxSize()
+				.then(if (!nested) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+				.padding(horizontal = 16.dp),
+			contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 88.dp),
+			verticalArrangement = if (mixes.isEmpty()) Arrangement.Center
+			else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
+		) {
+			if (mixes.isEmpty()) {
+				item(key = "empty") {
+					ContentUnavailable(
+						modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+						icon = Icons.Outlined.PlaylistPlay,
+						label = stringResource(Res.string.info_no_mixes),
+						description = stringResource(Res.string.info_no_mixes_hint)
+					)
+				}
+			}
+			itemsIndexed(mixes, key = { _, mix -> mix.id }) { index, mix ->
+				MixRow(
+					mix = mix,
+					shapes = segmentedShapes(index = index, count = mixes.size),
+					busy = busyId == mix.id,
+					// `dropUnlessResumed` because regenerating navigates nowhere but does
+					// start playback, and a double tap during the transition would run the
+					// recipe twice.
+					onClick = dropUnlessResumed { viewModel.play(mix) },
+					onMenu = { sheetTarget = mix },
+					modifier = Modifier.animateItem()
+				)
+			}
+		}
+	}
+
+	sheetTarget?.let { target ->
+		MixSheet(
+			mix = target,
+			onDismissRequest = { sheetTarget = null },
+			onPreview = { viewModel.preview(target) },
+			onRename = { renameTarget = target },
+			onDelete = { deleteTarget = target }
+		)
 	}
 
 	val previewing by viewModel.previewing.collectAsStateWithLifecycle()
@@ -296,87 +358,75 @@ fun MixListScreen(nested: Boolean = false) {
 			icon = { Icon(Icons.Outlined.Delete, null) },
 			title = { Text(stringResource(Res.string.title_delete_mix)) },
 			buttons = {
-				FormButton(
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
 					onClick = {
 						viewModel.delete(target.id)
 						deleteTarget = null
 					},
-					color = MaterialTheme.colorScheme.error
+					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+					colors = SegmentedListButtonDefaults.errorColors()
 				) { Text(stringResource(Res.string.action_delete)) }
-				FormButton(onClick = { deleteTarget = null }) {
-					Text(stringResource(Res.string.action_cancel))
-				}
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = { deleteTarget = null },
+					shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+				) { Text(stringResource(Res.string.action_cancel)) }
 			},
 			content = { Text(target.name) }
 		)
 	}
 }
 
+/**
+ * One recipe, as a segmented library row: its face, its name, and what kind of recipe it is. It
+ * deliberately says nothing a saved-queue row says (how many tracks, where it left off), because a
+ * mix holds no tracks until it is played; that absence is the feature. A tap plays it; a long
+ * press, or the "more" button, opens its sheet.
+ */
 @Composable
 private fun MixRow(
 	mix: Mix,
+	shapes: ListItemShapes,
 	busy: Boolean,
 	onClick: () -> Unit,
-	onPreview: () -> Unit,
-	onRename: () -> Unit,
-	onDelete: () -> Unit
+	onMenu: () -> Unit,
+	modifier: Modifier = Modifier
 ) {
-	var menuOpen by remember { mutableStateOf(false) }
-	FormRow(onClick = if (busy) null else onClick) {
-		Box(Modifier.size(44.dp).padding(end = 12.dp), contentAlignment = Alignment.Center) {
-			if (busy) {
-				// Regenerating is a round trip to AudioMuse or Navidrome, and without
-				// this the tap looks like it did nothing for as long as it takes.
-				CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-			} else {
-				MixArtwork(mix = mix)
+	SegmentedListItem(
+		onClick = onClick,
+		onLongClick = onMenu,
+		enabled = !busy,
+		shapes = shapes,
+		modifier = modifier,
+		colors = ListItemDefaults.colors(
+			containerColor = SongRowDefaults.containerColor(false),
+			supportingContentColor = SongRowDefaults.supportingContentColor(false),
+			disabledContainerColor = SongRowDefaults.containerColor(false)
+		),
+		verticalAlignment = Alignment.CenterVertically,
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
+				if (busy) {
+					// Regenerating is a round trip to AudioMuse or Navidrome, and without this
+					// the tap looks like it did nothing for as long as it takes.
+					CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+				} else {
+					MixArtwork(mix = mix, modifier = Modifier.size(50.dp))
+				}
+			}
+		},
+		content = { Text(mix.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		supportingContent = {
+			Text(mixKindLabel(mix), maxLines = 1, overflow = TextOverflow.Ellipsis)
+		},
+		trailingContent = {
+			IconButton(onClick = onMenu) {
+				Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(Res.string.action_more))
 			}
 		}
-		Column(Modifier.weight(1f)) {
-			Text(mix.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-			Text(
-				mixKindLabel(mix),
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-		}
-		Row(verticalAlignment = Alignment.CenterVertically) {
-			IconButton(onClick = { menuOpen = true }) {
-				Icon(Icons.Outlined.MoreVert, contentDescription = null, Modifier.size(20.dp))
-			}
-			Dropdown(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-				// First, because it is the only entry that answers "what is in this"
-				// — and unlike every other list in the app, that question has no
-				// answer here until the recipe has actually been run.
-				DropdownItem(
-					text = { Text(stringResource(Res.string.mix_preview)) },
-					onClick = {
-						menuOpen = false
-						onPreview()
-					},
-					leadingIcon = { Icon(Icons.Outlined.List, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_rename)) },
-					onClick = {
-						menuOpen = false
-						onRename()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Badge, null) }
-				)
-				DropdownItem(
-					text = { Text(stringResource(Res.string.action_delete)) },
-					onClick = {
-						menuOpen = false
-						onDelete()
-					},
-					leadingIcon = { Icon(Icons.Outlined.Delete, null) }
-				)
-			}
-		}
-	}
+	)
 }
 
 @Composable
@@ -391,16 +441,21 @@ private fun MixNameDialog(
 		onDismissRequest = onDismissRequest,
 		title = { Text(title) },
 		buttons = {
-			FormButton(
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
 				onClick = { onConfirm(nameState.text.toString()) },
-				color = MaterialTheme.colorScheme.primary
+				enabled = nameState.text.isNotBlank(),
+				shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+				colors = SegmentedListButtonDefaults.primaryColors()
 			) { Text(stringResource(Res.string.action_ok)) }
-			FormButton(onClick = onDismissRequest) {
-				Text(stringResource(Res.string.action_cancel))
-			}
+			SegmentedListButton(
+				modifier = Modifier.fillMaxWidth(),
+				onClick = onDismissRequest,
+				shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+			) { Text(stringResource(Res.string.action_cancel)) }
 		},
 		content = {
-			TextField(
+			OutlinedTextField(
 				state = nameState,
 				label = { Text(stringResource(Res.string.option_mix_name)) },
 				lineLimits = TextFieldLineLimits.SingleLine
