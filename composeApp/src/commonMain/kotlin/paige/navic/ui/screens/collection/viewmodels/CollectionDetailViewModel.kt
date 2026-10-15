@@ -156,6 +156,11 @@ class CollectionDetailViewModel(
 	private val _similar = MutableStateFlow<LbSimilarAlbums?>(null)
 	val similar = _similar.asStateFlow()
 
+	/** The library's own albums for [similar]'s rows, by album id, read in one Room query: their
+	 *  covers, and the album sheet a long press opens (as on the "More by" row). */
+	private val _similarAlbums = MutableStateFlow<Map<String, DomainAlbum>>(emptyMap())
+	val similarAlbums = _similarAlbums.asStateFlow()
+
 	private val _aboutOpen = MutableStateFlow(false)
 	val aboutOpen = _aboutOpen.asStateFlow()
 
@@ -261,11 +266,17 @@ class CollectionDetailViewModel(
 			// from its own Navidrome artist index before asking ListenBrainz, whose
 			// similar-artists endpoint is keyed by MBID and answers nothing for a
 			// bare name.
-			_similar.value = lbBotManager.similarAlbums(
+			val similar = lbBotManager.similarAlbums(
 				artistMbid = artistMbid,
 				artistName = album.artistName,
 				rgid = rgid
 			)
+			_similarAlbums.value = runCatching {
+				albumRepository.getAlbumsByIds(
+					similar?.albums.orEmpty().map { it.albumId }.filter { it.isNotBlank() }
+				).associateBy { it.id }
+			}.getOrDefault(emptyMap())
+			_similar.value = similar
 		}
 	}
 

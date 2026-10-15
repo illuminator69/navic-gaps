@@ -114,6 +114,12 @@ class AlbumRepository(
 			.toImmutableList()
 	}
 
+	/** navi-connect: the library's albums for a handful of ids (a recommendation row), in one query. */
+	suspend fun getAlbumsByIds(ids: List<String>): List<DomainAlbum> = withContext(Dispatchers.IO) {
+		if (ids.isEmpty()) return@withContext emptyList()
+		albumDao.getAlbumsByIds(ids).map { it.toDomainModel() }
+	}
+
 	suspend fun isAlbumStarred(album: DomainAlbum) = albumDao.isAlbumStarred(album.id)
 	suspend fun getAlbumRating(album: DomainAlbum) = albumDao.getAlbumRating(album.id) ?: 0
 

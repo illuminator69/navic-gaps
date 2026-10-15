@@ -2,22 +2,25 @@ package paige.navic.ui.components.common
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
-import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
 /**
  * Cover art from a third-party host, for a release the library does not have.
@@ -43,7 +46,9 @@ fun RemoteCoverArt(
 	onLongClick: (() -> Unit)? = null,
 	square: Boolean = true,
 	crossfadeMs: Int = 500,
-	shape: Shape? = null
+	shape: Shape? = null,
+	/** The card's own, so a press anywhere on the card ripples the cover (as `CoverArt`). */
+	interactionSource: MutableInteractionSource? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val resolvedShape = shape ?: preferenceManager.coverArtShape.shape
@@ -67,6 +72,10 @@ fun RemoteCoverArt(
 		.then(
 			if (onClick != null)
 				Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+			else Modifier
+		)
+		.then(
+			if (interactionSource != null) Modifier.indication(interactionSource, ripple())
 			else Modifier
 		)
 

@@ -1,7 +1,9 @@
 package paige.navic.ui.components.common
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import paige.navic.domain.manager.LbArt
 
 /**
@@ -15,7 +17,12 @@ fun LbArtImage(
 	art: LbArt,
 	modifier: Modifier = Modifier,
 	contentDescription: String? = null,
-	onClick: (() -> Unit)? = null
+	onClick: (() -> Unit)? = null,
+	onLongClick: (() -> Unit)? = null,
+	/** A row's thumbnail passes the decreased cover shape, as upstream's list rows do. */
+	shape: Shape? = null,
+	/** A card's own, so the cover ripples for a press anywhere on the card. */
+	interactionSource: MutableInteractionSource? = null
 ) {
 	when (art) {
 		is LbArt.Library -> CoverArt(
@@ -23,20 +30,29 @@ fun LbArtImage(
 			coverArtId = art.coverArtId,
 			contentDescription = contentDescription,
 			onClick = onClick,
-			isArtist = art.isArtist
+			onLongClick = onLongClick,
+			isArtist = art.isArtist,
+			shape = shape,
+			interactionSource = interactionSource
 		)
 		is LbArt.Remote -> RemoteCoverArt(
 			modifier = modifier,
 			url = art.url,
 			contentDescription = contentDescription,
-			onClick = onClick
+			onClick = onClick,
+			onLongClick = onLongClick,
+			shape = shape,
+			interactionSource = interactionSource
 		)
 		is LbArt.Placeholder -> CoverArt(
 			modifier = modifier,
 			coverArtId = null,
 			contentDescription = contentDescription,
 			onClick = onClick,
-			isArtist = art.isArtist
+			onLongClick = onLongClick,
+			isArtist = art.isArtist,
+			shape = shape,
+			interactionSource = interactionSource
 		)
 	}
 }

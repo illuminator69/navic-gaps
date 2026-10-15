@@ -138,6 +138,7 @@ fun CollectionDetailScreen(
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
+	val similarAlbums by viewModel.similarAlbums.collectAsState()
 	val allDownloads by viewModel.allDownloads.collectAsState()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
@@ -584,7 +585,24 @@ fun CollectionDetailScreen(
 
 				// Deliberately above "More by this artist": that row is more of
 				// the same record's artist, this one is the reason to look up.
-				collectionDetailScreenSimilarAlbumsRow(similar)
+				collectionDetailScreenSimilarAlbumsRow(
+					similar = similar,
+					libraryAlbums = similarAlbums,
+					selectedAlbum = selectedAlbum,
+					onSetShareId = { shareId = it },
+					onPlayNext = if (selectedAlbum != null) {
+						{ player.playNext(selectedAlbum as DomainSongCollection) }
+					} else null,
+					onAddToQueue = if (selectedAlbum != null) {
+						{ player.addToQueue(selectedAlbum as DomainSongCollection) }
+					} else null,
+					selectedAlbumRating = selectedAlbumRating,
+					selectedAlbumStarred = selectedAlbumIsStarred,
+					onSetAlbumRating = { viewModel.rateSelectedAlbum(it) },
+					onSetAlbumStarred = { viewModel.starSelectedAlbum(it) },
+					onSelect = { viewModel.selectAlbum(it) },
+					onDeselect = { viewModel.clearSelection() }
+				)
 
 				(collection as? DomainAlbum)?.artistName?.let { artistName ->
 					collectionDetailScreenMoreByArtistRow(

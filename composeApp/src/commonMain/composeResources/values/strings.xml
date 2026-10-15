@@ -1172,4 +1172,6 @@
 	<string name="queue_generator_mood_flow">Mood Flow</string>
 	<string name="queue_generator_fingerprint">Sonic Fingerprint</string>
 	<string name="queue_generator_audiomuse">AudioMuse mix</string>
+	<string name="title_similar_albums">Similar albums</string>
+	<string name="info_similar_albums_because">Because you're listening to %1$s</string>
 </resources>
