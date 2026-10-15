@@ -1,4 +1,4 @@
-package paige.navic.ui.screens.wishlist
+package paige.navic.ui.screens.downloads
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,7 +45,7 @@ import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.wishlist.viewmodels.WishlistViewModel
+import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
 
 /**
  * The wishlist: what you asked for and nobody had.

@@ -130,7 +130,7 @@ import paige.navic.ui.screens.settings.SettingsAboutScreen
 import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
-import paige.navic.ui.screens.settings.DownloadCenterScreen
+import paige.navic.ui.screens.downloads.DownloadCenterScreen
 import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
@@ -143,7 +143,7 @@ import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
 import paige.navic.ui.screens.listening.ListeningScreen
 import paige.navic.ui.screens.matches.LibraryMatchesScreen
-import paige.navic.ui.screens.wishlist.WishlistScreen
+import paige.navic.ui.screens.downloads.WishlistScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
 import paige.navic.ui.screens.song.SongDetailScreen

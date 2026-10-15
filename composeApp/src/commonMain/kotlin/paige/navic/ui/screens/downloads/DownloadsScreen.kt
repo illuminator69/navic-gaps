@@ -1,4 +1,4 @@
-package paige.navic.ui.screens.settings
+package paige.navic.ui.screens.downloads
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -132,8 +132,8 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import paige.navic.di.LocalNavStack
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.settings.viewmodels.DownloadCenterItem
-import paige.navic.ui.screens.settings.viewmodels.DownloadCenterViewModel
+import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterItem
+import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle

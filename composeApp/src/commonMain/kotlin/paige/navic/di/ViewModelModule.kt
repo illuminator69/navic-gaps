@@ -20,7 +20,7 @@ import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
-import paige.navic.ui.screens.wishlist.viewmodels.WishlistViewModel
+import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
@@ -35,7 +35,7 @@ import paige.navic.ui.screens.radio.viewmodels.RadioListViewModel
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
-import paige.navic.ui.screens.settings.viewmodels.DownloadCenterViewModel
+import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.screens.matches.viewmodels.LibraryMatchesViewModel
 import paige.navic.ui.screens.settings.viewmodels.PendingActionsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel

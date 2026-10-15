@@ -1,4 +1,4 @@
-package paige.navic.ui.screens.settings.viewmodels
+package paige.navic.ui.screens.downloads.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
