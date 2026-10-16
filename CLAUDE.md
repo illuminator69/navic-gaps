@@ -321,6 +321,27 @@ adb shell run-as paige.navic.debug ls cache/       # debug builds only: Coil cac
 - Shut down afterwards: `adb emu kill`, then `./gradlew --stop` — the daemons hold 7 GB
   between them and the emulator is another 3 GB; leaving both up is how the box ran out.
 
+**Measuring motion, place and audio (the sandbox VM's AVD, I-039).** A screenshot shows a state at
+rest; the phone's complaints were about what happens between states. These read it:
+
+- **Frames:** `adb exec-out screenrecord --output-format=frames --size 336x748 --time-limit 4 - >
+  f.bin` gives raw RGB frames, one per screen change, each after a 20-byte header (`<IIIII`: ?,
+  width, height, stride, bytes per pixel). In-between frames prove an animation; a single odd frame
+  is a glitch. Follow an element by matching its own pixels from frame to frame.
+- **Transitions on debug:** the first frame of a pushed page outlasts the 450 ms SharedXAxis, so no
+  in-between frame is drawn in either orientation. Record with `settings put global
+  animator_duration_scale 10`, then set it back to 1.
+- **Audio:** loop `dumpsys media.audio_flinger` on the device and read the app's active track: id,
+  Server frames (hex), Underruns, Flushed. Continuous playback is about 44 frames/ms at 44.1 kHz.
+  The AVD has no audio offload, so a clean reading there does not clear the phone (B-133).
+- **Hub directives:** the umbrella's `hub/tools/fake_receiver.py --echo` as the playing device prints
+  LOAD, "queue changed (N)", jump. Its clock runs past a song's end, so a transfer back from it fails.
+- **Gestures:** a snackbar shows about 1.5 s after its action and goes after about 6, and a dump
+  takes 1 to 2 s, so tap it by coordinates in the same `adb shell` line. A queue row's swipe-to-dismiss
+  needs `input motionevent DOWN / MOVE… / UP`.
+- **Library internals:** there are no sources jars; unzip the transformed jar under
+  `~/.gradle/caches/*/transforms/` and `javap -p -c` it.
+
 ---
 
 ## 4. The player, and what "remote" means here
@@ -342,6 +363,14 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   (which makes `updatePlaybackState` a no-op) and re-derives once afterwards — **except** when the
   queue is now empty, because an empty timeline reports index 0 and would clobber the
   `currentIndex == -1` sentinel every enqueue path reads.
+- **Undo reverses the one edit, and never reloads (B-133).** `performQueueUndo` makes the single
+  insert or move that reverses a swipe or a drag (`queueUndoEdit`, `QueueUndoTest`): locally
+  `insertQueueItem` / `moveQueueItem`; through the hub `move`, or `enqueue` at the end then `move`
+  into place (the hub inserts only next or at the end), each a `queueChanged` that Feishin and Navic
+  apply around the playing song. Loading the snapshot re-prepares the playing item (a second of
+  silence); rebuilding around it still replaces the next item, which a player in audio offload is
+  already decoding; and a whole queue sent to the hub is a `setQueue`, a `load` on the receiver.
+  Anything that is not one edit (a clear, the playing song removed) still loads the snapshot.
 - **A queue reorder must not look like a track change.** Two places read the playing track by
   *index*, and a reorder moves the index without moving the music. `ArtworkPager` draws from a
   snapshot swapped only once the pager has been repositioned, and snaps rather than animates when
@@ -1553,6 +1582,24 @@ true of invented *album art*, and not of an icon naming the kind.
   (registered per platform; §2 rule 3). OkHttp fails a socket whose pong is a full interval late.
 - **Cast requires publicly reachable stream and cover URLs** — the speaker fetches them itself, so
   a Tailscale or LAN address will not do.
+- **The fork's UI rules the phone taught (I-039, 2026-10-16).** The pass rebuilt every surface on
+  upstream's parts and then came back for motion, place and continuity:
+  - **A glitch is fixed without removing the animation.** Material 1.5's `FilterChip` eases its own
+    check in (fastSpatial, which overshoots) and out (defaultEffects); two chips trading it briefly
+    overflowed a full wrapping row. `PageChips` gives wrapping rows one spec for both (B-130); the
+    first fix snapped the size and was sent back for losing the animation.
+  - **A parameter change keeps what is shown until the new answer lands**: `ListeningStats` holds the
+    last summary and unowned list while the next period's are read, dims them, then changes in
+    place (`animateItem`, `RankingItem`'s eased bar) (B-135). The view model still clears.
+  - **What is sized by the cards in view eases its size, both ways**: `ArtCarousel`'s row
+    (`animateContentSize`) (B-134).
+  - **A tap in a list never moves the list**: the queue skips its scroll-to-playing for a track change
+    made by tapping one of its rows (B-132).
+  - **An action sits beside what it acts on**: "Save as a mix" saves the queue's recipe, so it is in
+    the queue's save menu (`QueueSaveButton`), not on Mixed for You; and one glyph per meaning
+    (Discover's compass, Journey's route).
+  - **A fork page that duplicates an upstream page becomes part of it**: My Listening is Stats' tabs
+    (§5), and upstream's own entry, the home's Stats card, follows the history (Q-103).
 - **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
   `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
   `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039
