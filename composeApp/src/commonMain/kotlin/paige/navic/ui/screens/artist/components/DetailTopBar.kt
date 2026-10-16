@@ -79,7 +79,7 @@ fun ArtistDetailScreenTopBar(
 						ArtistSheet(
 							onDismissRequest = { expanded = false },
 							artist = state.artist,
-							onStartRadio = { radioManager.startRadio(state.artist.id) },
+							onStartRadio = { radioManager.startArtistRadio(state.artist.id, state.artist.name) },
 							onPlayNext = {
 								state.albums.reversed().forEach { album ->
 									player.playNext(album)

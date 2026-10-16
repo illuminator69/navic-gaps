@@ -17,7 +17,8 @@ import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
-import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.manager.StationCatalogue
+import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.shared.MediaPlayerViewModel
 
 /**
@@ -127,8 +128,32 @@ class MixListViewModel(
 		.map { it.currentSong }
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-	/** The mood character to offer as the default on a new Adaptive recipe. */
-	val defaultMoodCharacter: MoodCharacter get() = preferenceManager.moodCharacter
+	/** The character a new radio or Your mix recipe is offered with: the one autoplay uses. */
+	val defaultCharacter: StationCharacter get() = preferenceManager.stationCharacter
+
+	/** The hub's station engine can be asked (PROTOCOL §18): Your mix is offered, and radios play as stations. */
+	val stationsAvailable: StateFlow<Boolean> = radioManager.stationsAvailable
+
+	val catalogue: StateFlow<StationCatalogue> = radioManager.catalogue
+
+	/** Whether [mix] plays as a station right now, in which case it has no preview: it is built as it plays. */
+	fun stationBacked(mix: Mix): Boolean = radioManager.stationBacked(mix)
+
+	/**
+	 * Play Your mix, the seedless station that sits at the head of this list. Not a stored
+	 * recipe: there is one, it is always there, and saving it is the queue's "Save as a mix".
+	 */
+	fun playYourMix(name: String) {
+		if (_busyId.value != null) return
+		_busyId.value = YOUR_MIX_ID
+		viewModelScope.launch {
+			try {
+				if (!radioManager.playYourMix(name)) _message.value = MixMessage.RegenerateFailed
+			} finally {
+				_busyId.value = null
+			}
+		}
+	}
 
 	fun clearMessage() { _message.value = null }
 
@@ -237,6 +262,11 @@ class MixListViewModel(
 		}
 		hubManager.actDeleteMix(id)
 	}
+
+	companion object {
+		/** [busyId] while Your mix is starting. No hub id looks like it (`mx_…`). */
+		const val YOUR_MIX_ID = "your-mix"
+	}
 }
 
 /**
@@ -252,6 +282,7 @@ internal fun HubManager.saveMix(recipe: Mix, name: String) {
 		seedName = recipe.seedName,
 		moodCharacter = recipe.moodCharacter,
 		count = recipe.count,
-		coverArtId = recipe.coverArtId
+		coverArtId = recipe.coverArtId,
+		character = recipe.character
 	)
 }

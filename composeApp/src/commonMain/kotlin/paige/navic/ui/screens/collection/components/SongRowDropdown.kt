@@ -59,7 +59,7 @@ fun CollectionDetailScreenSongRowDropdown(
 			},
 			onShare = onShare,
 			onStartRadio = {
-				radioManager.startRadio(song.id, song)
+				radioManager.startRadio(song)
 			},
 			onStartJourney = player.uiState.value.currentSong?.takeIf {
 				radioManager.sonicSimilarityAvailable.value && it.id != song.id

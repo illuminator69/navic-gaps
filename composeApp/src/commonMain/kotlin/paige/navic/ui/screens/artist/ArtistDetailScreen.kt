@@ -195,6 +195,7 @@ fun ArtistDetailScreen(
 	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
 	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
 	val lbBot = koinInject<LbBotManager>()
+	val radioManager = koinInject<paige.navic.domain.manager.RadioManager>()
 
 	// "Merge into one name" (I-023). A merge that lands rewrites one spelling's files to the
 	// other's name, and Navidrome keys artists by name: the rewritten spelling's id is dead.
@@ -666,6 +667,7 @@ fun ArtistDetailScreen(
 			onShare = { shareId = album.id },
 			onPlayNext = { player.playNext(album) },
 			onAddToQueue = { player.addToQueue(album) },
+			onStartRadio = { radioManager.startAlbumRadio(album.id, album.name.orEmpty()) },
 			onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
 			onAddAllToPlaylist = { playlistDialogShown = true },
 			downloadStatus = albumDownloadStatus,

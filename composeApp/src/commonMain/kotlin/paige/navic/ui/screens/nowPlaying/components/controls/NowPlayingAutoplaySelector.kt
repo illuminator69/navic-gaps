@@ -1,12 +1,8 @@
 package paige.navic.ui.screens.nowPlaying.components.controls
 
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import paige.navic.icons.outlined.Check
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -17,79 +13,50 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.blurEffect
 import dev.chrisbanes.haze.hazeEffect
-import kotlinx.coroutines.delay
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.autoplay_off
+import navic.composeapp.generated.resources.autoplay_on
+import navic.composeapp.generated.resources.now_playing_autoplay
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.RadioManager
-import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.icons.outlined.PlaylistPlay
 
 /**
- * Compact autoplay-mode selector for the extended player, sitting between the
- * artwork and the progress bar. A rounded, heavily-frosted "button"; tapping it
- * opens M3's menu under it, the current mode checked; tapping the button again
- * closes it. Tier-2 modes
- * (Sonic Fingerprint, Mood Flow) only appear once the AudioMuse core API is
- * configured. Mode is read/written through RadioManager so the rest of the UI
- * (e.g. the adaptive mood background) reacts live.
+ * Autoplay On / Off for the extended player, between the artwork and the progress bar: a
+ * rounded, frosted switch. On, the queue continues when it runs out, as a radio of what is
+ * playing when the hub has the station engine and as Auto DJ when it has not (I-040); which of
+ * the two is the queue sheet's to say, not this control's. It used to open a menu of four modes.
+ *
+ * Meaningful in every configuration (Auto DJ needs nothing but Navidrome), so its place in the
+ * row is never an empty AudioMuse slot (Q-100).
  */
 @Composable
 fun NowPlayingAutoplaySelector(modifier: Modifier = Modifier, hazeState: HazeState? = null) {
 	val radioManager = koinInject<RadioManager>()
-	val audioMuseManager = koinInject<AudioMuseManager>()
-
-	val mode by radioManager.autoplayMode.collectAsState()
-	var expanded by remember { mutableStateOf(false) }
-	// Guards the reopen race: tapping the button while open first fires the
-	// popup's outside-tap dismiss, which would otherwise let the click re-open it.
-	var justDismissed by remember { mutableStateOf(false) }
-
-	LaunchedEffect(justDismissed) {
-		if (justDismissed) {
-			delay(250)
-			justDismissed = false
-		}
-	}
-
-	val modes = remember(audioMuseManager.isConfigured) {
-		if (audioMuseManager.isConfigured) {
-			listOf(
-				AutoplayMode.Off,
-				AutoplayMode.Similar,
-				AutoplayMode.Fingerprint,
-				AutoplayMode.Adaptive,
-			)
-		} else {
-			listOf(AutoplayMode.Off, AutoplayMode.Similar)
-		}
-	}
+	val on by radioManager.autoplayOn.collectAsState()
 
 	val shape = RoundedCornerShape(20.dp)
 	// Heavy frost: a milky, mostly-opaque panel over the blurred background.
 	val frost = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
 	val frostBorder = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+	val state = stringResource(if (on) Res.string.autoplay_on else Res.string.autoplay_off)
 
 	Box(modifier) {
 		Row(
 			modifier = Modifier
 				.clip(shape)
-				// Real backdrop blur over the aurora when expressive blur is on;
-				// the translucent fill stays as a tint for text contrast.
 				.then(
 					if (hazeState != null) {
 						Modifier.hazeEffect(state = hazeState) { blurEffect { blurRadius = 20.dp } }
@@ -99,9 +66,7 @@ fun NowPlayingAutoplaySelector(modifier: Modifier = Modifier, hazeState: HazeSta
 				)
 				.background(if (hazeState != null) frost.copy(alpha = 0.5f) else frost)
 				.border(1.dp, frostBorder, shape)
-				.clickable {
-					if (!justDismissed) expanded = !expanded
-				}
+				.toggleable(value = on, role = Role.Switch, onValueChange = { radioManager.setAutoplayOn(it) })
 				.padding(horizontal = 16.dp, vertical = 8.dp),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -112,40 +77,10 @@ fun NowPlayingAutoplaySelector(modifier: Modifier = Modifier, hazeState: HazeSta
 				modifier = Modifier.size(18.dp)
 			)
 			Text(
-				text = "Autoplay · ${mode.label}",
+				text = stringResource(Res.string.now_playing_autoplay, state),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.onSurface
 			)
-			Icon(
-				imageVector = Icons.Outlined.KeyboardArrowDown,
-				contentDescription = null,
-				modifier = Modifier.size(18.dp)
-			)
-		}
-
-		// M3's menu, as upstream's menus are, under the button. It used to be a hand-made popup
-		// placed by a raw pixel offset, which sat 12px off at every density but one (I-039).
-		DropdownMenu(
-			expanded = expanded,
-			onDismissRequest = {
-				expanded = false
-				justDismissed = true
-			}
-		) {
-			modes.forEach { option ->
-				val selected = option == mode
-				DropdownMenuItem(
-					text = { Text(option.label) },
-					onClick = {
-						radioManager.setAutoplayMode(option)
-						expanded = false
-					},
-					leadingIcon = {
-						if (selected) Icon(Icons.Outlined.Check, contentDescription = null)
-						else Spacer(Modifier.size(24.dp))
-					}
-				)
-			}
 		}
 	}
 }

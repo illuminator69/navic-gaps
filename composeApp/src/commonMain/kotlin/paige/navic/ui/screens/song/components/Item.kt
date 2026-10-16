@@ -217,7 +217,7 @@ fun SongListScreenItem(
 					rating = rating,
 					onSetStarred = onSetStarred,
 					onShare = { onSetShareId(song.id) },
-					onStartRadio = { radioManagerItem.startRadio(song.id, song) },
+					onStartRadio = { radioManagerItem.startRadio(song) },
 				onStartJourney = playerItem.uiState.value.currentSong?.takeIf {
 					radioManagerItem.sonicSimilarityAvailable.value && it.id != song.id
 				}?.let { now -> { radioManagerItem.startJourney(now.id, song.id) } },

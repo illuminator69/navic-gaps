@@ -1,17 +1,25 @@
 package paige.navic.ui.screens.mixes
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.mix_kind_adaptive
 import navic.composeapp.generated.resources.mix_kind_artist
 import navic.composeapp.generated.resources.mix_kind_fingerprint
 import navic.composeapp.generated.resources.mix_kind_genre
 import navic.composeapp.generated.resources.mix_kind_similar
+import navic.composeapp.generated.resources.mix_kind_station
 import navic.composeapp.generated.resources.mix_kind_unknown
 import navic.composeapp.generated.resources.mix_seeded_by
+import navic.composeapp.generated.resources.queue_station_line
+import navic.composeapp.generated.resources.queue_your_mix
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.StationManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.settings.StationCharacter
 
 /**
  * Display rules for mixes, shared by the Mixed for You screen and the Discover row —
@@ -30,6 +38,7 @@ fun mixKindName(kind: String): String = when (kind) {
 	MixKind.ADAPTIVE -> stringResource(Res.string.mix_kind_adaptive)
 	MixKind.GENRE -> stringResource(Res.string.mix_kind_genre)
 	MixKind.ARTIST -> stringResource(Res.string.mix_kind_artist)
+	MixKind.STATION -> stringResource(Res.string.mix_kind_station)
 	// Not the raw value, unlike `queueKindLabel`: a saved queue's unknown kind is
 	// cosmetic, but an unknown mix kind is one this build cannot regenerate, and the
 	// label is where the user finds that out before tapping it.
@@ -38,16 +47,31 @@ fun mixKindName(kind: String): String = when (kind) {
 
 /**
  * The recipe as one line: the kind, plus what it is seeded from when that is a
- * thing the user named.
+ * thing the user named, plus the character a radio or Your mix plays with
+ * ("Radio from Cinnamon Girl · Balanced", "Your mix · Explore").
  *
- * The seedless kinds genuinely have nothing to add — Sonic Fingerprint is built
- * from listening history and Mood Flow from a steering character — so they render
- * the kind alone rather than an empty "from".
+ * Your mix (a `station` with no seed, `fingerprint`, `adaptive`) is built from listening
+ * history, so it renders the kind alone rather than an empty "from".
  */
 @Composable
 fun mixKindLabel(mix: Mix): String {
-	val kind = mixKindName(mix.kind)
 	val seed = mix.seedName.ifBlank { mix.seedId }
+	val character = StationCharacter.fromWire(mix.character) ?: StationCharacter.fromWire(mix.moodCharacter)
+	if (mix.kind == MixKind.STATION || mix.kind == MixKind.ADAPTIVE) {
+		val catalogue by koinInject<StationManager>().catalogue.collectAsState()
+		val kind = if (mix.kind == MixKind.STATION && seed.isNotBlank()) {
+			stringResource(Res.string.mix_seeded_by, stringResource(Res.string.mix_kind_station), seed)
+		} else {
+			stringResource(Res.string.queue_your_mix)
+		}
+		val shown = character ?: StationCharacter.Default
+		return stringResource(
+			Res.string.queue_station_line,
+			kind,
+			catalogue.infoFor(shown).label.ifBlank { shown.label }
+		)
+	}
+	val kind = mixKindName(mix.kind)
 	return if (MixKind.needsSeed(mix.kind) && seed.isNotBlank()) {
 		stringResource(Res.string.mix_seeded_by, kind, seed)
 	} else {

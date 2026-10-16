@@ -61,10 +61,12 @@ val managerModule = module {
 		CastScrobbler(get(), get(), get(), get(), get(), get()).apply { start() }
 	}
 	// The hub's station engine (PROTOCOL §18): HTTP, availability, and the record of the station
-	// that built this device's queue.
+	// that built this device's queue. Constructed by RadioManager below at start, after HubManager,
+	// whose queue publish it supplies the bound station id to.
 	singleOf(::StationManager)
-	// createdAtStart so the autoplay observer is running before the first radio use.
-	single(createdAtStart = true) { RadioManager(get(), get(), get(), get(), get(), get()) }
+	// createdAtStart so the autoplay observer is running before the first radio use. The last two
+	// get()s are StationManager and SongRepository (its star events steer a bound station).
+	single(createdAtStart = true) { RadioManager(get(), get(), get(), get(), get(), get(), get(), get()) }
 	singleOf(::NativeApiManager)
 	single(createdAtStart = true) { PlaylistDownloadManager(get(), get(), get(), get()) }
 	singleOf(::SnackBarManager)

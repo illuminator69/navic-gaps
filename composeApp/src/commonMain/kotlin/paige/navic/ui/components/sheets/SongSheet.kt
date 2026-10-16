@@ -34,6 +34,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_start_radio
 import navic.composeapp.generated.resources.action_add_to_another_playlist
 import navic.composeapp.generated.resources.action_add_to_playlist
 import navic.composeapp.generated.resources.action_add_to_queue
@@ -348,7 +349,7 @@ fun SongSheet(
 
 			if (onStartRadio != null) {
 				ListItem(
-					content = { Text("Start radio") },
+					content = { Text(stringResource(Res.string.action_start_radio)) },
 					leadingContent = { Icon(Icons.Outlined.Radio, null) },
 					onClick = {
 						platformContext.clickSound()

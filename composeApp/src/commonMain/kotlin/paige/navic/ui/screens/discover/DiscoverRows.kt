@@ -6,7 +6,7 @@ package paige.navic.ui.screens.discover
  * **This table is duplicated in Feishin, on purpose, and the ids are the
  * contract.** There is no shared build between the two repos and no codegen, so
  * "shared catalogue" can only ever mean "written twice and kept in sync". The
- * precedent is [paige.navic.domain.models.settings.MoodCharacter], and it is a
+ * precedent was `MoodCharacter` (now `StationCharacter`), and it is a
  * cautionary one: the same three presets live here and in Feishin's
  * `audio-muse-source.ts` with matching numbers but different ids and labels, and
  * the two have already drifted — Feishin's auto-DJ escalates temperature per

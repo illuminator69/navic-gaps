@@ -5,6 +5,9 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import paige.navic.data.database.dao.AlbumDao
@@ -22,6 +25,9 @@ import paige.navic.ui.core.UiState
 import paige.navic.util.sortedByListType
 import kotlin.time.Clock
 
+/** A song was starred ([starred]) or unstarred on this device. */
+data class StarChange(val songId: String, val starred: Boolean)
+
 class SongRepository(
 	private val songDao: SongDao,
 	private val albumDao: AlbumDao,
@@ -29,6 +35,14 @@ class SongRepository(
 	private val dbRepository: DbRepository,
 	private val syncManager: SyncManager
 ) {
+	private val _starChanges = MutableSharedFlow<StarChange>(extraBufferCapacity = 16)
+
+	/**
+	 * Every star given or taken back here, as it is made. A station bound to the queue is steered
+	 * by it (`RadioManager`, a `like` / `unlike` signal): the star goes to Navidrome, which the
+	 * hub's station engine never hears from (navi-connect PROTOCOL §18.1).
+	 */
+	val starChanges: SharedFlow<StarChange> = _starChanges.asSharedFlow()
 	suspend fun getAllSongs(): List<DomainSong> {
 		return songDao.getAllSongs().map { it.toDomainModel() }
 	}
@@ -112,6 +126,7 @@ class SongRepository(
 		)
 		songDao.insertSong(starredEntity)
 		syncManager.enqueueAction(SyncActionType.STAR, song.id)
+		_starChanges.tryEmit(StarChange(song.id, starred = true))
 	}
 
 	suspend fun unstarSong(song: DomainSong) {
@@ -120,6 +135,7 @@ class SongRepository(
 		)
 		songDao.insertSong(unstarredEntity)
 		syncManager.enqueueAction(SyncActionType.UNSTAR, song.id)
+		_starChanges.tryEmit(StarChange(song.id, starred = false))
 	}
 
 	suspend fun rateSong(song: DomainSong, rating: Int) {

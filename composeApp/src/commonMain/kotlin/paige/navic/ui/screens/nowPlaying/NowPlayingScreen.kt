@@ -27,7 +27,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
-import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
@@ -41,8 +40,6 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalSheetState
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.RadioManager
-import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
@@ -67,16 +64,8 @@ import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 fun NowPlayingScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
-	val radioManager = koinInject<RadioManager>()
-	val autoplayMode by radioManager.autoplayMode.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 
-	// Real backdrop blur (Haze) over the Mood Flow aurora, gated by the appearance
-	// toggle. moodHaze is non-null only when it should actually frost (blur on +
-	// Adaptive); the autoplay chip uses it then, else its translucent frost.
-	val hazeState = remember { HazeState() }
-	val expressiveBlur = preferenceManager.expressiveBlur
-	val moodHaze = if (expressiveBlur && autoplayMode == AutoplayMode.Adaptive) hazeState else null
 
 	val currentScreen = backStack.lastOrNull()
 	val isPlayerCurrent = currentScreen is Screen.NowPlaying
@@ -198,8 +187,7 @@ fun NowPlayingScreen() {
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) },
-							hazeState = moodHaze
+							onSetSongRating = { viewModel.rateSong(it) }
 						)
 					}
 				} else {
@@ -218,8 +206,7 @@ fun NowPlayingScreen() {
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) },
-							hazeState = moodHaze
+							onSetSongRating = { viewModel.rateSong(it) }
 						)
 					}
 				}

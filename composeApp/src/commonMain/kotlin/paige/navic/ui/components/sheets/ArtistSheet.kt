@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_start_radio
 import navic.composeapp.generated.resources.action_add_to_playlist
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_cancel_download
@@ -148,7 +149,7 @@ fun ArtistSheet(
 		Column(Modifier.verticalScroll(rememberScrollState())) {
 			if (onStartRadio != null) {
 				ListItem(
-					content = { Text("Start radio") },
+					content = { Text(stringResource(Res.string.action_start_radio)) },
 					leadingContent = { Icon(Icons.Outlined.Radio, null) },
 					onClick = {
 						platformContext.clickSound()

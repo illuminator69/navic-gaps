@@ -88,9 +88,6 @@ import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.info_duration_left
 import navic.composeapp.generated.resources.info_no_queue
 import navic.composeapp.generated.resources.info_no_songs
-import navic.composeapp.generated.resources.queue_generator_audiomuse
-import navic.composeapp.generated.resources.queue_generator_fingerprint
-import navic.composeapp.generated.resources.queue_generator_mood_flow
 import navic.composeapp.generated.resources.tab_related
 import navic.composeapp.generated.resources.tab_up_next
 import navic.composeapp.generated.resources.undo_queue_cleared
@@ -107,7 +104,6 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.LocalSheetState
-import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
@@ -115,7 +111,7 @@ import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.settings.AutoplayMode
+import paige.navic.ui.screens.queue.components.QueueGeneratorLine
 import paige.navic.domain.models.settings.QueueInfoType
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -438,10 +434,9 @@ fun QueueScreen() {
 						// no line limit: measured first, it took the width and squeezed Clear
 						// queue to a wrapped sliver.
 						val radioManager = koinInject<RadioManager>()
-						val audioMuseManager = koinInject<AudioMuseManager>()
-						val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
-						val autoplayMode by radioManager.autoplayMode.collectAsState()
-						val moodCentroid by audioMuseManager.lastMoodCentroid.collectAsState()
+						val generator by radioManager.queueGenerator.collectAsState()
+						val generatorBusy by radioManager.busy.collectAsState()
+						val catalogue by radioManager.catalogue.collectAsState()
 						Column(
 							modifier = Modifier
 								.fillMaxWidth()
@@ -513,42 +508,14 @@ fun QueueScreen() {
 									}
 								}
 							}
-							if (isAudioMuseMix) {
-								// Which AudioMuse generator fills the queue. Its colour (the AudioMuse
-								// palette; for Mood Flow the live mood's hue) is a dot; the words are in
-								// the sheet's own colours.
-								val generatorLabel = stringResource(
-									when (autoplayMode) {
-										AutoplayMode.Adaptive -> Res.string.queue_generator_mood_flow
-										AutoplayMode.Fingerprint -> Res.string.queue_generator_fingerprint
-										else -> Res.string.queue_generator_audiomuse
-									}
-								)
-								val generatorColor = moodCentroid?.takeIf {
-									autoplayMode == AutoplayMode.Adaptive && it.size >= 2
-								}?.let {
-									val hue = ((kotlin.math.atan2(it[1], it[0]) * 180f /
-										kotlin.math.PI.toFloat()) + 360f) % 360f
-									Color.hsv(hue, 0.45f, 0.85f)
-								} ?: MaterialTheme.colorScheme.tertiary
-								Row(
-									verticalAlignment = Alignment.CenterVertically,
-									horizontalArrangement = Arrangement.spacedBy(6.dp)
-								) {
-									Box(
-										Modifier
-											.size(8.dp)
-											.background(generatorColor, CircleShape)
-									)
-									Text(
-										generatorLabel,
-										style = MaterialTheme.typography.labelLarge,
-										color = MaterialTheme.colorScheme.onSurfaceVariant,
-										maxLines = 1,
-										overflow = TextOverflow.Ellipsis
-									)
-								}
-							}
+							// What built the queue (I-040): the station, Auto DJ, or nothing left that
+							// fits, from the station's own answer. Its dot is the AudioMuse colour.
+							QueueGeneratorLine(
+								generator = generator,
+								busy = generatorBusy,
+								catalogue = catalogue,
+								onExplore = { radioManager.explore() }
+							)
 						}
 					}
 
@@ -648,7 +615,7 @@ fun QueueScreen() {
 			rating = selectedRating,
 			onSetStarred = { viewModel.starSelectedSong(it) },
 			onShare = { queueShareId = selected.id },
-			onStartRadio = { radioManager.startRadio(selected.id, selected) },
+			onStartRadio = { radioManager.startRadio(selected) },
 			// Offered for a song that isn't queued, i.e. a Related row; a queued row's sheet still
 			// doesn't offer to queue it a second time.
 			onPlayNext = if (selectedIsQueued) null else { { player.playNextSingle(selected) } },

@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.mood_mix_name
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_remove_from_history
 import navic.composeapp.generated.resources.action_search_history
@@ -492,7 +493,7 @@ fun SearchScreen(
 										if (selectedSong == song) {
 											SongSheet(
 												onDismissRequest = { viewModel.clearSelectedSong() },
-												onStartRadio = { radioManager.startRadio(song.id, song) },
+												onStartRadio = { radioManager.startRadio(song) },
 												onStartJourney = player.uiState.value.currentSong?.takeIf {
 													radioManager.sonicSimilarityAvailable.value && it.id != song.id
 												}?.let { now -> { radioManager.startJourney(now.id, song.id) } },
@@ -742,11 +743,13 @@ fun SearchScreen(
 	}
 
 	if (showMoodSheet) {
+		// Saved to history as a search's results, under the query (I-040), not as "Mood Flow".
+		val moodMixName = stringResource(Res.string.mood_mix_name, moodQuery)
 		MoodSearchSheet(
 			query = moodQuery,
 			songs = moodSongs,
 			loading = moodLoading,
-			onPlay = { radioManager.playMoodMix(moodSongs) },
+			onPlay = { radioManager.playMoodMix(moodSongs, moodMixName) },
 			onAddToQueue = { radioManager.enqueueMoodMix(moodSongs) },
 			onDismissRequest = { showMoodSheet = false }
 		)

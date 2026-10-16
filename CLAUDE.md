@@ -36,7 +36,8 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7), and what this device is and its media volume from `HubLocalDevice` (§4) |
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
-| AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
+| Radio and autoplay (stations, I-040) | `domain/manager/RadioManager.kt` (entry points, the autoplay driver, likes, mixes), `domain/manager/StationManager.kt` (the hub's `/sonic/station/...`, availability, the persisted record of what built the queue), `domain/manager/StationModels.kt` (wire shapes and every rule the driver and the queue sheet apply, `StationDriverTest`), `domain/manager/AutoDj.kt` (the no-hub fallback, a port of upstream Feishin's, `AutoDjPlannerTest`), `domain/models/settings/StationCharacter.kt`, `ui/screens/nowPlaying/components/controls/{NowPlayingAutoplaySelector,NowPlayingCharacterButton}.kt`, `ui/screens/queue/components/QueueGeneratorLine.kt` (§4) |
+| AudioMuse-AI | `domain/manager/AudioMuseManager.kt` (CLAP mood search; the fingerprint and alchemy lists the old mix kinds play from without the station engine) |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Listening history (Stats' tabs) | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*` (`ListeningStats`, hosted by upstream's `StatisticsScreen`), the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
@@ -100,6 +101,8 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    **both** `PlatformModule.android.kt` and `PlatformModule.ios.kt` and consumed by `HubManager`'s
    last two `get()`s in `ManagerModule.kt`; a merge that drops a registration compiles, and
    `HubManager` is `createdAtStart`, so the app dies at launch with `NoDefinitionFoundException`.
+   `StationManager` (I-040) is the same kind of loss in `ManagerModule.kt`: `RadioManager`, also
+   `createdAtStart`, takes it and `SongRepository` as its last two `get()`s.
 
    **A fourth mechanism fails with no error at all: an optional argument at a call site.** A
    nullable lambda that defaults to `null` is an entry point that exists only where a caller
@@ -110,6 +113,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    |---|---|---|
    | `onFixAlbumMatch` (`CollectionSheet`) | `ArtistDetailScreen` (the album sheet it opens), and `CollectionDetailScreen` → `CollectionDetailScreenTopBar` (`collection/components/TopBar.kt`) → `CollectionSheet` | "Fix album match" (I-022) |
    | `onWrongEdition` (`GapFillSheet`) | `ArtistDetailScreen` | "Wrong edition?" on the gap sheet (I-022) |
+   | `onStartRadio` (`CollectionSheet`) | `collection/components/TopBar.kt` (albums only), `ArtistDetailScreen`'s album sheet, `album/components/{GridItem,ListItem}.kt` | an album's "Start radio" (I-040) |
 
    `MbidMatchSheet.ndArtistId` ("Merge into one name", I-023) was a third and is a **required**
    parameter for exactly this reason: losing it is a compile error now. Prefer that for a new
@@ -513,6 +517,55 @@ for the permission, and with the permission declined the re-query raised it agai
 `followDiscoveryPermission` starts and stops `CastDiscovery` on `castDiscoveryAllowed`
 (`BridgeLiveness.kt`), looked at every 5 s; the permission itself is still asked for by
 `checkLocalNetworkPermission` in `App.kt`.
+
+### Radio and autoplay are the hub's stations (I-040)
+
+With `station` in `welcome.features` and the probe (`GET /sonic/station/characters`) saying
+available (`StationManager.available`; navi-connect PROTOCOL §18), a radio is a **station**: a
+track's (`startRadio`), an album's (`startAlbumRadio`: up to five of its tracks spread over it),
+an artist's (`startArtistRadio`: up to five of their songs, the most played one per album first;
+never an artist id to a track endpoint, which the old artist radio sent to
+`getSonicSimilarTracks`), or Your mix (seedless). The queue is the seed songs and the first batch.
+Rules, each with a reason:
+
+- **The queue names its station on every publish.** This device republishes its whole queue as a
+  `setQueue` on every edit, an autoplay top-up included, and a `setQueue` without `stationId`
+  unbinds the session. So `StationManager` records the station BEFORE the queue is loaded, and
+  `HubManager.stationIdForPublish` (set by `StationManager`) puts the bound station's id on both
+  publish paths. A queue's station is `boundStation`: the record when it is this queue's
+  (`StationProvenance.queueId` = `PlayerUiState.savedQueueId`; a new album has another id, which
+  is what ends a radio without anything clearing it), else, while this device plays the session,
+  `session.stationId` with the cursor from `welcome.station` / the `station` frames (a queue a
+  transfer brought here continues its station). The record is persisted
+  (`PreferenceManager.stationProvenance`), so a restart keeps a radio a radio.
+- **Autoplay is the station's driver, local player only** (`RadioManager.observeAutoplay` over
+  `autoplayStep`). Fewer than 2 songs left **in play order** (`MediaPlayerViewModel.playOrder`,
+  published by `MediaPlayer.android.kt` from the timeline's shuffle order on the controller's
+  thread; null on iOS, which has no shuffle mode) asks `next {after: seq, count: 5}`: a short
+  lookahead, so a skip (which the hub reads from this device's reports) steers the next batch
+  within a few songs. A queue no station built (an album, a journey) asks `start` with its last
+  1–3 songs and `bindSession`; a 409 `session_bound` continues the session's station instead. One
+  request at a time; an answer for a queue that has since been replaced is dropped. `exhausted`
+  stops autoplay and the queue sheet says so, with Explore; `partial` is asked again at the next
+  change, and at the latest 15 s later; `servedElsewhere` takes the cursor only; a 404
+  `station_unknown` starts again once from the recorded seed. A 503, a bare 404 or an unreachable
+  hub marks the engine unavailable for a minute and that top-up is Auto DJ's.
+- **Without the engine, Auto DJ** (`AutoDj.kt`): upstream Feishin's song strategy, similar songs
+  → genre → album artist → library, "only similar", "allow duplicates", 5 per top-up when fewer
+  than 1 is left. Radio without it is Navidrome's similar songs as before (`getSimilarSongs2` for
+  an album or artist id), then Auto DJ's walk if those are empty. Nothing else tops a queue up
+  with random songs.
+- **A star steers the bound station** (`signal like|unlike`, from `SongRepository.starChanges`):
+  stars go to Navidrome, which the hub never hears from. A character change is `signal character`.
+- **What the queue sheet says comes from the station**, never from the autoplay setting
+  (`queueGenerator`, `QueueGeneratorLine`): "Cinnamon Girl radio · Balanced", "· via Navidrome"
+  for `engine: tier1`, "Auto DJ", "Nothing left that fits" + Explore.
+- **Preferences.** Autoplay is a Boolean (`autoplayOn`); the four-way `AutoplayMode` it replaces
+  was read once as a raw int at "autoplayMode" (0 off, 1–3 on) and removed, behind
+  `autoplayMigrated` (`AutoplayPrefMigrationTest`). `StationCharacter` (Close, Balanced, Explore)
+  keeps the key "moodCharacter" and the old presets' ordinals, and is **append-only**.
+  `BasePreferenceManager.getEnum` reads an ordinal it does not know as the default: it used to
+  throw from the delegate while `PreferenceManager` was constructed, i.e. at launch.
 
 ---
 
@@ -1218,10 +1271,11 @@ Library Matches, Downloads and Saved queues are (I-026, I-039), wrapped at their
 `ui/screens/discover/DiscoverRows.kt` has a twin in Feishin
 (`renderer/features/discover/discover-rows.ts`). There is no shared build between
 the repos, so the ids are kept in step by hand and are written down in
-`navi-connect/CLAUDE.md` §6. The precedent is `MoodCharacter`, and it is a
+`navi-connect/CLAUDE.md` §6. The precedent was `MoodCharacter`, and it is a
 cautionary one: same three presets both sides, matching numbers, different ids,
 and the behaviour has already drifted (Feishin's auto-DJ escalates temperature
-per pass; `RadioManager.topUp` does not). Change a row id here and there.
+per pass; `RadioManager.topUp` did not; since I-040 both read the hub's catalogue
+instead). Change a row id here and there.
 
 Three things specific to this tree:
 
@@ -1252,7 +1306,7 @@ the noun in code is `mix`.
 Earlier revisions of this section ended "a station is a recipe, and nothing in this
 tree stores a recipe". **That is no longer true** — it was the statement of the gap,
 and Track C closed it on 2026-09-23. A mix *is* a stored recipe
-(`{kind, seedId, moodCharacter, count}`), held hub-side beside saved queues and
+(`{kind, seedId, moodCharacter, character, count}`), held hub-side beside saved queues and
 regenerated locally on every play: `domain/models/Mix.kt` (`Mix` + `MixKind`), the
 `mixes` state and four `act` helpers in `HubManager`, `RadioManager.regenerate(mix)`
 / `currentRecipe(seed)`, `ui/screens/mixes/*`, `Screen.MixList` and
@@ -1275,10 +1329,14 @@ autoplay mode happens to be on — so `MixKind.GENRE` and `MixKind.ARTIST` were
 **unreachable from this client entirely**. `regenerate` could play them, `MixFormat`
 could label them and the hub validated them; they could only arrive from Feishin.
 `ui/screens/mixes/MixFormSheet.kt` is the general path: name, kind, and a seed
-picker that fits the kind — the playing track for `similar`, a searchable artist or
-genre list out of Room for the two that resolve against it, a `MoodCharacter` for
-`adaptive`, nothing for `fingerprint`. A sheet rather than a `FormDialog` because
-two of the five need a searchable list and `FormDialog` is 300dp wide.
+picker that fits the kind. Since I-040 it makes four: a radio of the playing track and
+Your mix (both `station` recipes with a character), a genre and an artist (searchable
+lists out of Room). `similar`, `fingerprint` and `adaptive` still play (as stations
+when the engine is there: `similar` a track radio on Balanced, the other two Your mix)
+and are no longer made. A station-backed mix has no preview: it is built as it plays.
+Your mix also heads the Mixed for You list while the engine is there. A sheet rather
+than a `FormDialog` because two of the four need a searchable list and `FormDialog` is
+300dp wide.
 
 *Every mix rendered as bare text.* `Mix.coverArtId` was on the model and in the hub
 record (`_sanitize_mix` has always copied it through) and **nothing ever wrote it**,

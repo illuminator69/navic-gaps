@@ -6,36 +6,49 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.SavedQueueSource
-import paige.navic.domain.models.settings.MoodCharacter
-import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.Mix
-import paige.navic.domain.models.settings.AutoplayMode
+import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.SavedQueueSource
+import paige.navic.domain.models.settings.StationCharacter
+import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.first
 
 /**
- * Similarity radio ("instant mix") via OpenSubsonic `getSimilarSongs2`. Works
- * against vanilla Navidrome; when the AudioMuse-AI plugin is installed the
- * same endpoint serves sonic similarity — making this Navic's AudioMuse
- * integration. The seed id may be a song, album, or artist.
+ * Radio, autoplay and the mixes that play through them (I-040).
  *
- * [isAudioMuseMix] is true while the player queue is exactly the last
- * generated mix — the UI uses it to show the AudioMuse indicator (dynamic
- * colour on the mini player / queue).
+ * **With the hub's station engine** (navi-connect PROTOCOL §18; [StationManager]) a radio is a
+ * station: a track's, an album's (up to five of its tracks), an artist's (up to five of their
+ * songs) or Your mix (seedless, from the hub user's listening). The queue is the seed songs and
+ * the station's first batch, bound to the station so the hub hears its skips. Autoplay is the
+ * station's driver ([observeAutoplay]): when fewer than [STATION_LOOKAHEAD] songs are left in
+ * play order it asks for [STATION_BATCH] more, and a queue no station built (an album, a
+ * playlist, a journey) continues as a station seeded from its last tracks. A station that has
+ * nothing left that fits says so, and autoplay stops.
+ *
+ * **Without it** (no hub, an older hub, the engine down) radio is Navidrome's similar songs as it
+ * always was, and autoplay is [AutoDj], a port of upstream Feishin's. No path here tops a queue
+ * up with whole-library random songs except Auto DJ's own last step, which is upstream's.
+ *
+ * [isAudioMuseMix] is true while the queue is a station's or exactly the last mix generated here:
+ * the mini player's AudioMuse colour.
  */
 class RadioManager(
 	private val sessionManager: SessionManager,
@@ -43,28 +56,46 @@ class RadioManager(
 	private val mediaPlayer: MediaPlayerViewModel,
 	private val preferenceManager: PreferenceManager,
 	private val hubManager: HubManager,
-	private val audioMuseManager: AudioMuseManager
+	private val audioMuseManager: AudioMuseManager,
+	private val stationManager: StationManager,
+	private val songRepository: SongRepository
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+	/** Ids of the last mix generated here without a station, joined. */
 	private val mixSig = MutableStateFlow<String?>(null)
 
-	// True when the server advertises the OpenSubsonic `sonicSimilarity`
-	// extension (i.e. the AudioMuse plugin is loaded) — gates Song Journey and
-	// makes radio/autoplay prefer guaranteed-AudioMuse results. Re-probed on login.
+	// True when the server advertises the OpenSubsonic `sonicSimilarity` extension (i.e. the
+	// AudioMuse plugin is loaded): gates Song Journey and makes the no-hub radio and Auto DJ
+	// prefer guaranteed-AudioMuse results. Re-probed on login.
 	private val _sonicSimilarityAvailable = MutableStateFlow(false)
 	val sonicSimilarityAvailable: StateFlow<Boolean> = _sonicSimilarityAvailable.asStateFlow()
 
-	// Observable autoplay mode so the UI (e.g. the extended player's adaptive mood
-	// background) can react live. Mirrors preferenceManager.autoplayMode; write via
-	// [setAutoplayMode] to keep both in sync.
-	private val _autoplayMode = MutableStateFlow(preferenceManager.autoplayMode)
-	val autoplayMode: StateFlow<AutoplayMode> = _autoplayMode.asStateFlow()
+	private val _autoplayOn = MutableStateFlow(preferenceManager.autoplayOn)
 
-	fun setAutoplayMode(mode: AutoplayMode) {
-		preferenceManager.autoplayMode = mode
-		_autoplayMode.value = mode
+	/** Autoplay On / Off. Mirrors `PreferenceManager.autoplayOn`; write through [setAutoplayOn]. */
+	val autoplayOn: StateFlow<Boolean> = _autoplayOn.asStateFlow()
+
+	fun setAutoplayOn(on: Boolean) {
+		preferenceManager.autoplayOn = on
+		_autoplayOn.value = on
 	}
+
+	private val _character = MutableStateFlow(preferenceManager.stationCharacter)
+
+	/** The character new stations start with (the preference). */
+	val character: StateFlow<StationCharacter> = _character.asStateFlow()
+
+	/** Whether the hub's engine can be asked right now. */
+	val stationsAvailable: StateFlow<Boolean> get() = stationManager.available
+
+	val catalogue: StateFlow<StationCatalogue> get() = stationManager.catalogue
+
+	private val autoDj = AutoDj(songDao, preferenceManager) { id, count -> fetchSimilar(id, count) }
+
+	// Re-evaluates the autoplay driver without a player change: a retry after a partial answer,
+	// a character change, Explore.
+	private val driverKick = MutableStateFlow(0)
 
 	// Reference-cached: uiState emits ~5x/sec during playback with the same
 	// queue list instance; only recompute the signature when it changes.
@@ -79,59 +110,279 @@ class RadioManager(
 		return sigCacheValue
 	}
 
-	val isAudioMuseMix: StateFlow<Boolean> = combine(
-		mixSig, mediaPlayer.uiState
-	) { sig, state ->
-		sig != null && state.queue.isNotEmpty() && queueSig(state.queue) == sig
-	}.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
+	/** The station the queue on screen belongs to: this device's queue, or the session another device plays. */
+	private fun boundNow(): StationProvenance? =
+		if (hubManager.isRemoteActive.value) stationManager.remoteBound()
+		else stationManager.boundFor(mediaPlayer.localUiState.value)
+
+	private fun generatorNow(): QueueGenerator? {
+		val remote = hubManager.isRemoteActive.value
+		val queueId = if (remote) hubManager.remoteSession.value.savedQueueId
+		else mediaPlayer.localUiState.value.savedQueueId
+		val sig = mixSig.value
+		val shown = mediaPlayer.uiState.value.queue
+		return queueGenerator(
+			bound = boundNow(),
+			queueId = queueId,
+			autoDjQueueId = if (remote) null else stationManager.autoDjQueueId.value,
+			generatedMix = sig != null && shown.isNotEmpty() && queueSig(shown) == sig
+		)
+	}
+
+	private val generatorInputs: List<Flow<Any?>> = listOf(
+		mediaPlayer.steadyState, stationManager.provenance, stationManager.autoDjQueueId,
+		hubManager.stationFrames, hubManager.isRemoteActive, mixSig, stationManager.available,
+		hubManager.remoteSession.map { it.stationId to it.savedQueueId }.distinctUntilChanged()
+	)
 
 	/**
-	 * Build and play a similarity mix seeded by [seedId] (song/album/artist).
-	 * [seedSong] (when the seed is a song) is played first.
+	 * What built the queue on screen, for the queue sheet's line: the station's name and
+	 * character, "via Navidrome" when only Navidrome answered, Auto DJ, or nothing left that fits.
+	 * Read from the station and from what topped the queue up, never from the autoplay setting.
 	 */
-	fun startRadio(seedId: String, seedSong: DomainSong? = null, count: Int = 50) {
+	val queueGenerator: StateFlow<QueueGenerator?> = combine(generatorInputs) { generatorNow() }
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+	/** The character on show: the bound station's, else the one new stations start with. */
+	val shownCharacter: StateFlow<StationCharacter> = combine(
+		combine(generatorInputs) { boundNow()?.character }, _character
+	) { bound, preferred -> StationCharacter.fromWire(bound) ?: preferred }
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), preferenceManager.stationCharacter)
+
+	/** A station request (or an Auto DJ top-up) is out. */
+	val busy: StateFlow<Boolean> get() = stationManager.busy
+
+	val isAudioMuseMix: StateFlow<Boolean> = queueGenerator
+		.map { it is QueueGenerator.Station || it is QueueGenerator.Exhausted || it is QueueGenerator.AudioMuseMix }
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
+
+	/**
+	 * Change the character: what new stations start with, and the bound station's from its next
+	 * batch (a `character` signal). Steering the station playing is the point of the control, so
+	 * the queue on screen stays as it is.
+	 */
+	fun setCharacter(character: StationCharacter) {
+		preferenceManager.stationCharacter = character
+		_character.value = character
+		val bound = boundNow() ?: return
+		if (bound.character == character.wireId && !bound.exhausted) return
+		val mine = stationManager.provenance.value?.takeIf { it.stationId == bound.stationId }
+		if (mine != null) stationManager.record(mine.copy(character = character.wireId, exhausted = false))
+		val trackId = mediaPlayer.uiState.value.currentSong?.id.orEmpty()
+		scope.launch {
+			stationManager.signal(bound.stationId, trackId, "character", character.wireId)
+			driverKick.update { it + 1 }
+		}
+	}
+
+	/** The exhausted line's one tap: widen the station to Explore, which clears "exhausted" on the hub. */
+	fun explore() = setCharacter(StationCharacter.Explore)
+
+	// ---- Radio ------------------------------------------------------------------------------ //
+
+	/** A track's radio: the track, then its station. */
+	fun startRadio(song: DomainSong) {
 		scope.launch {
 			try {
-				val ids = fetchSimilar(seedId, count)
-				val byId = songDao.getSongsByIds(ids).associateBy { it.songId }
-				val similar = ids.mapNotNull { byId[it]?.toDomainModel() }
-					.filter { it.id != seedSong?.id }
-				// Offline / no-match fallback: build a local mix so radio still works when
-				// AudioMuse (or Navidrome's similar-songs agents) is offline or returns nothing.
-				val picks = similar.ifEmpty {
-					localRadioSongs(seedSong, count, setOfNotNull(seedSong?.id))
+				val seed = StationSeed(StationSeed.TRACK, listOf(song.id), song.title)
+				when (playStation(seed, listOf(song), _character.value, "${song.title} radio")) {
+					StationPlay.Played, StationPlay.Empty -> return@launch
+					StationPlay.Unavailable -> {}
 				}
-				val queue = (listOfNotNull(seedSong) + picks).distinctBy { it.id }
-				if (queue.isEmpty()) {
-					Logger.i("RadioManager", "no songs (incl. local) for $seedId")
-					return@launch
-				}
-				playMix(queue, SavedQueueSource.RADIO, seedSong?.title?.let { "$it radio" })
+				// The old radio: Navidrome's similar songs, nearest first, then Auto DJ's walk
+				// when Navidrome found none, so a tap always plays something.
+				val similar = resolveIds(
+					runCatching { fetchSimilar(song.id, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
+				).filter { it.id != song.id }
+				val picks = similar.ifEmpty { autoDj.collect(song, setOf(song.id), RADIO_START_COUNT) }
+				playMix((listOf(song) + picks).distinctBy { it.id }, SavedQueueSource.RADIO, "${song.title} radio")
 			} catch (e: Exception) {
-				Logger.e("RadioManager", "failed to start radio for $seedId", e)
+				Logger.e("RadioManager", "failed to start radio for ${song.id}", e)
 			}
 		}
 	}
 
-	// ---- "Mixed for You": regenerating a stored recipe ------------------------ //
+	/** An album's radio: up to five of its tracks, spread over it, then their station. */
+	fun startAlbumRadio(albumId: String, albumName: String) {
+		scope.launch {
+			try {
+				val tracks = songDao.getSongsByAlbumId(albumId).map { it.toDomainModel() }
+					.sortedWith(compareBy({ it.discNumber ?: 0 }, { it.trackNumber ?: 0 }))
+				val seeds = spreadPick(tracks, SEED_TRACKS_MAX)
+				if (seeds.isEmpty()) return@launch
+				val seed = StationSeed(StationSeed.TRACKS, seeds.map { it.id }, albumName)
+				when (playStation(seed, seeds, _character.value, "$albumName radio")) {
+					StationPlay.Played, StationPlay.Empty -> return@launch
+					StationPlay.Unavailable -> {}
+				}
+				// `getSimilarSongs2` takes an album id; `getSonicSimilarTracks` does not.
+				val similar = resolveIds(
+					runCatching { sessionManager.fetchSimilarSongIds(albumId, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
+				)
+				playMix((seeds + similar).distinctBy { it.id }, SavedQueueSource.RADIO, "$albumName radio")
+			} catch (e: Exception) {
+				Logger.e("RadioManager", "failed to start album radio for $albumId", e)
+			}
+		}
+	}
+
+	/**
+	 * An artist's radio: up to five of their songs (the most played, from different albums
+	 * first), then their station. Never an artist id to a track endpoint: the old artist radio
+	 * sent one to `getSonicSimilarTracks`.
+	 */
+	fun startArtistRadio(artistId: String, artistName: String) {
+		scope.launch {
+			try {
+				val songs = songDao.getSongsByArtistId(artistId).map { it.toDomainModel() }
+				val seeds = artistSeedSongs(songs)
+				if (seeds.isNotEmpty()) {
+					val seed = StationSeed(StationSeed.TRACKS, seeds.map { it.id }, artistName)
+					when (playStation(seed, seeds, _character.value, "$artistName radio")) {
+						StationPlay.Played, StationPlay.Empty -> return@launch
+						StationPlay.Unavailable -> {}
+					}
+				}
+				// `getSimilarSongs2` takes an artist id.
+				val similar = resolveIds(
+					runCatching { sessionManager.fetchSimilarSongIds(artistId, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
+				)
+				val queue = (seeds + similar).distinctBy { it.id }
+				if (queue.isEmpty()) {
+					Logger.i("RadioManager", "no songs for artist radio $artistId")
+					return@launch
+				}
+				playMix(queue, SavedQueueSource.RADIO, "$artistName radio")
+			} catch (e: Exception) {
+				Logger.e("RadioManager", "failed to start artist radio for $artistId", e)
+			}
+		}
+	}
+
+	/**
+	 * Your mix: the seedless station, from the hub user's most played songs, on the current
+	 * character. Without the engine, the Sonic Fingerprint list as before. Returns whether
+	 * something plays.
+	 */
+	suspend fun playYourMix(name: String): Boolean = try {
+		when (playStation(StationSeed.YourMix, emptyList(), _character.value, name)) {
+			StationPlay.Played -> true
+			StationPlay.Empty -> false
+			StationPlay.Unavailable -> {
+				val songs = resolveIds(audioMuseManager.fetchSonicFingerprintIds(RADIO_FALLBACK_COUNT))
+				if (songs.isNotEmpty()) playMix(songs, SavedQueueSource.RADIO, name)
+				songs.isNotEmpty()
+			}
+		}
+	} catch (e: Exception) {
+		Logger.e("RadioManager", "failed to start Your mix", e)
+		false
+	}
+
+	private enum class StationPlay { Played, Empty, Unavailable }
+
+	/**
+	 * Start a station from [seed] and play [seedSongs] followed by its first batch. [Unavailable]
+	 * when no station could be had (the caller then runs the old path); [Empty] when the station
+	 * answered but there is nothing to play.
+	 */
+	private suspend fun playStation(
+		seed: StationSeed,
+		seedSongs: List<DomainSong>,
+		character: StationCharacter,
+		fallbackName: String,
+		count: Int = RADIO_START_COUNT
+	): StationPlay {
+		if (!stationManager.available.value) return StationPlay.Unavailable
+		stationManager.setBusy(true)
+		try {
+			val result = stationManager.start(seed, character, count, seedSongs.map { it.id }, bindSession = null)
+			val answer = (result as? StationResult.Ok)?.answer ?: run {
+				Logger.i("RadioManager", "station start: $result, using the fallback")
+				return StationPlay.Unavailable
+			}
+			val seedIds = seedSongs.mapTo(HashSet()) { it.id }
+			val tracks = resolveIds(answer.tracks.map { it.id }).filter { it.id !in seedIds }
+			val queue = (seedSongs + tracks).distinctBy { it.id }
+			if (queue.isEmpty()) {
+				Logger.i("RadioManager", "station ${answer.stationId}: nothing to play (exhausted=${answer.exhausted})")
+				return StationPlay.Empty
+			}
+			val name = fallbackName.ifBlank { answer.name }
+			mixSig.value = null
+			val queueId = mediaPlayer.newQueueSessionId()
+			// Recorded BEFORE the queue is loaded, so this device's first publish of it already
+			// carries the station id (PROTOCOL §18.2) rather than unbinding the session.
+			stationManager.record(
+				StationProvenance(
+					queueId = queueId,
+					stationId = answer.stationId,
+					name = name,
+					character = answer.character.ifBlank { character.wireId },
+					engine = answer.engine,
+					seed = answer.seed ?: seed,
+					seq = answer.seq,
+					rev = answer.rev,
+					exhausted = answer.exhausted
+				)
+			)
+			if (hubManager.isRemoteActive.value) {
+				// Played where playback is; the playing device continues the station, by its id.
+				hubManager.loadSessionQueue(
+					queue,
+					savedQueueId = queueId,
+					sourceKind = SavedQueueSource.RADIO,
+					sourceName = name,
+					stationId = answer.stationId
+				)
+			} else {
+				mediaPlayer.loadRemoteQueue(
+					queue, 0, 0L, true,
+					savedQueueId = queueId,
+					savedQueueKind = SavedQueueSource.RADIO,
+					savedQueueName = name
+				)
+			}
+			return StationPlay.Played
+		} finally {
+			stationManager.setBusy(false)
+		}
+	}
+
+	/** Up to [SEED_TRACKS_MAX] of an artist's songs: the most played, one per album first. */
+	private fun artistSeedSongs(songs: List<DomainSong>): List<DomainSong> {
+		val ranked = songs.sortedByDescending { it.playCount }
+		val firstPerAlbum = ranked.distinctBy { it.albumId ?: it.id }
+		return (firstPerAlbum + ranked).distinctBy { it.id }.take(SEED_TRACKS_MAX)
+	}
+
+	// ---- "Mixed for You": regenerating a stored recipe ------------------------------------ //
 
 	/**
 	 * Regenerate [mix] and play it.
 	 *
-	 * **This is the whole point of a mix**, and the thing a saved queue cannot do:
-	 * the recipe is re-run against the engine *now*, so a second play gives a
-	 * different tracklist. A snapshot would pass every test this has except that one.
-	 *
-	 * Each kind routes to machinery that already existed and is already fail-soft —
-	 * this adds a dispatcher, not a generator. A kind this build does not recognise
-	 * plays nothing and says so in the log rather than silently falling back to
-	 * something else, because "it played the wrong mix" is worse than "it did not
-	 * play"; [MixKind.fromWire] lets the UI refuse the tap before it gets here.
-	 *
-	 * Returns false when nothing could be built, so the caller can say so instead of
-	 * leaving a tap with no effect.
+	 * With the engine, `station`, `similar`, `fingerprint` and `adaptive` play as stations
+	 * ([stationRecipe]): `similar` a track radio on Balanced, `fingerprint` and `adaptive` Your mix
+	 * (`adaptive` keeping its character). Otherwise the recipe runs through [generate], the
+	 * engines it always had. Returns false when nothing could be built.
 	 */
 	suspend fun regenerate(mix: Mix): Boolean {
+		if (stationBacked(mix)) {
+			val recipe = stationRecipe(mix)
+			if (recipe != null) {
+				val name = mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO).orEmpty() }
+				when (playStation(recipe.seed, recipe.seedSongs, recipe.character, name, mix.count.coerceIn(5, 50))) {
+					StationPlay.Played -> {
+						hubManager.actTouchMix(mix.id)
+						return true
+					}
+					StationPlay.Empty -> return false
+					StationPlay.Unavailable -> {}
+				}
+			}
+		}
 		val queue = generate(mix)
 		if (queue.isEmpty()) return false
 
@@ -144,14 +395,66 @@ class RadioManager(
 	}
 
 	/**
+	 * Whether [mix] plays as a station right now. Such a mix is built as it plays, so the mix
+	 * sheet offers no preview of it (a sample of the first batch would not be the mix).
+	 */
+	fun stationBacked(mix: Mix): Boolean = stationManager.available.value && mix.kind in STATION_KINDS
+
+	private class StationRecipe(
+		val seed: StationSeed,
+		val seedSongs: List<DomainSong>,
+		val character: StationCharacter
+	)
+
+	/** The station a mix plays as, or null when its seed is gone from the library. */
+	private suspend fun stationRecipe(mix: Mix): StationRecipe? {
+		val stored = StationCharacter.fromWire(mix.character) ?: StationCharacter.fromWire(mix.moodCharacter)
+		return when (mix.kind) {
+			MixKind.STATION -> {
+				val character = stored ?: StationCharacter.Default
+				if (mix.seedId.isBlank()) StationRecipe(StationSeed.YourMix, emptyList(), character)
+				else {
+					val song = songDao.getSongById(mix.seedId)?.toDomainModel()
+					StationRecipe(
+						StationSeed(StationSeed.TRACK, listOf(mix.seedId), mix.seedName.ifBlank { song?.title }),
+						listOfNotNull(song),
+						character
+					)
+				}
+			}
+
+			// A song, an album or an artist id: a track radio on Balanced, or the album's or the
+			// artist's tracks as the seed.
+			MixKind.SIMILAR -> {
+				val song = songDao.getSongById(mix.seedId)?.toDomainModel()
+				if (song != null) {
+					StationRecipe(StationSeed(StationSeed.TRACK, listOf(song.id), song.title), listOf(song), StationCharacter.Balanced)
+				} else {
+					val album = songDao.getSongsByAlbumId(mix.seedId).map { it.toDomainModel() }
+						.sortedWith(compareBy({ it.discNumber ?: 0 }, { it.trackNumber ?: 0 }))
+					val seeds = spreadPick(album, SEED_TRACKS_MAX)
+						.ifEmpty { artistSeedSongs(songDao.getSongsByArtistId(mix.seedId).map { it.toDomainModel() }) }
+					if (seeds.isEmpty()) null
+					else StationRecipe(
+						StationSeed(StationSeed.TRACKS, seeds.map { it.id }, mix.seedName.ifBlank { null }),
+						seeds,
+						StationCharacter.Balanced
+					)
+				}
+			}
+
+			MixKind.FINGERPRINT, MixKind.ADAPTIVE ->
+				StationRecipe(StationSeed.YourMix, emptyList(), stored ?: StationCharacter.Default)
+
+			else -> null
+		}
+	}
+
+	/**
 	 * Run the recipe and return the tracklist, **without** playing it or touching
-	 * `lastPlayedAt`.
-	 *
-	 * Split out of [regenerate] so a mix can be looked at before it is committed to.
-	 * That matters more here than it would for a playlist: a mix has no fixed
-	 * contents, so "what is in this" has no answer until the engine has been run,
-	 * and the only way to find out used to be to let it replace what you were
-	 * listening to.
+	 * `lastPlayedAt`: the engines a mix has without the station engine, and the mix sheet's
+	 * preview. A `station` recipe here is its seed's similar songs, or the fingerprint list
+	 * for Your mix.
 	 *
 	 * Deliberately does not `touchMix`: previewing is not playing, and
 	 * `lastPlayedAt` is what the list sorts a mix's recency by.
@@ -160,30 +463,32 @@ class RadioManager(
 		val count = mix.count.coerceIn(5, 200)
 		val songs = try {
 			when (mix.kind) {
-				// Tier 1. The seed is a song/album/artist id and `fetchSimilar`
-				// already prefers AudioMuse when the plugin is there, so this is one
-				// branch rather than two.
+				// The seed is a song/album/artist id and `fetchSimilar` already prefers
+				// AudioMuse when the plugin is there, so this is one branch rather than two.
 				MixKind.SIMILAR -> resolveIds(fetchSimilar(mix.seedId, count))
 
-				// Tier 2, seedless: built from listening habits.
+				MixKind.STATION ->
+					if (mix.seedId.isBlank()) resolveIds(audioMuseManager.fetchSonicFingerprintIds(count))
+					else resolveIds(fetchSimilar(mix.seedId, count))
+
+				// Seedless: built from listening habits.
 				MixKind.FINGERPRINT ->
 					resolveIds(audioMuseManager.fetchSonicFingerprintIds(count))
 
-				// Tier 2, seedless, steered by the stored character rather than by the
-				// live Mood Flow centroid — a recipe has to mean the same thing on a
-				// cold start as it does mid-session, and the centroid is in-memory and
-				// per-session by construction. Alchemy needs at least one ADD, so a
-				// top-played track cold-starts it.
+				// Seedless, steered by the stored character. Alchemy needs at least one ADD, so
+				// a top-played track cold-starts it.
 				MixKind.ADAPTIVE -> {
-					val character = moodCharacterNamed(mix.moodCharacter)
+					val character = StationCharacter.fromWire(mix.character)
+						?: StationCharacter.fromWire(mix.moodCharacter)
+						?: preferenceManager.stationCharacter
 					val add = songDao.getTopSongs(1).firstOrNull()?.map { it.songId }.orEmpty()
 					if (add.isEmpty()) emptyList() else resolveIds(
 						audioMuseManager.fetchAlchemyMixIds(
 							add,
 							emptyList(),
 							count,
-							temperature = character.temperature,
-							subtractDistance = character.subtractDistance
+							temperature = character.alchemyTemperature,
+							subtractDistance = character.alchemySubtractDistance
 						)
 					)
 				}
@@ -209,19 +514,8 @@ class RadioManager(
 			Logger.e("RadioManager", "failed to regenerate mix ${mix.id}", e)
 			return emptyList()
 		}
-
-		// The server answered nothing, or answered ids this library does not hold.
-		// Fall back to a local draw rather than to silence — the same rule autoplay
-		// top-up follows — but only for a recipe that has something local to draw on.
-		val queue = songs.ifEmpty {
-			if (MixKind.needsSeed(mix.kind)) {
-				localRadioSongs(songDao.getSongById(mix.seedId)?.toDomainModel(), count, emptySet())
-			} else {
-				localRadioSongs(null, count, emptySet())
-			}
-		}
-		if (queue.isEmpty()) Logger.i("RadioManager", "mix ${mix.id}: nothing to play")
-		return queue
+		if (songs.isEmpty()) Logger.i("RadioManager", "mix ${mix.id}: nothing to play")
+		return songs
 	}
 
 	/** Play a tracklist a preview already built, without running the engine twice. */
@@ -239,60 +533,50 @@ class RadioManager(
 	}
 
 	/**
-	 * The stored character by name, falling back to the user's current preference.
-	 *
-	 * Serialized by name rather than by ordinal on purpose: the presets are shared
-	 * with Feishin by hand (see `MoodCharacter`), and an ordinal would silently
-	 * re-point every stored recipe the day either side reorders the enum.
-	 */
-	private fun moodCharacterNamed(name: String): MoodCharacter =
-		MoodCharacter.entries.firstOrNull { it.name == name } ?: preferenceManager.moodCharacter
-
-	/**
-	 * The recipe implied by the autoplay mode that is switched on right now, or null
-	 * when it is [AutoplayMode.Off].
-	 *
-	 * This is what makes "save what I'm listening to as a mix" a one-tap action
-	 * instead of a form: the settings that drive the top-up already *are* a recipe,
-	 * and until now they were simply thrown away at the end of the session.
+	 * The recipe of what is playing, for "Save as a mix": the station the queue belongs to (a
+	 * `station` recipe with its seed track, none for Your mix, and its character), or, with
+	 * autoplay on and no station yet, a radio of [seed] on the current character. Null otherwise.
 	 */
 	fun currentRecipe(seed: DomainSong?): Mix? {
-		val seedSong = seed
-		return when (_autoplayMode.value) {
-			AutoplayMode.Off -> null
-			AutoplayMode.Similar -> seedSong?.let {
-				Mix(
-					id = "",
-					name = "${it.title} mix",
-					kind = MixKind.SIMILAR,
-					seedId = it.id,
-					seedName = it.title,
-					// The seed's own sleeve, so the saved recipe has a face. The two
-					// seedless modes get none on purpose: there is no thing they are
-					// built around, and `MixArtwork` draws them from the kind instead.
-					coverArtId = it.coverArtId.orEmpty()
-				)
-			}
-			AutoplayMode.Fingerprint -> Mix(
+		val bound = boundNow()
+		if (bound != null) {
+			val character = StationCharacter.fromWire(bound.character) ?: StationCharacter.Default
+			val yourMix = bound.seed?.kind == StationSeed.YOUR_MIX
+			val seedId = if (yourMix) "" else bound.seed?.ids?.firstOrNull().orEmpty()
+			val cover = mediaPlayer.uiState.value.queue.firstOrNull { it.id == seedId }?.coverArtId
+			return Mix(
 				id = "",
-				name = AutoplayMode.Fingerprint.label,
-				kind = MixKind.FINGERPRINT
-			)
-			AutoplayMode.Adaptive -> Mix(
-				id = "",
-				name = preferenceManager.moodCharacter.label,
-				kind = MixKind.ADAPTIVE,
-				moodCharacter = preferenceManager.moodCharacter.name
+				name = bound.name.ifBlank { seed?.title?.let { "$it radio" }.orEmpty() },
+				kind = MixKind.STATION,
+				seedId = seedId,
+				seedName = if (yourMix) "" else bound.seed?.name.orEmpty(),
+				character = character.wireId,
+				moodCharacter = character.legacyName,
+				coverArtId = cover.orEmpty()
 			)
 		}
+		if (!_autoplayOn.value) return null
+		val song = seed ?: return null
+		val character = _character.value
+		return Mix(
+			id = "",
+			name = "${song.title} radio",
+			kind = MixKind.STATION,
+			seedId = song.id,
+			seedName = song.title,
+			character = character.wireId,
+			moodCharacter = character.legacyName,
+			// The seed's own sleeve, so the saved recipe has a face.
+			coverArtId = song.coverArtId.orEmpty()
+		)
 	}
 
 	/**
 	 * Build and play a sonic "journey" (path) from [fromId] to [toId] via
 	 * OpenSubsonic `findSonicPath` — a queue that morphs between the two tracks.
 	 * Requires the AudioMuse plugin ([sonicSimilarityAvailable]); the caller is
-	 * expected to gate the UI on that. Reuses [mixSig] so the AudioMuse indicator
-	 * lights for journeys too.
+	 * expected to gate the UI on that. When it ends, autoplay continues it as a
+	 * station seeded from its last tracks, like any queue no station built.
 	 */
 	fun startJourney(fromId: String, toId: String) {
 		scope.launch {
@@ -337,13 +621,11 @@ class RadioManager(
 	 * THE WHOLE QUEUE that are NOT already queued — a browsing surface, so this fetches
 	 * without playing (like [fetchMoodSearchSongs]).
 	 *
-	 * Why not just "similar to the current song": autoplay top-up ([topUp]) already
-	 * seeds from the current track, so that list would echo what's already in the queue.
-	 * Instead we seed [fetchSimilar] from a handful of tracks spread across [queue],
-	 * rank candidates by how many of those seeds returned them (songs that fit MULTIPLE
-	 * queue tracks surface first — the queue's shared character), and drop everything
-	 * already queued. Falls back to a same-genre local mix (also queue-excluded) when
-	 * the server is offline or every similar track is already queued.
+	 * Seeds [fetchSimilar] from a handful of tracks spread across [queue], ranks candidates by
+	 * how many of those seeds returned them (songs that fit MULTIPLE queue tracks surface first —
+	 * the queue's shared character), and drops everything already queued. Falls back to a
+	 * same-genre local draw (also queue-excluded) when the server is offline or every similar
+	 * track is already queued.
 	 */
 	suspend fun fetchQueueRelatedSongs(queue: List<DomainSong>, count: Int = 50): List<DomainSong> {
 		if (queue.isEmpty()) return emptyList()
@@ -386,7 +668,7 @@ class RadioManager(
 				.distinctBy { it.id }
 				.take(count)
 
-			resolved.ifEmpty { localRadioSongs(nowPlaying, count, queued) }
+			resolved.ifEmpty { localGenreSongs(nowPlaying, count, queued) }
 		} catch (e: Exception) {
 			Logger.e("RadioManager", "queue-related fetch failed", e)
 			emptyList()
@@ -413,10 +695,14 @@ class RadioManager(
 		return seeds.values.toList()
 	}
 
-	/** Play a resolved mood mix as the queue (remote-aware — see [playMix]). */
-	fun playMoodMix(songs: List<DomainSong>) {
+	/**
+	 * Play a resolved mood (CLAP) search as the queue (remote-aware — see [playMix]). Saved to
+	 * history as an ordinary queue named [name] ("Search: …"): it is a search's results, not a
+	 * radio and not anything that continues by itself.
+	 */
+	fun playMoodMix(songs: List<DomainSong>, name: String) {
 		if (songs.isEmpty()) return
-		playMix(songs, SavedQueueSource.MOOD_FLOW)
+		playMix(songs, SavedQueueSource.MANUAL, name)
 	}
 
 	/**
@@ -425,7 +711,7 @@ class RadioManager(
 	 * session so it plays THERE (the hub forwards a do:load to the active device)
 	 * rather than starting a conflicting local playback that desyncs the session.
 	 *
-	 * Local mixes are saved to queue history as their [kind] (radio / journey / Mood Flow) so the
+	 * Local mixes are saved to queue history as their [kind] (radio / journey / a search) so the
 	 * saved-queues list can group them; remote mixes are the hub's session (not local history).
 	 */
 	private fun playMix(
@@ -444,7 +730,7 @@ class RadioManager(
 			)
 		} else {
 			// The LOCAL branch needs the name just as much: this path has no source collection at
-			// all, so without it every locally started radio / Mood Flow / journey was saved as an
+			// all, so without it every locally started radio / search / journey was saved as an
 			// unnamed row and the history read "No name".
 			mediaPlayer.loadRemoteQueue(
 				songs, 0, 0L, true,
@@ -458,7 +744,6 @@ class RadioManager(
 	/** Fallback display name for a generated mix that has no more specific one. */
 	private fun defaultMixName(kind: String): String? = when (kind) {
 		SavedQueueSource.RADIO -> "Radio"
-		SavedQueueSource.MOOD_FLOW -> "Mood Flow"
 		SavedQueueSource.JOURNEY -> "Song Journey"
 		else -> null
 	}
@@ -495,7 +780,7 @@ class RadioManager(
 	}
 
 	/**
-	 * Similar-song ids for [seedId]. Prefers `getSonicSimilarTracks` (guaranteed
+	 * Similar-song ids for a SONG id. Prefers `getSonicSimilarTracks` (guaranteed
 	 * AudioMuse) when the plugin is present, falling back to `getSimilarSongs2`
 	 * (heuristic, or AudioMuse-as-agent) otherwise or on error.
 	 */
@@ -511,177 +796,283 @@ class RadioManager(
 		return sessionManager.fetchSimilarSongIds(seedId, count)
 	}
 
-	/**
-	 * Offline / no-results fallback: a local "radio" from the library — same-genre songs
-	 * (shuffled), topped up with random tracks. Keeps radio + autoplay working when AudioMuse
-	 * (or Navidrome's similar-songs agents) is offline or returns nothing. [seed]'s genre is
-	 * read from the local DB; a null/album/artist seed just draws random tracks.
-	 */
-	private suspend fun localRadioSongs(
-		seed: DomainSong?,
-		count: Int,
-		exclude: Set<String>
-	): List<DomainSong> {
-		val genre = seed?.let { songDao.getSongById(it.id)?.genre }?.takeIf { it.isNotBlank() }
-		val fetch = (count + exclude.size) * 2   // over-fetch to survive exclusions
-		val pool = buildList {
-			if (genre != null) addAll(songDao.getRandomSongsByGenre(genre, fetch))
-			if (size < count) addAll(songDao.getRandomSongs(fetch))
-		}
-		return pool.map { it.toDomainModel() }
-			.filter { it.id !in exclude && it.id != seed?.id }
+	/** The Related tab's offline draw: same-genre songs, shuffled. Never whole-library random. */
+	private suspend fun localGenreSongs(seed: DomainSong?, count: Int, exclude: Set<String>): List<DomainSong> {
+		val genre = seed?.let { songDao.getSongById(it.id)?.genre }?.takeIf { it.isNotBlank() } ?: return emptyList()
+		return songDao.getRandomSongsByGenre(genre, (count + exclude.size) * 2)
+			.map { it.toDomainModel() }
+			.filter { it.id !in exclude && it.id != seed.id }
 			.distinctBy { it.id }
 			.shuffled()
 			.take(count)
 	}
 
+	// ---- Autoplay: the station driver -------------------------------------------------------- //
+
 	/**
-	 * navi-connect autoplay (Tier 1): when [AutoplayMode.Similar] is selected,
-	 * keep the LOCAL queue topped up with songs similar to the current track as
-	 * it nears the end. Gated off while another device is the active receiver
-	 * (the local player is frozen then; the active device owns top-up). Triggers
-	 * only on a real change of `currentSongId:remaining` so the ~5 Hz progress
-	 * emissions don't spam the server.
+	 * Autoplay, for the LOCAL player only: while another hub device plays, that device tops up.
+	 * Each look at the player goes through [autoplayStep]; a step runs once per distinct state
+	 * (queue, playing song, songs left, the station's cursor), with one request out at a time,
+	 * inside this manager's process scope, so it carries on with the screen off for as long as
+	 * the playback service lives.
 	 */
 	private fun observeAutoplay() {
 		scope.launch {
 			var lastSig = ""
-			mediaPlayer.localUiState.collect { state ->
-				val mode = _autoplayMode.value
-				// Off → nothing; reset adaptive state so a fresh session starts clean.
-				if (mode == AutoplayMode.Off) {
-					lastSig = ""
-					resetMoodFlow()
-					return@collect
-				}
-
-				// Adaptive (Mood Flow) learns from skips/plays continuously — do this
-				// on every emission, before the top-up gates below.
-				if (mode == AutoplayMode.Adaptive) captureMoodSignal(state)
-
-				// repeat all/one loops or holds the queue — nothing to top up.
-				if (state.isPaused || state.repeatMode != 0) return@collect
-				if (hubManager.isRemoteActive.value) return@collect
-
-				val current = state.currentSong ?: return@collect
-				if (state.currentIndex < 0 || state.queue.isEmpty()) return@collect
-
-				val remaining = state.queue.size - state.currentIndex - 1
-				if (remaining >= AUTOPLAY_THRESHOLD) return@collect
-
-				val sig = "$mode:${current.id}:$remaining"
-				if (sig == lastSig) return@collect
-				lastSig = sig
-
-				topUp(mode, current, state.queue)
-			}
-		}
-	}
-
-	private suspend fun topUp(mode: AutoplayMode, seed: DomainSong, queue: List<DomainSong>) {
-		try {
-			val existing = queue.mapTo(HashSet()) { it.id }
-			// Similar (Tier 1) seeds from the current track; Fingerprint (Tier 2)
-			// from listening habits; Adaptive (Tier 2) from the live Mood Flow
-			// centroid (ADD = played-through, SUBTRACT = skipped). Tier-2 calls are
-			// fail-soft → empty when the core API isn't configured/reachable.
-			val ids = when (mode) {
-				AutoplayMode.Fingerprint -> audioMuseManager.fetchSonicFingerprintIds(AUTOPLAY_FETCH_COUNT)
-				AutoplayMode.Adaptive -> {
-					// Alchemy needs ≥1 ADD; cold-start from the current track.
-					val add = if (moodAddIds.isEmpty()) listOf(seed.id) else moodAddIds.toList()
-					val character = preferenceManager.moodCharacter
-					audioMuseManager.fetchAlchemyMixIds(
-						add,
-						moodSubtractIds.toList(),
-						AUTOPLAY_FETCH_COUNT,
-						temperature = character.temperature,
-						subtractDistance = character.subtractDistance
+			combine(
+				mediaPlayer.localUiState, mediaPlayer.playOrder, _autoplayOn, stationManager.available, driverKick
+			) { state, order, on, available, kick -> AutoplayInput(state, order, on, available, kick) }
+				.collect { input ->
+					val state = input.state
+					if (!input.on) {
+						lastSig = ""
+						return@collect
+					}
+					val remaining = playOrderRemaining(input.order, state.queue.size, state.currentIndex)
+					val bound = if (input.available) stationManager.boundFor(state) else null
+					val step = autoplayStep(
+						AutoplayLook(
+							autoplayOn = true,
+							remoteActive = hubManager.isRemoteActive.value,
+							paused = state.isPaused,
+							repeatMode = state.repeatMode,
+							queueSize = state.queue.size,
+							currentIndex = state.currentIndex,
+							remaining = remaining,
+							stationsAvailable = input.available,
+							bound = bound,
+							inFlight = stationManager.busy.value,
+							autoDjTiming = preferenceManager.autoDjTiming
+						)
 					)
+					if (step == AutoplayStep.Idle || step == AutoplayStep.Exhausted) return@collect
+					// Not the cursor itself: an answer that only moved it (served elsewhere) waits for
+					// the next change rather than asking again at once. A like or a character change
+					// moves `rev`, which does ask again (it can clear "exhausted").
+					val stepKind = step::class.simpleName
+					val sig = "${state.savedQueueId}:${state.currentSong?.id}:$remaining:$stepKind:${bound?.rev}:${input.kick}"
+					if (sig == lastSig) return@collect
+					lastSig = sig
+					stationManager.setBusy(true)
+					try {
+						runStep(step, state, input.order)
+					} catch (e: Exception) {
+						Logger.e("RadioManager", "autoplay $step failed", e)
+					} finally {
+						stationManager.setBusy(false)
+					}
 				}
-				else -> fetchSimilar(seed.id, AUTOPLAY_FETCH_COUNT)
-			}.filter { it !in existing }
-			if (ids.isEmpty()) {
-				// AudioMuse/Navidrome offline or no results → keep autoplay alive with a
-				// local genre mix so playback doesn't just stop.
-				val local = localRadioSongs(seed, AUTOPLAY_ADD_COUNT, existing)
-				if (local.isNotEmpty()) mediaPlayer.appendToQueue(local)
-				return
-			}
-
-			val byId = songDao.getSongsByIds(ids).associateBy { it.songId }
-			val additions = ids.mapNotNull { byId[it]?.toDomainModel() }
-				.distinctBy { it.id }
-				.take(AUTOPLAY_ADD_COUNT)
-
-			if (additions.isNotEmpty()) mediaPlayer.appendToQueue(additions)
-		} catch (e: Exception) {
-			Logger.e("RadioManager", "autoplay top-up failed", e)
 		}
 	}
 
-	// ---- Adaptive "Mood Flow" session state (Yandex-style implicit steering) ----
-	// All mutated/read only inside the single localUiState collector coroutine, so
-	// no synchronization is needed.
-	private val moodAddIds = ArrayDeque<String>()       // played-through / liked
-	private val moodSubtractIds = ArrayDeque<String>()  // skipped
-	private var moodPrevSongId: String? = null
-	private var moodPrevProgress: Float = 0f
+	private data class AutoplayInput(
+		val state: PlayerUiState,
+		val order: List<Int>?,
+		val on: Boolean,
+		val available: Boolean,
+		val kick: Int
+	)
 
-	private fun resetMoodFlow() {
-		moodAddIds.clear()
-		moodSubtractIds.clear()
-		moodPrevSongId = null
-		moodPrevProgress = 0f
+	private suspend fun runStep(step: AutoplayStep, state: PlayerUiState, order: List<Int>?) {
+		when (step) {
+			is AutoplayStep.Next -> continueStation(state, step.stationId, step.after)
+			AutoplayStep.Start -> startFromQueue(state, order)
+			AutoplayStep.AutoDj -> autoDjTopUp(state)
+			AutoplayStep.Idle, AutoplayStep.Exhausted -> {}
+		}
 	}
+
+	private fun queueIdsOf(state: PlayerUiState): List<String> = state.queue.map { it.id }
+
+	/** The same queue is still playing: an answer for a queue that has since been replaced is dropped. */
+	private fun stillPlaying(state: PlayerUiState): Boolean {
+		val now = mediaPlayer.localUiState.value
+		return now.queue.isNotEmpty() && now.savedQueueId == state.savedQueueId &&
+			!hubManager.isRemoteActive.value
+	}
+
+	private suspend fun continueStation(state: PlayerUiState, stationId: String, after: Int) {
+		val bound = stationManager.boundFor(state)?.takeIf { it.stationId == stationId } ?: return
+		when (val result = stationManager.next(stationId, after, STATION_BATCH, queueIdsOf(state))) {
+			is StationResult.Ok -> applyBatch(state, bound, result.answer)
+			// Expired, or a hub that lost it: start again once, from the seed kept here.
+			StationResult.StationUnknown -> restartStation(state, bound)
+			else -> {
+				Logger.i("RadioManager", "station next: $result, Auto DJ for this top-up")
+				autoDjTopUp(state)
+			}
+		}
+	}
+
+	private suspend fun restartStation(state: PlayerUiState, bound: StationProvenance) {
+		val seed = bound.seed ?: return startFromQueue(state, mediaPlayer.playOrder.value)
+		val character = StationCharacter.fromWire(bound.character) ?: _character.value
+		when (val result = stationManager.start(seed, character, STATION_BATCH, queueIdsOf(state), bindSessionFor())) {
+			is StationResult.Ok -> applyBatch(state, bound.copy(seq = 0, rev = 0), result.answer, fresh = true)
+			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed)
+			else -> autoDjTopUp(state)
+		}
+	}
+
+	/** A queue no station built, near its end: it continues as a station seeded from its last tracks. */
+	private suspend fun startFromQueue(state: PlayerUiState, order: List<Int>?) {
+		val current = state.currentSong ?: return
+		val seedIds = playOrderRecent(order, state.queue.size, state.currentIndex, SEED_TRACKS_FROM_QUEUE)
+			.mapNotNull { state.queue.getOrNull(it)?.id }
+			.filterNot { PreviewManager.isPreviewId(it) || it.startsWith("radio_") }
+			.distinct()
+		if (seedIds.isEmpty()) return autoDjTopUp(state)
+		val seed = StationSeed(StationSeed.TRACKS, seedIds, current.title)
+		val queueId = state.savedQueueId
+			?: hubManager.remoteSession.value.savedQueueId
+			?: mediaPlayer.newQueueSessionId(state.queue)
+		mediaPlayer.adoptQueueSessionId(queueId)
+		val queued = state.copy(savedQueueId = queueId)
+		when (val result = stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bindSessionFor())) {
+			is StationResult.Ok -> {
+				val fresh = StationProvenance(
+					queueId = queueId,
+					stationId = result.answer.stationId,
+					character = _character.value.wireId,
+					seed = seed
+				)
+				applyBatch(queued, fresh, result.answer, fresh = true)
+			}
+			// Another device got there first: the session has a station, so this queue continues it.
+			is StationResult.SessionBound -> continueSessionStation(queued, result.stationId, seed)
+			else -> {
+				Logger.i("RadioManager", "station start: $result, Auto DJ for this top-up")
+				autoDjTopUp(queued)
+			}
+		}
+	}
+
+	/** Continue the session's station [stationId] from the cursor the hub last broadcast. */
+	private suspend fun continueSessionStation(state: PlayerUiState, stationId: String, seed: StationSeed?) {
+		val queueId = state.savedQueueId ?: return
+		val frame = hubManager.stationFrames.value[stationId]
+		var bound = StationProvenance(
+			queueId = queueId,
+			stationId = stationId,
+			name = frame?.name ?: hubManager.remoteSession.value.sourceName.orEmpty(),
+			character = frame?.character?.ifBlank { null } ?: _character.value.wireId,
+			seed = frame?.seed ?: seed,
+			seq = frame?.seq ?: 0
+		)
+		var result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
+		// The cursor was learned second-hand; the answer names the real one. Once.
+		val answer = (result as? StationResult.Ok)?.answer
+		if (answer != null && answer.servedElsewhere && answer.seq > bound.seq) {
+			bound = bound.copy(seq = answer.seq)
+			result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
+		}
+		when (result) {
+			is StationResult.Ok -> applyBatch(state, bound, result.answer, fresh = true)
+			else -> autoDjTopUp(state)
+		}
+	}
+
+	/** Append a station's answer to the queue it was asked for, and keep its cursor. */
+	private suspend fun applyBatch(
+		state: PlayerUiState,
+		bound: StationProvenance,
+		answer: StationAnswer,
+		fresh: Boolean = false
+	) {
+		if (!stillPlaying(state)) {
+			Logger.i("RadioManager", "station answer for a queue no longer playing, dropped")
+			return
+		}
+		val queued = mediaPlayer.localUiState.value.queue.mapTo(HashSet()) { it.id }
+		val batch = stationBatch(bound, answer, queued, fresh)
+		val songs = resolveIds(batch.append).filter { it.id !in queued }
+		// The record first: the append republishes the queue, and the publish names the station.
+		stationManager.record(batch.provenance)
+		if (songs.isNotEmpty()) mediaPlayer.appendToQueue(songs)
+		if (batch.retrySoon || (songs.isEmpty() && batch.append.isNotEmpty())) {
+			// `partial`, every track already queued, or none of them in this library: ask again
+			// at the next trigger, and at the latest in a little while, so a queue on its last
+			// song does not just end.
+			scheduleRetry()
+		}
+	}
+
+	private suspend fun autoDjTopUp(state: PlayerUiState) {
+		val current = state.currentSong ?: return
+		val picks = autoDj.collect(current, state.queue.mapTo(HashSet()) { it.id })
+		if (!stillPlaying(state)) return
+		if (picks.isEmpty()) {
+			scheduleRetry()
+			return
+		}
+		mediaPlayer.appendToQueue(picks)
+		stationManager.recordAutoDj(state.savedQueueId)
+	}
+
+	/** `bindSession` for a `start`: the session's saved queue, while this device plays the session. */
+	private fun bindSessionFor(): String? {
+		val me = hubManager.myDeviceId.value ?: return null
+		if (!hubManager.connected.value || hubManager.activeDeviceId.value != me) return null
+		return hubManager.remoteSession.value.savedQueueId
+	}
+
+	private var retryScheduled = false
+
+	private fun scheduleRetry() {
+		if (retryScheduled) return
+		retryScheduled = true
+		scope.launch {
+			delay(RETRY_MS)
+			retryScheduled = false
+			driverKick.update { it + 1 }
+		}
+	}
+
+	// ---- Likes ------------------------------------------------------------------------------- //
 
 	/**
-	 * Turn track transitions into ADD/SUBTRACT signals: a track left near its end
-	 * is a play-through (ADD), left near its start is a skip (SUBTRACT); the middle
-	 * is neutral. Recency-capped so the mood keeps drifting.
+	 * A star given or taken back while a station is bound steers it (`signal like|unlike`): stars
+	 * go straight to Navidrome, and the hub hears of them only from here. Only for a song in the
+	 * queue on screen; the hub ignores one its station never served.
 	 */
-	private fun captureMoodSignal(state: PlayerUiState) {
-		val curId = state.currentSong?.id
-		if (curId != moodPrevSongId) {
-			val left = moodPrevSongId
-			if (left != null) {
-				when {
-					moodPrevProgress >= 0.85f -> recordMood(left, add = true)
-					moodPrevProgress <= 0.20f -> recordMood(left, add = false)
+	private fun observeLikes() {
+		scope.launch {
+			songRepository.starChanges.collect { change ->
+				try {
+					val bound = boundNow() ?: return@collect
+					if (mediaPlayer.uiState.value.queue.none { it.id == change.songId }) return@collect
+					stationManager.signal(bound.stationId, change.songId, if (change.starred) "like" else "unlike")
+				} catch (e: Exception) {
+					Logger.w("RadioManager", "like signal failed", e)
 				}
 			}
-			moodPrevSongId = curId
 		}
-		moodPrevProgress = state.progress
-	}
-
-	private fun recordMood(id: String, add: Boolean) {
-		val target = if (add) moodAddIds else moodSubtractIds
-		val other = if (add) moodSubtractIds else moodAddIds
-		other.remove(id)   // a track can't be both
-		target.remove(id)  // re-add at the most-recent end
-		target.addLast(id)
-		while (target.size > MOOD_MAX) target.removeFirst()
 	}
 
 	// MUST stay after all property declarations: these launch coroutines on
-	// Dispatchers.Default that read fields above (e.g. _autoplayMode), and an
+	// Dispatchers.Default that read fields above (e.g. _autoplayOn), and an
 	// init block higher up would race construction and read them as null.
 	init {
 		observeAutoplay()
 		observeCapabilities()
+		observeLikes()
 	}
 
 	private companion object {
-		// Start fetching when this many tracks remain after the current one.
-		const val AUTOPLAY_THRESHOLD = 3
-		// Ask for more than we add: similar ids may already be in the queue or
-		// missing from the local DB.
-		const val AUTOPLAY_FETCH_COUNT = 30
-		const val AUTOPLAY_ADD_COUNT = 15
-		// Recency window for Mood Flow ADD/SUBTRACT sets.
-		const val MOOD_MAX = 12
+		/** A radio's first batch. */
+		const val RADIO_START_COUNT = 20
+		/** The no-engine radio's similar songs. */
+		const val RADIO_FALLBACK_COUNT = 50
+		/** An album or artist radio's seed tracks (PROTOCOL §18.1: 1–5). */
+		const val SEED_TRACKS_MAX = 5
+		/** A queue continued as a station is seeded from its last 1–3 tracks. */
+		const val SEED_TRACKS_FROM_QUEUE = 3
+		/** How long after a partial or empty answer the driver looks again by itself. */
+		const val RETRY_MS = 15_000L
 		// How many queue tracks to seed the "Related" tab from (see fetchQueueRelatedSongs).
 		const val RELATED_SEEDS = 5
+
+		/** The kinds that play as a station when the engine is there. */
+		val STATION_KINDS = setOf(MixKind.STATION, MixKind.SIMILAR, MixKind.FINGERPRINT, MixKind.ADAPTIVE)
 	}
 }

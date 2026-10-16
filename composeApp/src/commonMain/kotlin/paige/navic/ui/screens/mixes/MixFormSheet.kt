@@ -45,12 +45,15 @@ import navic.composeapp.generated.resources.mix_length
 import navic.composeapp.generated.resources.mix_length_tracks
 import navic.composeapp.generated.resources.mix_mood_character
 import navic.composeapp.generated.resources.mix_seed
-import navic.composeapp.generated.resources.mix_seed_adaptive
-import navic.composeapp.generated.resources.mix_seed_fingerprint
+import navic.composeapp.generated.resources.mix_kind_artist
+import navic.composeapp.generated.resources.mix_kind_genre
+import navic.composeapp.generated.resources.mix_kind_station
 import navic.composeapp.generated.resources.mix_seed_needs_playing
 import navic.composeapp.generated.resources.mix_seed_none_found
 import navic.composeapp.generated.resources.mix_seed_pick
-import navic.composeapp.generated.resources.mix_seed_playing
+import navic.composeapp.generated.resources.mix_seed_radio
+import navic.composeapp.generated.resources.mix_seed_your_mix
+import navic.composeapp.generated.resources.queue_your_mix
 import navic.composeapp.generated.resources.mix_seed_search_artist
 import navic.composeapp.generated.resources.mix_seed_search_genre
 import navic.composeapp.generated.resources.option_mix_name
@@ -60,7 +63,8 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.creditText
-import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.manager.StationCatalogue
+import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.screens.mixes.viewmodels.MixSeedOption
@@ -68,6 +72,13 @@ import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /** The lengths offered. Chips rather than a number field: three plausible answers. */
 private val LENGTHS = listOf(25, 50, 100)
+
+/**
+ * What the form makes. A radio and Your mix are both `station` recipes (PROTOCOL §17.1), with a
+ * seed track or none; the older `similar`, `fingerprint` and `adaptive` kinds still play, and
+ * are no longer made here (I-040): with the station engine they play as these two anyway.
+ */
+private enum class FormKind { Radio, YourMix, Genre, Artist }
 
 /**
  * Making a mix from scratch.
@@ -79,17 +90,19 @@ private val LENGTHS = listOf(25, 50, 100)
  * them and the hub validated them; nothing could make one. They arrived only from
  * Feishin.
  *
- * A sheet rather than a `FormDialog`, which is 300dp wide: two of the five kinds
+ * A sheet rather than a `FormDialog`, which is 300dp wide: two of the four choices
  * need a searchable list of the library's own artists or genres, and that does not
  * fit in a dialog without becoming a second screen.
  *
- * The seed is offered per kind rather than universally, because the five kinds do
- * not take the same kind of seed — an id, a genre name, a steering character, or
- * nothing at all. Feishin's `mix-form.tsx` offers the playing track only, arguing
- * a library picker would be a second search UI for a field whose answer is always
- * "this". That holds for `similar`, which is why this keeps the playing track
- * there; it does not hold for the two kinds Feishin can also only reach through a
- * playing track's artist or first genre tag.
+ * Four choices since I-040: a radio of the playing track and Your mix (both `station`
+ * recipes, each with a character), a genre and an artist. The older `similar`,
+ * `fingerprint` and `adaptive` recipes still play and are no longer made here. The seed
+ * is offered per choice, because they do not take the same kind of seed: a track, a
+ * genre name, an artist id, or nothing at all. Feishin's `mix-form.tsx` offers the
+ * playing track only, arguing a library picker would be a second search UI for a field
+ * whose answer is always "this". That holds for a radio, which is why this keeps the
+ * playing track there; it does not hold for the two kinds Feishin can also only reach
+ * through a playing track's artist or first genre tag.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -97,13 +110,14 @@ fun MixFormSheet(
 	playing: DomainSong?,
 	artists: List<MixSeedOption>,
 	genres: List<MixSeedOption>,
-	defaultMoodCharacter: MoodCharacter,
+	defaultCharacter: StationCharacter,
+	catalogue: StationCatalogue,
 	onSave: (Mix) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
-	var kind by remember { mutableStateOf(MixKind.SIMILAR) }
+	var kind by remember { mutableStateOf(FormKind.Radio) }
 	var seed by remember { mutableStateOf<MixSeedOption?>(null) }
-	var character by remember { mutableStateOf(defaultMoodCharacter) }
+	var character by remember { mutableStateOf(defaultCharacter) }
 	var count by remember { mutableStateOf(50) }
 	val nameState = rememberTextFieldState("")
 	// The last name this form filled in by itself. Until the user edits the field,
@@ -117,10 +131,10 @@ fun MixFormSheet(
 	var autoFilled by remember { mutableStateOf("") }
 	val searchState = rememberTextFieldState("")
 
+	val yourMixName = stringResource(Res.string.queue_your_mix)
 	val suggested = when (kind) {
-		MixKind.SIMILAR -> playing?.title?.let { "$it mix" }.orEmpty()
-		MixKind.FINGERPRINT -> mixKindName(MixKind.FINGERPRINT)
-		MixKind.ADAPTIVE -> character.label
+		FormKind.Radio -> playing?.title?.let { "$it radio" }.orEmpty()
+		FormKind.YourMix -> yourMixName
 		else -> seed?.name.orEmpty()
 	}
 
@@ -141,8 +155,8 @@ fun MixFormSheet(
 	}
 
 	val options = when (kind) {
-		MixKind.ARTIST -> artists
-		MixKind.GENRE -> genres
+		FormKind.Artist -> artists
+		FormKind.Genre -> genres
 		else -> emptyList()
 	}
 	val query = searchState.text.toString().trim()
@@ -152,9 +166,9 @@ fun MixFormSheet(
 	}
 
 	val blocked = when (kind) {
-		MixKind.SIMILAR -> playing?.id.isNullOrBlank()
-		MixKind.ARTIST, MixKind.GENRE -> seed == null
-		else -> false
+		FormKind.Radio -> playing?.id.isNullOrBlank()
+		FormKind.Artist, FormKind.Genre -> seed == null
+		FormKind.YourMix -> false
 	} || nameState.text.isBlank()
 
 	ModalBottomSheet(
@@ -180,38 +194,35 @@ fun MixFormSheet(
 
 			FormLabel(stringResource(Res.string.mix_how_built))
 			PageChips(
-				options = MixKind.ALL,
+				options = FormKind.entries,
 				selected = kind,
-				label = { mixKindName(it) },
+				label = { formKindName(it) },
 				onSelect = { kind = it },
 				contentPadding = PaddingValues(0.dp),
 				wrap = true
 			)
 
 			when (kind) {
-				MixKind.SIMILAR -> FormNote(
-					// Stated as a fact about what will be SAVED, since "the currently playing
-					// track" stops being true the moment playback moves on.
-					if (playing != null) {
-						stringResource(Res.string.mix_seed_playing, playing.title, playing.creditText)
-					} else {
-						stringResource(Res.string.mix_seed_needs_playing)
-					}
-				)
-
-				MixKind.FINGERPRINT -> FormNote(stringResource(Res.string.mix_seed_fingerprint))
-
-				MixKind.ADAPTIVE -> {
-					FormNote(stringResource(Res.string.mix_seed_adaptive))
+				FormKind.Radio, FormKind.YourMix -> {
+					FormNote(
+						// Stated as a fact about what will be SAVED, since "the currently playing
+						// track" stops being true the moment playback moves on.
+						when {
+							kind == FormKind.YourMix -> stringResource(Res.string.mix_seed_your_mix)
+							playing != null -> stringResource(Res.string.mix_seed_radio, playing.title, playing.creditText)
+							else -> stringResource(Res.string.mix_seed_needs_playing)
+						}
+					)
 					FormLabel(stringResource(Res.string.mix_mood_character))
 					PageChips(
-						options = MoodCharacter.entries,
+						options = StationCharacter.entries,
 						selected = character,
-						label = { it.label },
+						label = { catalogue.infoFor(it).label.ifBlank { it.label } },
 						onSelect = { character = it },
 						contentPadding = PaddingValues(0.dp),
 						wrap = true
 					)
+					catalogue.infoFor(character).description.takeIf { it.isNotBlank() }?.let { FormNote(it) }
 				}
 
 				else -> {
@@ -220,7 +231,7 @@ fun MixFormSheet(
 						state = searchState,
 						label = {
 							Text(
-								if (kind == MixKind.ARTIST) {
+								if (kind == FormKind.Artist) {
 									stringResource(Res.string.mix_seed_search_artist)
 								} else {
 									stringResource(Res.string.mix_seed_search_genre)
@@ -249,7 +260,7 @@ fun MixFormSheet(
 										count = filtered.size
 									),
 									verticalAlignment = Alignment.CenterVertically,
-									leadingContent = if (kind == MixKind.ARTIST) {
+									leadingContent = if (kind == FormKind.Artist) {
 										{
 											CoverArt(
 												modifier = Modifier.size(40.dp),
@@ -312,6 +323,14 @@ fun MixFormSheet(
 }
 
 @Composable
+private fun formKindName(kind: FormKind): String = when (kind) {
+	FormKind.Radio -> stringResource(Res.string.mix_kind_station)
+	FormKind.YourMix -> stringResource(Res.string.queue_your_mix)
+	FormKind.Genre -> stringResource(Res.string.mix_kind_genre)
+	FormKind.Artist -> stringResource(Res.string.mix_kind_artist)
+}
+
+@Composable
 private fun FormLabel(text: String) {
 	Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
@@ -326,43 +345,43 @@ private fun FormNote(text: String) {
  *
  * `seedId` is written in the seed kind's own vocabulary — a song id, an artist id,
  * or a genre **name** — because that is what `RadioManager.regenerate` looks each
- * one up by. `id` is blank: minting belongs to the hub.
+ * one up by. `id` is blank: minting belongs to the hub. A radio and Your mix carry the
+ * character twice, as the wire id and as the old preset's name, for a client from before
+ * stations (PROTOCOL §17.1).
  */
 private fun buildRecipe(
 	name: String,
-	kind: String,
+	kind: FormKind,
 	playing: DomainSong?,
 	seed: MixSeedOption?,
-	character: MoodCharacter,
+	character: StationCharacter,
 	count: Int
 ): Mix = when (kind) {
-	MixKind.SIMILAR -> Mix(
+	FormKind.Radio -> Mix(
 		id = "",
 		name = name,
-		kind = kind,
+		kind = MixKind.STATION,
 		seedId = playing?.id.orEmpty(),
 		seedName = playing?.title.orEmpty(),
+		character = character.wireId,
+		moodCharacter = character.legacyName,
 		count = count,
 		coverArtId = playing?.coverArtId.orEmpty()
 	)
 
-	MixKind.ADAPTIVE -> Mix(
+	FormKind.YourMix -> Mix(
 		id = "",
 		name = name,
-		kind = kind,
-		// By name, never by ordinal: the presets are hand-mirrored with Feishin and
-		// an ordinal would re-point every stored recipe the day either side
-		// reorders the enum.
-		moodCharacter = character.name,
+		kind = MixKind.STATION,
+		character = character.wireId,
+		moodCharacter = character.legacyName,
 		count = count
 	)
 
-	MixKind.FINGERPRINT -> Mix(id = "", name = name, kind = kind, count = count)
-
-	else -> Mix(
+	FormKind.Genre, FormKind.Artist -> Mix(
 		id = "",
 		name = name,
-		kind = kind,
+		kind = if (kind == FormKind.Genre) MixKind.GENRE else MixKind.ARTIST,
 		seedId = seed?.id.orEmpty(),
 		seedName = seed?.name.orEmpty(),
 		count = count,

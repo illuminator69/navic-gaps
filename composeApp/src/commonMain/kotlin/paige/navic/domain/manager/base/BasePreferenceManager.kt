@@ -147,7 +147,10 @@ internal inline fun <reified E : Enum<E>> Settings.getEnum(
 	key: String,
 	defaultValue: E
 ): E {
-	return enumEntries<E>()[(getInt(key, defaultValue.ordinal))]
+	// An ordinal this build does not know is the default, never a crash: an enum that shrank, or
+	// a value written by a newer build that appended an entry, used to throw from the property
+	// delegate while PreferenceManager was being constructed, i.e. at launch (I-040).
+	return enumEntries<E>().getOrNull(getInt(key, defaultValue.ordinal)) ?: defaultValue
 }
 
 @PublishedApi

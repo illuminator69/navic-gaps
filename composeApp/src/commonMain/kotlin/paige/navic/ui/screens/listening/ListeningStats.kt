@@ -312,7 +312,7 @@ fun ListeningStats(
 			song = menu.song,
 			onPlayNext = { player.playNextSingle(menu.song) },
 			onAddToQueue = { player.addToQueueSingle(menu.song) },
-			onStartRadio = { radioManager.startRadio(menu.song.id, menu.song) },
+			onStartRadio = { radioManager.startRadio(menu.song) },
 			onTrackInfo = { backStack.add(Screen.SongDetailSheet(menu.song.id)) },
 			onViewAlbum = menu.song.albumId?.let { albumId ->
 				{ backStack.add(Screen.CollectionDetail(albumId, "library")) }

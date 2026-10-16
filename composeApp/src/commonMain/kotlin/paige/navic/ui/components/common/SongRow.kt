@@ -204,7 +204,7 @@ fun SongRow(
 				playlistDialogShown = true
 			},
 			onStartRadio = {
-				radioManager.startRadio(song.id, song)
+				radioManager.startRadio(song)
 			},
 			// Sonic journey from the now-playing track to this one. Only offered
 			// when the AudioMuse plugin is present and something else is playing.

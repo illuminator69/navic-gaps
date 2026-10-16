@@ -317,7 +317,7 @@ fun StarredScreenContent(
 					ArtistSheet(
 						onDismissRequest = onClearArtistSelection,
 						artist = artist,
-						onStartRadio = { radioManager.startRadio(artist.id) },
+						onStartRadio = { radioManager.startArtistRadio(artist.id, artist.name) },
 						onPlayNext = onPlayArtistNext,
 						onAddToQueue = onAddArtistToQueue,
 						onAddAllToPlaylist = {

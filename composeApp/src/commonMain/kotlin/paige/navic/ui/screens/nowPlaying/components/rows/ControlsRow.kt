@@ -25,7 +25,7 @@ import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingAutoplaySelector
-import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoodCharacterButton
+import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingCharacterButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -70,8 +70,8 @@ fun NowPlayingControlsRow(
 				horizontalArrangement = Arrangement.spacedBy(8.dp)
 			) {
 				NowPlayingAutoplaySelector(hazeState = hazeState)
-				// Only renders while Mood Flow (Adaptive) is selected.
-				NowPlayingMoodCharacterButton(hazeState = hazeState)
+				// Only renders while autoplay is on and the hub's station engine can be steered.
+				NowPlayingCharacterButton(hazeState = hazeState)
 			}
 			Spacer(modifier = Modifier.height(12.dp))
 			NowPlayingProgressBar()

@@ -96,7 +96,7 @@ fun NowPlayingMoreButton(
 					playlistDialogShown = true
 				},
 				onStartRadio = {
-					radioManager.startRadio(song.id, song)
+					radioManager.startRadio(song)
 				},
 				onTrackInfo = dropUnlessResumed {
 					backStack.remove(Screen.NowPlaying)

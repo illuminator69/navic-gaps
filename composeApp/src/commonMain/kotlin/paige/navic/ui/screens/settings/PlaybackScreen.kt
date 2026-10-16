@@ -20,18 +20,23 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import kotlin.math.roundToInt
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_autoplay_auto_dj
+import navic.composeapp.generated.resources.info_autoplay_station
+import navic.composeapp.generated.resources.option_auto_dj_allow_duplicates
+import navic.composeapp.generated.resources.option_auto_dj_count
+import navic.composeapp.generated.resources.option_auto_dj_only_similar
 import navic.composeapp.generated.resources.option_auto_fill_queue
-import navic.composeapp.generated.resources.option_autoplay_mode
+import navic.composeapp.generated.resources.option_autoplay
 import navic.composeapp.generated.resources.option_enable_scrobbling
 import navic.composeapp.generated.resources.option_explicit_playback
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
-import navic.composeapp.generated.resources.option_mood_character
 import navic.composeapp.generated.resources.option_scrobble_percentage
+import navic.composeapp.generated.resources.option_station_character
 import navic.composeapp.generated.resources.subtitle_audio_effects
+import navic.composeapp.generated.resources.subtitle_auto_dj_only_similar
 import navic.composeapp.generated.resources.subtitle_auto_fill_queue
-import navic.composeapp.generated.resources.subtitle_autoplay_mode
+import navic.composeapp.generated.resources.subtitle_autoplay
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
-import navic.composeapp.generated.resources.subtitle_mood_character
 import navic.composeapp.generated.resources.subtitle_streaming_quality
 import navic.composeapp.generated.resources.title_audio_effects
 import navic.composeapp.generated.resources.title_autoplay
@@ -43,12 +48,10 @@ import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.PlatformType
-import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
-import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.domain.models.settings.ExplicitContentPlayback
-import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.NestedTopBarDefaults
@@ -66,9 +69,11 @@ fun SettingsPlaybackScreen() {
 	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
-	val audioMuseManager = koinInject<AudioMuseManager>()
 	val radioManager = koinInject<RadioManager>()
-	val autoplayMode by radioManager.autoplayMode.collectAsState()
+	val autoplayOn by radioManager.autoplayOn.collectAsState()
+	val stationsAvailable by radioManager.stationsAvailable.collectAsState()
+	val catalogue by radioManager.catalogue.collectAsState()
+	val character by radioManager.character.collectAsState()
 
 	Scaffold(
 		topBar = {
@@ -134,39 +139,67 @@ fun SettingsPlaybackScreen() {
 					}
 				}
 
-				// navi-connect: what keeps the queue going when it runs out. Fingerprint and Mood
-				// Flow need the AudioMuse core API (Tier 2), and so does the Mood Flow character.
+				// navi-connect: what keeps the queue going when it runs out (I-040). On or off; with
+				// the hub's station engine the character it starts radios with, and without it the
+				// Auto DJ items upstream Feishin offers, since that is what runs then.
 				SettingsGroup(title = { Text(stringResource(Res.string.title_autoplay)) }) {
-					val audioMuse = audioMuseManager.isConfigured
-					val count = if (audioMuse) 2 else 1
-					SettingsChoiceItem(
-						choices = (if (audioMuse) {
-							listOf(
-								AutoplayMode.Off,
-								AutoplayMode.Similar,
-								AutoplayMode.Fingerprint,
-								AutoplayMode.Adaptive,
+					val count = when {
+						!autoplayOn -> 1
+						stationsAvailable -> 2
+						else -> 4
+					}
+					SettingsToggleItem(
+						checked = autoplayOn,
+						onCheckedChange = { radioManager.setAutoplayOn(it) },
+						content = { Text(stringResource(Res.string.option_autoplay)) },
+						supportingContent = {
+							Text(
+								stringResource(
+									when {
+										!autoplayOn -> Res.string.subtitle_autoplay
+										stationsAvailable -> Res.string.info_autoplay_station
+										else -> Res.string.info_autoplay_auto_dj
+									}
+								)
 							)
-						} else {
-							listOf(AutoplayMode.Off, AutoplayMode.Similar)
-						}).toImmutableList(),
-						selectedChoice = autoplayMode,
-						onChoiceSelected = { radioManager.setAutoplayMode(it) },
-						label = { it.label },
-						description = stringResource(Res.string.subtitle_autoplay_mode),
-						content = { Text(stringResource(Res.string.option_autoplay_mode)) },
+						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
-					if (audioMuse) {
+					AnimatedVisibility(visible = autoplayOn && stationsAvailable) {
 						SettingsChoiceItem(
-							choices = MoodCharacter.entries.toImmutableList(),
-							selectedChoice = preferenceManager.moodCharacter,
-							onChoiceSelected = { preferenceManager.moodCharacter = it },
-							label = { it.label },
-							description = stringResource(Res.string.subtitle_mood_character),
-							content = { Text(stringResource(Res.string.option_mood_character)) },
+							choices = StationCharacter.entries.toImmutableList(),
+							selectedChoice = character,
+							onChoiceSelected = { radioManager.setCharacter(it) },
+							label = { catalogue.infoFor(it).label.ifBlank { it.label } },
+							description = catalogue.infoFor(character).description.ifBlank { null },
+							content = { Text(stringResource(Res.string.option_station_character)) },
 							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
 						)
+					}
+					AnimatedVisibility(visible = autoplayOn && !stationsAvailable) {
+						Column(verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)) {
+							SettingsChoiceItem(
+								choices = AUTO_DJ_COUNTS.toImmutableList(),
+								selectedChoice = preferenceManager.autoDjItemCount,
+								onChoiceSelected = { preferenceManager.autoDjItemCount = it },
+								label = { it.toString() },
+								content = { Text(stringResource(Res.string.option_auto_dj_count)) },
+								shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
+							)
+							SettingsToggleItem(
+								checked = preferenceManager.autoDjOnlySimilar,
+								onCheckedChange = { preferenceManager.autoDjOnlySimilar = it },
+								content = { Text(stringResource(Res.string.option_auto_dj_only_similar)) },
+								supportingContent = { Text(stringResource(Res.string.subtitle_auto_dj_only_similar)) },
+								shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = count)
+							)
+							SettingsToggleItem(
+								checked = preferenceManager.autoDjAllowDuplicates,
+								onCheckedChange = { preferenceManager.autoDjAllowDuplicates = it },
+								content = { Text(stringResource(Res.string.option_auto_dj_allow_duplicates)) },
+								shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = count)
+							)
+						}
 					}
 				}
 
@@ -209,3 +242,6 @@ fun SettingsPlaybackScreen() {
 		}
 	}
 }
+
+/** Auto DJ's songs per top-up: upstream's default of 5, and the counts around it. */
+private val AUTO_DJ_COUNTS = listOf(1, 3, 5, 10, 20)

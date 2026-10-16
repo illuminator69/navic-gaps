@@ -33,30 +33,31 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.blurEffect
 import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.delay
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_station_character
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
-import paige.navic.domain.models.settings.AutoplayMode
-import paige.navic.domain.models.settings.MoodCharacter
+import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Speed
 
 /**
- * Small circular frosted button that sits next to [NowPlayingAutoplaySelector]
- * ONLY while Mood Flow (Adaptive) is the active autoplay mode. Tapping it springs
- * open a popup (same frosted style as the autoplay selector) to pick the Mood
- * Flow tuning preset ([MoodCharacter]) without going to Settings. Writes
- * `preferenceManager.moodCharacter`, which RadioManager reads fresh on each
- * Adaptive top-up — no extra wiring.
+ * Small circular frosted button beside [NowPlayingAutoplaySelector], shown while autoplay is on
+ * and the hub's station engine is there to steer (I-040). Its menu picks the character
+ * ([StationCharacter]) in the hub catalogue's words: the one new stations start with, and the
+ * playing station's from its next batch (`RadioManager.setCharacter`), so the queue on screen
+ * stays as it is. The check mark is the PLAYING station's character when one is bound, read
+ * through a flow; it used to read the preference directly and kept showing the old one.
  */
 @Composable
-fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: HazeState? = null) {
+fun NowPlayingCharacterButton(modifier: Modifier = Modifier, hazeState: HazeState? = null) {
 	val radioManager = koinInject<RadioManager>()
-	val preferenceManager = koinInject<PreferenceManager>()
 
-	val mode by radioManager.autoplayMode.collectAsState()
-
-	val character = preferenceManager.moodCharacter
+	val autoplayOn by radioManager.autoplayOn.collectAsState()
+	val stationsAvailable by radioManager.stationsAvailable.collectAsState()
+	val catalogue by radioManager.catalogue.collectAsState()
+	val character by radioManager.shownCharacter.collectAsState()
 
 	var expanded by remember { mutableStateOf(false) }
 	// Same reopen-race guard as the autoplay selector.
@@ -75,7 +76,7 @@ fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: Haze
 	// Eased in and out beside the autoplay selector rather than appearing in one frame: the row
 	// is centred, so the selector slides aside instead of jumping (I-039).
 	AnimatedVisibility(
-		visible = mode == AutoplayMode.Adaptive,
+		visible = autoplayOn && stationsAvailable,
 		modifier = modifier,
 		enter = fadeIn() + expandHorizontally(),
 		exit = fadeOut() + shrinkHorizontally()
@@ -109,7 +110,7 @@ fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: Haze
 				) {
 					Icon(
 						imageVector = Icons.Outlined.Speed,
-						contentDescription = "Mood Flow character",
+						contentDescription = stringResource(Res.string.option_station_character),
 						modifier = Modifier.size(18.dp)
 					)
 				}
@@ -122,11 +123,12 @@ fun NowPlayingMoodCharacterButton(modifier: Modifier = Modifier, hazeState: Haze
 					justDismissed = true
 				}
 			) {
-				MoodCharacter.entries.forEach { option ->
+				StationCharacter.entries.forEach { option ->
+					val info = catalogue.infoFor(option)
 					DropdownMenuItem(
-						text = { Text(option.label) },
+						text = { Text(info.label.ifBlank { option.label }) },
 						onClick = {
-							preferenceManager.moodCharacter = option
+							radioManager.setCharacter(option)
 							expanded = false
 						},
 						leadingIcon = {

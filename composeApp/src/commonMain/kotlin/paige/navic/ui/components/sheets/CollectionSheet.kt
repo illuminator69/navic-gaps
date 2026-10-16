@@ -36,6 +36,7 @@ import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_fix_album_match
 import navic.composeapp.generated.resources.action_play_next
+import navic.composeapp.generated.resources.action_start_radio
 import navic.composeapp.generated.resources.action_refresh_about
 import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_share
@@ -78,6 +79,7 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
+import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
@@ -128,7 +130,10 @@ fun CollectionSheet(
 	// Opens "Fix album match" (I-022): which MusicBrainz release this album is. Passed by the
 	// callers that can host that sheet; the row itself shows only for an album the library
 	// owns, and only while the hub offers the route and lb-bot has not turned out to predate it.
-	onFixAlbumMatch: (() -> Unit)? = null
+	onFixAlbumMatch: (() -> Unit)? = null,
+	// An album's radio (I-040): up to five of its tracks as a station's seed. Passed for albums
+	// by the album page's top bar, the artist page's album sheet and the album list's rows.
+	onStartRadio: (() -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val lbBot = koinInject<LbBotManager>()
@@ -292,6 +297,21 @@ fun CollectionSheet(
 					},
 					colors = colors,
 					contentPadding = contentPadding
+				)
+			}
+
+			if (onStartRadio != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_start_radio)) },
+					leadingContent = { Icon(Icons.Outlined.Radio, null) },
+					onClick = {
+						platformContext.clickSound()
+						onStartRadio()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding,
+					enabled = !collection?.songs.isNullOrEmpty()
 				)
 			}
 

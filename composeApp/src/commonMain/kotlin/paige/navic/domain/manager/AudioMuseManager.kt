@@ -14,9 +14,6 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -26,7 +23,9 @@ import androidx.compose.runtime.LaunchedEffect
 
 /**
  * Tier-2 AudioMuse-AI core API client, unlocking features the Navidrome plugin
- * (Tier 1) can't expose — Sonic Fingerprint, adaptive Mood Flow, CLAP mood search.
+ * (Tier 1) can't expose: CLAP mood search, and the fingerprint and alchemy lists the
+ * `fingerprint` / `adaptive` mixes play from when the hub has no station engine (I-040; with
+ * one, radio and autoplay are the hub's, `StationManager`).
  *
  * TWO ROUTES, hub preferred (see DESIGN-hub-audiomuse-proxy.md):
  *  1. **Through the hub** — `<hub>/sonic/<route>` with `Authorization: Bearer <HUB_TOKEN>`.
@@ -114,11 +113,6 @@ class AudioMuseManager(
 		get() = "${preferenceManager.hubUrl}|${preferenceManager.hubToken.isNotBlank()}|" +
 			"${preferenceManager.audioMuseUrl}|${preferenceManager.audioMuseToken.isNotBlank()}"
 
-	// The 2D mood centroid from the last Mood Flow alchemy call — drives the
-	// adaptive visualizer's palette. Null until the first alchemy mix.
-	private val _lastMoodCentroid = MutableStateFlow<List<Float>?>(null)
-	val lastMoodCentroid: StateFlow<List<Float>?> = _lastMoodCentroid.asStateFlow()
-
 	// One client reused for the manager's lifetime. The old per-call new/close
 	// built and tore down a full HttpClient on the hot autoplay top-up path.
 	private val client by lazy {
@@ -171,8 +165,8 @@ class AudioMuseManager(
 	/**
 	 * Song Alchemy (POST /api/alchemy) — blend [addIds] (pull toward) and
 	 * [subtractIds] (push away) into a centroid and return the nearest tracks.
-	 * This is the engine behind adaptive "Mood Flow": ADD = liked/played-through,
-	 * SUBTRACT = skipped. At least one ADD is required. [] on any failure.
+	 * What an `adaptive` mix plays from without the station engine. At least one ADD is
+	 * required. [] on any failure.
 	 */
 	suspend fun fetchAlchemyMixIds(
 		addIds: List<String>,
@@ -184,8 +178,10 @@ class AudioMuseManager(
 		if (addIds.isEmpty()) return emptyList()
 		val ep = endpoint() ?: return emptyList()
 
-		val items = addIds.map { AlchemyItem(op = "ADD", id = it) } +
-			subtractIds.map { AlchemyItem(op = "SUBTRACT", id = it) }
+		// `type` is sent on every item, as Feishin sends it: a default the Json config does not
+		// encode was simply absent from the wire, leaving AudioMuse to guess.
+		val items = addIds.map { AlchemyItem(op = "ADD", id = it, type = "song") } +
+			subtractIds.map { AlchemyItem(op = "SUBTRACT", id = it, type = "song") }
 
 		return try {
 			val resp: AlchemyResponse = client.post(ep.url("/sonic/alchemy", "/api/alchemy")) {
@@ -200,7 +196,6 @@ class AudioMuseManager(
 					)
 				)
 			}.body()
-			resp.centroid2d?.let { if (it.size >= 2) _lastMoodCentroid.value = it }
 			resp.results.map { it.itemId }
 		} catch (e: Exception) {
 			Logger.e("AudioMuseManager", "alchemy mix failed", e)
@@ -307,7 +302,7 @@ data class AlchemyRequest(
 data class AlchemyItem(
 	val op: String,
 	val id: String,
-	val type: String = "song"
+	val type: String
 )
 
 @Serializable

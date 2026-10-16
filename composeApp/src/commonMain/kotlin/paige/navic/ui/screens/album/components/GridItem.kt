@@ -16,6 +16,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.RadioManager
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.DownloadManager
@@ -44,6 +45,7 @@ fun AlbumListScreenGridItem(
 ) {
 	val backStack = LocalNavStack.current
 	val snackBarManager = koinInject<SnackBarManager>()
+	val radioManager = koinInject<RadioManager>()
 	val scope = rememberCoroutineScope()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -74,6 +76,7 @@ fun AlbumListScreenGridItem(
 				onShare = { onSetShareId(album.id) },
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
+				onStartRadio = { radioManager.startAlbumRadio(album.id, album.name.orEmpty()) },
 				downloadStatus = downloadStatus,
 				onDownloadAll = {
 					scope.launch {

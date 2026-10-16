@@ -26,7 +26,7 @@ import paige.navic.icons.outlined.Genre
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
-import paige.navic.icons.outlined.Speed
+import paige.navic.icons.outlined.Radio
 import paige.navic.ui.components.common.CoverArt
 
 /**
@@ -108,7 +108,8 @@ fun MixArtwork(
 		contentAlignment = Alignment.Center
 	) {
 		Icon(
-			imageVector = mixKindIcon(mix.kind),
+			// Your mix (a station with no seed) wears the history glyph, as Sonic Fingerprint did.
+			imageVector = if (mix.kind == MixKind.STATION && mix.seedId.isBlank()) Icons.Outlined.History else mixKindIcon(mix.kind),
 			contentDescription = mix.name,
 			// The gradient runs from a container role, so its own `on` colour is
 			// the one guaranteed to stay legible against it in both themes. Taken
@@ -127,9 +128,10 @@ fun MixArtwork(
 private fun mixKindIcon(kind: String): ImageVector = when (kind) {
 	MixKind.SIMILAR -> Icons.Outlined.Note
 	MixKind.FINGERPRINT -> Icons.Outlined.History
-	MixKind.ADAPTIVE -> Icons.Outlined.Speed
+	MixKind.ADAPTIVE -> Icons.Outlined.History
 	MixKind.GENRE -> Icons.Outlined.Genre
 	MixKind.ARTIST -> Icons.Outlined.Artist
+	MixKind.STATION -> Icons.Outlined.Radio
 	// A kind this build cannot regenerate still gets a face; the row's label is
 	// where it says so, and a blank tile would read as a loading one.
 	else -> Icons.Outlined.PlaylistPlay

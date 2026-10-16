@@ -19,6 +19,8 @@ import kotlinx.collections.immutable.toPersistentList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.RadioManager
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
@@ -102,6 +104,7 @@ fun CollectionDetailScreenTopBar(
 					)
 				}
 				if (expanded) {
+					val radioManager = koinInject<RadioManager>()
 					CollectionSheet(
 						onDismissRequest = { expanded = false },
 						collection = collection,
@@ -125,7 +128,10 @@ fun CollectionDetailScreenTopBar(
 						onEditRules = onEditRules,
 						onRefreshRules = onRefreshRules,
 						onRefreshAbout = onRefreshAbout,
-						onFixAlbumMatch = onFixAlbumMatch
+						onFixAlbumMatch = onFixAlbumMatch,
+						onStartRadio = (collection as? DomainAlbum)?.let { album ->
+							{ radioManager.startAlbumRadio(album.id, album.name.orEmpty()) }
+						}
 					)
 				}
 			}

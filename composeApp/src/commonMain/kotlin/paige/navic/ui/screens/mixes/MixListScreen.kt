@@ -74,6 +74,9 @@ import navic.composeapp.generated.resources.mix_new
 import navic.composeapp.generated.resources.mix_not_connected
 import navic.composeapp.generated.resources.mix_regenerate_failed
 import navic.composeapp.generated.resources.mix_unknown_kind
+import navic.composeapp.generated.resources.mix_your_mix_line
+import navic.composeapp.generated.resources.queue_station_line
+import navic.composeapp.generated.resources.queue_your_mix
 import navic.composeapp.generated.resources.option_mix_name
 import navic.composeapp.generated.resources.title_delete_mix
 import navic.composeapp.generated.resources.title_discover_mixes
@@ -135,6 +138,8 @@ fun MixListScreen(nested: Boolean = false) {
 	val connected by viewModel.connected.collectAsStateWithLifecycle()
 	val message by viewModel.message.collectAsStateWithLifecycle()
 	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
+	val stationsAvailable by viewModel.stationsAvailable.collectAsStateWithLifecycle()
+	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
 
 	var renameTarget by remember { mutableStateOf<Mix?>(null) }
 	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
@@ -233,9 +238,29 @@ fun MixListScreen(nested: Boolean = false) {
 				.then(if (!nested) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
 				.padding(horizontal = 16.dp),
 			contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 88.dp),
-			verticalArrangement = if (mixes.isEmpty()) Arrangement.Center
+			verticalArrangement = if (mixes.isEmpty() && !stationsAvailable) Arrangement.Center
 			else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 		) {
+			// Your mix heads the list wherever the hub's station engine is there (I-040): the
+			// seedless station, from what you play most, on the character autoplay uses. Not a
+			// stored recipe, so it has no sheet; saving one is the queue's "Save as a mix".
+			if (stationsAvailable) {
+				item(key = "your-mix") {
+					val yourMixName = stringResource(Res.string.queue_your_mix)
+					val character = viewModel.defaultCharacter
+					YourMixRow(
+						name = yourMixName,
+						line = stringResource(
+							Res.string.queue_station_line,
+							stringResource(Res.string.mix_your_mix_line),
+							catalogue.infoFor(character).label.ifBlank { character.label }
+						),
+						busy = busyId == MixListViewModel.YOUR_MIX_ID,
+						onClick = dropUnlessResumed { viewModel.playYourMix(yourMixName) },
+						modifier = Modifier.animateItem()
+					)
+				}
+			}
 			if (mixes.isEmpty()) {
 				item(key = "empty") {
 					ContentUnavailable(
@@ -266,7 +291,11 @@ fun MixListScreen(nested: Boolean = false) {
 		MixSheet(
 			mix = target,
 			onDismissRequest = { sheetTarget = null },
-			onPreview = { viewModel.preview(target) }.takeIf { target.kind != MixKind.ADAPTIVE },
+			// No preview for a mix built as it plays: a station's (when the engine is there) or
+			// the old adaptive one. A sample of its first songs would not be the mix.
+			onPreview = { viewModel.preview(target) }.takeIf {
+				target.kind != MixKind.ADAPTIVE && !viewModel.stationBacked(target)
+			},
 			onRename = { renameTarget = target },
 			onDelete = { deleteTarget = target }
 		)
@@ -296,7 +325,8 @@ fun MixListScreen(nested: Boolean = false) {
 			playing = playing,
 			artists = artists,
 			genres = genres,
-			defaultMoodCharacter = viewModel.defaultMoodCharacter,
+			defaultCharacter = viewModel.defaultCharacter,
+			catalogue = catalogue,
 			onSave = { recipe ->
 				// `save` takes the name separately because the rename dialog reuses
 				// it; the form has already put the name on the recipe.
@@ -393,6 +423,44 @@ private fun MixRow(
 				Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(Res.string.action_more))
 			}
 		}
+	)
+}
+
+/** Your mix's row: a mix row with no menu, since it is not a stored recipe. */
+@Composable
+private fun YourMixRow(
+	name: String,
+	line: String,
+	busy: Boolean,
+	onClick: () -> Unit,
+	modifier: Modifier = Modifier
+) {
+	SegmentedListItem(
+		onClick = onClick,
+		enabled = !busy,
+		shapes = segmentedShapes(index = 0, count = 1),
+		modifier = modifier,
+		colors = ListItemDefaults.colors(
+			containerColor = SongRowDefaults.containerColor(false),
+			supportingContentColor = SongRowDefaults.supportingContentColor(false),
+			disabledContainerColor = SongRowDefaults.containerColor(false)
+		),
+		verticalAlignment = Alignment.CenterVertically,
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
+				if (busy) {
+					CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+				} else {
+					MixArtwork(
+						mix = Mix(id = MixListViewModel.YOUR_MIX_ID, name = name, kind = MixKind.STATION),
+						modifier = Modifier.size(50.dp)
+					)
+				}
+			}
+		},
+		content = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		supportingContent = { Text(line, maxLines = 1, overflow = TextOverflow.Ellipsis) }
 	)
 }
 

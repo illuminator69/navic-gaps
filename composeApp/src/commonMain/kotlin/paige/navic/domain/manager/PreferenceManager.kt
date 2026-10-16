@@ -4,7 +4,6 @@ import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AnimationStyle
-import paige.navic.domain.models.settings.AutoplayMode
 import paige.navic.domain.models.settings.AppIconVariant
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -16,7 +15,6 @@ import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
 import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.domain.models.settings.MarqueeSpeed
-import paige.navic.domain.models.settings.MoodCharacter
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
@@ -24,6 +22,7 @@ import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.models.settings.QueueInfoType
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.domain.models.settings.StreamingQuality
 import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
@@ -166,8 +165,16 @@ class PreferenceManager(
 	// sync related settings
 	var lastFullSyncTime by preference(0L)
 
-	// navi-connect: continuous autoplay (Tier 1 = Similar). See AutoplayMode.
-	var autoplayMode by preference(AutoplayMode.Off)
+	// navi-connect autoplay (I-040): On or Off. With the hub's station engine the queue continues as
+	// a station (PROTOCOL §18); without it, as Auto DJ (`AutoDj.kt`). It was a four-way
+	// `AutoplayMode` stored by ordinal at "autoplayMode", read once by [migrateAutoplay].
+	var autoplayOn by preference(false)
+	private var autoplayMigrated by preference(false)
+
+	// The character every new station starts with (`StationCharacter`). The key stays
+	// "moodCharacter": the three take the old presets' ordinals one for one, so a stored choice
+	// keeps its meaning. Append-only from here (see the enum).
+	var stationCharacter by preference("moodCharacter", StationCharacter.Default)
 
 	// Auto DJ, the autoplay used when the hub has no station engine: a port of upstream Feishin's
 	// (`AutoDj.kt`), with its defaults. Songs added per top-up, whether to stop at Navidrome's
@@ -187,13 +194,29 @@ class PreferenceManager(
 	// and descriptions are the hub's on a cold start too. "" until a hub has answered.
 	var stationCatalogue by preference("")
 
+	/**
+	 * Carry the old four-way autoplay mode over to [autoplayOn], once. Read as a raw int: the enum
+	 * it was stored from is gone, and reading it through one with fewer entries would have thrown
+	 * on any install that had Fingerprint (2) or Mood Flow (3) selected. Off (0) stays off; Similar,
+	 * Sonic Fingerprint and Mood Flow (1, 2, 3) all become on, since each of them kept the queue
+	 * going and a station now does that for all three. The old key is removed afterwards.
+	 */
+	private fun migrateAutoplay() {
+		if (autoplayMigrated) return
+		val legacy = settings.getIntOrNull(LEGACY_AUTOPLAY_MODE_KEY)
+		if (legacy != null) autoplayOn = legacy != 0
+		settings.remove(LEGACY_AUTOPLAY_MODE_KEY)
+		autoplayMigrated = true
+	}
+
+	init {
+		migrateAutoplay()
+	}
+
 	// navi-connect Tier 2: AudioMuse-AI core API (direct HTTP, Bearer token).
 	// Unlocks Sonic Fingerprint autoplay (+ later: adaptive/chat/mood search).
 	var audioMuseUrl by preference("")
 	var audioMuseToken by preference("")
-
-	// navi-connect Tier 2: adaptive "Mood Flow" tuning preset. See MoodCharacter.
-	var moodCharacter by preference(MoodCharacter.SteadyVibes)
 
 	// navi-connect hub (Spotify-Connect-style remote control)
 	var hubEnabled by preference(false)
@@ -291,4 +314,9 @@ class PreferenceManager(
 	 * `stopped` for this exact id (Q-042, `PlaybackReportLedger`).
 	 */
 	var playbackReportOpenId by preference("")
+
+	private companion object {
+		/** Where the four-way autoplay mode was stored, by ordinal, before I-040. */
+		const val LEGACY_AUTOPLAY_MODE_KEY = "autoplayMode"
+	}
 }

@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.mood_mix_name
 import navic.composeapp.generated.resources.because_discover_fresh
 import navic.composeapp.generated.resources.because_listening
 import navic.composeapp.generated.resources.title_statistics
@@ -636,11 +637,13 @@ fun DiscoverScreen(nested: Boolean = false) {
 	// Same sheet SearchScreen opens, same play/enqueue actions — a chip is a second
 	// door into one feature, not a second implementation of it.
 	if (showMoodSheet) {
+		// Saved to history as a search's results, under the query (I-040), not as "Mood Flow".
+		val moodMixName = stringResource(Res.string.mood_mix_name, moodQuery)
 		MoodSearchSheet(
 			query = moodQuery,
 			songs = moodSongs,
 			loading = moodLoading,
-			onPlay = { radioManager.playMoodMix(moodSongs) },
+			onPlay = { radioManager.playMoodMix(moodSongs, moodMixName) },
 			onAddToQueue = { radioManager.enqueueMoodMix(moodSongs) },
 			onDismissRequest = { showMoodSheet = false }
 		)
