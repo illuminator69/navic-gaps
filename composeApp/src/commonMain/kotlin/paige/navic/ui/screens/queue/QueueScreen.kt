@@ -71,6 +71,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousRoundedRectangle
 import kotlin.time.DurationUnit
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
@@ -78,6 +79,7 @@ import navic.composeapp.generated.resources.action_clear_queue
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next
 import navic.composeapp.generated.resources.action_download_queue
+import navic.composeapp.generated.resources.action_save_as_playlist
 import navic.composeapp.generated.resources.action_undo
 import navic.composeapp.generated.resources.count_remaining_songs
 import navic.composeapp.generated.resources.count_songs
@@ -107,6 +109,7 @@ import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.AutoplayMode
@@ -116,6 +119,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.shared.QueueUndoKind
@@ -123,6 +127,7 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.queue.components.QueueScreenItem
 import paige.navic.ui.screens.queue.components.RelatedSongItem
@@ -158,6 +163,13 @@ fun QueueScreen() {
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 	var queueShareId by remember { mutableStateOf<String?>(null) }
 	var queuePlaylistSong by remember { mutableStateOf<DomainSong?>(null) }
+	// The whole queue as a new playlist (upstream's create dialog, given the songs). A preview
+	// (`ext:`) or an internet-radio entry is no Navidrome song, so it is left out.
+	var savingQueue by remember { mutableStateOf(false) }
+	val queueSongsToSave = remember(queue) {
+		queue.filterNot { PreviewManager.isPreviewId(it.id) || it.id.startsWith("radio_") }
+			.toImmutableList()
+	}
 
 	/**
 	 * Navigate out of the queue.
@@ -444,6 +456,16 @@ fun QueueScreen() {
 									)
 								}
 								Row(verticalAlignment = Alignment.CenterVertically) {
+									IconButton(
+										enabled = queueSongsToSave.isNotEmpty(),
+										onClick = { savingQueue = true }
+									) {
+										Icon(
+											Icons.Outlined.PlaylistAdd,
+											contentDescription = stringResource(Res.string.action_save_as_playlist),
+											modifier = Modifier.size(22.dp)
+										)
+									}
 									// Downloads are local files, so this is meaningless while another device holds
 									// the session (its queue can be remote placeholders not in our library).
 									if (!isRemoteActive) {
@@ -640,6 +662,16 @@ fun QueueScreen() {
 		PlaylistUpdateDialog(
 			songs = persistentListOf(song),
 			onDismissRequest = { queuePlaylistSong = null }
+		)
+	}
+
+	if (savingQueue) {
+		PlaylistCreateDialog(
+			onDismissRequest = { savingQueue = false },
+			onRefresh = {},
+			songs = queueSongsToSave,
+			// The queue stays open; the snackbar names the playlist.
+			navigateAfterwards = false
 		)
 	}
 }
