@@ -8,9 +8,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /*
- * I-006 added a fifth possible button to the library home (My Listening). The home is a two-column
- * grid, so the count must stay even, and a fifth primary must add a row rather than push the last
- * one — Random, which nothing else offers — off the page.
+ * I-006 added a fifth possible button to the library home (My Listening, Stats' since I-039). The
+ * home is a two-column grid, so the count must stay even, and a fifth primary must add a row rather
+ * than push the last one — Random, which nothing else offers — off the page.
  */
 class OverviewButtonCountTest {
 	@Test
@@ -30,10 +30,13 @@ class OverviewButtonCountTest {
 	}
 
 	@Test
-	fun aSeventhPrimaryAddsARowWithOneFiller() {
-		// Downloads (I-039) is the seventh: four rows of two, Random still there, one filler.
-		assertEquals(8, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
-		assertEquals(7, OVERVIEW_PRIMARY_MAX)
+	fun theLongestHomeIsThreeRowsWithNoFiller() {
+		// I-039: Downloads joined and My Listening left (it is Stats' now, reached by the home's
+		// own card): six primaries at most, three rows of two, Random still there.
+		assertEquals(6, OVERVIEW_PRIMARY_MAX)
+		assertEquals(6, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
+		// A seventh would add a row with one filler rather than push Random off.
+		assertEquals(8, overviewButtonCount(7))
 	}
 
 	@Test

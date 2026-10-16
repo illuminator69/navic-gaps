@@ -9,34 +9,29 @@ import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.toShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.toLowerCase
 import kotlinx.collections.immutable.toImmutableList
-import paige.navic.di.LocalBottomBarScrollManager
-import paige.navic.di.LocalPlatformContext
-import paige.navic.di.isLandscape
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.Refresh
+import paige.navic.icons.outlined.Sparkle
 import paige.navic.ui.components.common.PageChips
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
@@ -44,7 +39,7 @@ import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShape
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
-import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.screens.stats.components.RankingItem
 import paige.navic.ui.screens.stats.components.StatSummaryCard
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.withoutTop
@@ -69,15 +64,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +87,7 @@ import kotlinx.coroutines.delay
 import kotlinx.datetime.TimeZone
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_retry
+import navic.composeapp.generated.resources.info_starred_songs
 import navic.composeapp.generated.resources.label_not_in_library
 import navic.composeapp.generated.resources.listening_days
 import navic.composeapp.generated.resources.listening_genres
@@ -118,7 +110,6 @@ import navic.composeapp.generated.resources.listening_importing_note
 import navic.composeapp.generated.resources.listening_importing_unknown
 import navic.composeapp.generated.resources.listening_list_failed
 import navic.composeapp.generated.resources.listening_no_plays
-import navic.composeapp.generated.resources.listening_off
 import navic.composeapp.generated.resources.listening_older
 import navic.composeapp.generated.resources.listening_period_30d
 import navic.composeapp.generated.resources.listening_period_365d
@@ -152,7 +143,6 @@ import navic.composeapp.generated.resources.listening_unowned_empty
 import navic.composeapp.generated.resources.listening_unowned_title
 import navic.composeapp.generated.resources.listening_unreachable
 import navic.composeapp.generated.resources.listening_unreachable_cached
-import navic.composeapp.generated.resources.title_listening
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -189,6 +179,7 @@ import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.heatmapGrid
 import paige.navic.domain.manager.listeningStatusLineShown
 import paige.navic.domain.manager.listeningSyncOffered
+import paige.navic.domain.manager.listeningTabsShown
 import paige.navic.domain.manager.hourBars
 import paige.navic.domain.manager.listeningDuration
 import paige.navic.domain.manager.listeningTimeCoverage
@@ -206,7 +197,6 @@ import paige.navic.ui.screens.listening.viewmodels.HistoryMenuUi
 import paige.navic.domain.manager.RadioManager
 import paige.navic.shared.MediaPlayerViewModel
 import org.koin.compose.koinInject
-import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.listening.viewmodels.ListeningUi
@@ -222,44 +212,50 @@ private const val STATUS_POLL_MS = 5_000L
 private val HEATMAP_CELL_MAX = 24.dp
 
 /**
- * My Listening (I-006): the user's ListenBrainz history, by the numbers.
+ * Stats' listening half (I-006; a page of its own, My Listening, until I-039): the user's
+ * ListenBrainz history, by the numbers. `StatisticsScreen` shows it in place of upstream's
+ * Navidrome figures wherever lb-bot holds a history (`listeningOnStats`), under Stats' own title,
+ * with the tabs ([ListeningTabs]) under it as upstream's search categories sit.
  *
- * lb-bot mirrors the listens and computes every figure here; this screen only lays them out, and
- * says what each was measured over where that is less than everything (the listening time, the
- * genres). What the page is at all follows the mirror's state:
+ * lb-bot mirrors the listens and computes every figure here; this only lays them out, and says
+ * what each was measured over where that is less than everything (the listening time, the
+ * genres). What it is at all follows the mirror's state:
  *
- * - **off** — lb-bot has no ListenBrainz user: one explanation, nothing else;
  * - **importing** — the first backfill runs: "N of M" from the status, polled, over whatever the
  *   summary already holds;
- * - **ready** — the page;
+ * - **ready** — the history;
  * - **error** — the last sync failed: lb-bot's own text, over the plays already stored;
  * - lb-bot **unreachable** — the summary this device loaded last, said to be that; or a failure
- *   line with a Retry when there is none;
- * - an lb-bot **older** than the routes — one quiet sentence. Not an error.
+ *   line with a Retry when there is none.
+ *
+ * (No ListenBrainz user, and an lb-bot older than the routes, are Stats' own page.)
  *
  * Rows link out and never download: what the library holds opens its library page, what it does
  * not opens the external album or artist page, where the reviewed acquire flow already lives.
  *
  * **Four tabs** (I-026), the same four under the same names as Feishin's page: **Overview** (the
- * numbers, the rankings as horizontally scrollable rows of cards with covers and artist images,
- * the genres), **Activity** (the heat map, then the period's plays per day and by hour),
- * **History** (recent plays as queue-like rows with covers) and **Not in library** (cover cards
- * of the albums or artists most played that the library lacks). One period for the page, its
- * picker drawn where it changes something. The history's status line and "Sync now" sit above
- * the tabs, and every state above keeps its meaning and its wording.
+ * numbers as Stats' cards, top artists as Stats' ranking, albums and tracks as its carousels, the
+ * genres ranked the same way), **Activity** (the heat map, then the period's plays per day and by
+ * hour), **History** (recent plays as queue-like rows with covers) and **Not in library** (cover
+ * cards of the albums or artists most played that the library lacks). One period for the page,
+ * its picker drawn where it changes something. The history's status line and "Sync now" sit above
+ * the tab's content, and every state above keeps its meaning and its wording.
  */
 @Composable
-fun ListeningScreen() {
-	val viewModel = koinViewModel<ListeningViewModel>()
+fun ListeningStats(
+	viewModel: ListeningViewModel,
+	tab: ListeningTab,
+	innerPadding: PaddingValues,
+	/** Upstream's starred-songs card, which Stats keeps among the history's. */
+	starredSongs: Int,
+	modifier: Modifier = Modifier
+) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val statusLine by viewModel.statusLine.collectAsStateWithLifecycle()
 	val syncLine by viewModel.syncLine.collectAsStateWithLifecycle()
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val open: (ListeningTarget) -> Unit = { target -> openTarget(backStack, target) }
-	// Four tabs, the same four as Feishin's page. It opens on Overview; the choice is kept with
-	// the page's back-stack entry.
-	var tab by rememberSaveable { mutableStateOf(ListeningTab.OVERVIEW) }
 
 	// Poll the status only while an import runs and only while this screen is started: the
 	// block is cancelled when another screen covers it or the app goes to the background, and
@@ -307,125 +303,74 @@ fun ListeningScreen() {
 		null -> Unit
 	}
 
-	// The tabs are the page's own sections, so they sit under its title as upstream's search
-	// categories do, and only where there is a page to divide: not while it loads, nor where the
-	// mirror is off or lb-bot predates the routes.
-	val tabsShown = state.phase != ListeningPhase.Loading && state.phase != ListeningPhase.Off &&
-		state.phase != ListeningPhase.Older
-	val preferenceManager = koinInject<PreferenceManager>()
-	val platformContext = LocalPlatformContext.current
-
-	Scaffold(
-		topBar = {
-			Column {
-				NestedTopBar({ Text(stringResource(Res.string.title_listening)) })
-				if (tabsShown) {
-					PageChips(
-						options = ListeningTab.entries,
-						selected = tab,
-						label = { stringResource(tabLabel(it)) },
-						onSelect = { tab = it },
-						contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
-					)
-				}
-			}
-		},
-		bottomBar = {
-			val scrollManager = LocalBottomBarScrollManager.current
-			val preferVisible =
-				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
-			if (!platformContext.isLandscape() && preferVisible) {
-				RootBottomBar(scrolled = scrollManager.isTriggered)
-			}
-		}
-	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
-			finished = !state.loading,
-			onRefresh = { viewModel.refresh() },
-			key = state.loading
+	PullToRefreshBox(
+		modifier = modifier.padding(top = innerPadding.calculateTopPadding()),
+		finished = !state.loading,
+		onRefresh = { viewModel.refresh() },
+		key = state.loading
+	) {
+		LazyColumn(
+			modifier = Modifier.fillMaxSize(),
+			contentPadding = innerPadding.withoutTop() +
+				PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
 		) {
-			LazyColumn(
-				modifier = Modifier.fillMaxSize(),
-				contentPadding = innerPadding.withoutTop() +
-					PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
-			) {
-				when (val phase = state.phase) {
-					ListeningPhase.Loading -> item(key = "s:loading") {
-						Box(
-							Modifier.fillMaxWidth().padding(vertical = 64.dp),
-							contentAlignment = Alignment.Center
-						) { ContainedLoadingIndicator() }
-					}
+			when (val phase = state.phase) {
+				ListeningPhase.Loading -> item(key = "s:loading") {
+					Box(
+						Modifier.fillMaxWidth().padding(vertical = 64.dp),
+						contentAlignment = Alignment.Center
+					) { ContainedLoadingIndicator() }
+				}
 
-					ListeningPhase.Off -> item(key = "s:off") {
-						ContentUnavailable(
-							modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-							icon = Icons.Filled.Headphones,
-							label = stringResource(Res.string.listening_off)
+				else -> {
+					item(key = "s:sync") {
+						ListeningSyncRow(phase, statusLine, syncLine, syncing, onSync = { viewModel.syncNow() })
+					}
+					item(key = "s:banner") { PhaseBanner(phase, hasSummary = state.summary != null) }
+					// The period picker belongs to what it changes: one period for the page,
+					// its control on every tab but History — and on Activity below the heat
+					// map, which it does not change (`listeningTabShowsPeriod`).
+					val periods: @Composable () -> Unit = {
+						PageChips(
+							options = ListeningPeriod.entries,
+							selected = state.period,
+							label = { stringResource(periodLabel(it)) },
+							onSelect = { viewModel.setPeriod(it) },
+							contentPadding = PaddingValues(bottom = 8.dp)
 						)
 					}
-
-					// An lb-bot that predates the routes. A fact about the server, said once
-					// and quietly; there is nothing to retry and nothing went wrong.
-					ListeningPhase.Older -> item(key = "s:older") {
-						ContentUnavailable(
-							modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-							icon = Icons.Filled.Headphones,
-							label = stringResource(Res.string.listening_older)
-						)
-					}
-
-					else -> {
-						item(key = "s:sync") {
-							ListeningSyncRow(phase, statusLine, syncLine, syncing, onSync = { viewModel.syncNow() })
+					when (tab) {
+						ListeningTab.OVERVIEW -> {
+							item(key = "s:periods") { periods() }
+							overviewItems(state, starredSongs, open, onRetry = { viewModel.refresh() })
 						}
-						item(key = "s:banner") { PhaseBanner(phase, hasSummary = state.summary != null) }
-						// The period picker belongs to what it changes: one period for the page,
-						// its control on every tab but History — and on Activity below the heat
-						// map, which it does not change (`listeningTabShowsPeriod`).
-						val periods: @Composable () -> Unit = {
-							PageChips(
-								options = ListeningPeriod.entries,
-								selected = state.period,
-								label = { stringResource(periodLabel(it)) },
-								onSelect = { viewModel.setPeriod(it) },
-								contentPadding = PaddingValues(bottom = 8.dp)
-							)
-						}
-						when (tab) {
-							ListeningTab.OVERVIEW -> {
-								item(key = "s:periods") { periods() }
-								overviewItems(state, open, onRetry = { viewModel.refresh() })
+						ListeningTab.ACTIVITY ->
+							activityItems(state, periods, onRetry = { viewModel.refresh() })
+						// The two live lists need lb-bot. With it unreachable they say so in
+						// a line rather than show failed under a banner that already says why.
+						ListeningTab.HISTORY ->
+							if (phase == ListeningPhase.Unreachable) {
+								item(key = "s:recent-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
+							} else {
+								historyItems(
+									state,
+									open,
+									onMenu = { viewModel.openHistoryMenu(it) },
+									onMore = { viewModel.loadMoreRecent() },
+									onRetry = { viewModel.retryRecent() }
+								)
 							}
-							ListeningTab.ACTIVITY ->
-								activityItems(state, periods, onRetry = { viewModel.refresh() })
-							// The two live lists need lb-bot. With it unreachable they say so in
-							// a line rather than show failed under a banner that already says why.
-							ListeningTab.HISTORY ->
-								if (phase == ListeningPhase.Unreachable) {
-									item(key = "s:recent-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
-								} else {
-									historyItems(
-										state,
-										open,
-										onMenu = { viewModel.openHistoryMenu(it) },
-										onMore = { viewModel.loadMoreRecent() },
-										onRetry = { viewModel.retryRecent() }
-									)
-								}
-							ListeningTab.NOT_IN_LIBRARY -> {
-								item(key = "s:periods") { periods() }
-								if (phase == ListeningPhase.Unreachable) {
-									item(key = "s:unowned-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
-								} else {
-									notInLibraryItems(
-										state,
-										open,
-										onKind = { viewModel.setUnownedKind(it) },
-										onRetry = { viewModel.retryUnowned() }
-									)
-								}
+						ListeningTab.NOT_IN_LIBRARY -> {
+							item(key = "s:periods") { periods() }
+							if (phase == ListeningPhase.Unreachable) {
+								item(key = "s:unowned-off") { Caption(stringResource(Res.string.listening_needs_lbbot)) }
+							} else {
+								notInLibraryItems(
+									state,
+									open,
+									onKind = { viewModel.setUnownedKind(it) },
+									onRetry = { viewModel.retryUnowned() }
+								)
 							}
 						}
 					}
@@ -433,6 +378,26 @@ fun ListeningScreen() {
 			}
 		}
 	}
+}
+
+/**
+ * The history's four tabs, under Stats' title as upstream's search categories sit under Search's,
+ * and only where there is a history to divide (`listeningTabsShown`).
+ */
+@Composable
+fun ListeningTabs(
+	phase: ListeningPhase,
+	selected: ListeningTab,
+	onSelect: (ListeningTab) -> Unit
+) {
+	if (!listeningTabsShown(phase)) return
+	PageChips(
+		options = ListeningTab.entries,
+		selected = selected,
+		label = { stringResource(tabLabel(it)) },
+		onSelect = onSelect,
+		contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
+	)
 }
 
 /** Where a row leads. [ListeningTarget.None] rows are not clickable and never reach this. */
@@ -603,38 +568,46 @@ private fun androidx.compose.foundation.lazy.LazyListScope.summaryMissing(
 
 private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 	state: ListeningUi,
+	starredSongs: Int,
 	open: (ListeningTarget) -> Unit,
 	onRetry: () -> Unit
 ) {
 	if (summaryMissing(state, onRetry)) return
 	val summary = state.summary ?: return
 
-	item(key = "s:tiles") { StatTiles(summary) }
+	item(key = "s:tiles") { StatTiles(summary, starredSongs) }
 	if (summary.totals.plays == 0) {
 		item(key = "s:no-plays") { Caption(stringResource(Res.string.listening_no_plays)) }
 	}
 
-	// Every ranking is an ArtCarousel, as upstream's Statistics page draws its top albums and
-	// songs: one row of cards each, full width, one under the other.
+	// Top artists as Stats ranks them (`TopArtistItem`): the plays over the name and a bar to the
+	// top artist's scale, in the colours of the artist's picture where the library has one. The
+	// albums and tracks are its carousels, as Stats draws its top albums and songs.
 	if (summary.topArtists.isNotEmpty()) {
-		item(key = "s:top-artists") {
-			ArtCarousel(
-				title = stringResource(Res.string.listening_top_artists),
-				items = summary.topArtists.toImmutableList(),
-				modifier = Modifier.fullBleed()
-			) { artist ->
-				RankCard(
-					art = libraryArtistArt(artist.ndArtistId, state.artistArt),
-					title = artist.name,
-					subtitle = null,
-					plays = artist.plays,
-					isArtist = true,
-					onClick = clickFor(
-						artistTarget(artist.ndArtistId, artist.mbid, artist.name, state.knownArtistIds),
-						open
+		item(key = "s:top-artists") { SectionTitle(stringResource(Res.string.listening_top_artists)) }
+		val top = summary.topArtists.maxOf { it.plays }
+		itemsIndexed(summary.topArtists, key = { index, _ -> "s:top-artist:$index" }) { _, artist ->
+			val preferenceManager = koinInject<PreferenceManager>()
+			val art = libraryArtistArt(artist.ndArtistId, state.artistArt)
+			RankingItem(
+				name = artist.name,
+				overline = pluralStringResource(Res.plurals.listening_plays, artist.plays, artist.plays),
+				ratio = genreBarFraction(artist.plays, top),
+				barCoverArtId = (art as? LbArt.Library)?.coverArtId,
+				onClick = clickFor(
+					artistTarget(artist.ndArtistId, artist.mbid, artist.name, state.knownArtistIds),
+					open
+				),
+				modifier = Modifier.fullBleed(),
+				leading = {
+					LbArtImage(
+						art,
+						Modifier.size(56.dp),
+						contentDescription = artist.name,
+						shape = preferenceManager.artistImageShape.decreasedShape
 					)
-				)
-			}
+				}
+			)
 		}
 	}
 	if (summary.topAlbums.isNotEmpty()) {
@@ -715,15 +688,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 }
 
 /**
- * One genre of the ranking, drawn as upstream's Statistics page draws a top artist
- * (`TopArtistItem`): the plays over the name, and a bar to the busiest genre's scale. Its rank
- * stands where the artist's picture would, a genre having none.
+ * One genre of the ranking, drawn as Stats draws a top artist (`RankingItem`): the plays over the
+ * name, and a bar to the busiest genre's scale. Its rank stands where the artist's picture would,
+ * a genre having none.
  */
 @Composable
 private fun GenreRow(rank: Int, name: String, plays: Int, fraction: Float) {
-	ListItem(
-		colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-		leadingContent = {
+	RankingItem(
+		name = name,
+		overline = pluralStringResource(Res.plurals.listening_plays, plays, plays),
+		ratio = fraction,
+		barCoverArtId = null,
+		onClick = null,
+		modifier = Modifier.fullBleed(),
+		leading = {
 			Text(
 				rank.toString(),
 				style = MaterialTheme.typography.titleMedium,
@@ -731,27 +709,7 @@ private fun GenreRow(rank: Int, name: String, plays: Int, fraction: Float) {
 				textAlign = TextAlign.Center,
 				modifier = Modifier.width(32.dp)
 			)
-		},
-		overlineContent = {
-			Text(
-				pluralStringResource(Res.plurals.listening_plays, plays, plays),
-				fontWeight = FontWeight.SemiBold,
-				fontFamily = defaultFont(round = 100f)
-			)
-		},
-		supportingContent = {
-			LinearProgressIndicator(
-				progress = { fraction },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(top = 4.dp)
-					.height(8.dp)
-					.clip(MaterialTheme.shapes.extraSmall),
-				trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-				strokeCap = StrokeCap.Round
-			)
-		},
-		headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+		}
 	)
 }
 
@@ -815,11 +773,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 }
 
 /**
- * The numbers, as upstream's Statistics page draws its own (`StatSummaryCard`): a value over its
- * label beside a shaped icon, two to a row.
+ * The numbers as Stats draws its own (`StatSummaryCard`), and in its order: the listening time
+ * across the page, then the plays beside upstream's starred songs, then the history's own figures
+ * two to a row. Everything but the starred songs is lb-bot's, over the period picked.
  */
 @Composable
-private fun StatTiles(summary: LbListeningSummary) {
+private fun StatTiles(summary: LbListeningSummary, starredSongs: Int) {
 	val totals = summary.totals
 	val duration = listeningDuration(totals.seconds)
 	val time = when {
@@ -834,28 +793,51 @@ private fun StatTiles(summary: LbListeningSummary) {
 	}
 	val scheme = MaterialTheme.colorScheme
 	Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+		// Full width, as the grid cell Stats puts it in makes it.
+		StatSummaryCard(
+			modifier = Modifier.fillMaxWidth(),
+			color = scheme.primary,
+			contentColor = scheme.onPrimary,
+			horizontal = true,
+			label = stringResource(Res.string.listening_stat_time),
+			value = time,
+			icon = {
+				Surface(
+					color = scheme.onPrimary,
+					contentColor = scheme.primary,
+					shape = MaterialShapes.Cookie9Sided.toShape()
+				) {
+					Icon(
+						imageVector = Icons.Filled.Headphones,
+						contentDescription = null,
+						modifier = Modifier.padding(16.dp).size(32.dp)
+					)
+				}
+			}
+		)
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			StatTile(
-				label = stringResource(Res.string.listening_stat_time), value = time,
-				icon = Icons.Filled.Headphones, shape = MaterialShapes.Cookie9Sided,
-				color = scheme.primary, contentColor = scheme.onPrimary
-			)
 			StatTile(
 				label = stringResource(Res.string.listening_stat_plays), value = totals.plays.toString(),
 				icon = Icons.Outlined.Note, shape = MaterialShapes.Clover4Leaf,
 				color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer
 			)
+			StatTile(
+				label = stringResource(Res.string.info_starred_songs).toLowerCase(LocalLocale.current),
+				value = starredSongs.toString(),
+				icon = Icons.Filled.Star, shape = MaterialShapes.VerySunny,
+				color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer
+			)
 		}
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			StatTile(
 				label = stringResource(Res.string.listening_stat_artists), value = totals.artists.toString(),
-				icon = Icons.Outlined.Artist, shape = MaterialShapes.VerySunny,
-				color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer
+				icon = Icons.Outlined.Artist, shape = MaterialShapes.Cookie6Sided,
+				color = scheme.secondaryContainer, contentColor = scheme.onSecondaryContainer
 			)
 			StatTile(
 				label = stringResource(Res.string.listening_stat_albums), value = totals.albums.toString(),
-				icon = Icons.Outlined.Album, shape = MaterialShapes.Cookie6Sided,
-				color = scheme.secondaryContainer, contentColor = scheme.onSecondaryContainer
+				icon = Icons.Outlined.Album, shape = MaterialShapes.Clover8Leaf,
+				color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer
 			)
 		}
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -868,7 +850,7 @@ private fun StatTiles(summary: LbListeningSummary) {
 			StatTile(
 				label = stringResource(Res.string.listening_stat_longest_streak),
 				value = pluralStringResource(Res.plurals.listening_days, summary.streak.longest, summary.streak.longest),
-				icon = Icons.Filled.Star, shape = MaterialShapes.Flower,
+				icon = Icons.Outlined.Sparkle, shape = MaterialShapes.Flower,
 				color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer
 			)
 		}

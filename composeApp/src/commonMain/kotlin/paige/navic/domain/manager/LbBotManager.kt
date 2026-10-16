@@ -2322,7 +2322,7 @@ class LbBotManager(
 	// ----- listening analytics ----------------------------------------------- //
 
 	/**
-	 * Whether the My Listening surfaces exist at all (I-006): the hub's advert lists the summary
+	 * Whether the listening-history surfaces exist at all (I-006; Stats' tabs since I-039): the hub's advert lists the summary
 	 * route. **Strict**, where [advertisesRoute] reads an empty list as "capable" — a hub too old
 	 * to advertise has no listening routes, and offering a screen that can only 404 is worse than
 	 * not offering it.
@@ -2352,7 +2352,7 @@ class LbBotManager(
 		getJson("/lb/listening/status", emptyList(), timeoutMs = POLL_TIMEOUT_MS)
 
 	/**
-	 * The My Listening screen in one body, stale-while-revalidate: the body last seen for this
+	 * The listening history (Stats' tabs) in one body, stale-while-revalidate: the body last seen for this
 	 * period and zone paints first, offline too, and a request follows when it is older than
 	 * [CACHE_LISTENING_MS]. [tz] is the device's IANA zone — lb-bot's container runs in UTC, so
 	 * every day boundary in the answer (the heatmap, the streak, the hours) is the client's to name.

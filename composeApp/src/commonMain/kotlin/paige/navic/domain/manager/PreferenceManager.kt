@@ -259,7 +259,7 @@ class PreferenceManager(
 
 	/**
 	 * Whether the hub's last lb-bot advert listed the listening-analytics routes (I-006). Kept so
-	 * the My Listening entry is there on a cold start with no hub in reach: the screen renders its
+	 * the listening history is there on a cold start with no hub in reach: the screen renders its
 	 * cached summary offline, and an advert that never arrives must not hide the way into it.
 	 * Written by `LbBotManager` on every advert, so a hub or lb-bot that loses the routes
 	 * withdraws the entry on the next connect.

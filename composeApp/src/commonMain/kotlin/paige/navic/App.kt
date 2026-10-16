@@ -143,7 +143,6 @@ import paige.navic.ui.screens.settings.SettingsScreen
 import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
 import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
-import paige.navic.ui.screens.listening.ListeningScreen
 import paige.navic.ui.screens.matches.LibraryMatchesScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
@@ -582,9 +581,6 @@ private fun entryProvider(
 		// The fork's pushed library pages wear the playing song's colours like its other pages:
 		// `Washed`, i.e. `BrowsingAmbient`, and a line each in `WashedBrowsingScreens` so the
 		// tablet rail follows too (`WashedBrowsingDriftTest` fails when the two disagree).
-		entry<Screen.Listening> {
-			Washed { ListeningScreen() }
-		}
 		entry<Screen.LibraryMatches> {
 			Washed { LibraryMatchesScreen() }
 		}

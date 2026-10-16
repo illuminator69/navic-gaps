@@ -559,6 +559,27 @@ class ListeningTest {
 	}
 
 	@Test
+	fun statsIsTheHistoryWhereverThereIsOne() {
+		// I-039: My Listening is Stats' listening half. No ListenBrainz user, or an lb-bot older
+		// than the routes, leaves upstream's own Navidrome figures; every other phase is the
+		// history's, its cached summary under "unreachable" included.
+		assertFalse(listeningOnStats(ListeningPhase.Off))
+		assertFalse(listeningOnStats(ListeningPhase.Older))
+		listOf(
+			ListeningPhase.Loading,
+			ListeningPhase.Ready,
+			ListeningPhase.Unreachable,
+			ListeningPhase.Importing(10, 100),
+			ListeningPhase.SyncFailed("boom")
+		).forEach { assertTrue(listeningOnStats(it), "$it") }
+		// The tabs wait for the status: there is nothing to divide while it is out.
+		assertFalse(listeningTabsShown(ListeningPhase.Loading))
+		assertFalse(listeningTabsShown(ListeningPhase.Off))
+		assertTrue(listeningTabsShown(ListeningPhase.Ready))
+		assertTrue(listeningTabsShown(ListeningPhase.Unreachable))
+	}
+
+	@Test
 	fun theHeatMapNamesTheRangeItDraws() {
 		// Not the range lb-bot sent: the Sunday before the first Monday is not drawn, and is
 		// not claimed.

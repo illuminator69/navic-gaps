@@ -2,6 +2,7 @@ package paige.navic.ui.screens.stats
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -22,7 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -49,7 +52,10 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
+import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.ListeningTab
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.listeningOnStats
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
@@ -62,6 +68,9 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.listening.ListeningStats
+import paige.navic.ui.screens.listening.ListeningTabs
+import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
 import paige.navic.ui.screens.stats.components.StatSummaryCard
 import paige.navic.ui.screens.stats.components.TopArtistItem
 import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
@@ -89,15 +98,31 @@ fun StatisticsScreen(
 
 	var selectedArtist by remember { mutableStateOf<DomainArtist?>(null) }
 
+	// navi-connect (I-039): Stats is also the ListenBrainz history lb-bot mirrors, which was a page
+	// of its own (My Listening) saying much of what this one says. Offered where the hub advertises
+	// the listening routes, as that page was; shown wherever lb-bot holds a history
+	// (`listeningOnStats`), and this page's own Navidrome figures otherwise.
+	val lbBot = koinInject<LbBotManager>()
+	val listeningAdvertised by lbBot.listeningSupported.collectAsState()
+	val listening = if (listeningAdvertised && lbBot.isConfigured) koinViewModel<ListeningViewModel>() else null
+	val listeningPhase = listening?.state?.collectAsStateWithLifecycle()?.value?.phase
+	val showsListening = listeningPhase != null && listeningOnStats(listeningPhase)
+	var listeningTab by rememberSaveable { mutableStateOf(ListeningTab.OVERVIEW) }
+
 	Scaffold(
 		topBar = {
-			if (!nested) {
-				RootTopBar(
-					title = { Text(stringResource(Res.string.title_statistics)) },
-					scrollBehavior = scrollBehavior
-				)
-			} else {
-				NestedTopBar(title = { Text(stringResource(Res.string.title_statistics)) })
+			Column {
+				if (!nested) {
+					RootTopBar(
+						title = { Text(stringResource(Res.string.title_statistics)) },
+						scrollBehavior = scrollBehavior
+					)
+				} else {
+					NestedTopBar(title = { Text(stringResource(Res.string.title_statistics)) })
+				}
+				if (showsListening && listeningPhase != null) {
+					ListeningTabs(listeningPhase, listeningTab, onSelect = { listeningTab = it })
+				}
 			}
 		},
 		bottomBar = {
@@ -109,7 +134,15 @@ fun StatisticsScreen(
 			}
 		}
 	) { contentPadding ->
-		if (state.isLoading) {
+		if (showsListening && listening != null) {
+			ListeningStats(
+				viewModel = listening,
+				tab = listeningTab,
+				innerPadding = contentPadding,
+				starredSongs = starredSongs.count(),
+				modifier = if (!nested) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier
+			)
+		} else if (state.isLoading) {
 			Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 				CircularProgressIndicator()
 			}

@@ -512,8 +512,9 @@ internal fun unownedTarget(row: LbUnownedRow, knownArtistIds: Set<String>): List
 	}
 
 // ----- the page, in tabs (I-026) -------------------------------------------------------------------
-// My Listening is four tabs, the same four under the same names as Feishin's page: what it shows
-// did not change, only where. These are the rules the layout follows.
+// The listening history is four tabs, the same four under the same names as Feishin's page: what
+// it shows did not change, only where. Since I-039 they are Stats' tabs. These are the rules the
+// layout follows.
 
 enum class ListeningTab { OVERVIEW, ACTIVITY, HISTORY, NOT_IN_LIBRARY }
 
@@ -523,6 +524,21 @@ enum class ListeningTab { OVERVIEW, ACTIVITY, HISTORY, NOT_IN_LIBRARY }
  * none: recent plays are a list in time, not an aggregate over a period.
  */
 internal fun listeningTabShowsPeriod(tab: ListeningTab): Boolean = tab != ListeningTab.HISTORY
+
+/**
+ * **Stats is the listening history wherever there is one (I-039).** My Listening was a page of
+ * its own that said much of what upstream's Stats page says, so Stats shows lb-bot's figures, in
+ * the tabs above, whenever lb-bot holds a ListenBrainz history, and its own Navidrome figures where
+ * there is none to show: no ListenBrainz user ([ListeningPhase.Off]) or an lb-bot older than the
+ * routes ([ListeningPhase.Older]). Every other phase is the history's: the first read still out,
+ * the import, a failed sync, lb-bot out of reach (the summary this device loaded last).
+ */
+internal fun listeningOnStats(phase: ListeningPhase): Boolean =
+	phase != ListeningPhase.Off && phase != ListeningPhase.Older
+
+/** Whether the tabs are drawn under Stats' title: on the history, once the status has answered. */
+internal fun listeningTabsShown(phase: ListeningPhase): Boolean =
+	listeningOnStats(phase) && phase != ListeningPhase.Loading
 
 /** The range the heat map draws, as it says of itself: its first and last day, and how many weeks. */
 data class HeatmapSpan(val first: String, val last: String, val weeks: Int)
@@ -575,7 +591,7 @@ internal fun listeningDailyCapped(period: ListeningPeriod): Boolean = when (peri
 	ListeningPeriod.WEEK, ListeningPeriod.MONTH, ListeningPeriod.QUARTER -> false
 }
 
-/** A genre's bar: its plays against the most played genre of the list, 0 to 1. */
+/** A ranking row's bar (a genre's, a top artist's): its plays against the list's most played, 0 to 1. */
 internal fun genreBarFraction(plays: Int, top: Int): Float =
 	if (top <= 0 || plays <= 0) 0f else (plays.toFloat() / top).coerceIn(0f, 1f)
 

@@ -108,8 +108,8 @@ sealed interface HistoryMenuUi {
 }
 
 /**
- * My Listening (I-006): aggregates over the user's ListenBrainz history, mirrored and computed by
- * lb-bot. Nothing is computed here — every number on the screen is a field of lb-bot's answer —
+ * The listening history (I-006; My Listening, Stats' tabs since I-039): aggregates over the
+ * user's ListenBrainz history, mirrored and computed by lb-bot. Nothing is computed here — every number on the screen is a field of lb-bot's answer —
  * and every decision about those answers is a pure function in `Listening.kt`.
  *
  * Three reads, of three kinds:

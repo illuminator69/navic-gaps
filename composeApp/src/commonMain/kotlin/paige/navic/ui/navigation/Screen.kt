@@ -166,15 +166,6 @@ sealed interface Screen : NavKey {
 	data class Downloads(val section: DownloadsSection = DownloadsSection.Device) : Screen
 
 	/**
-	 * My Listening (I-006): aggregates over the user's ListenBrainz history, mirrored and
-	 * computed by lb-bot. A pushed page, not a tab — reached from the library home and from
-	 * Discover, and only while the hub advertises the listening routes.
-	 */
-	@Immutable
-	@Serializable
-	data object Listening : Screen
-
-	/**
 	 * Library Matches (I-026): which MusicBrainz artist and release the library's artists and
 	 * albums are, as lb-bot holds it — the artists to check, the artist overrides, the albums it
 	 * retagged and the names it merged. A pushed page, reached from the library home; it was the

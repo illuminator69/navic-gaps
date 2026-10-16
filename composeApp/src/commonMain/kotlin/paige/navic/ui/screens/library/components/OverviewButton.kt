@@ -37,7 +37,6 @@ import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_downloads
 import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_library_matches
-import navic.composeapp.generated.resources.title_listening
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -54,7 +53,6 @@ import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
-import paige.navic.icons.filled.Headphones
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Explore
 import paige.navic.icons.outlined.Shuffle
@@ -135,8 +133,7 @@ data class OverviewButtonSpec(
 /**
  * How many buttons the home page shows: four, or the primaries rounded up to even once there are
  * more than four. Always even — an odd count leaves a hole in the two-column grid — and never
- * fewer than the primaries, so a fifth button (My Listening) adds a row rather than pushing Random
- * off the page.
+ * fewer than the primaries, so a fifth button adds a row rather than pushing Random off the page.
  */
 internal fun overviewButtonCount(primary: Int): Int =
 	if (primary <= 4) 4 else primary + primary % 2
@@ -155,14 +152,15 @@ internal fun libraryMatchesOffered(lbConfigured: Boolean, overridesSupported: Bo
 	lbConfigured
 
 /**
- * The longest the primary list gets: Discover, Mixed for You, Fresh, My Listening, Library
- * Matches, Downloads and Random. [overviewButtonCount] never shows fewer than there are, so the
- * home page has at most this rounded up to even: eight, the eighth a filler.
+ * The longest the primary list gets: Discover, Mixed for You, Fresh, Library Matches, Downloads
+ * and Random. [overviewButtonCount] never shows fewer than there are, so the home page has at
+ * most this rounded up to even: six. (My Listening was a seventh until I-039 made it Stats', which
+ * the home reaches by its own card at the foot of the page.)
  */
-internal const val OVERVIEW_PRIMARY_MAX = 7
+internal const val OVERVIEW_PRIMARY_MAX = 6
 
 /**
- * The home page's four buttons — six where My Listening is offered too.
+ * The home page's four buttons, or six where more of the fork's pages are offered.
  *
  * Discover, Mixed for You and Fresh live here instead of on the bottom bar. They
  * are gated on exactly what `rememberVisibleNavigationTabs()` gates the matching
@@ -178,9 +176,8 @@ internal const val OVERVIEW_PRIMARY_MAX = 7
  * two-column grid; from those three, because a home page that answers "nothing is
  * configured" with two buttons has lost something it used to do.
  *
- * My Listening is a fifth: gated on the hub ADVERTISING the listening routes rather than on
- * lb-bot answering right now, since its page works from cache. With all five the home is six
- * long ([overviewButtonCount]) — a row more, never Random pushed off.
+ * Library Matches and Downloads make five and six ([overviewButtonCount]): a row more, never
+ * Random pushed off.
  */
 @Composable
 fun rememberOverviewButtons(): List<OverviewButtonSpec> {
@@ -192,11 +189,6 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
 	val hubConfigured = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
-	// My Listening (I-006) exists only where the hub advertises the listening routes. Not gated
-	// on lb-bot being reachable right now, unlike Fresh: the screen paints its cached summary
-	// with lb-bot down or the device offline, and says which it is.
-	val listeningAdvertised by lbBot.listeningSupported.collectAsState()
-	val listening = listeningAdvertised && lbBot.isConfigured
 	// Library Matches (I-026) is offered wherever the lb-bot layer is on, as the settings
 	// section it replaced was (`libraryMatchesOffered`). NOT on the override routes being
 	// supported: that is false until the hub has spoken in this process and for an lb-bot that
@@ -205,7 +197,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	val overridesSupported by lbBot.artistOverridesSupported.collectAsState()
 	val matches = libraryMatchesOffered(lbBot.isConfigured, overridesSupported)
 
-	return remember(lbBotAvailable, discoverHasSources, hubConfigured, listening, matches) {
+	return remember(lbBotAvailable, discoverHasSources, hubConfigured, matches) {
 		val primary = buildList {
 			if (discoverHasSources) {
 				add(
@@ -236,15 +228,6 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 						Icons.Outlined.Sparkle,
 						Res.string.title_fresh,
 						Screen.Fresh(nested = true)
-					)
-				)
-			}
-			if (listening) {
-				add(
-					OverviewButtonSpec(
-						Icons.Filled.Headphones,
-						Res.string.title_listening,
-						Screen.Listening
 					)
 				)
 			}
@@ -292,7 +275,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 2..7 long and `filler` is 3, so there is always enough to fill the count.
+		// `primary` is 2..6 long and `filler` is 3, so there is always enough to fill the count.
 		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }

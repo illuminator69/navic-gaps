@@ -52,7 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.because_discover_fresh
 import navic.composeapp.generated.resources.because_listening
-import navic.composeapp.generated.resources.title_listening
+import navic.composeapp.generated.resources.title_statistics
 import navic.composeapp.generated.resources.because_discover_charts
 import navic.composeapp.generated.resources.browse_unresolved
 import navic.composeapp.generated.resources.because_discover_editorial
@@ -153,9 +153,9 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val radioManager = koinInject<RadioManager>()
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
-	// My Listening (I-006) is a link here, not a row of the catalogue: it has no tiles of its
-	// own to show, and DISCOVER_ROWS is mirrored in Feishin, which reaches it from its sidebar.
-	// Offered only where the hub advertises the listening routes.
+	// The listening history (I-006; Stats' since I-039) is a link here, not a row of the
+	// catalogue: it has no tiles of its own to show, and DISCOVER_ROWS is mirrored in Feishin,
+	// which reaches it from its sidebar. Offered only where the hub advertises the listening routes.
 	val lbBot = koinInject<LbBotManager>()
 	val listeningAdvertised by lbBot.listeningSupported.collectAsStateWithLifecycle()
 	val showListening = listeningAdvertised && lbBot.isConfigured
@@ -181,7 +181,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 	val becauseCharts = stringResource(Res.string.because_discover_charts)
 	val becauseEditorial = stringResource(Res.string.because_discover_editorial)
 	val titleMood = stringResource(Res.string.title_discover_mood)
-	val titleListening = stringResource(Res.string.title_listening)
+	val titleListening = stringResource(Res.string.title_statistics)
 	val becauseListening = stringResource(Res.string.because_listening)
 	// The six prompts are the row's whole point: it is not a list of results but a
 	// statement of what the search can be asked. Mirrors Feishin's `mood-row.tsx`
@@ -332,7 +332,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
 						SegmentedListItem(
 							modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-							onClick = { backStack.add(Screen.Listening) },
+							onClick = { backStack.add(Screen.Statistics(nested = true)) },
 							shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1),
 							leadingContent = { Icon(Icons.Filled.Headphones, contentDescription = null) },
 							trailingContent = {

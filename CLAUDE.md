@@ -38,7 +38,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | AudioMuse-AI | `domain/manager/{AudioMuseManager,RadioManager}.kt`, `domain/models/settings/{AutoplayMode,MoodCharacter}.kt`, `ui/screens/nowPlaying/components/controls/{AdaptiveMoodBackground,NowPlayingAutoplaySelector}.kt` |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
-| My Listening | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*`, the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
+| Listening history (Stats' tabs) | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*` (`ListeningStats`, hosted by upstream's `StatisticsScreen`), the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
@@ -612,8 +612,14 @@ for the permission, and with the permission declined the re-query raised it agai
   consumer of a library artist's MBID that reaches an lb-bot call or a MusicBrainz link goes
   through `LbBotManager.effectiveArtistMbid(ndId, tag)`; ids that came FROM lb-bot (a Fresh row,
   a lookup hit, a mirrored artist row, the external pages' route key) are already the right ones.
-- **My Listening shows lb-bot's numbers and computes none (I-006).** lb-bot mirrors the user's
-  ListenBrainz listens and serves the aggregates; every figure on `ListeningScreen` is a field of
+- **The listening history shows lb-bot's numbers and computes none (I-006).** It was a page of its
+  own, My Listening, until I-039 made it upstream's Stats page: `StatisticsScreen` hosts
+  `ListeningStats` and its tabs wherever lb-bot holds a history (`listeningOnStats`: every phase
+  but off and older, which leave Stats its own Navidrome figures), Overview in Stats' layout
+  (its cards, the starred-songs card kept, top artists as its ranking rows through `RankingItem`,
+  albums and tracks as its carousels). Read "the page" or "My Listening" below as that half of
+  Stats. lb-bot mirrors the user's
+  ListenBrainz listens and serves the aggregates; every figure on `ListeningStats` is a field of
   its answer, and every decision about those answers is a pure function in `Listening.kt`. Three
   reads of three kinds: the **status** (`/lb/listening/status`, never cached) decides what the page
   is at all — `ListeningPhase`: off, importing, ready, the last sync failed, lb-bot unreachable, or
@@ -684,8 +690,8 @@ for the permission, and with the permission declined the re-query raised it agai
     start of the row. The plays-per-day chart is calendar days with no gaps (`daySeries`) and
     has its own axis of dates (`dayAxisLabels`), never the hours chart's. The plays-per-day chart is capped by lb-bot at the
     newest ninety days of a period, and says so for a year or all time
-    (`listeningDailyCapped`). Albums, artists and tracks are horizontally scrollable rows of
-    cards, full width, one under the other; **genres are a ranking read down the screen**
+    (`listeningDailyCapped`). Albums and tracks are horizontally scrollable rows of cards, full
+    width; artists are Stats' ranking rows (I-039); **genres are a ranking read down the screen**
     (rank, name, bar, plays — `genreBarFraction`), not a sideways row. **A History row's long
     press opens the app's own menu** — `SongSheet` for the song when it can be told apart,
     else `CollectionSheet` for its album, else `ArtistSheet`, else nothing. A recent play
@@ -1165,7 +1171,7 @@ artwork's brightness like the page beside it (see rule 6 for why its nested `Nav
 `CollectionDetail` keep the base rail, so a light rail beside a dark artwork-themed *detail* page
 is still expected (option 3, every screen publishing its scheme, would close it). A new washed tab
 goes in `WashedBrowsingScreens` as well as behind `Washed` — and so does a washed PUSHED page:
-My Listening and Library Matches are both (I-026), wrapped at their `entry<…>` in `App.kt`; `WashedBrowsingDriftTest`
+Library Matches, Downloads and Saved queues are (I-026, I-039), wrapped at their `entry<…>` in `App.kt`; `WashedBrowsingDriftTest`
 (androidHostTest, JVM-only because it reads the source) fails when the two, the self-washing
 `LibraryScreen` or the sheet list drift apart.
 
@@ -1505,12 +1511,12 @@ true of invented *album art*, and not of an icon naming the kind.
   library's own stack, so each destination carries `nested = true` or it renders `RootTopBar` with
   no back arrow. The list is padded back out of Recently added / Starred / Frequently played until
   it is four long, because an odd count leaves a hole in the two-column grid and a home page with
-  no library shortcuts has lost something it used to do. My Listening is a fifth possible button
-  (gated on `listeningSupported`, not on lb-bot being up — its page works from cache), and
-  `overviewButtonCount` then makes the home six long rather than pushing Random off it. Library
-  Matches is the sixth (`libraryMatchesOffered`: wherever the lb-bot layer is on), which fills
-  that row exactly; a
-  seventh primary would have to raise `OVERVIEW_PRIMARY_MAX` and the count with it.
+  no library shortcuts has lost something it used to do. A fifth primary makes the home six long
+  (`overviewButtonCount`) rather than pushing Random off it: Library Matches
+  (`libraryMatchesOffered`: wherever the lb-bot layer is on) and Downloads (always) make six,
+  which is `OVERVIEW_PRIMARY_MAX`; a seventh would have to raise it and the count with it. My
+  Listening was a button until I-039 made it Stats', which the home reaches by upstream's own
+  card at its foot.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way

@@ -211,7 +211,7 @@ fun NaviConnectScreen() {
 				}
 
 				// What lb-bot holds about the library used to be a section here (I-020); it is
-				// the Library Matches page now, and the listening sync is in My Listening.
+				// the Library Matches page now, and the listening sync is in Stats.
 				Text(
 					stringResource(Res.string.info_navi_connect_where_matches),
 					style = MaterialTheme.typography.bodySmall,

@@ -80,7 +80,7 @@ data class MatchPick(
  * "Library Matches" (I-026) — the page that was the "lb-bot data" section of the navi-connect
  * settings (I-020): the artists whose MusicBrainz identity is worth a look, the artist MBID
  * overrides, the albums lb-bot retagged, the artist names it merged, and the index mirror with
- * its own "Refresh". The listening history's status and "Sync now" are My Listening's.
+ * its own "Refresh". The listening history's status and "Sync now" are Stats'.
  *
  * It holds no data of its own. The lists are `LbBotManager`'s, the mirror's numbers and its
  * last pull are `LbIndexSync`'s, and the pictures are what Room holds; every sentence the page
@@ -347,7 +347,7 @@ class LibraryMatchesViewModel(
 	 * again. **It reports only what the mirror did** ([indexLine]) — what `LbIndexSync` records
 	 * as the pull runs and ends, and, until a pass this tap can have caused has started, that the
 	 * pull was asked for. The lists say of themselves what they are. The listening history's
-	 * "Sync now" is My Listening's, and does and reports that half alone.
+	 * "Sync now" is Stats', and does and reports that half alone.
 	 *
 	 * The pull is requested as a fresh start: a user asking now is as good a reason to stop
 	 * waiting out a backoff as a new connection is.
