@@ -10,7 +10,7 @@ import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
 import paige.navic.icons.filled.Headphones
 import paige.navic.icons.outlined.ChevronForward
-import paige.navic.icons.outlined.Route
+import paige.navic.icons.outlined.Explore
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.PageChips
@@ -322,7 +322,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 							modifier = Modifier
 								.fillMaxWidth()
 								.padding(horizontal = 16.dp, vertical = 64.dp),
-							icon = Icons.Outlined.Route,
+							icon = Icons.Outlined.Explore,
 							label = emptyText
 						)
 					}

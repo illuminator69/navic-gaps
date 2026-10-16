@@ -42,7 +42,7 @@ import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
-import paige.navic.icons.outlined.Route
+import paige.navic.icons.outlined.Explore
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Statistics
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
@@ -125,10 +125,10 @@ enum class NavigationTab(
 	DISCOVER(
 		destination = Screen.Discover(),
 		// No filled variant is generated for this glyph; the SEARCH tab does the
-		// same. A route/path, not a magnifying glass — Discover is somewhere you
-		// go, and Search is already a tab.
-		iconFilled = Icons.Outlined.Route,
-		iconOutlined = Icons.Outlined.Route,
+		// same. A compass, not a magnifying glass (Search is already a tab), and not
+		// the route the song sheet's "Journey to this song" wears.
+		iconFilled = Icons.Outlined.Explore,
+		iconOutlined = Icons.Outlined.Explore,
 		label = Res.string.title_discover
 	)
 }

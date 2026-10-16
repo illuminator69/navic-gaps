@@ -56,7 +56,7 @@ import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.filled.Headphones
 import paige.navic.icons.outlined.PlaylistPlay
-import paige.navic.icons.outlined.Route
+import paige.navic.icons.outlined.Explore
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.navigation.Screen
@@ -210,7 +210,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 			if (discoverHasSources) {
 				add(
 					OverviewButtonSpec(
-						Icons.Outlined.Route,
+						Icons.Outlined.Explore,
 						Res.string.title_discover,
 						// `nested = true` is required: these are PUSHED onto the
 						// library's own stack rather than swapped in as a root tab,
