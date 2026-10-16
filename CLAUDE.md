@@ -1467,6 +1467,20 @@ true of invented *album art*, and not of an icon naming the kind.
   appears with no transition. `requestHide` takes the navigation as a continuation and runs it
   after the hide animation *and* after the pop (running it before would make the pop take the
   destination instead). The queue sheet drops both entries before pushing.
+- **With room for two panes, each library page is a scene of its own (B-131).** Every library page
+  is a `listPane("root")`, and material's list-detail strategy keys its scene by that key alone,
+  so in landscape the home and the page a home button opens (Discover, Fresh, Random, Recently
+  added, Mixed for You) were ONE scene: the push swapped the list pane's content with no
+  transition, and Back from the page left the app, because material's default Back pops "until
+  the layout changes" and two list pages in a row never change it. `ListPageSceneStrategy`
+  (`ui/navigation/`) wraps the strategy and keys its scene by the topmost list page as well
+  (entries marked with `ListPageSceneStrategy.listPage()` beside `listPane`, since material's own
+  marker is internal), and the strategy is built with
+  `BackNavigationBehavior.PopUntilContentChange`. The wrapped scene claims only the entries from
+  that list page on: claiming the hidden ones under it let NavDisplay take the home out of the
+  scene being left at the first frame, and the window's white surface flashed. A detail opening
+  beside its list stays inside one scene and keeps the scaffold's own pane motion. Upstream's
+  `App.kt` has the same metadata, so re-check this after a merge that touches either.
 - **The bars share one tab helper.** Upstream writes the `NavbarTab.Id → NavigationTab` mapping out
   longhand in **both** `BottomBar` and `SideBar`; this fork routes both through
   `rememberVisibleNavigationTabs()` / `toNavigationTab()` in `ui/navigation/NavigationTab.kt`. The

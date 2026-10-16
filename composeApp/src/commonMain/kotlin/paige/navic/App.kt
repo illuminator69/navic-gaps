@@ -28,6 +28,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.detailPane
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.Companion.listPane
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
@@ -98,6 +99,7 @@ import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.layouts.SideBar
 import paige.navic.ui.components.sheets.AlbumMatchHost
 import paige.navic.ui.components.sheets.ChangelogSheet
+import paige.navic.ui.navigation.ListPageSceneStrategy
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
@@ -245,9 +247,18 @@ fun App() {
 	// NavDisplay still received a new `sceneStrategies` value on every pass.
 	val nowPlayingScene = remember { NowPlayingSceneStrategy<NavKey>() }
 	val bottomSheetScene = remember { BottomSheetSceneStrategy<NavKey>() }
-	val listDetailScene = rememberListDetailSceneStrategy<NavKey>()
-	val sceneStrategies = remember(nowPlayingScene, bottomSheetScene, listDetailScene) {
-		listOf(nowPlayingScene, bottomSheetScene, listDetailScene)
+	// navi-connect: Back pops until a pane shows something else. Material's default pops until the
+	// LAYOUT changes, and a library page opened from the home is a second list page in the same
+	// layout: with room for two panes (landscape) there was nothing to go back to, so Back from
+	// Discover, Fresh, Random, Recently added or Mixed for You left the app.
+	val listDetailScene = rememberListDetailSceneStrategy<NavKey>(
+		backNavigationBehavior = BackNavigationBehavior.PopUntilContentChange
+	)
+	// navi-connect: material's, keyed per list page so a library page opened beside the rail
+	// slides in as it does in portrait (see the class).
+	val listPageScene = remember(listDetailScene) { ListPageSceneStrategy(listDetailScene) }
+	val sceneStrategies = remember(nowPlayingScene, bottomSheetScene, listPageScene) {
+		listOf(nowPlayingScene, bottomSheetScene, listPageScene)
 	}
 
 
@@ -471,14 +482,14 @@ private fun entryProvider(
 	isRoot: Boolean
 ): (NavKey) -> (NavEntry<NavKey>) {
 	val navtabMetadata = if (isRoot)
-		listPane("root") + transitionSpec {
+		listPane("root") + ListPageSceneStrategy.listPage() + transitionSpec {
 			ContentTransform(fadeIn(), fadeOut())
 		} + popTransitionSpec {
 			ContentTransform(fadeIn(), fadeOut())
 		} + predictivePopTransitionSpec {
 			ContentTransform(fadeIn(), fadeOut())
 		}
-	else listPane("root")
+	else listPane("root") + ListPageSceneStrategy.listPage()
 	val imageViewMetadata = transitionSpec { ContentTransform(fadeIn(), ExitTransition.None) }
 		.plus(popTransitionSpec { ContentTransform(EnterTransition.None, fadeOut()) })
 		.plus(predictivePopTransitionSpec { ContentTransform(EnterTransition.None, fadeOut()) })
