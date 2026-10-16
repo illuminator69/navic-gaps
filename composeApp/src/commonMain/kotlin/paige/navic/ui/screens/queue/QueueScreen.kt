@@ -285,7 +285,15 @@ fun QueueScreen() {
 	// card and the list instantly jumped so the playing song sat at the top. The reorder animation
 	// was fine by then; the whole VIEW snapping is what still read as a snap. Moving cards around
 	// must not move the viewport — only the music moving on should.
+	//
+	// And not when the change is a row tapped here (you, 2026-10-16): that row is in view, under
+	// the finger, and the list jumped to put it at the top (a song below the playing one in the
+	// full-height sheet). Only the music moving on by itself brings the playing song up.
+	val tappedSongId = remember { arrayOfNulls<String>(1) }
 	LaunchedEffect(playerState.currentSong?.id) {
+		val tapped = tappedSongId[0]
+		tappedSongId[0] = null
+		if (tapped != null && tapped == playerState.currentSong?.id) return@LaunchedEffect
 		// Belt and braces: never yank the list mid-drag either.
 		if (draggableState.draggingItemIndex != null) return@LaunchedEffect
 		runCatching {
@@ -563,9 +571,9 @@ fun QueueScreen() {
 								onClick = {
 									platformContext.clickSound()
 									if (playingIndex != index) {
-										// Stay on the queue after jumping so newly auto-queued
-										// songs (autoplay top-up) remain visible — the list
-										// follows currentIndex via the LaunchedEffect above.
+										// Stay on the queue after jumping, and where it is: the
+										// track change this makes does not scroll the list (above).
+										tappedSongId[0] = song.id
 										if (isRemoteActive) hubManager.actJump(index) else player.playAt(index)
 									}
 								},
