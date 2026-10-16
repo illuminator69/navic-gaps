@@ -2,6 +2,7 @@
 
 package paige.navic.ui.screens.listening
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.plus
@@ -14,6 +15,7 @@ import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.toShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -69,6 +71,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -208,6 +212,9 @@ import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
  */
 private const val STATUS_POLL_MS = 5_000L
 
+/** How far figures on their way out are dimmed while the next period's are read. */
+private const val STALE_ALPHA = 0.5f
+
 /** The largest a heat-map square is drawn, however few weeks there are. */
 private val HEATMAP_CELL_MAX = 24.dp
 
@@ -250,7 +257,28 @@ fun ListeningStats(
 	starredSongs: Int,
 	modifier: Modifier = Modifier
 ) {
-	val state by viewModel.state.collectAsStateWithLifecycle()
+	val read by viewModel.state.collectAsStateWithLifecycle()
+	// A period change clears the summary (and the unowned list) until the new period's is read:
+	// the view model never holds another period's figures as this one's. On screen, though, the
+	// page emptied for a moment on every change (you, 2026-10-16). So the figures last shown stay
+	// up while the next ones are read, dimmed to say they are on their way out, and the page then
+	// changes in place: rows ease in, out and into position, the bars to their new lengths.
+	var lastSummary by remember { mutableStateOf(read.summary) }
+	LaunchedEffect(read.summary) { read.summary?.let { lastSummary = it } }
+	var lastUnowned by remember { mutableStateOf(read.unownedKind to read.unowned) }
+	LaunchedEffect(read.unownedKind, read.unowned) {
+		if (read.unowned.isNotEmpty()) lastUnowned = read.unownedKind to read.unowned
+	}
+	val summaryWaiting = read.summary == null && read.summaryLoading && lastSummary != null
+	val unownedWaiting = read.unowned.isEmpty() && read.unownedLoading &&
+		lastUnowned.first == read.unownedKind && lastUnowned.second.isNotEmpty()
+	val state = read.copy(
+		summary = if (summaryWaiting) lastSummary else read.summary,
+		unowned = if (unownedWaiting) lastUnowned.second else read.unowned
+	)
+	val dimSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+	val summaryAlpha by animateFloatAsState(if (summaryWaiting) STALE_ALPHA else 1f, dimSpec)
+	val unownedAlpha by animateFloatAsState(if (unownedWaiting) STALE_ALPHA else 1f, dimSpec)
 	val statusLine by viewModel.statusLine.collectAsStateWithLifecycle()
 	val syncLine by viewModel.syncLine.collectAsStateWithLifecycle()
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
@@ -342,10 +370,10 @@ fun ListeningStats(
 					when (tab) {
 						ListeningTab.OVERVIEW -> {
 							item(key = "s:periods") { periods() }
-							overviewItems(state, starredSongs, open, onRetry = { viewModel.refresh() })
+							overviewItems(state, starredSongs, open, onRetry = { viewModel.refresh() }, dim = { summaryAlpha })
 						}
 						ListeningTab.ACTIVITY ->
-							activityItems(state, periods, onRetry = { viewModel.refresh() })
+							activityItems(state, periods, onRetry = { viewModel.refresh() }, dim = { summaryAlpha })
 						// The two live lists need lb-bot. With it unreachable they say so in
 						// a line rather than show failed under a banner that already says why.
 						ListeningTab.HISTORY ->
@@ -369,7 +397,8 @@ fun ListeningStats(
 									state,
 									open,
 									onKind = { viewModel.setUnownedKind(it) },
-									onRetry = { viewModel.retryUnowned() }
+									onRetry = { viewModel.retryUnowned() },
+									dim = { unownedAlpha }
 								)
 							}
 						}
@@ -571,21 +600,22 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 	state: ListeningUi,
 	starredSongs: Int,
 	open: (ListeningTarget) -> Unit,
-	onRetry: () -> Unit
+	onRetry: () -> Unit,
+	dim: () -> Float
 ) {
 	if (summaryMissing(state, onRetry)) return
 	val summary = state.summary ?: return
 
-	item(key = "s:tiles") { StatTiles(summary, starredSongs) }
+	item(key = "s:tiles") { PeriodBound(dim) { StatTiles(summary, starredSongs) } }
 	if (summary.totals.plays == 0) {
-		item(key = "s:no-plays") { Caption(stringResource(Res.string.listening_no_plays)) }
+		item(key = "s:no-plays") { PeriodBound(dim) { Caption(stringResource(Res.string.listening_no_plays)) } }
 	}
 
 	// Top artists as Stats ranks them (`TopArtistItem`): the plays over the name and a bar to the
 	// top artist's scale, in the colours of the artist's picture where the library has one. The
 	// albums and tracks are its carousels, as Stats draws its top albums and songs.
 	if (summary.topArtists.isNotEmpty()) {
-		item(key = "s:top-artists") { SectionTitle(stringResource(Res.string.listening_top_artists)) }
+		item(key = "s:top-artists") { PeriodBound(dim) { SectionTitle(stringResource(Res.string.listening_top_artists)) } }
 		val top = summary.topArtists.maxOf { it.plays }
 		itemsIndexed(summary.topArtists, key = { index, _ -> "s:top-artist:$index" }) { _, artist ->
 			val preferenceManager = koinInject<PreferenceManager>()
@@ -599,7 +629,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 					artistTarget(artist.ndArtistId, artist.mbid, artist.name, state.knownArtistIds),
 					open
 				),
-				modifier = Modifier.fullBleed(),
+				modifier = Modifier.animateItem().graphicsLayer { alpha = dim() }.fullBleed(),
 				leading = {
 					LbArtImage(
 						art,
@@ -613,7 +643,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 	}
 	if (summary.topAlbums.isNotEmpty()) {
 		item(key = "s:top-albums") {
-			ArtCarousel(
+			PeriodBound(dim) { ArtCarousel(
 				title = stringResource(Res.string.listening_top_albums),
 				items = summary.topAlbums.toImmutableList(),
 				modifier = Modifier.fullBleed()
@@ -639,12 +669,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 						open
 					)
 				)
-			}
+			} }
 		}
 	}
 	if (summary.topTracks.isNotEmpty()) {
 		item(key = "s:top-tracks") {
-			ArtCarousel(
+			PeriodBound(dim) { ArtCarousel(
 				title = stringResource(Res.string.listening_top_tracks),
 				items = summary.topTracks.toImmutableList(),
 				modifier = Modifier.fullBleed()
@@ -663,12 +693,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 						open
 					)
 				)
-			}
+			} }
 		}
 	}
 	if (summary.genres.isNotEmpty()) {
 		item(key = "s:genres") {
-			Column(Modifier.padding(bottom = 16.dp)) {
+			PeriodBound(dim) { Column(Modifier.padding(bottom = 16.dp)) {
 				SectionTitle(stringResource(Res.string.listening_genres))
 				// Genres come from the library's tags, so only plays of albums the library
 				// holds can be counted. Both numbers are the summary's own.
@@ -683,7 +713,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(
 				summary.genres.forEachIndexed { index, genre ->
 					GenreRow(index + 1, genre.genre, genre.plays, genreBarFraction(genre.plays, top))
 				}
-			}
+			} }
 		}
 	}
 }
@@ -719,7 +749,8 @@ private fun GenreRow(rank: Int, name: String, plays: Int, fraction: Float) {
 private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 	state: ListeningUi,
 	periods: @Composable () -> Unit,
-	onRetry: () -> Unit
+	onRetry: () -> Unit,
+	dim: () -> Float
 ) {
 	val summary = state.summary
 	if (state.heatmap.isNotEmpty()) {
@@ -750,7 +781,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 	if (summaryMissing(state, onRetry)) return
 	if (summary == null) return
 	item(key = "s:daily") {
-		Column {
+		PeriodBound(dim) { Column {
 			SectionTitle(stringResource(Res.string.listening_daily_title))
 			val series = remember(summary.daily) { daySeries(summary.daily) }
 			// lb-bot charts at most the newest ninety days of a period: a year is not drawn
@@ -763,13 +794,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.activityItems(
 			}
 			if (series.isEmpty()) Caption(stringResource(Res.string.listening_no_plays), Modifier.padding(bottom = 16.dp))
 			else DayChart(series)
-		}
+		} }
 	}
 	item(key = "s:hours") {
-		Column {
+		PeriodBound(dim) { Column {
 			SectionTitle(stringResource(Res.string.listening_hours_title))
 			HoursChart(remember(summary.hours) { hourBars(summary.hours) })
-		}
+		} }
 	}
 }
 
@@ -990,7 +1021,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 	state: ListeningUi,
 	open: (ListeningTarget) -> Unit,
 	onKind: (String) -> Unit,
-	onRetry: () -> Unit
+	onRetry: () -> Unit,
+	dim: () -> Float
 ) {
 	item(key = "s:unowned") {
 		Column {
@@ -1014,7 +1046,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 				// Cover cards, in one horizontally scrollable row. They open the external album
 				// or artist page, which offers the reviewed acquire flow; a card downloads nothing.
 				state.unowned.isNotEmpty() -> LazyRow(
-					modifier = Modifier.fullBleed().padding(top = 8.dp, bottom = 16.dp),
+					modifier = Modifier.graphicsLayer { alpha = dim() }.fullBleed()
+						.padding(top = 8.dp, bottom = 16.dp),
 					horizontalArrangement = Arrangement.spacedBy(12.dp),
 					contentPadding = PaddingValues(horizontal = 16.dp)
 				) {
@@ -1202,6 +1235,18 @@ private fun Modifier.fullBleed(): Modifier = layout { measurable, constraints ->
 		)
 	)
 	layout(constraints.maxWidth, placeable.height) { placeable.place(-gutter, 0) }
+}
+
+/**
+ * An item whose content is a period's figures: eased in, out and into place when the period
+ * changes, and dimmed while the next period's are read ([STALE_ALPHA]).
+ */
+@Composable
+private fun androidx.compose.foundation.lazy.LazyItemScope.PeriodBound(
+	dim: () -> Float,
+	content: @Composable () -> Unit
+) {
+	Box(Modifier.animateItem().graphicsLayer { alpha = dim() }) { content() }
 }
 
 /** A section's title, as upstream's Statistics page titles its top artists. */

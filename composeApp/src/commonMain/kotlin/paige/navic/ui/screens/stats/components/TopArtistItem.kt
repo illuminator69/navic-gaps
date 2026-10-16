@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.stats.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -10,6 +11,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,9 +101,11 @@ fun RankingItem(
 			fontFamily = defaultFont(round = 100f)
 		)
 	}
+	// Eased, so a ranking that changes under the row (Stats' period) slides to its new length.
+	val shownRatio by animateFloatAsState(ratio, MaterialTheme.motionScheme.defaultSpatialSpec())
 	val bar: @Composable () -> Unit = {
 		LinearProgressIndicator(
-			progress = { ratio },
+			progress = { shownRatio },
 			modifier = Modifier
 				.fillMaxWidth()
 				.padding(top = 4.dp)
