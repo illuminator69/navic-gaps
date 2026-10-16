@@ -178,6 +178,15 @@ class PreferenceManager(
 	var autoDjAllowDuplicates by preference(false)
 	var autoDjTiming by preference(1)
 
+	// What built the current queue, when a station did (`StationProvenance`, JSON), so a restart
+	// does not turn a radio into a queue nobody continues. Written by StationManager alone.
+	var stationProvenance by preference("")
+	// The saved-queue id of a queue Auto DJ has topped up, for the queue sheet's line.
+	var autoDjQueueId by preference("")
+	// The hub's last character catalogue (`GET /sonic/station/characters`), JSON, so the labels
+	// and descriptions are the hub's on a cold start too. "" until a hub has answered.
+	var stationCatalogue by preference("")
+
 	// navi-connect Tier 2: AudioMuse-AI core API (direct HTTP, Bearer token).
 	// Unlocks Sonic Fingerprint autoplay (+ later: adaptive/chat/mood search).
 	var audioMuseUrl by preference("")

@@ -16,11 +16,10 @@ import androidx.compose.runtime.Immutable
  * which is why a second play gives a different tracklist — and why the hub can hold
  * one for every client without ever knowing what a song is.
  *
- * **The hub stores and broadcasts these; it never generates.** Each client
- * regenerates locally through the engine it already has ([RadioManager] here,
- * Feishin's `auto-dj` package). That is what keeps the hub audio-free and
- * AudioMuse-free, which is a standing rule of this stack rather than an accident of
- * this feature.
+ * **The hub stores and broadcasts these.** Each client regenerates locally through the
+ * engine it has ([RadioManager] here, Feishin's `auto-dj` package), except that since
+ * 2026-10-16 (PROTOCOL §18) the radio kinds play through the hub's station engine when it
+ * has one: [MixKind.STATION], and `similar` / `fingerprint` / `adaptive` with it.
  *
  * **The word is deliberate.** "Station" is taken by [Screen.RadioList] — Subsonic
  * internet radio, with its own entity, DAO and dialog — and "radio" by
@@ -44,8 +43,16 @@ data class Mix(
 	val seedId: String = "",
 	/** What to call the seed in the UI, so a recipe reads as a sentence offline. */
 	val seedName: String = "",
-	/** One of [paige.navic.domain.models.settings.MoodCharacter]'s names, for ADAPTIVE. */
+	/**
+	 * The old preset's name (`EchoMatch|SteadyVibes|TransitionMaestro`), which a client from
+	 * before stations reads for ADAPTIVE. Written beside [character] (PROTOCOL §17.1).
+	 */
 	val moodCharacter: String = "",
+	/**
+	 * `close|balanced|explore`, a [paige.navic.domain.models.settings.StationCharacter]'s wire
+	 * id: the character a STATION (or ADAPTIVE) recipe plays with. "" when the record has none.
+	 */
+	val character: String = "",
 	val count: Int = 50,
 	val coverArtId: String = "",
 	val createdAt: Long = 0L,
@@ -67,14 +74,19 @@ object MixKind {
 	const val SIMILAR = "similar"
 	/** AudioMuse `sonic_fingerprint`: built from listening habits, seedless. */
 	const val FINGERPRINT = "fingerprint"
-	/** AudioMuse `alchemy` steered by a [MoodCharacter], seedless. */
+	/** AudioMuse `alchemy` steered by a character, seedless. With the station engine: Your mix. */
 	const val ADAPTIVE = "adaptive"
 	/** A genre, drawn locally from the library. */
 	const val GENRE = "genre"
 	/** One artist's own catalogue, shuffled. */
 	const val ARTIST = "artist"
+	/**
+	 * A radio (PROTOCOL §17.1, §18): `seedId` a track, or empty for Your mix, and `character`.
+	 * Played as a station; without the engine, as the seed's similar songs (or the fingerprint).
+	 */
+	const val STATION = "station"
 
-	val ALL = listOf(SIMILAR, FINGERPRINT, ADAPTIVE, GENRE, ARTIST)
+	val ALL = listOf(SIMILAR, FINGERPRINT, ADAPTIVE, GENRE, ARTIST, STATION)
 
 	fun fromWire(kind: String): String? = kind.takeIf { it in ALL }
 

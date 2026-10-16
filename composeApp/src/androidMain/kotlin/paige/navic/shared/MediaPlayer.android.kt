@@ -1307,6 +1307,7 @@ class AndroidMediaPlayerViewModel(
 
 					override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
 						_uiState.update { it.copy(isShuffleEnabled = shuffleModeEnabled) }
+						publishPlayOrder()
 					}
 
 					override fun onRepeatModeChanged(repeatMode: Int) {
@@ -1498,8 +1499,32 @@ class AndroidMediaPlayerViewModel(
 				repeatMode = controller.repeatMode
 			)
 		}
+		publishPlayOrder()
 		applyAudioGain()
 		updateProgress()
+	}
+
+	/**
+	 * The timeline's shuffle order as queue indices, for autoplay's count of what is left
+	 * (`MediaPlayerViewModel.playOrder`); null in queue order. Read here, on the controller's
+	 * thread, because a MediaController may not be touched from autoplay's dispatcher. While
+	 * another device plays, this controller's timeline is the remote mirror's, and autoplay does
+	 * not run then.
+	 */
+	private fun publishPlayOrder() {
+		val c = controller ?: return
+		val timeline = c.currentTimeline
+		if (!c.shuffleModeEnabled || timeline.isEmpty) {
+			_playOrder.value = null
+			return
+		}
+		val order = ArrayList<Int>(timeline.windowCount)
+		var index = timeline.getFirstWindowIndex(true)
+		while (index != C.INDEX_UNSET && order.size < timeline.windowCount) {
+			order.add(index)
+			index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, true)
+		}
+		if (order != _playOrder.value) _playOrder.value = order
 	}
 
 	private fun applyAudioGain() {

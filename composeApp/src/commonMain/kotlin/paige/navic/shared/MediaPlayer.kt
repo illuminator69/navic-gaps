@@ -232,6 +232,22 @@ abstract class MediaPlayerViewModel(
 		_remoteState.value = state
 	}
 
+	/**
+	 * The LOCAL queue's indices in the order the player will play them (its shuffle order), or
+	 * null for queue order. Autoplay counts what is left by it (`playOrderRemaining`): under
+	 * shuffle, the songs after the playing one in the queue are not the songs still to come.
+	 * A platform without a shuffle order of its own (iOS) leaves it null.
+	 */
+	@Suppress("PropertyName")
+	protected val _playOrder = MutableStateFlow<List<Int>?>(null)
+	val playOrder: StateFlow<List<Int>?> = _playOrder.asStateFlow()
+
+	/** Songs left after the playing one on the LOCAL player, in play order. */
+	fun remainingInPlayOrder(): Int {
+		val state = _uiState.value
+		return paige.navic.domain.manager.playOrderRemaining(_playOrder.value, state.queue.size, state.currentIndex)
+	}
+
 	// ------------------------------------------------------------------
 	// Queue undo. A single, short-lived (~6 s) snapshot of the active session's
 	// queue captured just before a destructive edit, restorable to whichever

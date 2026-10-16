@@ -143,7 +143,14 @@ data class RemoteSessionState(
 	 * device's clock (`SessionSleepTimer.kt`); null when none is set, and from a hub that
 	 * holds none.
 	 */
-	val sleepTimer: SessionSleepTimer? = null
+	val sleepTimer: SessionSleepTimer? = null,
+	/**
+	 * The station the session's queue continues as (`session.stationId`, PROTOCOL §18.2), from a
+	 * hub with `station` in its features; null when none, and from any other hub.
+	 */
+	val stationId: String? = null,
+	/** What the session's queue is called (`session.sourceName`): a radio's own name, an album's. */
+	val sourceName: String? = null
 ) {
 	val nowPlaying: RemoteTrack? get() = tracks.getOrNull(index)
 }
@@ -222,6 +229,48 @@ class HubManager(
 
 	/** The link is up and the hub at its other end listed [feature]. */
 	fun hubOffers(feature: String): Boolean = _connected.value && feature in _hubFeatures.value
+
+	private val _stationFrames = MutableStateFlow<Map<String, HubStationFrame>>(emptyMap())
+
+	/**
+	 * What the hub last said about each station it told this device of: `welcome.station` (the
+	 * session's, with its name and seed) and every `station` frame (PROTOCOL §18.2), by station id.
+	 * The cursor (`seq`) here is how a device that did not serve the last batch learns `after`.
+	 * In memory; a welcome restates the session's station.
+	 */
+	val stationFrames: StateFlow<Map<String, HubStationFrame>> = _stationFrames.asStateFlow()
+
+	/**
+	 * The station this device's queue is bound to, for the `stationId` its `setQueue` carries
+	 * (PROTOCOL §5.1): a `setQueue` without one unbinds the session, and this device publishes its
+	 * queue again on every edit, an autoplay top-up included. Set by `StationManager`; the queue's
+	 * state and the saved-queue id the publish carries are what it decides from.
+	 */
+	var stationIdForPublish: (PlayerUiState, String) -> String? = { _, _ -> null }
+
+	private fun applyStationFrame(obj: JsonObject, withName: Boolean) {
+		val id = obj["stationId"]?.jsonPrimitive?.contentOrNullSafe() ?: return
+		val previous = _stationFrames.value[id]
+		val seed = if (withName) (obj["seed"] as? JsonObject)?.let { seedObj ->
+			val kind = seedObj["kind"]?.jsonPrimitive?.contentOrNullSafe() ?: return@let null
+			StationSeed(
+				kind = kind,
+				ids = (seedObj["ids"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty(),
+				name = seedObj["name"]?.jsonPrimitive?.contentOrNullSafe()
+			)
+		} else null
+		val frame = HubStationFrame(
+			stationId = id,
+			seq = obj["seq"]?.jsonPrimitive?.intOrNull ?: previous?.seq ?: 0,
+			rev = obj["rev"]?.jsonPrimitive?.intOrNull ?: previous?.rev ?: 0,
+			character = obj["character"]?.jsonPrimitive?.contentOrNullSafe() ?: previous?.character.orEmpty(),
+			exhausted = obj["exhausted"]?.jsonPrimitive?.booleanOrNull ?: previous?.exhausted ?: false,
+			name = (if (withName) obj["name"]?.jsonPrimitive?.contentOrNullSafe() else null) ?: previous?.name,
+			seed = seed ?: previous?.seed
+		)
+		// Bounded: a station frame names one station, and only a handful are alive on a hub (8).
+		_stationFrames.update { frames -> (frames - id + (id to frame)).entries.toList().takeLast(16).associate { it.toPair() } }
+	}
 
 	/**
 	 * The session's sleep timer where this device can vouch for it (`sessionTimerInForce`):
@@ -503,7 +552,8 @@ class HubManager(
 		play: Boolean = true,
 		savedQueueId: String? = null,
 		sourceKind: String = "manual",
-		sourceName: String? = null
+		sourceName: String? = null,
+		stationId: String? = null
 	) {
 		if (songs.isEmpty()) return
 		// Pre-set the publish signature so our own reporter doesn't re-publish this.
@@ -522,6 +572,9 @@ class HubManager(
 			put("savedQueueId", savedQueueId ?: mediaPlayer.newQueueSessionId(songs))
 			put("sourceKind", sourceKind)
 			sourceName?.let { put("sourceName", it) }
+			// Binds the new queue to the station that built it (PROTOCOL §18.2). An older hub
+			// would drop the key, but it is only sent to a hub that lists the feature.
+			if (stationId != null && hubOffers(HUB_FEATURE_STATION)) put("stationId", stationId)
 			putJsonArray("tracks") {
 				songs.forEach { song -> add(trackJson(song)) }
 			}
@@ -1170,7 +1223,8 @@ class HubManager(
 		seedName: String = "",
 		moodCharacter: String = "",
 		count: Int = 50,
-		coverArtId: String = ""
+		coverArtId: String = "",
+		character: String = ""
 	) {
 		sendAsync(buildJsonObject {
 			put("t", "act"); put("action", "saveMix")
@@ -1180,6 +1234,9 @@ class HubManager(
 			if (seedId.isNotBlank()) put("seedId", seedId)
 			if (seedName.isNotBlank()) put("seedName", seedName)
 			if (moodCharacter.isNotBlank()) put("moodCharacter", moodCharacter)
+			// `close|balanced|explore` (PROTOCOL §17.1). A hub from before stations drops it and
+			// keeps the legacy name beside it, which is why both are sent.
+			if (character.isNotBlank()) put("character", character)
 			if (coverArtId.isNotBlank()) put("coverArtId", coverArtId)
 			put("count", count)
 		})
@@ -1229,6 +1286,7 @@ class HubManager(
 				seedId = rec["seedId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				seedName = rec["seedName"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				moodCharacter = rec["moodCharacter"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				character = rec["character"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				count = rec["count"]?.jsonPrimitive?.intOrNull ?: 50,
 				coverArtId = rec["coverArtId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				createdAt = rec["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
@@ -1497,6 +1555,13 @@ class HubManager(
 				hubAcksActs = "actAck" in features
 				_volumePins.value = VolumePins()
 				msg["session"]?.let { applySession(it.jsonObject, keepPins = false) }
+				// The session's station, with its name and seed, so a device joining mid-station
+				// knows `after` without a round trip (PROTOCOL §18.2). Null or absent: none.
+				try {
+					(msg["station"] as? JsonObject)?.let { applyStationFrame(it, withName = true) }
+				} catch (e: Exception) {
+					Logger.e("HubManager", "welcome.station ignored", e)
+				}
 				msg["devices"]?.let { parseDevices(it.asObjectList()) }
 				welcomedAtMs = nowMs()
 				_connected.value = true
@@ -1606,6 +1671,13 @@ class HubManager(
 			}
 
 			"do" -> handleDo(msg)
+
+			// A station's cursor, steering, character or exhaustion moved (PROTOCOL §18.2).
+			"station" -> try {
+				applyStationFrame(msg, withName = false)
+			} catch (e: Exception) {
+				Logger.e("HubManager", "station frame ignored", e)
+			}
 
 			// lb-bot placed an album somewhere in the library — possibly at another
 			// client's request. The frame carries no authority: it only says "re-read
@@ -1722,6 +1794,8 @@ class HubManager(
 			repeat = obj["repeat"]?.jsonPrimitive?.contentOrNullSafe() ?: "none",
 			shuffle = obj["shuffle"]?.jsonPrimitive?.booleanOrNull ?: false,
 			savedQueueId = obj["savedQueueId"]?.jsonPrimitive?.contentOrNullSafe(),
+			stationId = obj["stationId"]?.jsonPrimitive?.contentOrNullSafe(),
+			sourceName = obj["sourceName"]?.jsonPrimitive?.contentOrNullSafe(),
 			// `remainingMs` was true when the frame was built: counted down from here on.
 			sleepTimer = (obj["sleepTimer"] as? JsonObject)?.let { timer ->
 				sessionSleepTimer(
@@ -2441,6 +2515,11 @@ class HubManager(
 			put("savedQueueId", savedQueueId)
 			put("sourceKind", state.savedQueueKind)
 			savedQueueNameFor(state)?.let { put("sourceName", it) }
+			// The station this queue belongs to, or the session is unbound by this very publish
+			// (PROTOCOL §18.2): every edit, an autoplay top-up included, republishes the queue.
+			if (hubOffers(HUB_FEATURE_STATION)) {
+				stationIdForPublish(state, savedQueueId)?.let { put("stationId", it) }
+			}
 			putJsonArray("tracks") {
 				state.queue.forEach { song -> add(trackJson(song)) }
 			}
@@ -2494,6 +2573,11 @@ class HubManager(
 			put("savedQueueId", savedQueueId)
 			put("sourceKind", state.savedQueueKind)
 			savedQueueNameFor(state)?.let { put("sourceName", it) }
+			// The station this queue belongs to, or the session is unbound by this very publish
+			// (PROTOCOL §18.2): every edit, an autoplay top-up included, republishes the queue.
+			if (hubOffers(HUB_FEATURE_STATION)) {
+				stationIdForPublish(state, savedQueueId)?.let { put("stationId", it) }
+			}
 			putJsonArray("tracks") {
 				state.queue.forEach { song -> add(trackJson(song)) }
 			}

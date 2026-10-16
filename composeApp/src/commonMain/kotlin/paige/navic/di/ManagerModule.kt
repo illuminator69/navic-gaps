@@ -19,6 +19,7 @@ import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.StationManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.ui.util.AmbientColorHolder
 
@@ -59,6 +60,9 @@ val managerModule = module {
 	single(createdAtStart = true) {
 		CastScrobbler(get(), get(), get(), get(), get(), get()).apply { start() }
 	}
+	// The hub's station engine (PROTOCOL §18): HTTP, availability, and the record of the station
+	// that built this device's queue.
+	singleOf(::StationManager)
 	// createdAtStart so the autoplay observer is running before the first radio use.
 	single(createdAtStart = true) { RadioManager(get(), get(), get(), get(), get(), get()) }
 	singleOf(::NativeApiManager)
