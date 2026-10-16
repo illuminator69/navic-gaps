@@ -132,6 +132,19 @@ data class QueueUndoSnapshot(
 enum class QueueUndoKind { CLEAR, REMOVE, MOVE, REPLACE }
 
 /**
+ * Whether undoing [snap] can leave the song that is playing now as it is: the snapshot's playing
+ * song is the one playing now, in the same saved-queue session. Then the queue is put back around
+ * it without a reload; otherwise (the playing song was the one removed, the queue was cleared or
+ * replaced) the snapshot is loaded whole.
+ */
+internal fun undoKeepsPlayingSong(snap: QueueUndoSnapshot, now: PlayerUiState): Boolean {
+	val playing = now.currentSong ?: return false
+	return now.queue.isNotEmpty() &&
+		snap.queue.getOrNull(snap.index)?.id == playing.id &&
+		snap.savedQueueId == now.savedQueueId
+}
+
+/**
  * What a hub-driven load actually achieved — see [MediaPlayerViewModel.awaitRemoteQueueLoad].
  *
  * [error] is for the log and the hub's `loaded` frame, so a failed transfer says *why* it failed
@@ -234,6 +247,11 @@ abstract class MediaPlayerViewModel(
 				savedQueueId = snap.savedQueueId,
 				sourceKind = snap.savedQueueKind
 			)
+		} else if (undoKeepsPlayingSong(snap, _uiState.value)) {
+			// The edit left the playing song alone (another row removed or moved): put the queue
+			// back AROUND it. The reload below re-prepares the playing item, which went silent for
+			// about a second on every undo of a swipe.
+			reconcileRemoteQueue(snap.queue, snap.index)
 		} else {
 			// Preserve the queue's saved-queue identity + kind so its history row isn't orphaned.
 			loadRemoteQueue(
