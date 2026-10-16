@@ -62,6 +62,7 @@ import paige.navic.ui.util.rememberAppIsDark
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
+import paige.navic.ui.screens.listening.viewmodels.ListeningCardViewModel
 import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
@@ -120,6 +121,11 @@ fun LibraryScreen() {
 		viewModelStoreOwner = persistentViewModelStoreOwner
 	)
 	val statsState by statsViewModel.state.collectAsStateWithLifecycle()
+	// navi-connect (Q-103): the Stats card follows lb-bot's listening history when there is one.
+	val listeningCardViewModel = koinViewModel<ListeningCardViewModel>(
+		viewModelStoreOwner = persistentViewModelStoreOwner
+	)
+	val listeningCard by listeningCardViewModel.card.collectAsStateWithLifecycle()
 
 	val loginManager = koinInject<LoginManager>()
 	val loginState by loginManager.loginState.collectAsStateWithLifecycle()
@@ -296,7 +302,8 @@ fun LibraryScreen() {
 				},
 
 				genresState = genresState,
-				statsState = statsState
+				statsState = statsState,
+				listeningCard = listeningCard
 			)
 		}
 		}

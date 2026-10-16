@@ -334,7 +334,7 @@ fun ListeningStats(
 						PageChips(
 							options = ListeningPeriod.entries,
 							selected = state.period,
-							label = { stringResource(periodLabel(it)) },
+							label = { stringResource(listeningPeriodLabel(it)) },
 							onSelect = { viewModel.setPeriod(it) },
 							contentPadding = PaddingValues(bottom = 8.dp)
 						)
@@ -524,7 +524,8 @@ private fun ListeningSyncRow(
 	}
 }
 
-private fun periodLabel(period: ListeningPeriod): StringResource = when (period) {
+/** A period as its chip names it (also the home's Stats card, Q-103). */
+internal fun listeningPeriodLabel(period: ListeningPeriod): StringResource = when (period) {
 	ListeningPeriod.WEEK -> Res.string.listening_period_7d
 	ListeningPeriod.MONTH -> Res.string.listening_period_30d
 	ListeningPeriod.QUARTER -> Res.string.listening_period_90d

@@ -540,6 +540,22 @@ internal fun listeningOnStats(phase: ListeningPhase): Boolean =
 internal fun listeningTabsShown(phase: ListeningPhase): Boolean =
 	listeningOnStats(phase) && phase != ListeningPhase.Loading
 
+/** The period the library home's Stats card is about: the one Stats opens on. */
+val LISTENING_CARD_PERIOD = ListeningPeriod.MONTH
+
+/**
+ * **The library home's Stats card follows the history when there is one** (you, 2026-10-16,
+ * Q-103). Upstream's card reads Navidrome's play counts; Stats itself shows lb-bot's history
+ * wherever lb-bot holds one, so the card does too. The card has no status read of its own (the
+ * home is visited constantly and the status is never cached), so "a history" is read off the
+ * cached summary: an answer with any play in it, the period's or the heat map's sixteen weeks
+ * (which every period's summary carries). Without a ListenBrainz user lb-bot has no plays to
+ * count, and a quiet month is still a history (the card then says so, as the page does).
+ */
+internal fun listeningHistoryHeld(summary: LbListeningSummary?): Boolean =
+	summary != null && summary.isAnswer &&
+		(summary.totals.plays > 0 || summary.heatmap.any { it.count > 0 })
+
 /** The range the heat map draws, as it says of itself: its first and last day, and how many weeks. */
 data class HeatmapSpan(val first: String, val last: String, val weeks: Int)
 

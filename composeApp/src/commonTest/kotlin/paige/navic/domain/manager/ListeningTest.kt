@@ -580,6 +580,20 @@ class ListeningTest {
 	}
 
 	@Test
+	fun theHomeCardFollowsTheHistoryWhenThereIsOne() {
+		// Q-103: the library home's Stats card shows lb-bot's history wherever there is one.
+		val month = LbListeningSummary(period = "30d", totals = LbListeningTotals(plays = 12))
+		assertTrue(listeningHistoryHeld(month))
+		// A quiet month is still a history: the heat map's sixteen weeks have plays.
+		val quiet = LbListeningSummary(period = "30d", heatmap = listOf(LbDayCount("2026-07-01", 3)))
+		assertTrue(listeningHistoryHeld(quiet))
+		// No ListenBrainz user: nothing counted anywhere. Not an answer, or nothing cached: none.
+		assertFalse(listeningHistoryHeld(LbListeningSummary(period = "30d", heatmap = listOf(LbDayCount("2026-07-01", 0)))))
+		assertFalse(listeningHistoryHeld(LbListeningSummary(totals = LbListeningTotals(plays = 5))))
+		assertFalse(listeningHistoryHeld(null))
+	}
+
+	@Test
 	fun theHeatMapNamesTheRangeItDraws() {
 		// Not the range lb-bot sent: the Sunday before the first Monday is not drawn, and is
 		// not claimed.

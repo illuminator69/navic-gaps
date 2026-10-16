@@ -63,6 +63,7 @@ import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenGridItem
+import paige.navic.ui.screens.listening.viewmodels.ListeningCardUi
 import paige.navic.ui.screens.stats.viewmodels.StatisticsState
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
@@ -124,7 +125,9 @@ fun LibraryScreenContent(
 	genresState: UiState<ImmutableList<DomainGenre>>,
 
 	// stats
-	statsState: StatisticsState
+	statsState: StatisticsState,
+	// navi-connect (Q-103): the card follows lb-bot's listening history when there is one.
+	listeningCard: ListeningCardUi? = null
 ) {
 	// Resolved OUTSIDE the grid, and deliberately so: read inside the greeting's `item`, this state
 	// was destroyed and rebuilt every time the greeting scrolled out of view and back, so it
@@ -360,7 +363,8 @@ fun LibraryScreenContent(
 			val backStack = LocalNavStack.current
 			StatisticsOverviewCard(
 				statsState = statsState,
-				onClick = { backStack.add(Screen.Statistics(true)) }
+				onClick = { backStack.add(Screen.Statistics(true)) },
+				listening = listeningCard
 			)
 		}
 	}

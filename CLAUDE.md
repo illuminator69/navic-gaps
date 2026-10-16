@@ -183,6 +183,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     | `LyricsScreen` | always, keyed on the song | upstream |
     | `FreshScreen`, `DiscoverScreen`, `MixListScreen` | when `!nested` | fork — their `init` loads over the network |
     | `LibraryScreen`'s `SavedQueuesViewModel` | always | fork |
+    | `LibraryScreen`'s `ListeningCardViewModel` | always | fork (Q-103) |
 
     Grep `PersistentViewModelStoreOwner` against both parents after a merge; a fork-only root tab
     added later needs its own row here. Anything else that must outlive its screen belongs in a
@@ -618,7 +619,13 @@ for the permission, and with the permission declined the re-query raised it agai
   but off and older, which leave Stats its own Navidrome figures), Overview in Stats' layout
   (its cards, the starred-songs card kept, top artists as its ranking rows through `RankingItem`,
   albums and tracks as its carousels). Read "the page" or "My Listening" below as that half of
-  Stats. lb-bot mirrors the user's
+  Stats. **The library home's Stats card follows the history too** (Q-103, your ruling):
+  `ListeningCardViewModel` reads the summary Stats opens on (`LISTENING_CARD_PERIOD`, 30 days)
+  through the same cache, and while lb-bot holds a history (`listeningHistoryHeld`: an answer
+  with a play in the period or the heat map) the card's three pages are its top artist, album
+  and track, their plays and their share of the period's plays. It has no status read (never
+  cached, and the home is visited constantly), so "a history" is read off the summary; otherwise
+  the card is upstream's, on Navidrome's play counts. lb-bot mirrors the user's
   ListenBrainz listens and serves the aggregates; every figure on `ListeningStats` is a field of
   its answer, and every decision about those answers is a pure function in `Listening.kt`. Three
   reads of three kinds: the **status** (`/lb/listening/status`, never cached) decides what the page

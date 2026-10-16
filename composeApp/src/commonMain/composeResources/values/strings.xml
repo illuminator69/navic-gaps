@@ -1079,6 +1079,7 @@
 	<string name="action_listening_sync_now">Sync now</string>
 	<string name="action_listening_syncing">Syncing…</string>
 	<string name="because_listening">Your ListenBrainz history, by the numbers</string>
+	<string name="info_listening_stats_plays_ratio">%1$d% of your plays</string>
 	<string name="listening_older">This lb-bot is older and has no listening history yet.</string>
 	<string name="listening_importing">Importing your history from ListenBrainz: %1$d of %2$d plays so far.</string>
 	<string name="listening_importing_unknown">Importing your history from ListenBrainz: %1$d plays so far.</string>

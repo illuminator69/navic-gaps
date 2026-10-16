@@ -31,16 +31,24 @@ import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousCapsule
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.count_plays
+import navic.composeapp.generated.resources.info_listening_stats_plays_ratio
 import navic.composeapp.generated.resources.info_listening_stats_ratio
 import navic.composeapp.generated.resources.title_statistics
 import navic.composeapp.generated.resources.title_top_albums
 import navic.composeapp.generated.resources.title_top_artists
 import navic.composeapp.generated.resources.title_top_songs
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.LbArt
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.genreBarFraction
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.LbArtImage
+import paige.navic.ui.screens.listening.listeningPeriodLabel
+import paige.navic.ui.screens.listening.viewmodels.ListeningCardItem
+import paige.navic.ui.screens.listening.viewmodels.ListeningCardUi
 import paige.navic.ui.screens.stats.viewmodels.StatisticsState
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.util.toSummaryString
@@ -51,6 +59,9 @@ import kotlin.time.Duration
 fun StatisticsOverviewCard(
 	statsState: StatisticsState,
 	onClick: () -> Unit,
+	// navi-connect (Q-103): lb-bot's listening history, when it holds one. The card follows it,
+	// as the Stats page it opens does; null keeps upstream's Navidrome play counts.
+	listening: ListeningCardUi? = null,
 ) {
 	val pagerState = rememberPagerState { 3 }
 
@@ -69,10 +80,23 @@ fun StatisticsOverviewCard(
 			contentPadding = PaddingValues(horizontal = 16.dp),
 			pageSpacing = 16.dp
 		) { page ->
-			when (page) {
-				0 -> TopArtistPage(statsState)
-				1 -> TopAlbumPage(statsState)
-				2 -> TopSongPage(statsState)
+			when {
+				listening != null -> HistoryPage(
+					subtitle = when (page) {
+						0 -> Res.string.title_top_artists
+						1 -> Res.string.title_top_albums
+						else -> Res.string.title_top_songs
+					},
+					item = when (page) {
+						0 -> listening.artist
+						1 -> listening.album
+						else -> listening.track
+					},
+					listening = listening
+				)
+				page == 0 -> TopArtistPage(statsState)
+				page == 1 -> TopAlbumPage(statsState)
+				else -> TopSongPage(statsState)
 			}
 		}
 
@@ -151,6 +175,71 @@ private fun StatPageContent(
 	duration: Duration,
 	totalDuration: Duration
 ) {
+	val ratio = when {
+		totalDuration > Duration.ZERO -> (duration.inWholeMilliseconds.toDouble() / totalDuration.inWholeMilliseconds.toDouble()).toFloat()
+		else -> 0f
+	}
+	val preferenceManager = koinInject<PreferenceManager>()
+	val playsText = pluralStringResource(Res.plurals.count_plays, playCount, playCount)
+	val timeText = duration.toSummaryString()
+	StatPage(
+		title = title,
+		subtitle = subtitle,
+		name = name,
+		barCoverArtId = coverArtId,
+		detail = "$playsText • $timeText",
+		ratio = ratio.takeIf { playCount > 0 },
+		ratioText = stringResource(Res.string.info_listening_stats_ratio, (ratio * 100).toInt())
+	) {
+		CoverArt(
+			coverArtId = coverArtId,
+			modifier = Modifier.size(64.dp),
+			shape = preferenceManager.coverArtShape.decreasedShape
+		)
+	}
+}
+
+/**
+ * navi-connect (Q-103): a page of the card from lb-bot's history, laid out as upstream's: the
+ * period's top artist, album or track, its plays over the period, and its share of the period's
+ * plays (lb-bot counts no listening time per item, so the share is of plays, and says so).
+ */
+@Composable
+private fun HistoryPage(subtitle: StringResource, item: ListeningCardItem?, listening: ListeningCardUi) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val plays = item?.plays ?: 0
+	val share = genreBarFraction(plays, listening.totalPlays)
+	val playsText = pluralStringResource(Res.plurals.count_plays, plays, plays)
+	StatPage(
+		title = stringResource(Res.string.title_statistics),
+		subtitle = stringResource(subtitle),
+		name = item?.name ?: "No data",
+		barCoverArtId = (item?.art as? LbArt.Library)?.coverArtId,
+		detail = "$playsText • ${stringResource(listeningPeriodLabel(listening.period))}",
+		ratio = share.takeIf { plays > 0 },
+		ratioText = stringResource(Res.string.info_listening_stats_plays_ratio, (share * 100).toInt())
+	) {
+		LbArtImage(
+			item?.art ?: LbArt.Placeholder(isArtist = false),
+			Modifier.size(64.dp),
+			contentDescription = item?.name,
+			shape = preferenceManager.coverArtShape.decreasedShape
+		)
+	}
+}
+
+@Composable
+private fun StatPage(
+	title: String,
+	subtitle: String,
+	name: String,
+	barCoverArtId: String?,
+	detail: String,
+	/** The bar's fill, or null for no bar (nothing was played). */
+	ratio: Float?,
+	ratioText: String,
+	art: @Composable () -> Unit
+) {
 	// The fork's engine, not upstream's rememberColorSchemeFromCoverArt: that one is the
 	// rememberDominantColorState path replaced at alpha58 (it seeds off dominantSwatch, a flat
 	// minority patch) and it derives at the APP's themeMode, so on a page whose brightness
@@ -159,29 +248,21 @@ private fun StatPageContent(
 	// not flip because one artist photo happens to be dark.
 	val pageIsDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 	val cover = rememberCoverColorScheme(
-		coverArtId = coverArtId,
+		coverArtId = barCoverArtId,
 		isDark = pageIsDark,
 		followArtworkBrightness = false
 	)
 	// An unresolved palette is a stand-in, not a statement about this artwork, so fall back to
 	// the page's own accent rather than painting a bar with a fabricated colour.
-	val barColor = if (cover.resolved) cover.scheme.primary else MaterialTheme.colorScheme.primary
-	val ratio = when {
-		totalDuration > Duration.ZERO -> (duration.inWholeMilliseconds.toDouble() / totalDuration.inWholeMilliseconds.toDouble()).toFloat()
-		else -> 0f
-	}
-	val preferenceManager = koinInject<PreferenceManager>()
+	val barColor = if (barCoverArtId != null && cover.resolved) cover.scheme.primary
+	else MaterialTheme.colorScheme.primary
 
 	Row(
 		modifier = Modifier.fillMaxWidth(),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(16.dp)
 	) {
-		CoverArt(
-			coverArtId = coverArtId,
-			modifier = Modifier.size(64.dp),
-			shape = preferenceManager.coverArtShape.decreasedShape
-		)
+		art()
 
 		Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 			Text(
@@ -198,16 +279,13 @@ private fun StatPageContent(
 				overflow = TextOverflow.Ellipsis
 			)
 
-			val playsText = pluralStringResource(Res.plurals.count_plays, playCount, playCount)
-			val timeText = duration.toSummaryString()
-
 			Text(
-				text = "$playsText • $timeText",
+				text = detail,
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 
-			if (playCount > 0) {
+			if (ratio != null) {
 				Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
 					Box(
 						modifier = Modifier
@@ -225,10 +303,7 @@ private fun StatPageContent(
 						)
 					}
 					Text(
-						text = stringResource(
-							Res.string.info_listening_stats_ratio,
-							(ratio * 100).toInt()
-						),
+						text = ratioText,
 						style = MaterialTheme.typography.labelSmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant
 					)
