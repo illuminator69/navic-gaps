@@ -1448,7 +1448,11 @@ true of invented *album art*, and not of an icon naming the kind.
   and "stuttered up and down". Measured on the VM emulator with the sheet's offset logged: with
   easing the offset bounced between 3 and 124 px over a 1200 px swipe; with it off during the
   touch the offset followed the finger and the sheet dismissed. The wrapper watches the pointer
-  on the Initial pass (never consuming) and drops the easing while one is down.
+  on the Initial pass (never consuming) and, while one is down, reports the measured height and
+  resets the easing to it. **One node for the sheet's life** (`easedHeight` in the wrapper), told
+  whether to ease: swapping `animateContentSize()` in and out with the finger created a fresh
+  node on the lift, which takes its first measurement as its start, so a tap that changed the
+  content (the new mix form, Mood Flow to Genre) jumped to full height at once.
 - **An ambient sheet's drag handle sits below the status bar** (B-121). The ambient branch used
   to hand Material zero insets so the gradient could reach every edge; the handle then sat in
   the status-bar band of a full-height sheet, where a pull opens the notification shade. Material

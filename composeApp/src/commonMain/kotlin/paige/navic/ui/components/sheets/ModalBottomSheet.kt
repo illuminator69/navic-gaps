@@ -1,6 +1,10 @@
 package paige.navic.ui.components.sheets
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -23,15 +27,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateMeasurement
+import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.CoverAmbient
 import paige.navic.ui.util.SheetHideMotionSpec
@@ -141,7 +156,11 @@ fun ModalBottomSheet(
 			// every frame as it slides, and easing that too would let the keyboard cover the
 			// field it was opened for. The eased size is clamped to what the sheet is given,
 			// so a shrinking viewport is obeyed at once.
-			val eased = if (animateContentHeight && !touched) Modifier.animateContentSize() else Modifier
+			// ONE node for the sheet's life, told whether to ease. Swapping `animateContentSize()`
+			// in and out with the finger made a fresh node on the finger's lift, which takes its
+			// first measurement as its starting size, so a tap that changes the content (the new
+			// mix form's kind: Mood Flow's few rows to Genre's list) landed at full height at once.
+			val eased = if (animateContentHeight) Modifier.easedHeight(ease = !touched) else Modifier
 			if (ambient != null) {
 				val insets = contentWindowInsets()
 				NavicTheme(ambient.scheme, contentColor = ambient.onAmbient) {
@@ -190,5 +209,70 @@ fun ModalBottomSheet(
 	LaunchedEffect(Unit) {
 		sheetState.showMotionSpec = SheetShowMotionSpec
 		sheetState.hideMotionSpec = SheetHideMotionSpec
+	}
+}
+
+/**
+ * The content's height, eased towards what it measures while [ease] holds and reported exactly
+ * (and the easing reset to it) while it does not, so easing that resumes starts from the height
+ * on screen. `animateContentSize()`'s spring, clipped as it clips; the eased height is kept
+ * within what the sheet gives.
+ */
+private fun Modifier.easedHeight(ease: Boolean): Modifier = clipToBounds() then EasedHeightElement(ease)
+
+private data class EasedHeightElement(val ease: Boolean) : ModifierNodeElement<EasedHeightNode>() {
+	override fun create() = EasedHeightNode(ease)
+
+	override fun update(node: EasedHeightNode) {
+		node.update(ease)
+	}
+
+	override fun InspectorInfo.inspectableProperties() {
+		name = "easedHeight"
+		properties["ease"] = ease
+	}
+}
+
+private class EasedHeightNode(private var ease: Boolean) : Modifier.Node(), LayoutModifierNode {
+	private var height: Animatable<Int, AnimationVector1D>? = null
+	private var target = 0
+
+	fun update(ease: Boolean) {
+		if (this.ease == ease) return
+		this.ease = ease
+		if (!ease) snap()
+		invalidateMeasurement()
+	}
+
+	private fun snap() {
+		val anim = height ?: return
+		if (isAttached) coroutineScope.launch { anim.snapTo(target) }
+	}
+
+	override fun onDetach() {
+		height = null
+	}
+
+	override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+		val placeable = measurable.measure(constraints)
+		val measured = placeable.height
+		val anim = height ?: Animatable(measured, Int.VectorConverter, 1).also {
+			height = it
+			target = measured
+		}
+		if (measured != target) {
+			target = measured
+			if (ease) {
+				coroutineScope.launch {
+					anim.animateTo(measured, spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = 1))
+				}
+			} else {
+				snap()
+			}
+		}
+		val shown = constraints.constrainHeight(if (ease) anim.value else measured)
+		return layout(placeable.width, shown) {
+			placeable.place(0, 0)
+		}
 	}
 }
