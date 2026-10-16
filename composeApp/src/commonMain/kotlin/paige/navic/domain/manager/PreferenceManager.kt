@@ -169,6 +169,15 @@ class PreferenceManager(
 	// navi-connect: continuous autoplay (Tier 1 = Similar). See AutoplayMode.
 	var autoplayMode by preference(AutoplayMode.Off)
 
+	// Auto DJ, the autoplay used when the hub has no station engine: a port of upstream Feishin's
+	// (`AutoDj.kt`), with its defaults. Songs added per top-up, whether to stop at Navidrome's
+	// similar songs when they found something, whether a song already queued may be added again,
+	// and how few songs left after the playing one start a top-up.
+	var autoDjItemCount by preference(5)
+	var autoDjOnlySimilar by preference(false)
+	var autoDjAllowDuplicates by preference(false)
+	var autoDjTiming by preference(1)
+
 	// navi-connect Tier 2: AudioMuse-AI core API (direct HTTP, Bearer token).
 	// Unlocks Sonic Fingerprint autoplay (+ later: adaptive/chat/mood search).
 	var audioMuseUrl by preference("")
