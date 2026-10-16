@@ -2,7 +2,6 @@ package paige.navic.ui.components.common
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.snap
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -76,15 +75,16 @@ fun <T> PageChips(
 		}
 	}
 	if (wrap) {
-		// Where the chips wrap, a chip's width changes at once. Material's FilterChip eases its
-		// check in and out itself, the arriving one on a bouncy spring and the leaving one more
-		// slowly, so for a moment the two together were wider than before and after; in a row
-		// that is full (the new mix form's characters: 1283 of 1284 px) the last chip broke onto
-		// another line and came back. The check still fades in.
+		// Where the chips wrap, the check arrives and leaves on ONE spring. Material's FilterChip
+		// eases its check in on fastSpatial (a spring that overshoots) and out on defaultEffects
+		// (slower), so for a moment the two chips together were wider than before and after; in
+		// a row that is full (the new mix form's characters: 1283 of 1284 px) the last chip broke
+		// onto another line and came back. With one spec for both, what one chip gains the other
+		// loses in the same frame, so the row's width holds while both ease.
 		val motion = MaterialTheme.motionScheme
 		MaterialExpressiveTheme(
 			colorScheme = MaterialTheme.colorScheme,
-			motionScheme = remember(motion) { SizeAtOnceMotion(motion) },
+			motionScheme = remember(motion) { MatchedSizeMotion(motion) },
 			shapes = MaterialTheme.shapes,
 			typography = MaterialTheme.typography
 		) {
@@ -109,12 +109,9 @@ fun <T> PageChips(
 }
 
 /**
- * [base] with no easing of size: the spatial specs, and the default effects spec Material's chip
- * shrinks a leaving icon by, snap.
+ * [base] with Material's chip expanding an arriving icon (fastSpatial) on the very spec it
+ * shrinks a leaving one by (defaultEffects), which does not overshoot.
  */
-private class SizeAtOnceMotion(base: MotionScheme) : MotionScheme by base {
-	override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> = snap()
-	override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = snap()
-	override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = snap()
-	override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = snap()
+private class MatchedSizeMotion(private val base: MotionScheme) : MotionScheme by base {
+	override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = base.defaultEffectsSpec()
 }
