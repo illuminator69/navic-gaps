@@ -40,14 +40,15 @@ import paige.navic.ui.util.rememberCoverAmbient
  * button), as every library row's sheet is, rather than the dropdown the list used to carry.
  *
  * Preview comes first because it is the only action that answers "what is in this": a mix, unlike
- * every other list in the app, has no tracklist until its recipe has been run.
+ * every other list in the app, has no tracklist until its recipe has been run. A Mood Flow mix has
+ * none to show: it is steered by its character as it plays, so [onPreview] is null for it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MixSheet(
 	mix: Mix,
 	onDismissRequest: () -> Unit,
-	onPreview: () -> Unit,
+	onPreview: (() -> Unit)?,
 	onRename: () -> Unit,
 	onDelete: () -> Unit
 ) {
@@ -80,16 +81,18 @@ fun MixSheet(
 		)
 		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 		Column(Modifier.padding(bottom = 8.dp)) {
-			ListItem(
-				content = { Text(stringResource(Res.string.mix_preview)) },
-				leadingContent = { Icon(Icons.Outlined.List, null) },
-				onClick = {
-					onDismissRequest()
-					onPreview()
-				},
-				colors = colors,
-				contentPadding = contentPadding
-			)
+			onPreview?.let { preview ->
+				ListItem(
+					content = { Text(stringResource(Res.string.mix_preview)) },
+					leadingContent = { Icon(Icons.Outlined.List, null) },
+					onClick = {
+						onDismissRequest()
+						preview()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
 			ListItem(
 				content = { Text(stringResource(Res.string.action_rename)) },
 				leadingContent = { Icon(Icons.Outlined.Badge, null) },

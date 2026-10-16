@@ -89,6 +89,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.Mix
+import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
@@ -286,7 +287,7 @@ fun MixListScreen(nested: Boolean = false) {
 		MixSheet(
 			mix = target,
 			onDismissRequest = { sheetTarget = null },
-			onPreview = { viewModel.preview(target) },
+			onPreview = { viewModel.preview(target) }.takeIf { target.kind != MixKind.ADAPTIVE },
 			onRename = { renameTarget = target },
 			onDelete = { deleteTarget = target }
 		)
