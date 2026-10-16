@@ -11,7 +11,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,14 +27,12 @@ import paige.navic.di.isLandscape
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.Add
-import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.ui.components.common.SegmentedListButton
 import paige.navic.ui.components.common.SegmentedListButtonDefaults
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.components.common.SongRowDefaults
-import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.util.withoutTop
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
@@ -76,13 +73,11 @@ import navic.composeapp.generated.resources.info_no_mixes_hint
 import navic.composeapp.generated.resources.mix_new
 import navic.composeapp.generated.resources.mix_not_connected
 import navic.composeapp.generated.resources.mix_regenerate_failed
-import navic.composeapp.generated.resources.mix_save_current
 import navic.composeapp.generated.resources.mix_unknown_kind
 import navic.composeapp.generated.resources.option_mix_name
 import navic.composeapp.generated.resources.title_delete_mix
 import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_rename_mix
-import navic.composeapp.generated.resources.title_save_mix
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -139,12 +134,10 @@ fun MixListScreen(nested: Boolean = false) {
 	val busyId by viewModel.busyId.collectAsStateWithLifecycle()
 	val connected by viewModel.connected.collectAsStateWithLifecycle()
 	val message by viewModel.message.collectAsStateWithLifecycle()
-	val recipe by viewModel.currentRecipe.collectAsStateWithLifecycle()
 	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
 
 	var renameTarget by remember { mutableStateOf<Mix?>(null) }
 	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
-	var saveTarget by remember { mutableStateOf<Mix?>(null) }
 	var formOpen by remember { mutableStateOf(false) }
 
 	val snackbarHostState = remember { SnackbarHostState() }
@@ -174,24 +167,10 @@ fun MixListScreen(nested: Boolean = false) {
 	val scrollManager = LocalBottomBarScrollManager.current
 	val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
 	val scaleInSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
-	val liveRecipe = recipe
 
-	// "Save what's playing" is the one-tap create: the autoplay settings already in force ARE a
-	// recipe, and until mixes existed they were simply discarded at the end of the session.
-	// Offered only while something is actually steering playback, so it never saves an empty
-	// recipe. A top-bar action, beside the floating button's general "New mix".
-	val actions: @Composable RowScope.() -> Unit = {
-		if (liveRecipe != null && connected) {
-			val icon = @Composable {
-				Icon(
-					Icons.Outlined.PlaylistAdd,
-					contentDescription = stringResource(Res.string.mix_save_current)
-				)
-			}
-			if (!nested) IconButton(onClick = { saveTarget = liveRecipe }) { icon() }
-			else TopBarButton(onClick = { saveTarget = liveRecipe }) { icon() }
-		}
-	}
+	// "Save what's playing as a mix" is the queue sheet's (you, 2026-10-16): the autoplay
+	// settings in force are a recipe for the queue they fill, so it is offered beside that queue,
+	// not here.
 
 	// A root tab, so it wears the root chrome — `App.kt` wraps it in `Washed` and it
 	// must not re-enter `NavicTheme` (§6 rule 6). Reached both as a tab and from
@@ -199,8 +178,8 @@ fun MixListScreen(nested: Boolean = false) {
 	Scaffold(
 		topBar = {
 			val title = @Composable { Text(stringResource(Res.string.title_discover_mixes)) }
-			if (!nested) RootTopBar(title, scrollBehavior, actions)
-			else NestedTopBar(title, actions = actions)
+			if (!nested) RootTopBar(title, scrollBehavior)
+			else NestedTopBar(title)
 		},
 		snackbarHost = { SnackbarHost(snackbarHostState) },
 		// "New mix" is the general create, and the only way to reach the `genre` and `artist`
@@ -340,18 +319,6 @@ fun MixListScreen(nested: Boolean = false) {
 		)
 	}
 
-	saveTarget?.let { recipe ->
-		MixNameDialog(
-			title = stringResource(Res.string.title_save_mix),
-			initial = recipe.name,
-			onConfirm = { name ->
-				viewModel.save(recipe, name)
-				saveTarget = null
-			},
-			onDismissRequest = { saveTarget = null }
-		)
-	}
-
 	deleteTarget?.let { target ->
 		FormDialog(
 			onDismissRequest = { deleteTarget = null },
@@ -429,8 +396,9 @@ private fun MixRow(
 	)
 }
 
+/** A mix's name, asked for on a rename here and on "Save as a mix" in the queue sheet. */
 @Composable
-private fun MixNameDialog(
+internal fun MixNameDialog(
 	title: String,
 	initial: String,
 	onConfirm: (String) -> Unit,

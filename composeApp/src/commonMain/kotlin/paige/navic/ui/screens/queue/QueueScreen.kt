@@ -80,6 +80,8 @@ import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next
 import navic.composeapp.generated.resources.action_download_queue
 import navic.composeapp.generated.resources.action_save_as_playlist
+import navic.composeapp.generated.resources.title_save_mix
+import navic.composeapp.generated.resources.action_save
 import navic.composeapp.generated.resources.action_undo
 import navic.composeapp.generated.resources.count_remaining_songs
 import navic.composeapp.generated.resources.count_songs
@@ -110,6 +112,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.PreviewManager
+import paige.navic.domain.models.Mix
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.AutoplayMode
@@ -119,6 +122,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.shared.MediaPlayerViewModel
@@ -128,6 +132,8 @@ import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
+import paige.navic.ui.screens.mixes.MixNameDialog
+import paige.navic.ui.screens.mixes.viewmodels.saveMix
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.queue.components.QueueScreenItem
 import paige.navic.ui.screens.queue.components.RelatedSongItem
@@ -166,6 +172,11 @@ fun QueueScreen() {
 	// The whole queue as a new playlist (upstream's create dialog, given the songs). A preview
 	// (`ext:`) or an internet-radio entry is no Navidrome song, so it is left out.
 	var savingQueue by remember { mutableStateOf(false) }
+	// "Save what's playing as a mix": the autoplay settings in force are a recipe for the queue
+	// they fill (`RadioManager.currentRecipe`). Here, beside that queue, and nowhere else (you,
+	// 2026-10-16); the recipe is read when it is asked for.
+	var mixToSave by remember { mutableStateOf<Mix?>(null) }
+	val hubConnected by hubManager.connected.collectAsState()
 	val queueSongsToSave = remember(queue) {
 		queue.filterNot { PreviewManager.isPreviewId(it.id) || it.id.startsWith("radio_") }
 			.toImmutableList()
@@ -464,16 +475,19 @@ fun QueueScreen() {
 									)
 								}
 								Row(verticalAlignment = Alignment.CenterVertically) {
-									IconButton(
-										enabled = queueSongsToSave.isNotEmpty(),
-										onClick = { savingQueue = true }
-									) {
-										Icon(
-											Icons.Outlined.PlaylistAdd,
-											contentDescription = stringResource(Res.string.action_save_as_playlist),
-											modifier = Modifier.size(22.dp)
-										)
-									}
+									// One save control: straight to the playlist dialog, or, while
+									// autoplay steers the queue and the hub that keeps mixes is
+									// connected, a menu of the two saves.
+									val mixOffered = hubConnected &&
+										radioManager.currentRecipe(playerState.currentSong) != null
+									QueueSaveButton(
+										playlistEnabled = queueSongsToSave.isNotEmpty(),
+										mixOffered = mixOffered,
+										onSaveAsPlaylist = { savingQueue = true },
+										onSaveAsMix = {
+											mixToSave = radioManager.currentRecipe(playerState.currentSong)
+										}
+									)
 									// Downloads are local files, so this is meaningless while another device holds
 									// the session (its queue can be remote placeholders not in our library).
 									if (!isRemoteActive) {
@@ -673,6 +687,18 @@ fun QueueScreen() {
 		)
 	}
 
+	mixToSave?.let { recipe ->
+		MixNameDialog(
+			title = stringResource(Res.string.title_save_mix),
+			initial = recipe.name,
+			onConfirm = { name ->
+				hubManager.saveMix(recipe, name)
+				mixToSave = null
+			},
+			onDismissRequest = { mixToSave = null }
+		)
+	}
+
 	if (savingQueue) {
 		PlaylistCreateDialog(
 			onDismissRequest = { savingQueue = false },
@@ -760,6 +786,57 @@ private fun RelatedTab(
 }
 
 private const val DOWNLOAD_NEXT_COUNT = 10
+
+/**
+ * The queue's save control. With only a playlist to save to it opens that dialog at once; while
+ * a mix can be saved too ([mixOffered]) it opens a menu of the two, as the download control
+ * beside it does.
+ */
+@Composable
+private fun QueueSaveButton(
+	playlistEnabled: Boolean,
+	mixOffered: Boolean,
+	onSaveAsPlaylist: () -> Unit,
+	onSaveAsMix: () -> Unit
+) {
+	var menuOpen by remember { mutableStateOf(false) }
+	Box {
+		IconButton(
+			enabled = playlistEnabled || mixOffered,
+			onClick = { if (mixOffered) menuOpen = true else onSaveAsPlaylist() }
+		) {
+			Icon(
+				Icons.Outlined.PlaylistAdd,
+				contentDescription = stringResource(
+					if (mixOffered) Res.string.action_save else Res.string.action_save_as_playlist
+				),
+				modifier = Modifier.size(22.dp)
+			)
+		}
+		DropdownMenu(
+			expanded = menuOpen,
+			onDismissRequest = { menuOpen = false }
+		) {
+			DropdownMenuItem(
+				text = { Text(stringResource(Res.string.action_save_as_playlist)) },
+				enabled = playlistEnabled,
+				onClick = {
+					menuOpen = false
+					onSaveAsPlaylist()
+				},
+				leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, null) }
+			)
+			DropdownMenuItem(
+				text = { Text(stringResource(Res.string.title_save_mix)) },
+				onClick = {
+					menuOpen = false
+					onSaveAsMix()
+				},
+				leadingIcon = { Icon(Icons.Outlined.Equalizer, null) }
+			)
+		}
+	}
+}
 
 /**
  * A single download control for the queue: one icon (reflecting the whole-queue download state) that

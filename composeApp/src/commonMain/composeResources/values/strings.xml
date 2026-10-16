@@ -1052,7 +1052,7 @@
 	<string name="mix_seed_none_found">Nothing in your library matches that.</string>
 	<string name="mix_seed_pick">Pick what this is built around.</string>
 	<string name="info_no_mixes">No mixes yet</string>
-	<string name="info_no_mixes_hint">A mix stores the recipe, not the tracklist — play one and it is built again from scratch. Start autoplay and save it from here.</string>
+	<string name="info_no_mixes_hint">A mix stores the recipe, not the tracklist — play one and it is built again from scratch. Start autoplay and save it from the queue.</string>
 
 	<string name="browse_unresolved">Couldn't match that to a release on MusicBrainz.</string>
 

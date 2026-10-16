@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -135,24 +134,6 @@ class MixListViewModel(
 
 	fun clearHubMessage() { _hubMessage.value = null }
 
-	/**
-	 * The recipe implied by the autoplay settings in force right now, or null.
-	 *
-	 * A flow rather than a function, because both inputs change while this screen is
-	 * open: switching autoplay mode from the player, or the track advancing under a
-	 * Similar recipe, both change what "save what's playing" would save. Read as a
-	 * plain `.value` during composition it would have gone stale silently, and the
-	 * button's appearance would have depended on an unrelated recomposition.
-	 *
-	 * `steadyState`, not `uiState`: the latter re-stamps `progress` about five times
-	 * a second, which would re-derive this — and recompose the screen — for the whole
-	 * of playback.
-	 */
-	val currentRecipe: StateFlow<Mix?> = combine(
-		radioManager.autoplayMode,
-		mediaPlayer.steadyState
-	) { _, state -> radioManager.currentRecipe(state.currentSong) }
-		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
 	/**
 	 * A mix's tracks, built but not played.
@@ -238,16 +219,7 @@ class MixListViewModel(
 			_message.value = MixMessage.NotConnected
 			return
 		}
-		hubManager.actSaveMix(
-			name = name.ifBlank { recipe.name },
-			kind = recipe.kind,
-			id = recipe.id.ifBlank { null },
-			seedId = recipe.seedId,
-			seedName = recipe.seedName,
-			moodCharacter = recipe.moodCharacter,
-			count = recipe.count,
-			coverArtId = recipe.coverArtId
-		)
+		hubManager.saveMix(recipe, name)
 	}
 
 	fun rename(id: String, name: String) {
@@ -265,4 +237,21 @@ class MixListViewModel(
 		}
 		hubManager.actDeleteMix(id)
 	}
+}
+
+/**
+ * Write [recipe] to the hub under [name] (its own when blank). The new mix form's save and the
+ * queue sheet's "Save as a mix" both come here; the mix arrives back as a broadcast.
+ */
+internal fun HubManager.saveMix(recipe: Mix, name: String) {
+	actSaveMix(
+		name = name.ifBlank { recipe.name },
+		kind = recipe.kind,
+		id = recipe.id.ifBlank { null },
+		seedId = recipe.seedId,
+		seedName = recipe.seedName,
+		moodCharacter = recipe.moodCharacter,
+		count = recipe.count,
+		coverArtId = recipe.coverArtId
+	)
 }
