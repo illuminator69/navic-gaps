@@ -43,8 +43,9 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Speed
 
 /**
- * Small circular frosted button beside [NowPlayingAutoplaySelector], shown while autoplay is on
- * and the hub's station engine is there to steer (I-040). Its menu picks the character
+ * Small circular frosted button beside [NowPlayingAutoplaySelector], shown while the hub's
+ * station engine is there and there is something for it to steer: autoplay on, or a radio
+ * playing, which keeps going with autoplay off (I-040). Its menu picks the character
  * ([StationCharacter]) in the hub catalogue's words: the one new stations start with, and the
  * playing station's from its next batch (`RadioManager.setCharacter`), so the queue on screen
  * stays as it is. The check mark is the PLAYING station's character when one is bound, read
@@ -55,6 +56,7 @@ fun NowPlayingCharacterButton(modifier: Modifier = Modifier, hazeState: HazeStat
 	val radioManager = koinInject<RadioManager>()
 
 	val autoplayOn by radioManager.autoplayOn.collectAsState()
+	val radioKeepsGoing by radioManager.radioKeepsGoing.collectAsState()
 	val stationsAvailable by radioManager.stationsAvailable.collectAsState()
 	val catalogue by radioManager.catalogue.collectAsState()
 	val character by radioManager.shownCharacter.collectAsState()
@@ -76,7 +78,8 @@ fun NowPlayingCharacterButton(modifier: Modifier = Modifier, hazeState: HazeStat
 	// Eased in and out beside the autoplay selector rather than appearing in one frame: the row
 	// is centred, so the selector slides aside instead of jumping (I-039).
 	AnimatedVisibility(
-		visible = autoplayOn && stationsAvailable,
+		// A radio keeps going with autoplay off, and its character still steers it.
+		visible = stationsAvailable && (autoplayOn || radioKeepsGoing),
 		modifier = modifier,
 		enter = fadeIn() + expandHorizontally(),
 		exit = fadeOut() + shrinkHorizontally()

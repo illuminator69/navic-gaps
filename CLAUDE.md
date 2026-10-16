@@ -544,17 +544,30 @@ Rules, each with a reason:
   thread; null on iOS, which has no shuffle mode) asks `next {after: seq, count: 5}`: a short
   lookahead, so a skip (which the hub reads from this device's reports) steers the next batch
   within a few songs. A queue no station built (an album, a journey) asks `start` with its last
-  1–3 songs and `bindSession`; a 409 `session_bound` continues the session's station instead. One
-  request at a time; an answer for a queue that has since been replaced is dropped. `exhausted`
-  stops autoplay and the queue sheet says so, with Explore; `partial` is asked again at the next
-  change, and at the latest 15 s later; `servedElsewhere` takes the cursor only; a 404
-  `station_unknown` starts again once from the recorded seed. A 503, a bare 404 or an unreachable
-  hub marks the engine unavailable for a minute and that top-up is Auto DJ's.
+  1–3 songs, `origin: "continue"` and `bindSession`; a 409 `session_bound` continues the session's
+  station instead, and `bound: false` continues it from here unbound (its id then stays off the
+  publish, and the bind is not tried again). One request at a time; an answer for a queue that has
+  since been replaced is dropped. `exhausted` stops and the queue sheet says so, with Explore;
+  `partial` is asked again at the next change, and at the latest 15 s later; `servedElsewhere`
+  takes the cursor only; a 404 `station_unknown` starts again once from the recorded seed.
+- **A radio keeps going with autoplay off; a continuation does not.** Every entry point (a
+  track's, an album's, an artist's radio, Your mix, a mix) sends `origin: "radio"`, which the hub
+  echoes in its answers, the `station` frame and `welcome.station`. On: every bound station
+  continues and a plain queue continues as one. Off: only a `radio` continues, nothing new starts,
+  and Auto DJ, which obeys the switch, does nothing. An origin an older hub does not echo is what
+  this device sent, else `continue` (`stationOrigin`).
+- **Failures are read as Feishin reads them** (`stationFailure`, `stationFailureAction`). A
+  fallback (503, a `{fallback: true}` body, no `station` feature, a probe that said unavailable,
+  the hub disconnected, a bare 404) is Auto DJ for that top-up (with autoplay on) and stops asking
+  the engine for a minute. A transient failure (a timeout or connection error with the hub socket
+  up, any other 5xx, 429, 408) is asked again up to 3 times, 8 s apart, for the same trigger, then
+  waits for the next one: never Auto DJ, whose random steps are what stations keep out of a radio,
+  and never "unavailable". 400 `bad_seed` / 404 `seed_unknown` wait for the next trigger. An entry
+  point that gets no station plays Navidrome's similar songs at once.
 - **Without the engine, Auto DJ** (`AutoDj.kt`): upstream Feishin's song strategy, similar songs
   → genre → album artist → library, "only similar", "allow duplicates", 5 per top-up when fewer
   than 1 is left. Radio without it is Navidrome's similar songs as before (`getSimilarSongs2` for
-  an album or artist id), then Auto DJ's walk if those are empty. Nothing else tops a queue up
-  with random songs.
+  an album or artist id), and only those. Nothing else tops a queue up with random songs.
 - **A star steers the bound station** (`signal like|unlike`, from `SongRepository.starChanges`):
   stars go to Navidrome, which the hub never hears from. A character change is `signal character`.
 - **What the queue sheet says comes from the station**, never from the autoplay setting

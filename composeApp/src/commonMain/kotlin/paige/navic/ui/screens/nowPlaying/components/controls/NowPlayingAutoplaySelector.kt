@@ -35,9 +35,10 @@ import paige.navic.icons.outlined.PlaylistPlay
 
 /**
  * Autoplay On / Off for the extended player, between the artwork and the progress bar: a
- * rounded, frosted switch. On, the queue continues when it runs out, as a radio of what is
+ * rounded, frosted switch. On, a queue continues when it runs out, as a radio of what is
  * playing when the hub has the station engine and as Auto DJ when it has not (I-040); which of
- * the two is the queue sheet's to say, not this control's. It used to open a menu of four modes.
+ * the two is the queue sheet's to say, not this control's. A radio keeps going either way; Off
+ * stops what autoplay would have continued. It used to open a menu of four modes.
  *
  * Meaningful in every configuration (Auto DJ needs nothing but Navidrome), so its place in the
  * row is never an empty AudioMuse slot (Q-100).

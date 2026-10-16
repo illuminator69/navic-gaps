@@ -40,12 +40,9 @@ class AutoDj(
 	/** The four sources, in the order a top-up walks them. */
 	internal enum class Source { Similar, Genre, AlbumArtist, Library }
 
-	/**
-	 * One top-up's songs for [current], none of them in [queueIds] unless duplicates are allowed.
-	 * [count] overrides the preference (the no-engine radio asks for a radio's worth).
-	 */
-	suspend fun collect(current: DomainSong, queueIds: Set<String>, count: Int? = null): List<DomainSong> {
-		val itemCount = (count ?: preferenceManager.autoDjItemCount).coerceIn(1, MAX_ITEM_COUNT)
+	/** One top-up's songs for [current], none of them in [queueIds] unless duplicates are allowed. */
+	suspend fun collect(current: DomainSong, queueIds: Set<String>): List<DomainSong> {
+		val itemCount = preferenceManager.autoDjItemCount.coerceIn(1, MAX_ITEM_COUNT)
 		val pick = AutoDjPick<DomainSong>(
 			itemCount = itemCount,
 			onlySimilar = preferenceManager.autoDjOnlySimilar,

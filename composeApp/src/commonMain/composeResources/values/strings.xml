@@ -1176,8 +1176,9 @@
 	<string name="autoplay_off">Off</string>
 	<string name="now_playing_autoplay">Autoplay · %1$s</string>
 	<string name="option_autoplay">Autoplay</string>
-	<string name="subtitle_autoplay">Keep the queue going when it runs out</string>
-	<string name="info_autoplay_station">The queue continues as a radio of what is playing, built by the hub.</string>
+	<string name="subtitle_autoplay_off">Off. The queue stops at its end.</string>
+	<string name="subtitle_autoplay_off_radio">Off. The radio playing keeps going; an album or a playlist stops at its end.</string>
+	<string name="info_autoplay_station">An album or a playlist continues as a radio of what is playing, built by the hub. A radio keeps going either way.</string>
 	<string name="info_autoplay_auto_dj">The hub has no radio to offer, so Auto DJ keeps the queue going: Navidrome's similar songs, then songs of the same genre, of the album artist, and of the whole library.</string>
 	<string name="option_station_character">Character</string>
 	<string name="option_auto_dj_count">Songs added each time</string>

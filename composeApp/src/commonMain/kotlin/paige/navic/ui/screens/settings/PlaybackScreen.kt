@@ -35,7 +35,8 @@ import navic.composeapp.generated.resources.option_station_character
 import navic.composeapp.generated.resources.subtitle_audio_effects
 import navic.composeapp.generated.resources.subtitle_auto_dj_only_similar
 import navic.composeapp.generated.resources.subtitle_auto_fill_queue
-import navic.composeapp.generated.resources.subtitle_autoplay
+import navic.composeapp.generated.resources.subtitle_autoplay_off
+import navic.composeapp.generated.resources.subtitle_autoplay_off_radio
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_streaming_quality
 import navic.composeapp.generated.resources.title_audio_effects
@@ -74,6 +75,7 @@ fun SettingsPlaybackScreen() {
 	val stationsAvailable by radioManager.stationsAvailable.collectAsState()
 	val catalogue by radioManager.catalogue.collectAsState()
 	val character by radioManager.character.collectAsState()
+	val radioKeepsGoing by radioManager.radioKeepsGoing.collectAsState()
 
 	Scaffold(
 		topBar = {
@@ -156,7 +158,9 @@ fun SettingsPlaybackScreen() {
 							Text(
 								stringResource(
 									when {
-										!autoplayOn -> Res.string.subtitle_autoplay
+										// Off: a radio still keeps going; anything else stops at its end.
+										!autoplayOn && radioKeepsGoing -> Res.string.subtitle_autoplay_off_radio
+										!autoplayOn -> Res.string.subtitle_autoplay_off
 										stationsAvailable -> Res.string.info_autoplay_station
 										else -> Res.string.info_autoplay_auto_dj
 									}

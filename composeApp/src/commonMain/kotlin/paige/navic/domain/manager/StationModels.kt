@@ -17,6 +17,23 @@ import paige.navic.domain.models.settings.StationCharacter
 /** Feature name in `welcome.features` (PROTOCOL §3.1) for a hub with the engine. */
 const val HUB_FEATURE_STATION = "station"
 
+/**
+ * Why a station exists (`start.origin`, echoed in every answer, the `station` frame and
+ * `welcome.station`). A RADIO was asked for (a track's, an album's, an artist's, Your mix, a
+ * mix) and keeps going whether or not autoplay is on; a CONTINUE is autoplay carrying on a
+ * queue no station built, and stops with autoplay.
+ */
+const val ORIGIN_RADIO = "radio"
+const val ORIGIN_CONTINUE = "continue"
+
+/**
+ * A station's origin: the hub's echo; else, for an older hub that echoes none, what this
+ * device sent when its own entry point started it; else (a station another device started,
+ * from a hub that says nothing) a continuation.
+ */
+fun stationOrigin(echoed: String?, sentHere: String?): String =
+	echoed?.takeIf { it.isNotBlank() } ?: sentHere?.takeIf { it.isNotBlank() } ?: ORIGIN_CONTINUE
+
 /** One character as the hub's catalogue words it (`GET /sonic/station/characters`). */
 @Serializable
 data class StationCharacterInfo(
@@ -104,7 +121,11 @@ data class StationAnswer(
 	val tracks: List<StationTrack> = emptyList(),
 	val exhausted: Boolean = false,
 	val partial: Boolean = false,
-	val servedElsewhere: Boolean = false
+	val servedElsewhere: Boolean = false,
+	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE], echoed; null from a hub that does not say. */
+	val origin: String? = null,
+	/** `start` only: whether `bindSession` bound the session. Null from a hub that does not say. */
+	val bound: Boolean? = null
 )
 
 @Serializable
@@ -114,7 +135,8 @@ internal data class StationStartBody(
 	val count: Int,
 	val exclude: List<String>,
 	val bindSession: String? = null,
-	val deviceId: String? = null
+	val deviceId: String? = null,
+	val origin: String
 )
 
 @Serializable
@@ -152,15 +174,87 @@ sealed interface StationResult {
 	/** 404 `station_unknown`: expired, or a hub that lost it. Start again once from the seed. */
 	data object StationUnknown : StationResult
 
-	/** 404 `seed_unknown`: AudioMuse holds no such seed track. */
-	data object SeedUnknown : StationResult
+	/**
+	 * The hub refused what was asked (400 `bad_seed`, 404 `seed_unknown`, another 4xx with a
+	 * reason). Asking again at once would be refused again: wait for the next trigger.
+	 */
+	data class Refused(val code: String) : StationResult
 
 	/**
-	 * No station can be had: 503 `{fallback: true}`, no hub configured, a hub without the
-	 * engine, or the hub unreachable. The caller runs its own fallback (Auto DJ, the old radio).
+	 * Worth asking again: a timeout or a connection error while the hub socket is up, a 5xx
+	 * other than 503, a 429 or a 408. Never a reason to fall back to Auto DJ, and never a
+	 * reason to stop asking the engine.
 	 */
-	data class Unavailable(val reason: String) : StationResult
+	data class Transient(val reason: String) : StationResult
+
+	/**
+	 * No station can be had: 503, a `{fallback: true}` body, no hub configured, a hub without the
+	 * engine or whose probe said unavailable, the hub disconnected, a bare 404, or 401/403. The
+	 * caller runs its own fallback (Auto DJ for autoplay, Navidrome's similar songs for a radio).
+	 */
+	data class Fallback(val reason: String) : StationResult
 }
+
+/**
+ * How a `start` / `next` that did not answer 200 is read (Feishin's classification, I-040).
+ * [status] null is a request that never got an answer (timeout, connection error): transient
+ * while the hub socket is up, a fallback when the hub is disconnected.
+ */
+internal fun stationFailure(status: Int?, refusal: StationRefusal?, hubConnected: Boolean): StationResult {
+	if (status == null) {
+		return if (hubConnected) StationResult.Transient("no answer") else StationResult.Fallback("hub disconnected")
+	}
+	if (status == 503 || refusal?.fallback == true) return StationResult.Fallback("HTTP $status")
+	val code = refusal?.code.orEmpty()
+	val boundTo = refusal?.stationId.orEmpty()
+	return when {
+		status == 409 && code == "session_bound" && boundTo.isNotBlank() -> StationResult.SessionBound(boundTo)
+		status == 404 && code == "station_unknown" -> StationResult.StationUnknown
+		status == 404 && code.isNotBlank() -> StationResult.Refused(code)
+		// No code: a hub without the route after all.
+		status == 404 -> StationResult.Fallback("HTTP 404")
+		status == 401 || status == 403 -> StationResult.Fallback("HTTP $status")
+		status == 408 || status == 429 || status >= 500 -> StationResult.Transient("HTTP $status")
+		status in 400..499 -> StationResult.Refused(code.ifBlank { "http_$status" })
+		else -> StationResult.Transient("HTTP $status")
+	}
+}
+
+/** Transient failures of one trigger are asked again this many times, this far apart. */
+const val STATION_TRANSIENT_RETRIES = 3
+const val STATION_TRANSIENT_RETRY_MS = 8_000L
+
+/** What the driver does after a `start` / `next` that did not succeed. */
+enum class StationFailureAction {
+	/** Ask again in [STATION_TRANSIENT_RETRY_MS], for the same trigger. */
+	RetrySoon,
+	/** Nothing until the playing song or the songs left change. */
+	WaitForNextTrigger,
+	/** Auto DJ tops this queue up. */
+	AutoDj,
+	/** Start again once from the recorded seed. */
+	Restart,
+	/** The session already has a station: continue that one. */
+	ContinueSessionStation
+}
+
+/**
+ * The driver's answer to [result], with [transientAttempts] retries of this trigger already
+ * made. Auto DJ only on a real fallback, and only with autoplay on: it obeys the switch, and its
+ * random steps are what stations exist to keep out of a radio.
+ */
+fun stationFailureAction(result: StationResult, autoplayOn: Boolean, transientAttempts: Int): StationFailureAction =
+	when (result) {
+		is StationResult.Transient ->
+			if (transientAttempts < STATION_TRANSIENT_RETRIES) StationFailureAction.RetrySoon
+			else StationFailureAction.WaitForNextTrigger
+		is StationResult.Fallback ->
+			if (autoplayOn) StationFailureAction.AutoDj else StationFailureAction.WaitForNextTrigger
+		is StationResult.Refused -> StationFailureAction.WaitForNextTrigger
+		StationResult.StationUnknown -> StationFailureAction.Restart
+		is StationResult.SessionBound -> StationFailureAction.ContinueSessionStation
+		is StationResult.Ok -> StationFailureAction.WaitForNextTrigger
+	}
 
 /**
  * The station that built this device's current queue, persisted (`PreferenceManager.
@@ -183,8 +277,19 @@ data class StationProvenance(
 	val seq: Int = 0,
 	val rev: Int = 0,
 	val exhausted: Boolean = false,
-	val lastFromAutoDj: Boolean = false
-)
+	val lastFromAutoDj: Boolean = false,
+	/** The hub's echo, else what this device sent; see [stationOrigin]. */
+	val origin: String? = null,
+	/**
+	 * This device asked `start` to bind the session and the hub answered `bound: false`: the
+	 * station is continued from here without binding, so its id is not put on this queue's
+	 * `setQueue`, and the bind is not tried again.
+	 */
+	val unbound: Boolean = false
+) {
+	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE]: whether it keeps going with autoplay off. */
+	val effectiveOrigin: String get() = stationOrigin(origin, null)
+}
 
 /** The `station` frame and `welcome.station` (PROTOCOL §18.2); [name] / [seed] in welcome only. */
 data class HubStationFrame(
@@ -194,7 +299,8 @@ data class HubStationFrame(
 	val character: String,
 	val exhausted: Boolean,
 	val name: String? = null,
-	val seed: StationSeed? = null
+	val seed: StationSeed? = null,
+	val origin: String? = null
 )
 
 /** A station's provenance after an answer was applied to its queue. */
@@ -207,7 +313,8 @@ internal fun StationProvenance.applied(answer: StationAnswer): StationProvenance
 	seq = maxOf(seq, answer.seq),
 	rev = maxOf(rev, answer.rev),
 	exhausted = answer.exhausted,
-	lastFromAutoDj = false
+	lastFromAutoDj = false,
+	origin = answer.origin?.takeIf { it.isNotBlank() } ?: origin
 )
 
 /** What one `start` / `next` answer does: the record after it, the ids to append, and whether to ask again soon. */
@@ -229,13 +336,16 @@ fun stationBatch(
 	bound: StationProvenance,
 	answer: StationAnswer,
 	queued: Set<String>,
-	fresh: Boolean
+	fresh: Boolean,
+	askedToBind: Boolean = false
 ): StationBatch {
 	if (answer.servedElsewhere) {
 		return StationBatch(bound.copy(seq = maxOf(bound.seq, answer.seq)), emptyList(), retrySoon = false)
 	}
 	val ids = answer.tracks.map { it.id }.filter { it.isNotBlank() && it !in queued }.distinct()
-	val applied = bound.applied(answer).let { if (fresh) it.copy(seq = answer.seq, rev = answer.rev) else it }
+	val applied = bound.applied(answer)
+		.let { if (fresh) it.copy(seq = answer.seq, rev = answer.rev) else it }
+		.let { if (askedToBind && answer.bound == false) it.copy(unbound = true) else it }
 	return StationBatch(applied, ids, retrySoon = ids.isEmpty() && !answer.exhausted)
 }
 
@@ -246,7 +356,9 @@ internal fun StationProvenance.withFrame(frame: HubStationFrame): StationProvena
 		seq = maxOf(seq, frame.seq),
 		rev = maxOf(rev, frame.rev),
 		character = frame.character.ifBlank { character },
-		exhausted = frame.exhausted
+		exhausted = frame.exhausted,
+		name = frame.name?.takeIf { it.isNotBlank() } ?: name,
+		origin = frame.origin?.takeIf { it.isNotBlank() } ?: origin
 	)
 
 // --------------------------------------------------------------------------------------------- //
@@ -328,16 +440,22 @@ data class AutoplayLook(
  * holds) or with a request out. With the engine, a station-bound queue asks `next` when fewer
  * than [STATION_LOOKAHEAD] songs are left and stops for good once the station is exhausted; a
  * queue no station built asks `start` at the same point. Without it, Auto DJ at its own timing.
+ *
+ * Autoplay on: every bound station continues, and a queue no station built continues as one.
+ * Autoplay off: only a station that is a RADIO continues (it was asked for); a continuation stops,
+ * nothing new is started, and Auto DJ, which obeys the switch, does nothing.
  */
 fun autoplayStep(look: AutoplayLook): AutoplayStep {
-	if (!look.autoplayOn || look.remoteActive || look.inFlight) return AutoplayStep.Idle
+	if (look.remoteActive || look.inFlight) return AutoplayStep.Idle
 	if (look.paused || look.repeatMode != 0) return AutoplayStep.Idle
 	if (look.queueSize <= 0 || look.currentIndex !in 0 until look.queueSize) return AutoplayStep.Idle
 	if (!look.stationsAvailable) {
-		return if (autoDjDue(look.remaining, look.autoDjTiming)) AutoplayStep.AutoDj else AutoplayStep.Idle
+		return if (look.autoplayOn && autoDjDue(look.remaining, look.autoDjTiming)) AutoplayStep.AutoDj
+		else AutoplayStep.Idle
 	}
 	if (look.remaining >= STATION_LOOKAHEAD) return AutoplayStep.Idle
-	val bound = look.bound ?: return AutoplayStep.Start
+	val bound = look.bound ?: return if (look.autoplayOn) AutoplayStep.Start else AutoplayStep.Idle
+	if (!look.autoplayOn && bound.effectiveOrigin != ORIGIN_RADIO) return AutoplayStep.Idle
 	if (bound.exhausted) return AutoplayStep.Exhausted
 	return AutoplayStep.Next(bound.stationId, bound.seq)
 }
@@ -373,7 +491,8 @@ fun boundStation(
 		seed = frame?.seed,
 		seq = frame?.seq ?: 0,
 		rev = frame?.rev ?: 0,
-		exhausted = frame?.exhausted ?: false
+		exhausted = frame?.exhausted ?: false,
+		origin = frame?.origin
 	)
 }
 

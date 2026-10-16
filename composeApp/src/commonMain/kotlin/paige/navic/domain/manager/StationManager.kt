@@ -140,8 +140,9 @@ class StationManager(
 	private var reprobe: Job? = null
 
 	/**
-	 * A 503, a bare 404 or an unreachable hub: stop asking (autoplay is Auto DJ meanwhile) until a
-	 * probe a minute later says otherwise. One re-probe at a time, however many calls failed.
+	 * A 503, a `{fallback: true}` body or a bare 404: stop asking (autoplay is Auto DJ meanwhile)
+	 * until a probe a minute later says otherwise. One re-probe at a time, however many calls
+	 * failed. A transient failure never comes here.
 	 */
 	private fun markUnavailable() {
 		_probeAvailable.value = false
@@ -249,8 +250,12 @@ class StationManager(
 		// What this device publishes: the bound station of the queue being published, judged by
 		// the saved-queue id the publish carries (a queue a transfer loaded here has none of its
 		// own, and is the session's only when that id is the session's).
+		// A station the hub declined to bind (`bound: false`) is continued from here unbound, and
+		// its id stays off the publish, which would otherwise bind it after all.
 		hubManager.stationIdForPublish = { state, publishId ->
-			boundFor(state.copy(savedQueueId = state.savedQueueId ?: publishId))?.stationId
+			boundFor(state.copy(savedQueueId = state.savedQueueId ?: publishId))
+				?.takeUnless { it.unbound }
+				?.stationId
 		}
 		// Probe on every welcome that lists the engine, then every 10 minutes while connected.
 		scope.launch {
@@ -283,13 +288,17 @@ class StationManager(
 
 	// ----- the routes ------------------------------------------------------------------------- //
 
-	/** `POST /sonic/station/start`. */
+	/**
+	 * `POST /sonic/station/start`. [origin] is [ORIGIN_RADIO] from every entry point (a radio, Your
+	 * mix, a mix) and [ORIGIN_CONTINUE] when autoplay carries on a queue no station built.
+	 */
 	suspend fun start(
 		seed: StationSeed,
 		character: StationCharacter,
 		count: Int,
 		exclude: List<String>,
-		bindSession: String?
+		bindSession: String?,
+		origin: String
 	): StationResult = call("start") { base ->
 		client.post("$base/sonic/station/start") {
 			auth()
@@ -302,7 +311,8 @@ class StationManager(
 						count = count.coerceIn(1, 50),
 						exclude = stationExclude(exclude),
 						bindSession = bindSession,
-						deviceId = hubManager.myDeviceId.value
+						deviceId = hubManager.myDeviceId.value,
+						origin = origin
 					)
 				)
 			)
@@ -350,51 +360,46 @@ class StationManager(
 		}
 	}
 
+	/**
+	 * One request, read the way Feishin reads it (`stationFailure`): a fallback (503, a
+	 * `{fallback: true}` body, no engine, the hub disconnected) is told apart from a transient
+	 * failure (a timeout or connection error with the hub socket up, another 5xx, 429, 408), which
+	 * the driver asks again and which never marks the engine unavailable.
+	 */
 	private suspend fun call(route: String, send: suspend (String) -> HttpResponse): StationResult {
-		val base = base() ?: return StationResult.Unavailable("no hub")
-		if (!available.value) return StationResult.Unavailable("engine not available")
-		return try {
-			val response = send(base)
-			val body = response.bodyAsText()
-			val status = response.status.value
-			when {
-				response.status.isSuccess() -> {
-					val answer = json.decodeFromString<StationAnswer>(body)
-					// A 200 that is not an answer (`{}`) is not "no tracks": it names no station.
-					if (answer.stationId.isBlank()) StationResult.Unavailable("$route answered no station")
-					else StationResult.Ok(answer)
-				}
-				status == 409 -> {
-					val refusal = refusal(body)
-					val id = refusal?.stationId
-					if (refusal?.code == "session_bound" && !id.isNullOrBlank()) StationResult.SessionBound(id)
-					else StationResult.Unavailable("$route -> 409 ${refusal?.code}")
-				}
-				status == 404 -> when (refusal(body)?.code) {
-					"station_unknown" -> StationResult.StationUnknown
-					"seed_unknown" -> StationResult.SeedUnknown
-					// A bare 404: a hub without the route after all.
-					else -> {
-						markUnavailable()
-						StationResult.Unavailable("$route -> 404")
-					}
-				}
-				status == 503 -> {
-					markUnavailable()
-					StationResult.Unavailable("$route -> 503")
-				}
-				else -> {
-					Logger.w(TAG, "$route -> HTTP $status")
-					StationResult.Unavailable("$route -> HTTP $status")
-				}
-			}
+		val base = base() ?: return StationResult.Fallback("no hub")
+		if (!available.value) return StationResult.Fallback("engine not available")
+		if (!hubManager.connected.value) return StationResult.Fallback("hub disconnected")
+		val response = try {
+			send(base)
 		} catch (e: Exception) {
-			// Unreachable, timed out, or an answer that would not decode. The hub's own failure,
-			// never "the station has nothing": that is `exhausted`, an answer.
 			Logger.w(TAG, "$route failed: ${e.message}")
-			markUnavailable()
-			StationResult.Unavailable("$route failed")
+			return stationFailure(null, null, hubManager.connected.value)
 		}
+		val body = try {
+			response.bodyAsText()
+		} catch (e: Exception) {
+			Logger.w(TAG, "$route body failed: ${e.message}")
+			return stationFailure(null, null, hubManager.connected.value)
+		}
+		val status = response.status.value
+		if (response.status.isSuccess()) {
+			val answer = try {
+				json.decodeFromString<StationAnswer>(body)
+			} catch (e: Exception) {
+				Logger.w(TAG, "$route answered something that is not an answer: ${e.message}")
+				null
+			}
+			// A 200 that is not an answer (`{}`) is not "no tracks": it names no station.
+			return if (answer == null || answer.stationId.isBlank()) StationResult.Transient("$route answered no station")
+			else StationResult.Ok(answer)
+		}
+		val result = stationFailure(status, refusal(body), hubManager.connected.value)
+		Logger.w(TAG, "$route -> HTTP $status: $result")
+		// Only a real fallback stops asking the engine for a while; a transient failure is asked
+		// again, and a refusal is about what was asked, not about the engine.
+		if (result is StationResult.Fallback && status != 401 && status != 403) markUnavailable()
+		return result
 	}
 
 	private fun refusal(body: String): StationRefusal? = try {

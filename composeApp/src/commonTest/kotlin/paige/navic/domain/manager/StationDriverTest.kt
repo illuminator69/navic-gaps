@@ -284,6 +284,123 @@ class StationDriverTest {
 		assertEquals(QueueGenerator.AudioMuseMix, queueGenerator(null, "q_mix", null, generatedMix = true))
 	}
 
+	// ---- origin: a radio keeps going, a continuation stops with autoplay ----------------------- //
+
+	@Test
+	fun theOriginRuleOnAndOffForRadioContinueAndUnknown() {
+		val origins = listOf(ORIGIN_RADIO, ORIGIN_CONTINUE, null)
+		for (origin in origins) {
+			val bound = radio.copy(origin = origin)
+			// Autoplay on: every bound station continues.
+			assertEquals(AutoplayStep.Next("st_1", 20), autoplayStep(look(remaining = 1, bound = bound, on = true)), "on, $origin")
+			// Autoplay off: only a radio does. An origin nobody said is a continuation.
+			val off = autoplayStep(look(remaining = 1, bound = bound, on = false))
+			if (origin == ORIGIN_RADIO) assertEquals(AutoplayStep.Next("st_1", 20), off, "off, radio")
+			else assertEquals(AutoplayStep.Idle, off, "off, $origin")
+		}
+	}
+
+	@Test
+	fun withAutoplayOffNothingNewIsStartedAndAutoDjDoesNothing() {
+		assertEquals(AutoplayStep.Start, autoplayStep(look(remaining = 1, bound = null, on = true)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = null, on = false)))
+		assertEquals(AutoplayStep.AutoDj, autoplayStep(look(remaining = 0, available = false, on = true)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, available = false, on = false)))
+		// A radio with autoplay off and the engine gone: Auto DJ obeys the switch.
+		assertEquals(
+			AutoplayStep.Idle,
+			autoplayStep(look(remaining = 0, available = false, on = false, bound = radio.copy(origin = ORIGIN_RADIO)))
+		)
+	}
+
+	@Test
+	fun anOriginTheHubDoesNotEchoIsWhatThisDeviceSentElseAContinuation() {
+		assertEquals(ORIGIN_CONTINUE, stationOrigin(echoed = ORIGIN_CONTINUE, sentHere = ORIGIN_RADIO), "the hub's echo wins")
+		assertEquals(ORIGIN_RADIO, stationOrigin(echoed = null, sentHere = ORIGIN_RADIO), "an older hub: our entry point")
+		assertEquals(ORIGIN_CONTINUE, stationOrigin(echoed = null, sentHere = ORIGIN_CONTINUE))
+		assertEquals(ORIGIN_CONTINUE, stationOrigin(echoed = null, sentHere = null), "another device's, unsaid")
+		assertEquals(ORIGIN_RADIO, stationOrigin(echoed = "", sentHere = ORIGIN_RADIO))
+	}
+
+	@Test
+	fun theAnswersAndTheFramesOriginAndNameAreKept() {
+		val answered = stationBatch(radio, answer("a").copy(origin = ORIGIN_RADIO), emptySet(), fresh = false)
+		assertEquals(ORIGIN_RADIO, answered.provenance.effectiveOrigin)
+		// An answer that says nothing keeps what the record had.
+		val silent = stationBatch(radio.copy(origin = ORIGIN_RADIO), answer("a"), emptySet(), fresh = false)
+		assertEquals(ORIGIN_RADIO, silent.provenance.origin)
+		val framed = radio.withFrame(
+			HubStationFrame("st_1", seq = 22, rev = 0, character = "", exhausted = false, name = "Renamed radio", origin = ORIGIN_CONTINUE)
+		)
+		assertEquals("Renamed radio", framed.name)
+		assertEquals(ORIGIN_CONTINUE, framed.effectiveOrigin)
+		assertEquals("balanced", framed.character, "a frame with no character keeps it")
+	}
+
+	@Test
+	fun boundFalseAfterAskingToBindLeavesTheStationUnbound() {
+		val refused = stationBatch(radio, answer("a").copy(bound = false), emptySet(), fresh = true, askedToBind = true)
+		assertTrue(refused.provenance.unbound)
+		val taken = stationBatch(radio, answer("a").copy(bound = true), emptySet(), fresh = true, askedToBind = true)
+		assertFalse(taken.provenance.unbound)
+		// Not asked (a radio started here, bound by its setQueue): `bound: false` says nothing.
+		val notAsked = stationBatch(radio, answer("a").copy(bound = false), emptySet(), fresh = true, askedToBind = false)
+		assertFalse(notAsked.provenance.unbound)
+		// An older hub that does not say.
+		assertFalse(stationBatch(radio, answer("a"), emptySet(), fresh = true, askedToBind = true).provenance.unbound)
+	}
+
+	// ---- failures: transient is asked again, a fallback is Auto DJ ----------------------------- //
+
+	@Test
+	fun failuresAreClassifiedAsFeishinDoes() {
+		fun r(code: String? = null, id: String? = null, fallback: Boolean = false) = StationRefusal(code, id, fallback)
+		// No answer at all: transient with the hub socket up, a fallback without it.
+		assertIs<StationResult.Transient>(stationFailure(null, null, hubConnected = true))
+		assertIs<StationResult.Fallback>(stationFailure(null, null, hubConnected = false))
+		// Fallback.
+		assertIs<StationResult.Fallback>(stationFailure(503, r(fallback = true), true))
+		assertIs<StationResult.Fallback>(stationFailure(503, null, true))
+		assertIs<StationResult.Fallback>(stationFailure(500, r(fallback = true), true), "a fallback body is a fallback")
+		assertIs<StationResult.Fallback>(stationFailure(404, null, true), "a bare 404: no route")
+		assertIs<StationResult.Fallback>(stationFailure(401, null, true))
+		// Transient.
+		for (status in listOf(500, 502, 504, 429, 408)) {
+			assertIs<StationResult.Transient>(stationFailure(status, null, true), "HTTP $status")
+		}
+		// Refused: wait for the next trigger.
+		assertEquals(StationResult.Refused("bad_seed"), stationFailure(400, r("bad_seed"), true))
+		assertEquals(StationResult.Refused("seed_unknown"), stationFailure(404, r("seed_unknown"), true))
+		assertEquals(StationResult.Refused("bad_after"), stationFailure(400, r("bad_after"), true))
+		// The two with their own handling.
+		assertEquals(StationResult.StationUnknown, stationFailure(404, r("station_unknown"), true))
+		assertEquals(StationResult.SessionBound("st_9"), stationFailure(409, r("session_bound", "st_9"), true))
+	}
+
+	@Test
+	fun aTransientFailureIsRetriedThreeTimesAndNeverBecomesAutoDj() {
+		val transient = StationResult.Transient("HTTP 502")
+		for (attempts in 0 until STATION_TRANSIENT_RETRIES) {
+			assertEquals(StationFailureAction.RetrySoon, stationFailureAction(transient, autoplayOn = true, transientAttempts = attempts))
+		}
+		assertEquals(StationFailureAction.WaitForNextTrigger, stationFailureAction(transient, true, STATION_TRANSIENT_RETRIES))
+		assertEquals(StationFailureAction.RetrySoon, stationFailureAction(transient, autoplayOn = false, transientAttempts = 0))
+		assertEquals(8_000L, STATION_TRANSIENT_RETRY_MS)
+	}
+
+	@Test
+	fun aFallbackIsAutoDjOnlyWithAutoplayOnAndARefusalWaits() {
+		val fallback = StationResult.Fallback("HTTP 503")
+		assertEquals(StationFailureAction.AutoDj, stationFailureAction(fallback, autoplayOn = true, transientAttempts = 0))
+		assertEquals(StationFailureAction.WaitForNextTrigger, stationFailureAction(fallback, autoplayOn = false, transientAttempts = 0))
+		assertEquals(StationFailureAction.WaitForNextTrigger, stationFailureAction(StationResult.Refused("bad_seed"), true, 0))
+		assertEquals(StationFailureAction.Restart, stationFailureAction(StationResult.StationUnknown, true, 0))
+		assertEquals(
+			StationFailureAction.ContinueSessionStation,
+			stationFailureAction(StationResult.SessionBound("st_9"), true, 0)
+		)
+	}
+
 	// ---- seeds --------------------------------------------------------------------------------- //
 
 	@Test

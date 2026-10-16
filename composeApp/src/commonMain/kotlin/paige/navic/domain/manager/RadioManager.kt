@@ -151,6 +151,17 @@ class RadioManager(
 		.distinctUntilChanged()
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), preferenceManager.stationCharacter)
 
+	/**
+	 * The queue on screen is a radio that keeps going whether or not autoplay is on (a bound
+	 * station of origin `radio`, not exhausted): the settings' Off wording, and the character
+	 * button, which still steers it.
+	 */
+	val radioKeepsGoing: StateFlow<Boolean> = combine(generatorInputs) {
+		boundNow()?.let { it.effectiveOrigin == ORIGIN_RADIO && !it.exhausted } ?: false
+	}
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
+
 	/** A station request (or an Auto DJ top-up) is out. */
 	val busy: StateFlow<Boolean> get() = stationManager.busy
 
@@ -191,13 +202,13 @@ class RadioManager(
 					StationPlay.Played, StationPlay.Empty -> return@launch
 					StationPlay.Unavailable -> {}
 				}
-				// The old radio: Navidrome's similar songs, nearest first, then Auto DJ's walk
-				// when Navidrome found none, so a tap always plays something.
+				// The old radio: Navidrome's similar songs, nearest first. Never Auto DJ's random
+				// steps, which are what a station keeps out of a radio; with nothing similar the
+				// tap still plays the song itself.
 				val similar = resolveIds(
 					runCatching { fetchSimilar(song.id, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
 				).filter { it.id != song.id }
-				val picks = similar.ifEmpty { autoDj.collect(song, setOf(song.id), RADIO_START_COUNT) }
-				playMix((listOf(song) + picks).distinctBy { it.id }, SavedQueueSource.RADIO, "${song.title} radio")
+				playMix((listOf(song) + similar).distinctBy { it.id }, SavedQueueSource.RADIO, "${song.title} radio")
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start radio for ${song.id}", e)
 			}
@@ -284,9 +295,11 @@ class RadioManager(
 	private enum class StationPlay { Played, Empty, Unavailable }
 
 	/**
-	 * Start a station from [seed] and play [seedSongs] followed by its first batch. [Unavailable]
-	 * when no station could be had (the caller then runs the old path); [Empty] when the station
-	 * answered but there is nothing to play.
+	 * Start a station from [seed] (origin `radio`: it keeps going whether or not autoplay is on)
+	 * and play [seedSongs] followed by its first batch. [Unavailable] when no station could be had,
+	 * whatever the reason, fallback, transient or refused (the caller then plays Navidrome's
+	 * similar songs at once rather than keep a tap waiting); [Empty] when the station answered but
+	 * there is nothing to play.
 	 */
 	private suspend fun playStation(
 		seed: StationSeed,
@@ -298,7 +311,9 @@ class RadioManager(
 		if (!stationManager.available.value) return StationPlay.Unavailable
 		stationManager.setBusy(true)
 		try {
-			val result = stationManager.start(seed, character, count, seedSongs.map { it.id }, bindSession = null)
+			val result = stationManager.start(
+				seed, character, count, seedSongs.map { it.id }, bindSession = null, origin = ORIGIN_RADIO
+			)
 			val answer = (result as? StationResult.Ok)?.answer ?: run {
 				Logger.i("RadioManager", "station start: $result, using the fallback")
 				return StationPlay.Unavailable
@@ -325,7 +340,9 @@ class RadioManager(
 					seed = answer.seed ?: seed,
 					seq = answer.seq,
 					rev = answer.rev,
-					exhausted = answer.exhausted
+					exhausted = answer.exhausted,
+					// This device's entry point started it: a radio, also for a hub that echoes nothing.
+					origin = stationOrigin(answer.origin, ORIGIN_RADIO)
 				)
 			)
 			if (hubManager.isRemoteActive.value) {
@@ -810,29 +827,32 @@ class RadioManager(
 	// ---- Autoplay: the station driver -------------------------------------------------------- //
 
 	/**
-	 * Autoplay, for the LOCAL player only: while another hub device plays, that device tops up.
-	 * Each look at the player goes through [autoplayStep]; a step runs once per distinct state
-	 * (queue, playing song, songs left, the station's cursor), with one request out at a time,
-	 * inside this manager's process scope, so it carries on with the screen off for as long as
-	 * the playback service lives.
+	 * The driver, for the LOCAL player only: while another hub device plays, that device tops up.
+	 * Each look at the player goes through [autoplayStep]; a step runs once per trigger (queue,
+	 * playing song, songs left, the station's `rev`, the switch), with one request out at a time,
+	 * inside this manager's process scope, so it carries on with the screen off for as long as the
+	 * playback service lives. It runs with autoplay off too: a radio keeps going regardless, and
+	 * [autoplayStep] decides what the switch stops.
+	 *
+	 * A transient failure is asked again up to [STATION_TRANSIENT_RETRIES] times,
+	 * [STATION_TRANSIENT_RETRY_MS] apart, for the same trigger, then waits for the next one; it
+	 * never hands the top-up to Auto DJ ([stationFailureAction]).
 	 */
 	private fun observeAutoplay() {
 		scope.launch {
 			var lastSig = ""
+			var trigger = ""
+			var transientAttempts = 0
 			combine(
 				mediaPlayer.localUiState, mediaPlayer.playOrder, _autoplayOn, stationManager.available, driverKick
 			) { state, order, on, available, kick -> AutoplayInput(state, order, on, available, kick) }
 				.collect { input ->
 					val state = input.state
-					if (!input.on) {
-						lastSig = ""
-						return@collect
-					}
 					val remaining = playOrderRemaining(input.order, state.queue.size, state.currentIndex)
 					val bound = if (input.available) stationManager.boundFor(state) else null
 					val step = autoplayStep(
 						AutoplayLook(
-							autoplayOn = true,
+							autoplayOn = input.on,
 							remoteActive = hubManager.isRemoteActive.value,
 							paused = state.isPaused,
 							repeatMode = state.repeatMode,
@@ -846,20 +866,34 @@ class RadioManager(
 						)
 					)
 					if (step == AutoplayStep.Idle || step == AutoplayStep.Exhausted) return@collect
-					// Not the cursor itself: an answer that only moved it (served elsewhere) waits for
-					// the next change rather than asking again at once. A like or a character change
-					// moves `rev`, which does ask again (it can clear "exhausted").
-					val stepKind = step::class.simpleName
-					val sig = "${state.savedQueueId}:${state.currentSong?.id}:$remaining:$stepKind:${bound?.rev}:${input.kick}"
+					// The trigger is not the cursor: an answer that only moved it (served elsewhere)
+					// waits for the next change rather than asking again at once. A like or a
+					// character change moves `rev`, which does ask again (it can clear "exhausted").
+					val triggerKey = "${state.savedQueueId}:${state.currentSong?.id}:$remaining:" +
+						"${step::class.simpleName}:${bound?.rev}:${input.on}"
+					if (triggerKey != trigger) {
+						trigger = triggerKey
+						transientAttempts = 0
+					}
+					val sig = "$triggerKey:${input.kick}"
 					if (sig == lastSig) return@collect
 					lastSig = sig
 					stationManager.setBusy(true)
-					try {
-						runStep(step, state, input.order)
+					val retry = try {
+						runStep(step, state, input.order, input.on, transientAttempts)
 					} catch (e: Exception) {
 						Logger.e("RadioManager", "autoplay $step failed", e)
+						null
 					} finally {
 						stationManager.setBusy(false)
+					}
+					when (retry) {
+						DriverRetry.Transient -> {
+							transientAttempts++
+							scheduleRetry(STATION_TRANSIENT_RETRY_MS)
+						}
+						DriverRetry.Later -> scheduleRetry(RETRY_MS)
+						null -> {}
 					}
 				}
 		}
@@ -873,13 +907,20 @@ class RadioManager(
 		val kick: Int
 	)
 
-	private suspend fun runStep(step: AutoplayStep, state: PlayerUiState, order: List<Int>?) {
-		when (step) {
-			is AutoplayStep.Next -> continueStation(state, step.stationId, step.after)
-			AutoplayStep.Start -> startFromQueue(state, order)
-			AutoplayStep.AutoDj -> autoDjTopUp(state)
-			AutoplayStep.Idle, AutoplayStep.Exhausted -> {}
-		}
+	/** What a step leaves for later: a transient failure's retry, or a partial answer's. */
+	private enum class DriverRetry { Transient, Later }
+
+	private suspend fun runStep(
+		step: AutoplayStep,
+		state: PlayerUiState,
+		order: List<Int>?,
+		autoplayOn: Boolean,
+		transientAttempts: Int
+	): DriverRetry? = when (step) {
+		is AutoplayStep.Next -> continueStation(state, step.stationId, step.after, autoplayOn, transientAttempts)
+		AutoplayStep.Start -> startFromQueue(state, order, transientAttempts)
+		AutoplayStep.AutoDj -> autoDjTopUp(state)
+		AutoplayStep.Idle, AutoplayStep.Exhausted -> null
 	}
 
 	private fun queueIdsOf(state: PlayerUiState): List<String> = state.queue.map { it.id }
@@ -891,32 +932,80 @@ class RadioManager(
 			!hubManager.isRemoteActive.value
 	}
 
-	private suspend fun continueStation(state: PlayerUiState, stationId: String, after: Int) {
-		val bound = stationManager.boundFor(state)?.takeIf { it.stationId == stationId } ?: return
-		when (val result = stationManager.next(stationId, after, STATION_BATCH, queueIdsOf(state))) {
+	/** Act on a `start` / `next` that did not succeed ([stationFailureAction]). */
+	private suspend fun onStationFailure(
+		result: StationResult,
+		state: PlayerUiState,
+		autoplayOn: Boolean,
+		transientAttempts: Int,
+		restart: suspend () -> DriverRetry?,
+		continueSession: suspend (String) -> DriverRetry?
+	): DriverRetry? {
+		val action = stationFailureAction(result, autoplayOn, transientAttempts)
+		Logger.i("RadioManager", "station: $result -> $action")
+		return when (action) {
+			StationFailureAction.RetrySoon -> DriverRetry.Transient
+			StationFailureAction.WaitForNextTrigger -> null
+			StationFailureAction.AutoDj -> autoDjTopUp(state)
+			StationFailureAction.Restart -> restart()
+			StationFailureAction.ContinueSessionStation ->
+				(result as? StationResult.SessionBound)?.let { continueSession(it.stationId) }
+		}
+	}
+
+	private suspend fun continueStation(
+		state: PlayerUiState,
+		stationId: String,
+		after: Int,
+		autoplayOn: Boolean,
+		transientAttempts: Int
+	): DriverRetry? {
+		val bound = stationManager.boundFor(state)?.takeIf { it.stationId == stationId } ?: return null
+		return when (val result = stationManager.next(stationId, after, STATION_BATCH, queueIdsOf(state))) {
 			is StationResult.Ok -> applyBatch(state, bound, result.answer)
 			// Expired, or a hub that lost it: start again once, from the seed kept here.
-			StationResult.StationUnknown -> restartStation(state, bound)
-			else -> {
-				Logger.i("RadioManager", "station next: $result, Auto DJ for this top-up")
-				autoDjTopUp(state)
-			}
+			else -> onStationFailure(
+				result, state, autoplayOn, transientAttempts,
+				restart = { restartStation(state, bound, autoplayOn) },
+				continueSession = { continueSessionStation(state, it, bound.seed, autoplayOn) }
+			)
 		}
 	}
 
-	private suspend fun restartStation(state: PlayerUiState, bound: StationProvenance) {
-		val seed = bound.seed ?: return startFromQueue(state, mediaPlayer.playOrder.value)
+	/** Start again from the recorded seed, with the station's own origin and character. */
+	private suspend fun restartStation(state: PlayerUiState, bound: StationProvenance, autoplayOn: Boolean): DriverRetry? {
+		val seed = bound.seed
+		if (seed == null) {
+			// A station this device has no seed for (another device started it): only autoplay
+			// may carry the queue on from its own last songs.
+			return if (autoplayOn) startFromQueue(state, mediaPlayer.playOrder.value, STATION_TRANSIENT_RETRIES) else null
+		}
 		val character = StationCharacter.fromWire(bound.character) ?: _character.value
-		when (val result = stationManager.start(seed, character, STATION_BATCH, queueIdsOf(state), bindSessionFor())) {
-			is StationResult.Ok -> applyBatch(state, bound.copy(seq = 0, rev = 0), result.answer, fresh = true)
-			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed)
-			else -> autoDjTopUp(state)
+		val bind = bindSessionFor()
+		val origin = bound.effectiveOrigin
+		return when (
+			val result = stationManager.start(seed, character, STATION_BATCH, queueIdsOf(state), bind, origin)
+		) {
+			is StationResult.Ok -> applyBatch(
+				state,
+				bound.copy(seq = 0, rev = 0, origin = stationOrigin(result.answer.origin, origin)),
+				result.answer,
+				fresh = true,
+				askedToBind = bind != null
+			)
+			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed, autoplayOn)
+			// Restarted once; whatever this answer was, the next trigger decides again.
+			is StationResult.Fallback -> if (autoplayOn) autoDjTopUp(state) else null
+			else -> null
 		}
 	}
 
-	/** A queue no station built, near its end: it continues as a station seeded from its last tracks. */
-	private suspend fun startFromQueue(state: PlayerUiState, order: List<Int>?) {
-		val current = state.currentSong ?: return
+	/**
+	 * A queue no station built, near its end, with autoplay on: it continues as a station seeded
+	 * from its last tracks (origin `continue`), bound to the session when this device plays it.
+	 */
+	private suspend fun startFromQueue(state: PlayerUiState, order: List<Int>?, transientAttempts: Int): DriverRetry? {
+		val current = state.currentSong ?: return null
 		val seedIds = playOrderRecent(order, state.queue.size, state.currentIndex, SEED_TRACKS_FROM_QUEUE)
 			.mapNotNull { state.queue.getOrNull(it)?.id }
 			.filterNot { PreviewManager.isPreviewId(it) || it.startsWith("radio_") }
@@ -928,28 +1017,37 @@ class RadioManager(
 			?: mediaPlayer.newQueueSessionId(state.queue)
 		mediaPlayer.adoptQueueSessionId(queueId)
 		val queued = state.copy(savedQueueId = queueId)
-		when (val result = stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bindSessionFor())) {
+		val bind = bindSessionFor()
+		return when (
+			val result = stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bind, ORIGIN_CONTINUE)
+		) {
 			is StationResult.Ok -> {
 				val fresh = StationProvenance(
 					queueId = queueId,
 					stationId = result.answer.stationId,
 					character = _character.value.wireId,
-					seed = seed
+					seed = seed,
+					origin = stationOrigin(result.answer.origin, ORIGIN_CONTINUE)
 				)
-				applyBatch(queued, fresh, result.answer, fresh = true)
+				applyBatch(queued, fresh, result.answer, fresh = true, askedToBind = bind != null)
 			}
-			// Another device got there first: the session has a station, so this queue continues it.
-			is StationResult.SessionBound -> continueSessionStation(queued, result.stationId, seed)
-			else -> {
-				Logger.i("RadioManager", "station start: $result, Auto DJ for this top-up")
-				autoDjTopUp(queued)
-			}
+			else -> onStationFailure(
+				result, queued, autoplayOn = true, transientAttempts = transientAttempts,
+				restart = { null },
+				// Another device got there first: the session has a station, so this queue continues it.
+				continueSession = { continueSessionStation(queued, it, seed, autoplayOn = true) }
+			)
 		}
 	}
 
 	/** Continue the session's station [stationId] from the cursor the hub last broadcast. */
-	private suspend fun continueSessionStation(state: PlayerUiState, stationId: String, seed: StationSeed?) {
-		val queueId = state.savedQueueId ?: return
+	private suspend fun continueSessionStation(
+		state: PlayerUiState,
+		stationId: String,
+		seed: StationSeed?,
+		autoplayOn: Boolean
+	): DriverRetry? {
+		val queueId = state.savedQueueId ?: return null
 		val frame = hubManager.stationFrames.value[stationId]
 		var bound = StationProvenance(
 			queueId = queueId,
@@ -957,7 +1055,8 @@ class RadioManager(
 			name = frame?.name ?: hubManager.remoteSession.value.sourceName.orEmpty(),
 			character = frame?.character?.ifBlank { null } ?: _character.value.wireId,
 			seed = frame?.seed ?: seed,
-			seq = frame?.seq ?: 0
+			seq = frame?.seq ?: 0,
+			origin = frame?.origin
 		)
 		var result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
 		// The cursor was learned second-hand; the answer names the real one. Once.
@@ -966,9 +1065,11 @@ class RadioManager(
 			bound = bound.copy(seq = answer.seq)
 			result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
 		}
-		when (result) {
+		return when (result) {
 			is StationResult.Ok -> applyBatch(state, bound, result.answer, fresh = true)
-			else -> autoDjTopUp(state)
+			is StationResult.Transient -> DriverRetry.Transient
+			is StationResult.Fallback -> if (autoplayOn) autoDjTopUp(state) else null
+			else -> null
 		}
 	}
 
@@ -977,36 +1078,33 @@ class RadioManager(
 		state: PlayerUiState,
 		bound: StationProvenance,
 		answer: StationAnswer,
-		fresh: Boolean = false
-	) {
+		fresh: Boolean = false,
+		askedToBind: Boolean = false
+	): DriverRetry? {
 		if (!stillPlaying(state)) {
 			Logger.i("RadioManager", "station answer for a queue no longer playing, dropped")
-			return
+			return null
 		}
 		val queued = mediaPlayer.localUiState.value.queue.mapTo(HashSet()) { it.id }
-		val batch = stationBatch(bound, answer, queued, fresh)
+		val batch = stationBatch(bound, answer, queued, fresh, askedToBind)
 		val songs = resolveIds(batch.append).filter { it.id !in queued }
 		// The record first: the append republishes the queue, and the publish names the station.
 		stationManager.record(batch.provenance)
 		if (songs.isNotEmpty()) mediaPlayer.appendToQueue(songs)
-		if (batch.retrySoon || (songs.isEmpty() && batch.append.isNotEmpty())) {
-			// `partial`, every track already queued, or none of them in this library: ask again
-			// at the next trigger, and at the latest in a little while, so a queue on its last
-			// song does not just end.
-			scheduleRetry()
-		}
+		// `partial`, every track already queued, or none of them in this library: ask again at
+		// the next trigger, and at the latest in a little while, so a queue on its last song
+		// does not just end.
+		return if (batch.retrySoon || (songs.isEmpty() && batch.append.isNotEmpty())) DriverRetry.Later else null
 	}
 
-	private suspend fun autoDjTopUp(state: PlayerUiState) {
-		val current = state.currentSong ?: return
+	private suspend fun autoDjTopUp(state: PlayerUiState): DriverRetry? {
+		val current = state.currentSong ?: return null
 		val picks = autoDj.collect(current, state.queue.mapTo(HashSet()) { it.id })
-		if (!stillPlaying(state)) return
-		if (picks.isEmpty()) {
-			scheduleRetry()
-			return
-		}
+		if (!stillPlaying(state)) return null
+		if (picks.isEmpty()) return DriverRetry.Later
 		mediaPlayer.appendToQueue(picks)
 		stationManager.recordAutoDj(state.savedQueueId)
+		return null
 	}
 
 	/** `bindSession` for a `start`: the session's saved queue, while this device plays the session. */
@@ -1018,11 +1116,11 @@ class RadioManager(
 
 	private var retryScheduled = false
 
-	private fun scheduleRetry() {
+	private fun scheduleRetry(delayMs: Long) {
 		if (retryScheduled) return
 		retryScheduled = true
 		scope.launch {
-			delay(RETRY_MS)
+			delay(delayMs)
 			retryScheduled = false
 			driverKick.update { it + 1 }
 		}

@@ -248,25 +248,30 @@ class HubManager(
 	 */
 	var stationIdForPublish: (PlayerUiState, String) -> String? = { _, _ -> null }
 
-	private fun applyStationFrame(obj: JsonObject, withName: Boolean) {
+	/**
+	 * A `station` frame, or `welcome.station`. Both carry `name` and `origin`; the seed only comes
+	 * with the welcome. A field a frame leaves out keeps what was known.
+	 */
+	private fun applyStationFrame(obj: JsonObject) {
 		val id = obj["stationId"]?.jsonPrimitive?.contentOrNullSafe() ?: return
 		val previous = _stationFrames.value[id]
-		val seed = if (withName) (obj["seed"] as? JsonObject)?.let { seedObj ->
+		val seed = (obj["seed"] as? JsonObject)?.let { seedObj ->
 			val kind = seedObj["kind"]?.jsonPrimitive?.contentOrNullSafe() ?: return@let null
 			StationSeed(
 				kind = kind,
 				ids = (seedObj["ids"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty(),
 				name = seedObj["name"]?.jsonPrimitive?.contentOrNullSafe()
 			)
-		} else null
+		}
 		val frame = HubStationFrame(
 			stationId = id,
 			seq = obj["seq"]?.jsonPrimitive?.intOrNull ?: previous?.seq ?: 0,
 			rev = obj["rev"]?.jsonPrimitive?.intOrNull ?: previous?.rev ?: 0,
 			character = obj["character"]?.jsonPrimitive?.contentOrNullSafe() ?: previous?.character.orEmpty(),
 			exhausted = obj["exhausted"]?.jsonPrimitive?.booleanOrNull ?: previous?.exhausted ?: false,
-			name = (if (withName) obj["name"]?.jsonPrimitive?.contentOrNullSafe() else null) ?: previous?.name,
-			seed = seed ?: previous?.seed
+			name = obj["name"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.name,
+			seed = seed ?: previous?.seed,
+			origin = obj["origin"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.origin
 		)
 		// Bounded: a station frame names one station, and only a handful are alive on a hub (8).
 		_stationFrames.update { frames -> (frames - id + (id to frame)).entries.toList().takeLast(16).associate { it.toPair() } }
@@ -1558,7 +1563,7 @@ class HubManager(
 				// The session's station, with its name and seed, so a device joining mid-station
 				// knows `after` without a round trip (PROTOCOL §18.2). Null or absent: none.
 				try {
-					(msg["station"] as? JsonObject)?.let { applyStationFrame(it, withName = true) }
+					(msg["station"] as? JsonObject)?.let { applyStationFrame(it) }
 				} catch (e: Exception) {
 					Logger.e("HubManager", "welcome.station ignored", e)
 				}
@@ -1674,7 +1679,7 @@ class HubManager(
 
 			// A station's cursor, steering, character or exhaustion moved (PROTOCOL §18.2).
 			"station" -> try {
-				applyStationFrame(msg, withName = false)
+				applyStationFrame(msg)
 			} catch (e: Exception) {
 				Logger.e("HubManager", "station frame ignored", e)
 			}
