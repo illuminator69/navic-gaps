@@ -1992,6 +1992,29 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override fun insertQueueItem(index: Int, song: DomainSong) {
+		viewModelScope.launch {
+			val item = withContext(Dispatchers.Default) { song.toMediaItem() }
+			if (index !in 0.._uiState.value.queue.size) return@launch
+			// One item in, and nothing else touched: the playing item, and the one after it that
+			// the player may already be reading into, stay as they are. Guarded like removal: the
+			// insert flushes the timeline listener inline.
+			withQueueMutation {
+				controller?.addMediaItem(index, item)
+				_uiState.update { state ->
+					val newQueue = state.queue.toMutableList().apply { add(index, song) }
+					val newIndex = if (index <= state.currentIndex) state.currentIndex + 1 else state.currentIndex
+					state.copy(
+						queue = newQueue,
+						currentIndex = newIndex,
+						currentSong = newQueue.getOrNull(newIndex)
+					)
+				}
+			}
+			updatePlaybackState()
+		}
+	}
+
 	override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
 		viewModelScope.launch {
 			// Defensive: indices come from the displayed list, which can diverge

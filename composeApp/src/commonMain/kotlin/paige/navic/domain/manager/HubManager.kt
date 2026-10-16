@@ -335,6 +335,18 @@ class HubManager(
 	override fun enqueue(songs: List<DomainSong>, playNext: Boolean) =
 		enqueueSessionQueue(songs, playNext)
 
+	override fun moveQueueItem(from: Int, to: Int) = actMoveQueueItem(from, to)
+
+	/**
+	 * The hub inserts only next or at the end, so the song goes in at the end and is moved into
+	 * place: two edits on the one ordered channel, each a `queueChanged` the playing device
+	 * applies around the song it is playing. Never `setQueue`, which is a `load`.
+	 */
+	override fun insertQueueItem(index: Int, song: DomainSong, queueSize: Int) {
+		enqueueSessionQueue(listOf(song), playNext = false)
+		if (index < queueSize) actMoveQueueItem(queueSize, index)
+	}
+
 	override fun skipToNext() = actNext()
 
 	override fun restoreQueue(

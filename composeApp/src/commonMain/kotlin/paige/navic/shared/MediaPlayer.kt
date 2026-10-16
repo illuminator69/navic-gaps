@@ -74,6 +74,16 @@ interface RemotePlaybackRouter {
 	/** Append to the session queue, either next or at the end. */
 	fun enqueue(songs: List<DomainSong>, playNext: Boolean)
 
+	/** Move one item of the session queue: an undone move, made as the hub's own `move`. */
+	fun moveQueueItem(from: Int, to: Int)
+
+	/**
+	 * Put [song] back at [index] of the session queue, which holds [queueSize] items: an undone
+	 * removal, made with the hub's own queue edits so the playing device applies it around the
+	 * song it is playing (`queueChanged`) instead of loading the queue again.
+	 */
+	fun insertQueueItem(index: Int, song: DomainSong, queueSize: Int)
+
 	/** Skip the active device to the next track. Sent on the same ordered channel as [enqueue]. */
 	fun skipToNext()
 
@@ -142,6 +152,46 @@ internal fun undoKeepsPlayingSong(snap: QueueUndoSnapshot, now: PlayerUiState): 
 	return now.queue.isNotEmpty() &&
 		snap.queue.getOrNull(snap.index)?.id == playing.id &&
 		snap.savedQueueId == now.savedQueueId
+}
+
+/** The one edit that reverses a queue edit. */
+sealed interface QueueUndoEdit {
+	/** A removed song, put back where it was. */
+	data class Insert(val index: Int, val song: DomainSong) : QueueUndoEdit
+
+	/** A moved song, moved back. */
+	data class Move(val from: Int, val to: Int) : QueueUndoEdit
+}
+
+/**
+ * The single edit that turns [now] back into [snapshot] (songs compared by id): the song a swipe
+ * removed put back, or the song a drag moved moved back. Null when it takes more than one edit.
+ *
+ * Undo makes only that edit (you, 2026-10-16): rebuilding the queue around the playing song still
+ * replaced every song after it, the next one included, and a player that has already read into
+ * the next song (audio offload decodes far ahead) has to start its output again when that one is
+ * taken away. Through the hub, a whole queue sent back is a `load` the playing device restarts
+ * on; an edit is a `queueChanged` it applies around the playing song.
+ */
+internal fun queueUndoEdit(snapshot: List<DomainSong>, now: List<DomainSong>): QueueUndoEdit? {
+	val s = snapshot.map { it.id }
+	val n = now.map { it.id }
+	if (s.size == n.size + 1) {
+		val at = n.indices.firstOrNull { s[it] != n[it] } ?: n.size
+		return if (s.subList(0, at) + s.subList(at + 1, s.size) == n) {
+			QueueUndoEdit.Insert(at, snapshot[at])
+		} else {
+			null
+		}
+	}
+	if (s.size != n.size || s == n) return null
+	val lo = s.indices.first { s[it] != n[it] }
+	val hi = s.indices.last { s[it] != n[it] }
+	// The song at the snapshot's [lo] was moved down to [hi]: move it back up.
+	if (n[hi] == s[lo] && n.subList(lo, hi) == s.subList(lo + 1, hi + 1)) return QueueUndoEdit.Move(hi, lo)
+	// The song at the snapshot's [hi] was moved up to [lo]: move it back down.
+	if (n[lo] == s[hi] && n.subList(lo + 1, hi + 1) == s.subList(lo, hi)) return QueueUndoEdit.Move(lo, hi)
+	return null
 }
 
 /**
@@ -239,18 +289,30 @@ abstract class MediaPlayerViewModel(
 		_queueUndo.value = null
 		val snap = undoStack.removeLastOrNull() ?: return
 		val router = routeRemotely
+		// Where the edit left the playing song alone (another row removed or moved), undo makes
+		// only the one edit that reverses it (`queueUndoEdit`): a whole queue put back, locally
+		// or through the hub, re-prepared the playing song, about a second of silence per undo.
+		val now = if (router != null) uiState.value else _uiState.value
+		val keepsPlaying = undoKeepsPlayingSong(snap, now)
+		val edit = if (keepsPlaying) queueUndoEdit(snap.queue, now.queue) else null
 		if (router != null) {
-			// Carry the snapshot's history identity so the undone queue refreshes ITS record
-			// instead of the hub minting a duplicate for the same listening session.
-			router.restoreQueue(
-				snap.queue, snap.index, snap.positionMs, play = !snap.wasPaused,
-				savedQueueId = snap.savedQueueId,
-				sourceKind = snap.savedQueueKind
-			)
-		} else if (undoKeepsPlayingSong(snap, _uiState.value)) {
-			// The edit left the playing song alone (another row removed or moved): put the queue
-			// back AROUND it. The reload below re-prepares the playing item, which went silent for
-			// about a second on every undo of a swipe.
+			when (edit) {
+				is QueueUndoEdit.Insert -> router.insertQueueItem(edit.index, edit.song, now.queue.size)
+				is QueueUndoEdit.Move -> router.moveQueueItem(edit.from, edit.to)
+				// Carry the snapshot's history identity so the undone queue refreshes ITS record
+				// instead of the hub minting a duplicate for the same listening session.
+				null -> router.restoreQueue(
+					snap.queue, snap.index, snap.positionMs, play = !snap.wasPaused,
+					savedQueueId = snap.savedQueueId,
+					sourceKind = snap.savedQueueKind
+				)
+			}
+		} else if (edit is QueueUndoEdit.Insert) {
+			insertQueueItem(edit.index, edit.song)
+		} else if (edit is QueueUndoEdit.Move) {
+			moveQueueItem(edit.from, edit.to)
+		} else if (keepsPlaying) {
+			// More than one edit: rebuilt around the playing song, which keeps playing.
 			reconcileRemoteQueue(snap.queue, snap.index)
 		} else {
 			// Preserve the queue's saved-queue identity + kind so its history row isn't orphaned.
@@ -318,6 +380,9 @@ abstract class MediaPlayerViewModel(
 
 	abstract fun removeFromQueue(index: Int)
 	abstract fun moveQueueItem(fromIndex: Int, toIndex: Int)
+
+	/** Put [song] back at [index] of the local queue (an undone removal). */
+	open fun insertQueueItem(index: Int, song: DomainSong) {}
 	abstract fun clearQueue()
 	abstract fun playAt(index: Int)
 	abstract fun playRadio(radio: DomainRadio)
