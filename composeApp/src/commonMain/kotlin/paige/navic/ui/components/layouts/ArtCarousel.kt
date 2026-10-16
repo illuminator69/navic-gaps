@@ -22,13 +22,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -96,22 +94,14 @@ fun <T> ArtCarousel(
 					modifier = Modifier.padding(horizontal = 16.dp)
 				)
 			}
-			// navi-connect: the row is as tall as the tallest card it has shown, and grows eased. A
-			// LazyRow is as tall as the cards in view, so scrolling a row whose titles take one or
-			// two lines moved everything under it up and down at once (Stats' top albums and
-			// tracks, you, 2026-10-16). A new list starts again from its own cards.
-			val tallest = remember(items) { IntArray(1) }
+			// navi-connect: the row's height is eased. A LazyRow is as tall as the cards in view, so
+			// scrolling a row whose titles take one or two lines moved everything under it up and
+			// down at once (Stats' top albums and tracks, you, 2026-10-16); now it grows and
+			// shrinks smoothly.
 			LazyRow(
 				modifier = Modifier
 					.fillMaxWidth()
 					.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())
-					.layout { measurable, constraints ->
-						val placeable = measurable.measure(constraints)
-						tallest[0] = maxOf(tallest[0], placeable.height)
-						layout(placeable.width, constraints.constrainHeight(tallest[0])) {
-							placeable.place(0, 0)
-						}
-					}
 					.padding(top = 16.dp, bottom = 16.dp),
 				horizontalArrangement = Arrangement.spacedBy(12.dp),
 				contentPadding = PaddingValues(horizontal = 16.dp)
