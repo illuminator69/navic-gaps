@@ -153,22 +153,19 @@ fun SavedQueuePreviewSheet(
 /** One track, as the queue draws it; the resume point marked as the queue marks what is playing. */
 @Composable
 private fun PreviewTrackRow(song: DomainSong, shapes: ListItemShapes, isResumePoint: Boolean) {
+	// Inert rows (a preview plays nothing), so Material draws them in their DISABLED colours and
+	// ignores `selected`: the resume point's lift has to be the disabled colour of its own row.
 	SegmentedListItem(
-		selected = isResumePoint,
 		onClick = {},
 		enabled = false,
 		shapes = shapes,
 		colors = ListItemDefaults.colors(
-			containerColor = SongRowDefaults.containerColor(false),
-			disabledContainerColor = SongRowDefaults.containerColor(false),
-			disabledContentColor = SongRowDefaults.contentColor(false),
-			disabledLeadingContentColor = SongRowDefaults.contentColor(false),
-			disabledTrailingContentColor = SongRowDefaults.supportingContentColor(false),
-			disabledSupportingContentColor = SongRowDefaults.supportingContentColor(false),
-			selectedContainerColor = SongRowDefaults.containerColor(true),
-			selectedContentColor = SongRowDefaults.contentColor(true),
-			selectedSupportingContentColor = SongRowDefaults.supportingContentColor(true),
-			selectedTrailingContentColor = SongRowDefaults.supportingContentColor(true)
+			containerColor = SongRowDefaults.containerColor(isResumePoint),
+			disabledContainerColor = SongRowDefaults.containerColor(isResumePoint),
+			disabledContentColor = SongRowDefaults.contentColor(isResumePoint),
+			disabledLeadingContentColor = SongRowDefaults.contentColor(isResumePoint),
+			disabledTrailingContentColor = SongRowDefaults.supportingContentColor(isResumePoint),
+			disabledSupportingContentColor = SongRowDefaults.supportingContentColor(isResumePoint)
 		),
 		verticalAlignment = Alignment.CenterVertically,
 		contentPadding = SongRowDefaults.ContentPadding,
@@ -190,10 +187,11 @@ private fun PreviewTrackRow(song: DomainSong, shapes: ListItemShapes, isResumePo
 		},
 		supportingContent = {
 			Text(
+				// "Resumes here" first: last, it was the part a one-line row cut off.
 				listOfNotNull(
+					stringResource(Res.string.queue_resumes_here).takeIf { isResumePoint },
 					song.artistName?.takeIf { it.isNotBlank() },
-					song.albumTitle?.takeIf { it.isNotBlank() },
-					stringResource(Res.string.queue_resumes_here).takeIf { isResumePoint }
+					song.albumTitle?.takeIf { it.isNotBlank() }
 				).joinToString(" · "),
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis

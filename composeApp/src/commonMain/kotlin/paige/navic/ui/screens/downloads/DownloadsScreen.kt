@@ -456,10 +456,22 @@ private fun LazyListScope.downloadGroup(
 	if (items.isEmpty()) return
 	item(key = "header-$key") {
 		GroupHeader(
-			title = stringResource(title) + (subtitle?.let { " · $it" } ?: ""),
+			title = stringResource(title),
 			count = items.size,
 			modifier = Modifier.animateItem(),
-			actions = actions
+			// The group's size sits with its actions, not in the title: "Downloaded · 77 MB 2"
+			// put the count after the size, and at a large font cut the title short.
+			actions = {
+				if (subtitle != null) {
+					Text(
+						subtitle,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1
+					)
+				}
+				actions()
+			}
 		)
 	}
 	// Keyed by the song: a download that finishes moves from its group to "Downloaded" as the

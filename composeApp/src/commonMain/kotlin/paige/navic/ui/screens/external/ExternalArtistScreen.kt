@@ -2,6 +2,8 @@
 
 package paige.navic.ui.screens.external
 
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -86,7 +88,13 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 	// the one an owned artist without a picture has.
 	Scaffold(
 		topBar = {
+			// The owned artist page's bar: transparent over the heading, the page's surface
+			// once the heading has scrolled by, so the list never runs under the title.
+			val barAlpha by animateFloatAsState(if (scrolled) 1f else 0f)
 			NestedTopBar(
+				colors = TopAppBarDefaults.topAppBarColors(
+					containerColor = MaterialTheme.colorScheme.surface.copy(alpha = barAlpha)
+				),
 				title = {
 					AnimatedVisibility(
 						scrolled || loading || !discography.available,

@@ -2,6 +2,8 @@
 
 package paige.navic.ui.screens.external
 
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -216,7 +218,12 @@ fun ExternalAlbumScreen(
 	Scaffold(
 		containerColor = if (coverColors.themed) Color.Transparent else ambientTop,
 		topBar = {
-			NestedTopBar({
+			// The album page's bar: transparent over the cover card, the page's surface once
+			// the list has scrolled under it.
+			val barAlpha by animateFloatAsState(if (listState.canScrollBackward) 1f else 0f)
+			NestedTopBar(colors = TopAppBarDefaults.topAppBarColors(
+				containerColor = ambientTop.copy(alpha = barAlpha)
+			), title = {
 				AnimatedVisibility(scrolled, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
 					Text(heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				}
