@@ -46,6 +46,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/downloads/*` (`DownloadsScreen` with `WishlistSection` and `PasteLinkSheet`: one library-home page, chips for this device's downloads, lb-bot's fills and the wishlist; it was Settings' Download Center plus a Wishlist page, I-039). What holds downloads back (Wi-Fi only, charging only, how many at once) is in Settings › Data & storage |
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
+| Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
@@ -1592,6 +1593,22 @@ true of invented *album art*, and not of an icon naming the kind.
   top colour, so the band shows no seam. A tall sheet also keeps its title and first line
   OUTSIDE its one scrolling column (`SheetHeader` in `LbBotCommon.kt`, as upstream's Song and
   Collection sheets keep theirs), so there is always somewhere to take hold of it.
+- **A covered window keeps drawing; an endless animation must hold under a full-screen sheet**
+  (I-041, 2026-10-17). The player and the queue are `ModalBottomSheet`s, i.e. windows of their own,
+  and all of an app's windows share one RenderThread. With the queue open over the player while
+  playing, the player's rotating 80 dp blur (`BlendBackground`) and moving wave, and the mini
+  player's progress under both, were redrawn every frame by nobody's eyes, and the queue got the
+  rest: measured on the VM emulator in one boot, the queue window drew 94-104 frames in an 8-fling
+  scroll while the two hidden windows drew ~570; with them held it drew 229-230 and they drew none
+  (per-window counts from `dumpsys gfxinfo … framestats`; the queue is the last `ViewRootImpl`).
+  `SheetCover` holds which sheet covers the screen (open, settled, its top at the top, full width,
+  opaque: not the lyrics sheet); content under one reads `rememberCoveredBySheet()` and stops its
+  endless animation (the rotation pauses, the wave's velocity goes to 0, the waveform bars and the
+  AudioMuse colour hold), and a per-tick value (the position) goes through
+  `heldWhileCoveredBySheet()`. Nothing visible stops: a sheet stops covering on the first frame it
+  moves off the top. A new endless animation on a page or in the player does the same. Known gap:
+  Material's predictive-back shrink of a sheet does not uncover, so for the length of a back
+  gesture what shows at the edges holds still.
 - **Leaving the now-playing sheet goes through `NowPlayingSheetController.requestHide { … }`.** The
   player is an `OverlayScene` bottom sheet, so `backStack.remove(Screen.NowPlaying)` plus
   `add(destination)` in one frame destroys it outright — the player vanishes and the next screen

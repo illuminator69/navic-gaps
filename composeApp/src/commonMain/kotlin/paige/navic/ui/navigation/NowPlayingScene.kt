@@ -14,7 +14,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
@@ -71,7 +75,13 @@ internal class NowPlayingScene<T : Any>(
 				}
 			}
 
+			// Fully open, the player hides the page and its mini player under it (SheetCover).
+			// The see-through lyrics sheet hides nothing.
+			var sheetWidth by remember { mutableIntStateOf(0) }
+			ReportSheetCover(previousEntries.size, sheetState, sheetWidthPx = { sheetWidth }, opaque = !isTransparent)
+
 			ModalBottomSheet(
+				modifier = Modifier.onSizeChanged { sheetWidth = it.width },
 				containerColor = if (isTransparent) {
 					Color.Transparent
 				} else {
@@ -93,7 +103,10 @@ internal class NowPlayingScene<T : Any>(
 				// default throws. Upstream provides it from its own scenes; this fork kept
 				// its scenes, so it has to publish the same state or NowPlayingScreen and
 				// LyricsScreen throw the moment they compose.
-				CompositionLocalProvider(LocalSheetState provides sheetState) {
+				CompositionLocalProvider(
+					LocalSheetState provides sheetState,
+					LocalSheetDepth provides previousEntries.size
+				) {
 					Box(Modifier.fillMaxSize()) {
 						entry.Content()
 					}

@@ -18,7 +18,12 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.rememberLifecycleOwner
@@ -57,7 +62,12 @@ internal data class BottomSheetScene<T : Any>(
 		// Hoisted so it can be published as LocalSheetState below — the sheets hosted here
 		// (Queue, PlaybackSpeed) reach for it to animate their own dismissal.
 		val sheetState = rememberModalBottomSheetState()
+		// Fully open over the whole screen, the queue hides the player under it: tell it, so it
+		// holds its endless animations meanwhile (SheetCover). A short sheet never covers.
+		var sheetWidth by remember { mutableIntStateOf(0) }
+		ReportSheetCover(previousEntries.size, sheetState, sheetWidthPx = { sheetWidth })
 		ModalBottomSheet(
+			modifier = Modifier.onSizeChanged { sheetWidth = it.width },
 			onDismissRequest = onBack,
 			sheetState = sheetState,
 			properties = modalBottomSheetProperties,
@@ -82,7 +92,8 @@ internal data class BottomSheetScene<T : Any>(
 		) {
 			CompositionLocalProvider(
 				LocalLifecycleOwner provides lifecycleOwner,
-				LocalSheetState provides sheetState
+				LocalSheetState provides sheetState,
+				LocalSheetDepth provides previousEntries.size
 			) {
 				entry.Content()
 			}

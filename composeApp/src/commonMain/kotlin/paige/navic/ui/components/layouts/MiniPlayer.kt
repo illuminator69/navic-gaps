@@ -105,6 +105,8 @@ import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.heldWhileCoveredBySheet
+import paige.navic.ui.navigation.rememberCoveredBySheet
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.util.playPauseIconPainter
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
@@ -462,7 +464,9 @@ private fun BoxScope.MiniPlayerProgressBar(
 	val hubManager = koinInject<HubManager>()
 	val radioManager = koinInject<RadioManager>()
 	val haptics = LocalHapticFeedback.current
-	val rawProgress by player.progress.collectAsState()
+	val liveProgress by player.progress.collectAsState()
+	// Under a full-screen sheet (the player, the queue) nobody sees this bar (SheetCover).
+	val rawProgress = heldWhileCoveredBySheet(liveProgress)
 
 	var dragging by remember { mutableStateOf(false) }
 	// Where the finger is while a REMOTE drag is in progress, null otherwise: previewed here and
@@ -512,7 +516,10 @@ private fun BoxScope.MiniPlayerProgressBar(
 		// phase: read in composition, the endless colour animation and the eased progress
 		// recomposed the mini player every frame for the whole of playback (I-041).
 		val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
-		val shift = if (isAudioMuseMix) {
+		val coveredBySheet = rememberCoveredBySheet()
+		// Not run under a full-screen sheet: an endless colour animation redraws its window every
+		// frame, seen or not (SheetCover). It starts again as the sheet moves off.
+		val shift = if (isAudioMuseMix && !coveredBySheet) {
 			rememberInfiniteTransition(label = "audiomuse").animateFloat(
 				initialValue = 0f,
 				targetValue = 2f,

@@ -58,6 +58,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
+import paige.navic.ui.navigation.rememberCoveredBySheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,7 @@ fun NowPlayingScreen() {
 		|| currentScreen is Screen.SongDetailSheet
 
 	var showDevicePicker by remember { mutableStateOf(false) }
+	val coveredBySheet = rememberCoveredBySheet()
 
 	// The player UI mirrors the remote session directly when another
 	// navi-connect device is active (MediaPlayerViewModel.uiState blends it in),
@@ -144,7 +146,9 @@ fun NowPlayingScreen() {
 			) {
 				BlendBackground(
 					coverArtId = song?.coverArtId,
-					isPaused = playerState.isPaused
+					// Held while the queue covers the whole screen: nobody sees it rotate, and
+					// the 80 dp blur redrawn every frame took the queue's frames (SheetCover).
+					isPaused = playerState.isPaused || coveredBySheet
 				)
 			}
 				if (!isPlayerCurrent) return@Box

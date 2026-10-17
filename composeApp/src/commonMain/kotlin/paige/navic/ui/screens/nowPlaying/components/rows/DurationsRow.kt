@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.navigation.heldWhileCoveredBySheet
 import paige.navic.util.toHoursMinutesSeconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -23,7 +24,9 @@ fun NowPlayingDurationsRow() {
 	// Draws the elapsed time, so it takes the narrow [progress] flow; everything else it reads
 	// comes off steadyState, which no longer emits on a playhead tick.
 	val playerState by player.steadyState.collectAsState()
-	val progress by player.progress.collectAsState()
+	val liveProgress by player.progress.collectAsState()
+	// Held while the queue covers the whole screen (SheetCover).
+	val progress = heldWhileCoveredBySheet(liveProgress)
 	val duration = playerState.currentSong?.duration
 	val style = MaterialTheme.typography.bodyMedium
 		.copy(

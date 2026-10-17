@@ -29,6 +29,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.SlimSlider
+import paige.navic.ui.navigation.heldWhileCoveredBySheet
+import paige.navic.ui.navigation.rememberCoveredBySheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +43,9 @@ fun NowPlayingProgressBar() {
 	// rest on steadyState — it still ticks ~5x a second, but alone, instead of dragging every
 	// sibling in the now-playing sheet along with it.
 	val playerState by player.steadyState.collectAsState()
-	val progress by player.progress.collectAsState()
+	val liveProgress by player.progress.collectAsState()
+	// Held while the queue covers the whole screen (SheetCover).
+	val progress = heldWhileCoveredBySheet(liveProgress)
 	val enabled = playerState.currentSong != null
 
 	// Where the finger is while a REMOTE drag is in progress, null otherwise. One for all the
@@ -74,6 +78,7 @@ fun NowPlayingProgressBar() {
 			hubManager.actSeek((fraction * durationMs).toLong())
 		}
 	}
+	val coveredBySheet = rememberCoveredBySheet()
 	val waveHeight by animateDpAsState(
 		if (!playerState.isPaused)
 			6.dp
@@ -119,9 +124,11 @@ fun NowPlayingProgressBar() {
 						animationSpecs = SliderDefaults.WaveAnimationSpecs.copy(
 							waveAppearanceAnimationSpec = snap()
 						),
-						waveVelocity = if (isYoyo)
+						// Still (same wave, not moving) while the queue covers the whole screen:
+						// a moving wave nobody sees redrew this window every frame (SheetCover).
+						waveVelocity = (if (isYoyo)
 							WaveVelocity(14.dp, WaveDirection.TAIL)
-						else SliderDefaults.WaveVelocity
+						else SliderDefaults.WaveVelocity).let { if (coveredBySheet) it.copy(first = 0.dp) else it }
 					)
 				},
 				enabled = enabled
