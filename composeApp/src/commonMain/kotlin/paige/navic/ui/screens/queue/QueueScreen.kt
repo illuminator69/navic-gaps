@@ -521,7 +521,7 @@ fun QueueScreen() {
 							contentPadding = PaddingValues(horizontal = 24.dp)
 						)
 						// What built the queue (I-040): the station, Auto DJ, or nothing left that
-						// fits, from the station's own answer. Its dot is the AudioMuse colour.
+						// fits, from the station's own answer; a spinner after it while more is asked for.
 						Box(Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp)) {
 							QueueGeneratorLine(
 								generator = generator,

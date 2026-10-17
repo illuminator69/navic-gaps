@@ -5,13 +5,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,8 +42,10 @@ import paige.navic.domain.manager.StationCatalogue
  * setting, which said "Mood Flow" over an album. The chips under the header are the control
  * (I-041); this line only says what built the queue, a stopped station as "… · Off".
  *
- * The dot is the AudioMuse colour; while a request is out it is a small spinner instead, so a
- * queue on its last song shows that more is coming. A change of line crossfades in place.
+ * The line starts with its words (B-152: the AudioMuse-coloured dot that led it is gone, in both
+ * clients). While a request is out a small spinner eases in AFTER the words, so the words never
+ * move, and a queue on its last song still shows that more is coming; with nothing to name yet
+ * the words are "Finding more songs" themselves. A change of line crossfades in place.
  */
 @Composable
 fun QueueGeneratorLine(
@@ -61,20 +60,13 @@ fun QueueGeneratorLine(
 			horizontalArrangement = Arrangement.spacedBy(6.dp)
 		) {
 			val busyText = stringResource(Res.string.queue_station_busy)
-			Box(Modifier.size(12.dp), contentAlignment = Alignment.Center) {
-				if (busy) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(12.dp).semantics { contentDescription = busyText },
-						strokeWidth = 1.5.dp
-					)
-				} else {
-					Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.tertiary, CircleShape))
-				}
-			}
+			// `fill = false`: a short line keeps its own width, so the spinner sits right after
+			// its last word; a long one gives the spinner its 18dp at the end, eased.
 			AnimatedContent(
 				targetState = generator,
 				transitionSpec = { fadeIn() togetherWith fadeOut() },
-				label = "queueGenerator"
+				label = "queueGenerator",
+				modifier = Modifier.weight(1f, fill = false)
 			) { shown ->
 				Text(
 					text = generatorText(shown, catalogue) ?: busyText,
@@ -82,6 +74,15 @@ fun QueueGeneratorLine(
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
+				)
+			}
+			AnimatedVisibility(visible = busy) {
+				CircularProgressIndicator(
+					// The words already say it when there is nothing else to name.
+					modifier = Modifier.size(12.dp).then(
+						if (generator != null) Modifier.semantics { contentDescription = busyText } else Modifier
+					),
+					strokeWidth = 1.5.dp
 				)
 			}
 		}
