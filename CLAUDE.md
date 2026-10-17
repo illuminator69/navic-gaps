@@ -549,7 +549,8 @@ Rules, each with a reason:
   publish, and the bind is not tried again). One request at a time; an answer for a queue that has
   since been replaced is dropped. `exhausted` stops and the queue sheet says so, with Explore;
   `partial` is asked again at the next change, and at the latest 15 s later; `servedElsewhere`
-  takes the cursor only; a 404 `station_unknown` starts again once from the recorded seed.
+  takes the cursor only and waits 8 s for the other device's batch (as does a `station` frame that
+  moves the cursor while nothing was asked, and a 409), so two devices at the end add one batch; a 404 `station_unknown` starts again once from the recorded seed.
 - **A radio keeps going with autoplay off; a continuation does not.** Every entry point (a
   track's, an album's, an artist's radio, Your mix, a mix) sends `origin: "radio"`, which the hub
   echoes in its answers, the `station` frame and `welcome.station`. On: every bound station

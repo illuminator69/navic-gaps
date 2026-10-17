@@ -398,6 +398,14 @@ const val STATION_LOOKAHEAD = 2
 /** How many songs one `next` asks for: a short lookahead, so skips steer the next batch soon. */
 const val STATION_BATCH = 5
 
+/**
+ * How long a station-bound queue waits after another device topped its station up (a
+ * `servedElsewhere` answer, or a `station` frame moving the cursor while this device asked
+ * nothing): that batch reaches this queue through the session. Asking again at once with the new
+ * cursor added a second batch for the same top-up. Feishin's SERVED_ELSEWHERE_GRACE_MS.
+ */
+const val STATION_ELSEWHERE_GRACE_MS = 8_000L
+
 /** What autoplay should do for one look at the local player. */
 sealed interface AutoplayStep {
 	/** Nothing now. */
@@ -432,7 +440,9 @@ data class AutoplayLook(
 	val bound: StationProvenance?,
 	/** A `start` / `next` / Auto DJ top-up is already out: one at a time. */
 	val inFlight: Boolean,
-	val autoDjTiming: Int
+	val autoDjTiming: Int,
+	/** Another device topped the bound station up in the last [STATION_ELSEWHERE_GRACE_MS]. */
+	val elsewhereRecent: Boolean = false
 )
 
 /**
@@ -457,6 +467,8 @@ fun autoplayStep(look: AutoplayLook): AutoplayStep {
 	val bound = look.bound ?: return if (look.autoplayOn) AutoplayStep.Start else AutoplayStep.Idle
 	if (!look.autoplayOn && bound.effectiveOrigin != ORIGIN_RADIO) return AutoplayStep.Idle
 	if (bound.exhausted) return AutoplayStep.Exhausted
+	// Its batch is on its way through the session; the driver looks again after the grace.
+	if (look.elsewhereRecent) return AutoplayStep.Idle
 	return AutoplayStep.Next(bound.stationId, bound.seq)
 }
 

@@ -38,7 +38,8 @@ class StationDriverTest {
 		inFlight: Boolean = false,
 		size: Int = 21,
 		index: Int = 20 - remaining,
-		timing: Int = 1
+		timing: Int = 1,
+		elsewhere: Boolean = false
 	) = AutoplayLook(
 		autoplayOn = on,
 		remoteActive = remote,
@@ -50,7 +51,8 @@ class StationDriverTest {
 		stationsAvailable = available,
 		bound = bound,
 		inFlight = inFlight,
-		autoDjTiming = timing
+		autoDjTiming = timing,
+		elsewhereRecent = elsewhere
 	)
 
 	private fun answer(
@@ -129,6 +131,24 @@ class StationDriverTest {
 		assertFalse(batch.retrySoon)
 		// The next `next` goes from there.
 		assertEquals(AutoplayStep.Next("st_1", after = 30), autoplayStep(look(remaining = 0, bound = batch.provenance)))
+	}
+
+	@Test
+	fun afterAnotherDevicesTopUpTheQueueWaitsForThatBatch() {
+		// Two devices at the queue's end: the other one's batch is on its way through the
+		// session. Asking from the new cursor at once added a second batch (walk S5, 31 -> 41).
+		val bound = stationBatch(radio, answer(seq = 25, servedElsewhere = true), emptySet(), fresh = false).provenance
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = bound, elsewhere = true)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, bound = bound, elsewhere = true)))
+		// After the grace, if the batch never came, it asks from there.
+		assertEquals(AutoplayStep.Next("st_1", after = 25), autoplayStep(look(remaining = 1, bound = bound)))
+		// The wait is the bound station's: a queue no station built still starts one, and an
+		// exhausted station still says so.
+		assertEquals(AutoplayStep.Start, autoplayStep(look(remaining = 1, bound = null, elsewhere = true)))
+		assertEquals(
+			AutoplayStep.Exhausted,
+			autoplayStep(look(remaining = 1, bound = radio.copy(exhausted = true), elsewhere = true))
+		)
 	}
 
 	@Test

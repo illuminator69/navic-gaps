@@ -30,6 +30,7 @@ import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
+import kotlin.time.TimeSource
 
 /**
  * Radio, autoplay and the mixes that play through them (I-040).
@@ -862,7 +863,8 @@ class RadioManager(
 							stationsAvailable = input.available,
 							bound = bound,
 							inFlight = stationManager.busy.value,
-							autoDjTiming = preferenceManager.autoDjTiming
+							autoDjTiming = preferenceManager.autoDjTiming,
+							elsewhereRecent = elsewhereRecent()
 						)
 					)
 					if (step == AutoplayStep.Idle || step == AutoplayStep.Exhausted) return@collect
@@ -967,7 +969,7 @@ class RadioManager(
 			else -> onStationFailure(
 				result, state, autoplayOn, transientAttempts,
 				restart = { restartStation(state, bound, autoplayOn) },
-				continueSession = { continueSessionStation(state, it, bound.seed, autoplayOn) }
+				continueSession = { continueSessionStation(state, it, bound.seed) }
 			)
 		}
 	}
@@ -993,7 +995,7 @@ class RadioManager(
 				fresh = true,
 				askedToBind = bind != null
 			)
-			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed, autoplayOn)
+			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed)
 			// Restarted once; whatever this answer was, the next trigger decides again.
 			is StationResult.Fallback -> if (autoplayOn) autoDjTopUp(state) else null
 			else -> null
@@ -1035,41 +1037,68 @@ class RadioManager(
 				result, queued, autoplayOn = true, transientAttempts = transientAttempts,
 				restart = { null },
 				// Another device got there first: the session has a station, so this queue continues it.
-				continueSession = { continueSessionStation(queued, it, seed, autoplayOn = true) }
+				continueSession = { continueSessionStation(queued, it, seed) }
 			)
 		}
 	}
 
-	/** Continue the session's station [stationId] from the cursor the hub last broadcast. */
-	private suspend fun continueSessionStation(
+	/**
+	 * The session already has a station [stationId] (a 409 `session_bound`): this queue is that
+	 * station's now. Another device bound it, most likely by topping it up a moment ago, and that
+	 * batch reaches this queue through the session. So the station is kept here (its seed too, for
+	 * a restart) and the driver looks again after [STATION_ELSEWHERE_GRACE_MS], from the cursor the
+	 * frames then hold. Asking `next` at once, and again with the cursor a `servedElsewhere`
+	 * answer named, added a second batch for the same top-up (the walk's two-device scenario).
+	 */
+	private fun continueSessionStation(
 		state: PlayerUiState,
 		stationId: String,
-		seed: StationSeed?,
-		autoplayOn: Boolean
+		seed: StationSeed?
 	): DriverRetry? {
 		val queueId = state.savedQueueId ?: return null
 		val frame = hubManager.stationFrames.value[stationId]
-		var bound = StationProvenance(
-			queueId = queueId,
-			stationId = stationId,
-			name = frame?.name ?: hubManager.remoteSession.value.sourceName.orEmpty(),
-			character = frame?.character?.ifBlank { null } ?: _character.value.wireId,
-			seed = frame?.seed ?: seed,
-			seq = frame?.seq ?: 0,
-			origin = frame?.origin
+		stationManager.record(
+			StationProvenance(
+				queueId = queueId,
+				stationId = stationId,
+				name = frame?.name ?: hubManager.remoteSession.value.sourceName.orEmpty(),
+				character = frame?.character?.ifBlank { null } ?: _character.value.wireId,
+				seed = frame?.seed ?: seed,
+				seq = frame?.seq ?: 0,
+				origin = frame?.origin
+			)
 		)
-		var result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
-		// The cursor was learned second-hand; the answer names the real one. Once.
-		val answer = (result as? StationResult.Ok)?.answer
-		if (answer != null && answer.servedElsewhere && answer.seq > bound.seq) {
-			bound = bound.copy(seq = answer.seq)
-			result = stationManager.next(stationId, bound.seq, STATION_BATCH, queueIdsOf(state))
-		}
-		return when (result) {
-			is StationResult.Ok -> applyBatch(state, bound, result.answer, fresh = true)
-			is StationResult.Transient -> DriverRetry.Transient
-			is StationResult.Fallback -> if (autoplayOn) autoDjTopUp(state) else null
-			else -> null
+		markServedElsewhere()
+		return null
+	}
+
+	/** When another device last topped up the bound station, for [STATION_ELSEWHERE_GRACE_MS]. */
+	private var elsewhereAt: TimeSource.Monotonic.ValueTimeMark? = null
+
+	private fun elsewhereRecent(): Boolean =
+		elsewhereAt?.let { it.elapsedNow().inWholeMilliseconds < STATION_ELSEWHERE_GRACE_MS } ?: false
+
+	/** Another device served the bound station's next batch: wait for it to land, then look again. */
+	private fun markServedElsewhere() {
+		elsewhereAt = TimeSource.Monotonic.markNow()
+		scheduleRetry(STATION_ELSEWHERE_GRACE_MS + 500)
+	}
+
+	/**
+	 * A `station` frame that moves the bound station's cursor while this device asked nothing is
+	 * another device's top-up (Feishin's `stationFrame` rule): this device waits for that batch
+	 * rather than asking from the new cursor and adding a second one.
+	 */
+	private fun observeElsewhere() {
+		scope.launch {
+			val seen = HashMap<String, Int>()
+			hubManager.stationFrames.collect { frames ->
+				val bound = stationManager.boundFor(mediaPlayer.localUiState.value)
+				val before = bound?.let { seen[it.stationId] }
+				frames.forEach { (id, frame) -> seen[id] = frame.seq }
+				val now = bound?.let { frames[it.stationId] } ?: return@collect
+				if (before != null && now.seq > before && !stationManager.busy.value) markServedElsewhere()
+			}
 		}
 	}
 
@@ -1085,6 +1114,7 @@ class RadioManager(
 			Logger.i("RadioManager", "station answer for a queue no longer playing, dropped")
 			return null
 		}
+		if (answer.servedElsewhere) markServedElsewhere()
 		val queued = mediaPlayer.localUiState.value.queue.mapTo(HashSet()) { it.id }
 		val batch = stationBatch(bound, answer, queued, fresh, askedToBind)
 		val songs = resolveIds(batch.append).filter { it.id !in queued }
@@ -1152,6 +1182,7 @@ class RadioManager(
 	// init block higher up would race construction and read them as null.
 	init {
 		observeAutoplay()
+		observeElsewhere()
 		observeCapabilities()
 		observeLikes()
 	}
