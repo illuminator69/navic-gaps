@@ -200,7 +200,8 @@ class RadioManager(
 			bound = bound,
 			sessionStationId = session.stationId,
 			sessionQueueId = session.savedQueueId,
-			queueId = if (remote) session.savedQueueId else mediaPlayer.localUiState.value.savedQueueId
+			queueId = if (remote) session.savedQueueId else mediaPlayer.localUiState.value.savedQueueId,
+			playsSession = !remote && bindSessionFor() != null
 		)
 		val plan = planChipTap(chip, bound, onHub)
 		setAutoplayOn(plan.autoplayOn)
@@ -1068,6 +1069,7 @@ class RadioManager(
 							scheduleRetry(STATION_TRANSIENT_RETRY_MS)
 						}
 						DriverRetry.Later -> scheduleRetry(RETRY_MS)
+						DriverRetry.Publishing -> scheduleRetry(STATION_PUBLISH_RETRY_MS)
 						null -> {}
 					}
 				}
@@ -1075,7 +1077,7 @@ class RadioManager(
 	}
 
 	/** What a step leaves for later: a transient failure's retry, or a partial answer's. */
-	private enum class DriverRetry { Transient, Later }
+	private enum class DriverRetry { Transient, Later, Publishing }
 
 	private suspend fun runStep(
 		step: AutoplayStep,
@@ -1192,6 +1194,10 @@ class RadioManager(
 		mediaPlayer.adoptQueueSessionId(queueId)
 		val queued = state.copy(savedQueueId = queueId)
 		val bind = bindSessionFor()
+		// The session still names the queue before this one: this queue's `setQueue` has not
+		// landed. Bound to that id the start continued nothing (`bound: false`), or, with the old
+		// queue still a station's, got that station back as a 409. Look again in a moment.
+		if (!startMayBind(bind, queueId)) return DriverRetry.Publishing
 		return when (
 			val result = stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bind, ORIGIN_CONTINUE)
 		) {

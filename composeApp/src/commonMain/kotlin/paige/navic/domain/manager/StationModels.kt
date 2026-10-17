@@ -528,6 +528,16 @@ const val STATION_BATCH = 5
  */
 const val STATION_ELSEWHERE_GRACE_MS = 8_000L
 
+/** How soon the driver looks again while the hub has not yet taken this queue's `setQueue`. */
+const val STATION_PUBLISH_RETRY_MS = 1_500L
+
+/**
+ * Whether a continuation's `start` can ask to bind the session now ([bindSession] is the session's
+ * saved-queue id while this device plays it, else null): only once the session names this queue
+ * ([queueId]). Just after a new queue starts, the session still names the one before it.
+ */
+fun startMayBind(bindSession: String?, queueId: String?): Boolean = bindSession == null || bindSession == queueId
+
 /** What autoplay should do for one look at the local player. */
 sealed interface AutoplayStep {
 	/** Nothing now. */

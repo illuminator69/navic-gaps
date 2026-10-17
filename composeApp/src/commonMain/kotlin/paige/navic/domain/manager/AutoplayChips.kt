@@ -95,10 +95,17 @@ fun chipEditsOnHub(
 	bound: StationProvenance?,
 	sessionStationId: String?,
 	sessionQueueId: String?,
-	queueId: String?
+	queueId: String?,
+	/**
+	 * This device plays the hub session. A queue a transfer brought here has no local id (it is
+	 * held as a transient copy of the session's), and it IS the session's queue: without this the
+	 * playing device after a transfer swapped nothing and sent the character without `apply`.
+	 */
+	playsSession: Boolean = false
 ): Boolean =
 	stationEdits && bound != null && !bound.unbound && sessionStationId != null &&
-		bound.stationId == sessionStationId && queueId != null && queueId == sessionQueueId
+		bound.stationId == sessionStationId && sessionQueueId != null &&
+		(queueId == sessionQueueId || (queueId == null && playsSession))
 
 fun planChipTap(chip: AutoplayChip, bound: StationProvenance?, onHub: Boolean = false): ChipTapPlan {
 	val hub = onHub && bound != null

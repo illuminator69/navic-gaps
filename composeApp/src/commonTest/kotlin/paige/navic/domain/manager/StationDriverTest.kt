@@ -167,6 +167,16 @@ class StationDriverTest {
 	}
 
 	@Test
+	fun aContinuationBindsOnlyOnceTheSessionNamesItsQueue() {
+		// Walk W7: a one-track album over a radio. The session still named the radio's queue, so
+		// `bindSession` named it and the continuation came back unbound.
+		assertFalse(startMayBind(bindSession = "q_radio", queueId = "q_album"))
+		assertTrue(startMayBind(bindSession = "q_album", queueId = "q_album"))
+		// Not playing the session: nothing to bind, nothing to wait for.
+		assertTrue(startMayBind(bindSession = null, queueId = "q_album"))
+	}
+
+	@Test
 	fun servedElsewhereNeverMovesTheCursorBack() {
 		val batch = stationBatch(radio.copy(seq = 40), answer(seq = 30, servedElsewhere = true), emptySet(), fresh = false)
 		assertEquals(40, batch.provenance.seq)

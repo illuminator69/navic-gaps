@@ -163,6 +163,19 @@ class AutoplayChipsTest {
 	}
 
 	@Test
+	fun afterATransferHereThePlayingDevicesTapIsTheHubsEditToo() {
+		// A transferred queue has no local id: it is the session's while this device plays it
+		// (walk W2, the user's B-143). Without that the tap swapped nothing.
+		assertTrue(chipEditsOnHub(true, radio, "st_1", "q_1", queueId = null, playsSession = true))
+		// Not playing the session (a local queue, the hub idle elsewhere): this device edits.
+		assertFalse(chipEditsOnHub(true, radio, "st_1", "q_1", queueId = null, playsSession = false))
+		// A session with no queue id names nothing to edit.
+		assertFalse(chipEditsOnHub(true, radio, "st_1", null, queueId = null, playsSession = true))
+		// A local queue of its own that is not the session's stays this device's.
+		assertFalse(chipEditsOnHub(true, radio, "st_1", "q_1", queueId = "q_local", playsSession = true))
+	}
+
+	@Test
 	fun withHubEditsACharacterTapIsTheSignalAlone() {
 		val plan = planChipTap(AutoplayChip.Explore, radio, onHub = true)
 		assertTrue(plan.applyOnHub)
