@@ -47,8 +47,8 @@ fun mixKindName(kind: String): String = when (kind) {
 
 /**
  * The recipe as one line: the kind, plus what it is seeded from when that is a
- * thing the user named, plus the character a radio or Your mix plays with
- * ("Radio from Cinnamon Girl · Balanced", "Your mix · Explore").
+ * thing the user named, plus the character a radio, Your mix or an artist radio plays with
+ * ("Radio from Cinnamon Girl · Balanced", "Your mix · Explore", "Artist from Neil Young · Close").
  *
  * Your mix (a `station` with no seed, `fingerprint`, `adaptive`) is built from listening
  * history, so it renders the kind alone rather than an empty "from".
@@ -72,9 +72,16 @@ fun mixKindLabel(mix: Mix): String {
 		)
 	}
 	val kind = mixKindName(mix.kind)
-	return if (MixKind.needsSeed(mix.kind) && seed.isNotBlank()) {
+	val line = if (MixKind.needsSeed(mix.kind) && seed.isNotBlank()) {
 		stringResource(Res.string.mix_seeded_by, kind, seed)
 	} else {
 		kind
 	}
+	// An artist recipe made since B-150 carries the character its radio plays with; an older one
+	// says none, and none is guessed for it.
+	if (mix.kind == MixKind.ARTIST && character != null) {
+		val catalogue by koinInject<StationManager>().catalogue.collectAsState()
+		return stringResource(Res.string.queue_station_line, line, catalogue.infoFor(character).label.ifBlank { character.label })
+	}
+	return line
 }

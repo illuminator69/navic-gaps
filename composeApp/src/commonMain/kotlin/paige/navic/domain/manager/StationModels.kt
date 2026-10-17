@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.StationCharacter
 
 /*
@@ -720,6 +721,34 @@ fun <T> spreadPick(items: List<T>, n: Int): List<T> {
 	if (n == 1) return listOf(items.first())
 	val step = (items.size - 1).toDouble() / (n - 1)
 	return (0 until n).map { items[(it * step + 0.5).toInt().coerceAtMost(items.lastIndex)] }.distinct()
+}
+
+/** An album or artist radio's seed tracks (PROTOCOL §18.1: 1–5). */
+const val SEED_TRACKS_MAX = 5
+
+/** Up to [SEED_TRACKS_MAX] of an artist's songs: the most played, one per album first. */
+fun artistSeedSongs(songs: List<DomainSong>): List<DomainSong> {
+	val ranked = songs.sortedByDescending { it.playCount }
+	val firstPerAlbum = ranked.distinctBy { it.albumId ?: it.id }
+	return (firstPerAlbum + ranked).distinctBy { it.id }.take(SEED_TRACKS_MAX)
+}
+
+/**
+ * How an artist's radio plays, one rule for the artist page's "Start radio" and an `artist` mix
+ * (B-150): the queue starts with [seeds] either way; [station] is the station to start from them
+ * (origin radio, the caller's character), or null without the engine or with none of the artist's
+ * songs here. With no station (or none to be had when asked), what follows the seeds is
+ * Navidrome's similar songs for the artist id (`getSimilarSongs2`), never a shuffle of the
+ * artist's own songs, which is what an artist mix used to play.
+ */
+data class ArtistRadioPlan(val station: StationSeed?, val seeds: List<DomainSong>)
+
+fun artistRadioPlan(engine: Boolean, artistName: String?, songs: List<DomainSong>): ArtistRadioPlan {
+	val seeds = artistSeedSongs(songs)
+	val station = if (engine && seeds.isNotEmpty()) {
+		StationSeed(StationSeed.TRACKS, seeds.map { it.id }, artistName?.ifBlank { null })
+	} else null
+	return ArtistRadioPlan(station, seeds)
 }
 
 /** The most an `exclude` list may carry (PROTOCOL §18.1). The newest are kept. */

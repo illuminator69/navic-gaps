@@ -1040,14 +1040,15 @@
 	<string name="mix_tracks_count">%1$d tracks</string>
 	<string name="title_new_mix">New mix</string>
 	<string name="mix_how_built">How it is built</string>
+	<string name="mix_line_radio">Around a song, steered by your skips and likes</string>
+	<string name="mix_line_genre">A random run through one genre</string>
+	<string name="mix_line_artist">More like one artist</string>
 	<string name="mix_seed">Built around</string>
 	<string name="mix_length">Length</string>
 	<string name="mix_length_tracks">%1$d tracks</string>
 	<string name="mix_mood_character">Character</string>
 	<string name="mix_seed_playing">Seeded from "%1$s" by %2$s.</string>
 	<string name="mix_seed_needs_playing">Play something first: a radio is built around a track.</string>
-	<string name="mix_seed_your_mix">Built from the songs you play most, then steered by what you skip and like.</string>
-	<string name="mix_seed_radio">A radio of "%1$s" by %2$s, steered by what you skip and like.</string>
 	<string name="mix_seed_search_artist">Search artists</string>
 	<string name="mix_seed_search_genre">Search genres</string>
 	<string name="mix_seed_none_found">Nothing in your library matches that.</string>

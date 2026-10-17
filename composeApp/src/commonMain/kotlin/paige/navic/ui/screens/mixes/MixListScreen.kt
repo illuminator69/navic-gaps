@@ -327,6 +327,7 @@ fun MixListScreen(nested: Boolean = false) {
 			genres = genres,
 			defaultCharacter = viewModel.defaultCharacter,
 			catalogue = catalogue,
+			stationEngine = stationsAvailable,
 			onSave = { recipe ->
 				// `save` takes the name separately because the rename dialog reuses
 				// it; the form has already put the name on the recipe.

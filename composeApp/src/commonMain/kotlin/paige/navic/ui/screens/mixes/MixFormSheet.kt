@@ -1,5 +1,12 @@
 package paige.navic.ui.screens.mixes
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -45,14 +52,10 @@ import navic.composeapp.generated.resources.mix_length
 import navic.composeapp.generated.resources.mix_length_tracks
 import navic.composeapp.generated.resources.mix_mood_character
 import navic.composeapp.generated.resources.mix_seed
-import navic.composeapp.generated.resources.mix_kind_artist
-import navic.composeapp.generated.resources.mix_kind_genre
-import navic.composeapp.generated.resources.mix_kind_station
 import navic.composeapp.generated.resources.mix_seed_needs_playing
 import navic.composeapp.generated.resources.mix_seed_none_found
 import navic.composeapp.generated.resources.mix_seed_pick
-import navic.composeapp.generated.resources.mix_seed_radio
-import navic.composeapp.generated.resources.mix_seed_your_mix
+import navic.composeapp.generated.resources.mix_seed_playing
 import navic.composeapp.generated.resources.queue_your_mix
 import navic.composeapp.generated.resources.mix_seed_search_artist
 import navic.composeapp.generated.resources.mix_seed_search_genre
@@ -61,7 +64,6 @@ import navic.composeapp.generated.resources.title_new_mix
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
-import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.creditText
 import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.models.settings.StationCharacter
@@ -72,13 +74,6 @@ import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /** The lengths offered. Chips rather than a number field: three plausible answers. */
 private val LENGTHS = listOf(25, 50, 100)
-
-/**
- * What the form makes. A radio and Your mix are both `station` recipes (PROTOCOL §17.1), with a
- * seed track or none; the older `similar`, `fingerprint` and `adaptive` kinds still play, and
- * are no longer made here (I-040): with the station engine they play as these two anyway.
- */
-private enum class FormKind { Radio, YourMix, Genre, Artist }
 
 /**
  * Making a mix from scratch.
@@ -94,15 +89,11 @@ private enum class FormKind { Radio, YourMix, Genre, Artist }
  * need a searchable list of the library's own artists or genres, and that does not
  * fit in a dialog without becoming a second screen.
  *
- * Four choices since I-040: a radio of the playing track and Your mix (both `station`
- * recipes, each with a character), a genre and an artist. The older `similar`,
- * `fingerprint` and `adaptive` recipes still play and are no longer made here. The seed
- * is offered per choice, because they do not take the same kind of seed: a track, a
- * genre name, an artist id, or nothing at all. Feishin's `mix-form.tsx` offers the
- * playing track only, arguing a library picker would be a second search UI for a field
- * whose answer is always "this". That holds for a radio, which is why this keeps the
- * playing track there; it does not hold for the two kinds Feishin can also only reach
- * through a playing track's artist or first genre tag.
+ * The choices are [MixFormKind]'s, in its order and with its words, which are Feishin's too
+ * (B-150): Radio, Your mix (only with the hub's station engine), Genre, Artist, each with its
+ * line under the chips. A character for the three it steers (not a genre), then the seed, per
+ * choice, because they do not take the same kind: the playing track (stated, not picked: it
+ * is always "this"), nothing, a genre name, an artist id, the last two out of Room.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -112,10 +103,16 @@ fun MixFormSheet(
 	genres: List<MixSeedOption>,
 	defaultCharacter: StationCharacter,
 	catalogue: StationCatalogue,
+	stationEngine: Boolean,
 	onSave: (Mix) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
-	var kind by remember { mutableStateOf(FormKind.Radio) }
+	val offered = mixFormKinds(stationEngine)
+	var kind by remember { mutableStateOf(offered.first()) }
+	// The engine going away while the form is open takes Your mix with it.
+	LaunchedEffect(offered) {
+		if (kind !in offered) kind = offered.first()
+	}
 	var seed by remember { mutableStateOf<MixSeedOption?>(null) }
 	var character by remember { mutableStateOf(defaultCharacter) }
 	var count by remember { mutableStateOf(50) }
@@ -133,8 +130,8 @@ fun MixFormSheet(
 
 	val yourMixName = stringResource(Res.string.queue_your_mix)
 	val suggested = when (kind) {
-		FormKind.Radio -> playing?.title?.let { "$it radio" }.orEmpty()
-		FormKind.YourMix -> yourMixName
+		MixFormKind.Radio -> playing?.title?.let { "$it radio" }.orEmpty()
+		MixFormKind.YourMix -> yourMixName
 		else -> seed?.name.orEmpty()
 	}
 
@@ -154,9 +151,9 @@ fun MixFormSheet(
 		searchState.clearText()
 	}
 
-	val options = when (kind) {
-		FormKind.Artist -> artists
-		FormKind.Genre -> genres
+	val options = when (kind.seed) {
+		MixFormSeed.Artist -> artists
+		MixFormSeed.Genre -> genres
 		else -> emptyList()
 	}
 	val query = searchState.text.toString().trim()
@@ -165,10 +162,10 @@ fun MixFormSheet(
 		else options.filter { it.name.contains(query, ignoreCase = true) }.take(100)
 	}
 
-	val blocked = when (kind) {
-		FormKind.Radio -> playing?.id.isNullOrBlank()
-		FormKind.Artist, FormKind.Genre -> seed == null
-		FormKind.YourMix -> false
+	val blocked = when (kind.seed) {
+		MixFormSeed.PlayingSong -> playing?.id.isNullOrBlank()
+		MixFormSeed.Artist, MixFormSeed.Genre -> seed == null
+		MixFormSeed.None -> false
 	} || nameState.text.isBlank()
 
 	ModalBottomSheet(
@@ -194,25 +191,26 @@ fun MixFormSheet(
 
 			FormLabel(stringResource(Res.string.mix_how_built))
 			PageChips(
-				options = FormKind.entries,
+				options = offered,
 				selected = kind,
-				label = { formKindName(it) },
+				label = { stringResource(it.label) },
 				onSelect = { kind = it },
 				contentPadding = PaddingValues(0.dp),
 				wrap = true
 			)
+			AnimatedContent(
+				targetState = kind,
+				transitionSpec = { fadeIn() togetherWith fadeOut() },
+				label = "mixFormKindLine"
+			) { shown -> FormNote(stringResource(shown.line)) }
 
-			when (kind) {
-				FormKind.Radio, FormKind.YourMix -> {
-					FormNote(
-						// Stated as a fact about what will be SAVED, since "the currently playing
-						// track" stops being true the moment playback moves on.
-						when {
-							kind == FormKind.YourMix -> stringResource(Res.string.mix_seed_your_mix)
-							playing != null -> stringResource(Res.string.mix_seed_radio, playing.title, playing.creditText)
-							else -> stringResource(Res.string.mix_seed_needs_playing)
-						}
-					)
+			// Radio, Your mix and Artist take a character; a genre run does not.
+			AnimatedVisibility(
+				visible = kind.takesCharacter,
+				enter = fadeIn() + expandVertically(),
+				exit = fadeOut() + shrinkVertically()
+			) {
+				Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 					FormLabel(stringResource(Res.string.mix_mood_character))
 					PageChips(
 						options = StationCharacter.entries,
@@ -224,14 +222,25 @@ fun MixFormSheet(
 					)
 					catalogue.infoFor(character).description.takeIf { it.isNotBlank() }?.let { FormNote(it) }
 				}
+			}
 
-				else -> {
+			when (kind.seed) {
+				// Stated as a fact about what will be SAVED, since "the currently playing track"
+				// stops being true the moment playback moves on.
+				MixFormSeed.PlayingSong -> FormNote(
+					if (playing != null) stringResource(Res.string.mix_seed_playing, playing.title, playing.creditText)
+					else stringResource(Res.string.mix_seed_needs_playing)
+				)
+
+				MixFormSeed.None -> {}
+
+				MixFormSeed.Artist, MixFormSeed.Genre -> {
 					FormLabel(stringResource(Res.string.mix_seed))
 					OutlinedTextField(
 						state = searchState,
 						label = {
 							Text(
-								if (kind == FormKind.Artist) {
+								if (kind.seed == MixFormSeed.Artist) {
 									stringResource(Res.string.mix_seed_search_artist)
 								} else {
 									stringResource(Res.string.mix_seed_search_genre)
@@ -260,7 +269,7 @@ fun MixFormSheet(
 										count = filtered.size
 									),
 									verticalAlignment = Alignment.CenterVertically,
-									leadingContent = if (kind == FormKind.Artist) {
+									leadingContent = if (kind.seed == MixFormSeed.Artist) {
 										{
 											CoverArt(
 												modifier = Modifier.size(40.dp),
@@ -306,7 +315,7 @@ fun MixFormSheet(
 					modifier = Modifier.weight(1f),
 					onClick = {
 						onSave(
-							buildRecipe(
+							mixRecipe(
 								name = nameState.text.toString().trim(),
 								kind = kind,
 								playing = playing,
@@ -323,14 +332,6 @@ fun MixFormSheet(
 }
 
 @Composable
-private fun formKindName(kind: FormKind): String = when (kind) {
-	FormKind.Radio -> stringResource(Res.string.mix_kind_station)
-	FormKind.YourMix -> stringResource(Res.string.queue_your_mix)
-	FormKind.Genre -> stringResource(Res.string.mix_kind_genre)
-	FormKind.Artist -> stringResource(Res.string.mix_kind_artist)
-}
-
-@Composable
 private fun FormLabel(text: String) {
 	Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
@@ -338,53 +339,4 @@ private fun FormLabel(text: String) {
 @Composable
 private fun FormNote(text: String) {
 	Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-/**
- * The form's answers as a recipe.
- *
- * `seedId` is written in the seed kind's own vocabulary — a song id, an artist id,
- * or a genre **name** — because that is what `RadioManager.regenerate` looks each
- * one up by. `id` is blank: minting belongs to the hub. A radio and Your mix carry the
- * character twice, as the wire id and as the old preset's name, for a client from before
- * stations (PROTOCOL §17.1).
- */
-private fun buildRecipe(
-	name: String,
-	kind: FormKind,
-	playing: DomainSong?,
-	seed: MixSeedOption?,
-	character: StationCharacter,
-	count: Int
-): Mix = when (kind) {
-	FormKind.Radio -> Mix(
-		id = "",
-		name = name,
-		kind = MixKind.STATION,
-		seedId = playing?.id.orEmpty(),
-		seedName = playing?.title.orEmpty(),
-		character = character.wireId,
-		moodCharacter = character.legacyName,
-		count = count,
-		coverArtId = playing?.coverArtId.orEmpty()
-	)
-
-	FormKind.YourMix -> Mix(
-		id = "",
-		name = name,
-		kind = MixKind.STATION,
-		character = character.wireId,
-		moodCharacter = character.legacyName,
-		count = count
-	)
-
-	FormKind.Genre, FormKind.Artist -> Mix(
-		id = "",
-		name = name,
-		kind = if (kind == FormKind.Genre) MixKind.GENRE else MixKind.ARTIST,
-		seedId = seed?.id.orEmpty(),
-		seedName = seed?.name.orEmpty(),
-		count = count,
-		coverArtId = seed?.coverArtId.orEmpty()
-	)
 }

@@ -1389,11 +1389,21 @@ autoplay mode happens to be on — so `MixKind.GENRE` and `MixKind.ARTIST` were
 **unreachable from this client entirely**. `regenerate` could play them, `MixFormat`
 could label them and the hub validated them; they could only arrive from Feishin.
 `ui/screens/mixes/MixFormSheet.kt` is the general path: name, kind, and a seed
-picker that fits the kind. Since I-040 it makes four: a radio of the playing track and
-Your mix (both `station` recipes with a character), a genre and an artist (searchable
-lists out of Room). `similar`, `fingerprint` and `adaptive` still play (as stations
-when the engine is there: `similar` a track radio on Balanced, the other two Your mix)
-and are no longer made. A station-backed mix has no preview: it is built as it plays.
+picker that fits the kind. It makes four, **in Feishin's order and with Feishin's words**
+(B-150, `MixFormKind` in `MixFormKind.kt`; `MixRecipesTest`, `MixFormWordsTest`): Radio
+("Around a song, steered by your skips and likes": a `station` recipe on the playing track),
+Your mix ("Built from what you play most": a seedless `station`, offered only with the
+engine), Genre ("A random run through one genre": the genre's NAME in `seedId` and
+`seedName`, no character) and Artist ("More like one artist": an artist id, with a
+character). An `artist` mix is the artist page's radio (`artistRadioPlan`, shared with
+`startArtistRadio`): a station from up to five of their songs with the engine, Navidrome's
+similar songs after them without it; it used to shuffle the artist's own songs. A genre
+recipe is drawn by name, trying `seedName` after `seedId`, because Feishin wrote the genre's
+id there before B-150 (`genreSeedNames`). `similar`, `fingerprint` and `adaptive` still play
+(as stations when the engine is there: `similar` a track radio on Balanced, the other two
+Your mix) and are no longer made. A station-backed mix has no preview: it is built as it
+plays. Your mix, and the two old kinds that play as it, wear a person (`Icons.Outlined.Person`,
+B-149), not the clock.
 Your mix also heads the Mixed for You list while the engine is there. A sheet rather
 than a `FormDialog` because two of the four need a searchable list and `FormDialog` is
 300dp wide.

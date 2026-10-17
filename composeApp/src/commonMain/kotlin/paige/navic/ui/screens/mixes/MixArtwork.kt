@@ -23,8 +23,8 @@ import paige.navic.domain.models.MixKind
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Genre
-import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.Person
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Radio
 import paige.navic.ui.components.common.CoverArt
@@ -108,8 +108,7 @@ fun MixArtwork(
 		contentAlignment = Alignment.Center
 	) {
 		Icon(
-			// Your mix (a station with no seed) wears the history glyph, as Sonic Fingerprint did.
-			imageVector = if (mix.kind == MixKind.STATION && mix.seedId.isBlank()) Icons.Outlined.History else mixKindIcon(mix.kind),
+			imageVector = mixGlyph(mix.kind, mix.seedId).icon(),
 			contentDescription = mix.name,
 			// The gradient runs from a container role, so its own `on` colour is
 			// the one guaranteed to stay legible against it in both themes. Taken
@@ -124,15 +123,33 @@ fun MixArtwork(
 	}
 }
 
-/** The kind, as a glyph. Kept beside `mixKindName` so the two never disagree. */
-private fun mixKindIcon(kind: String): ImageVector = when (kind) {
-	MixKind.SIMILAR -> Icons.Outlined.Note
-	MixKind.FINGERPRINT -> Icons.Outlined.History
-	MixKind.ADAPTIVE -> Icons.Outlined.History
-	MixKind.GENRE -> Icons.Outlined.Genre
-	MixKind.ARTIST -> Icons.Outlined.Artist
-	MixKind.STATION -> Icons.Outlined.Radio
+/** What a generated tile shows, by the recipe alone (B-149; `MixRecipesTest`). */
+enum class MixGlyph { Person, Note, Genre, Artist, Radio, Unknown }
+
+/**
+ * The kind, as a glyph. Kept beside `mixKindName` so the two never disagree.
+ *
+ * **Your mix is a person** (B-149): the seedless station, from what you play most, and the old
+ * `fingerprint` / `adaptive` kinds that play as it now. Not the clock (it is not a history), not
+ * the account circle (the profile button wears it), not the sparkle (Fresh's). Feishin's Your
+ * mix wears the same glyph.
+ */
+fun mixGlyph(kind: String, seedId: String): MixGlyph = when (kind) {
+	MixKind.STATION -> if (seedId.isBlank()) MixGlyph.Person else MixGlyph.Radio
+	MixKind.FINGERPRINT, MixKind.ADAPTIVE -> MixGlyph.Person
+	MixKind.SIMILAR -> MixGlyph.Note
+	MixKind.GENRE -> MixGlyph.Genre
+	MixKind.ARTIST -> MixGlyph.Artist
 	// A kind this build cannot regenerate still gets a face; the row's label is
 	// where it says so, and a blank tile would read as a loading one.
-	else -> Icons.Outlined.PlaylistPlay
+	else -> MixGlyph.Unknown
+}
+
+private fun MixGlyph.icon(): ImageVector = when (this) {
+	MixGlyph.Person -> Icons.Outlined.Person
+	MixGlyph.Note -> Icons.Outlined.Note
+	MixGlyph.Genre -> Icons.Outlined.Genre
+	MixGlyph.Artist -> Icons.Outlined.Artist
+	MixGlyph.Radio -> Icons.Outlined.Radio
+	MixGlyph.Unknown -> Icons.Outlined.PlaylistPlay
 }

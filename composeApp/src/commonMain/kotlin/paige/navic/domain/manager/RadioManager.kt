@@ -28,6 +28,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.SavedQueueSource
+import paige.navic.domain.models.genreSeedNames
 import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
@@ -399,19 +400,15 @@ class RadioManager(
 		scope.launch {
 			try {
 				val songs = songDao.getSongsByArtistId(artistId).map { it.toDomainModel() }
-				val seeds = artistSeedSongs(songs)
-				if (seeds.isNotEmpty()) {
-					val seed = StationSeed(StationSeed.TRACKS, seeds.map { it.id }, artistName)
-					when (playStation(seed, seeds, _character.value, "$artistName radio")) {
+				// One plan for this and an `artist` mix (B-150).
+				val plan = artistRadioPlan(stationManager.available.value, artistName, songs)
+				if (plan.station != null) {
+					when (playStation(plan.station, plan.seeds, _character.value, "$artistName radio")) {
 						StationPlay.Played, StationPlay.Empty -> return@launch
 						StationPlay.Unavailable -> {}
 					}
 				}
-				// `getSimilarSongs2` takes an artist id.
-				val similar = resolveIds(
-					runCatching { sessionManager.fetchSimilarSongIds(artistId, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
-				)
-				val queue = (seeds + similar).distinctBy { it.id }
+				val queue = artistSimilarQueue(artistId, plan.seeds, RADIO_FALLBACK_COUNT)
 				if (queue.isEmpty()) {
 					Logger.i("RadioManager", "no songs for artist radio $artistId")
 					return@launch
@@ -522,11 +519,15 @@ class RadioManager(
 		}
 	}
 
-	/** Up to [SEED_TRACKS_MAX] of an artist's songs: the most played, one per album first. */
-	private fun artistSeedSongs(songs: List<DomainSong>): List<DomainSong> {
-		val ranked = songs.sortedByDescending { it.playCount }
-		val firstPerAlbum = ranked.distinctBy { it.albumId ?: it.id }
-		return (firstPerAlbum + ranked).distinctBy { it.id }.take(SEED_TRACKS_MAX)
+	/**
+	 * An artist radio without a station: [seeds], then Navidrome's similar songs for the artist
+	 * (`getSimilarSongs2` takes an artist id), nearest first. Nothing similar leaves the seeds.
+	 */
+	private suspend fun artistSimilarQueue(artistId: String, seeds: List<DomainSong>, count: Int): List<DomainSong> {
+		val similar = resolveIds(
+			runCatching { sessionManager.fetchSimilarSongIds(artistId, count) }.getOrDefault(emptyList())
+		)
+		return (seeds + similar).distinctBy { it.id }
 	}
 
 	// ---- "Mixed for You": regenerating a stored recipe ------------------------------------ //
@@ -534,10 +535,12 @@ class RadioManager(
 	/**
 	 * Regenerate [mix] and play it.
 	 *
-	 * With the engine, `station`, `similar`, `fingerprint` and `adaptive` play as stations
-	 * ([stationRecipe]): `similar` a track radio on Balanced, `fingerprint` and `adaptive` Your mix
-	 * (`adaptive` keeping its character). Otherwise the recipe runs through [generate], the
-	 * engines it always had. Returns false when nothing could be built.
+	 * With the engine, `station`, `similar`, `fingerprint`, `adaptive` and `artist` play as
+	 * stations ([stationRecipe]): `similar` a track radio on Balanced, `fingerprint` and
+	 * `adaptive` Your mix (`adaptive` keeping its character), `artist` the artist page's radio
+	 * on the recipe's character. Otherwise the recipe runs through [generate], the engines it
+	 * always had (an `artist` recipe: the artist radio's similar songs). Returns false when
+	 * nothing could be built.
 	 */
 	suspend fun regenerate(mix: Mix): Boolean {
 		radioStarted()
@@ -570,7 +573,7 @@ class RadioManager(
 	 * Whether [mix] plays as a station right now. Such a mix is built as it plays, so the mix
 	 * sheet offers no preview of it (a sample of the first batch would not be the mix).
 	 */
-	fun stationBacked(mix: Mix): Boolean = stationManager.available.value && mix.kind in STATION_KINDS
+	fun stationBacked(mix: Mix): Boolean = MixKind.playsAsStation(mix.kind, stationManager.available.value)
 
 	private class StationRecipe(
 		val seed: StationSeed,
@@ -618,6 +621,14 @@ class RadioManager(
 			MixKind.FINGERPRINT, MixKind.ADAPTIVE ->
 				StationRecipe(StationSeed.YourMix, emptyList(), stored ?: StationCharacter.Default)
 
+			// The artist page's radio (B-150), on the recipe's character.
+			MixKind.ARTIST -> {
+				val songs = songDao.getSongsByArtistId(mix.seedId).map { it.toDomainModel() }
+				val name = mix.seedName.ifBlank { songs.firstOrNull()?.artistName.orEmpty() }
+				val plan = artistRadioPlan(engine = true, artistName = name, songs = songs)
+				plan.station?.let { StationRecipe(it, plan.seeds, stored ?: StationCharacter.Default) }
+			}
+
 			else -> null
 		}
 	}
@@ -626,7 +637,7 @@ class RadioManager(
 	 * Run the recipe and return the tracklist, **without** playing it or touching
 	 * `lastPlayedAt`: the engines a mix has without the station engine, and the mix sheet's
 	 * preview. A `station` recipe here is its seed's similar songs, or the fingerprint list
-	 * for Your mix.
+	 * for Your mix; an `artist` recipe the artist radio's fallback.
 	 *
 	 * Deliberately does not `touchMix`: previewing is not playing, and
 	 * `lastPlayedAt` is what the list sorts a mix's recency by.
@@ -667,15 +678,21 @@ class RadioManager(
 
 				// Local, and deliberately so: a genre mix wants breadth across the
 				// library rather than a similarity neighbourhood, and it keeps working
-				// with no AudioMuse and no network.
-				MixKind.GENRE -> songDao.getRandomSongsByGenre(mix.seedId, count)
+				// with no AudioMuse and no network. By name; an older recipe's id is
+				// tried first and finds nothing (`genreSeedNames`).
+				MixKind.GENRE -> genreSeedNames(mix).firstNotNullOfOrNull { name ->
+					songDao.getRandomSongsByGenre(name, count).ifEmpty { null }
+				}.orEmpty()
 					.map { it.toDomainModel() }
 					.shuffled()
 
-				MixKind.ARTIST -> songDao.getSongsByArtistId(mix.seedId)
-					.map { it.toDomainModel() }
-					.shuffled()
-					.take(count)
+				// The artist radio without a station (B-150): their songs as the seed, then
+				// Navidrome's similar songs. Never a shuffle of the artist's own catalogue.
+				MixKind.ARTIST -> {
+					val songs = songDao.getSongsByArtistId(mix.seedId).map { it.toDomainModel() }
+					val plan = artistRadioPlan(engine = false, artistName = mix.seedName, songs = songs)
+					artistSimilarQueue(mix.seedId, plan.seeds, count).take(count)
+				}
 
 				else -> {
 					Logger.w("RadioManager", "mix ${mix.id}: unknown kind '${mix.kind}'")
@@ -1374,8 +1391,6 @@ class RadioManager(
 		const val RADIO_START_COUNT = 20
 		/** The no-engine radio's similar songs. */
 		const val RADIO_FALLBACK_COUNT = 50
-		/** An album or artist radio's seed tracks (PROTOCOL §18.1: 1–5). */
-		const val SEED_TRACKS_MAX = 5
 		/** A queue continued as a station is seeded from its last 1–3 tracks. */
 		const val SEED_TRACKS_FROM_QUEUE = 3
 		/** How long after a partial or empty answer the driver looks again by itself. */
@@ -1383,7 +1398,5 @@ class RadioManager(
 		// How many queue tracks to seed the "Related" tab from (see fetchQueueRelatedSongs).
 		const val RELATED_SEEDS = 5
 
-		/** The kinds that play as a station when the engine is there. */
-		val STATION_KINDS = setOf(MixKind.STATION, MixKind.SIMILAR, MixKind.FINGERPRINT, MixKind.ADAPTIVE)
 	}
 }

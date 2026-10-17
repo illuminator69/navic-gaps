@@ -19,7 +19,7 @@ import androidx.compose.runtime.Immutable
  * **The hub stores and broadcasts these.** Each client regenerates locally through the
  * engine it has ([RadioManager] here, Feishin's `auto-dj` package), except that since
  * 2026-10-16 (PROTOCOL §18) the radio kinds play through the hub's station engine when it
- * has one: [MixKind.STATION], and `similar` / `fingerprint` / `adaptive` with it.
+ * has one: [MixKind.STATION], and `similar` / `fingerprint` / `adaptive` / `artist` with it.
  *
  * **The word is deliberate.** "Station" is taken by [Screen.RadioList] — Subsonic
  * internet radio, with its own entity, DAO and dialog — and "radio" by
@@ -37,7 +37,8 @@ data class Mix(
 	/**
 	 * What the recipe is seeded from, in the seed kind's own vocabulary: a Navidrome
 	 * song / album / artist id for [MixKind.SIMILAR] and [MixKind.ARTIST], a genre
-	 * name for [MixKind.GENRE], and nothing at all for the two AudioMuse modes, which
+	 * name for [MixKind.GENRE] (an older Feishin wrote the genre's id here and the name in
+	 * [seedName]: [genreSeedNames]), and nothing at all for the seedless kinds, which
 	 * seed from listening history rather than from a thing.
 	 */
 	val seedId: String = "",
@@ -50,7 +51,8 @@ data class Mix(
 	val moodCharacter: String = "",
 	/**
 	 * `close|balanced|explore`, a [paige.navic.domain.models.settings.StationCharacter]'s wire
-	 * id: the character a STATION (or ADAPTIVE) recipe plays with. "" when the record has none.
+	 * id: the character a STATION, ARTIST (or ADAPTIVE) recipe plays with. "" when the record
+	 * has none, as a GENRE recipe never does.
 	 */
 	val character: String = "",
 	val count: Int = 50,
@@ -78,7 +80,12 @@ object MixKind {
 	const val ADAPTIVE = "adaptive"
 	/** A genre, drawn locally from the library. */
 	const val GENRE = "genre"
-	/** One artist's own catalogue, shuffled. */
+	/**
+	 * More like one artist: `seedId` an artist id, `seedName` its name, and `character`. Played
+	 * as an artist radio (B-150), exactly the artist page's: a station from up to five of their
+	 * songs with the engine, Navidrome's similar songs without it. It used to shuffle the
+	 * artist's own songs.
+	 */
 	const val ARTIST = "artist"
 	/**
 	 * A radio (PROTOCOL §17.1, §18): `seedId` a track, or empty for Your mix, and `character`.
@@ -92,4 +99,18 @@ object MixKind {
 
 	/** Whether this recipe needs a [Mix.seedId] to mean anything. */
 	fun needsSeed(kind: String): Boolean = kind == SIMILAR || kind == ARTIST || kind == GENRE
+
+	/** The kinds that play as a station when the hub's engine is there (PROTOCOL §17.1, §18). */
+	val PLAYS_AS_STATION = setOf(STATION, SIMILAR, FINGERPRINT, ADAPTIVE, ARTIST)
+
+	/** Whether a [kind] recipe plays as a station now: with the engine, all but `genre`. */
+	fun playsAsStation(kind: String, engine: Boolean): Boolean = engine && kind in PLAYS_AS_STATION
 }
+
+/**
+ * The names a `genre` recipe may hold its genre under, in the order to try them: `seedId`, which
+ * is the name (what both clients write since B-150), then `seedName`, for an older
+ * Feishin recipe whose `seedId` was the genre's Navidrome id. A genre is drawn by name.
+ */
+fun genreSeedNames(mix: Mix): List<String> =
+	listOf(mix.seedId, mix.seedName).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
