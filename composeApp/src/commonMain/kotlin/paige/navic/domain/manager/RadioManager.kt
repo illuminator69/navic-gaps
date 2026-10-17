@@ -976,6 +976,9 @@ class RadioManager(
 					val available = stationManager.available.value
 					val remaining = playOrderRemaining(order, state.queue.size, state.currentIndex)
 					val bound = if (available) stationManager.boundFor(state) else null
+					// Another device's station for this queue, met while playing it, becomes the
+					// record: it is the queue's even after the hub forgets it (B-139).
+					adoptedStationRecord(bound, stationManager.provenance.value)?.let { stationManager.record(it) }
 					val step = autoplayStep(
 						AutoplayLook(
 							autoplayOn = on,

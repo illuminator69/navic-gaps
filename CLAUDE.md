@@ -586,9 +586,10 @@ Rules, each with a reason:
   (the hub names a station "<seed name> radio", so that name goes back as the seed's; "Your mix"
   as a Your mix seed). Nothing here names a station's character from this device's preference: a
   session station without a frame, and the record a 409 builds, name none until a frame does.
-  Not covered: a station known here only through the session, never topped up from here, whose
-  hub forgets it (a restart without its stations file) — the session then names no station, and
-  the queue's next top-up is a plain continuation, named after the playing song.
+  Another device's station met here while this device plays the session becomes the record at
+  once (`adoptedStationRecord`, in the driver's look): a hub that forgets it also stops naming it in
+  the session, and the queue would otherwise have no station left at its next top-up (watched:
+  the album queue's line vanished after the scratch hub restarted without its stations file).
 - **Failures are read as Feishin reads them** (`stationFailure`, `stationFailureAction`). A
   fallback (503, a `{fallback: true}` body, no `station` feature, a probe that said unavailable,
   the hub disconnected, a bare 404) is Auto DJ for that top-up (with autoplay on) and stops asking

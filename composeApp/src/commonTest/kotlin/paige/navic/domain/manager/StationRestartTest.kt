@@ -72,4 +72,15 @@ class StationRestartTest {
 		assertNull(stationSeedName("Your mix"))
 		assertNull(stationSeedName(" radio"))
 	}
+
+	@Test
+	fun anotherDevicesStationForThisQueueBecomesTheRecord() {
+		val mine = adopted.copy(stationId = "st_mine", name = "Cinnamon Girl radio", seed = StationSeed(StationSeed.TRACK, listOf("s")))
+		// The session now names another device's station for this queue: it is kept here.
+		assertEquals(adopted, adoptedStationRecord(adopted, mine))
+		assertEquals(adopted, adoptedStationRecord(adopted, null))
+		// Already the record (its cursor may have moved): nothing to write.
+		assertNull(adoptedStationRecord(adopted.copy(seq = 40), adopted))
+		assertNull(adoptedStationRecord(null, mine))
+	}
 }

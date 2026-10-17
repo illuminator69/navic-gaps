@@ -373,6 +373,16 @@ fun stationBatch(
 	return StationBatch(applied, ids, retrySoon = ids.isEmpty() && !answer.exhausted && !answer.stopped)
 }
 
+/**
+ * The record to keep for [bound], the station this queue belongs to as the driver sees it, when
+ * it is not the one recorded here: a station another device bound the session to, met by this
+ * device while it plays the session. Kept, so that when the hub later forgets it (and the
+ * session stops naming it) the queue still knows its station and [stationRestart] brings it back
+ * as itself (B-139). Null when it is already the record.
+ */
+fun adoptedStationRecord(bound: StationProvenance?, recorded: StationProvenance?): StationProvenance? =
+	bound?.takeIf { it.stationId != recorded?.stationId || it.queueId != recorded?.queueId }
+
 /** What brings back a station the hub lost ([stationRestart]). */
 data class StationRestart(
 	val seed: StationSeed,
@@ -537,7 +547,9 @@ fun autoplayStep(look: AutoplayLook): AutoplayStep {
  * session does not name another; else, while this device plays the hub session, the session's own
  * station ([sessionStationId], from `session.stationId`, passed only then): a queue handed here by
  * a transfer continues the station it was, from the cursor the hub last broadcast ([frameOf]).
- * A session station this device has no record of keeps no seed, so it cannot be restarted.
+ * A session station this device has no record of has no seed here (frames carry none); the
+ * driver keeps it as the record ([adoptedStationRecord]) and brings it back from the queue's last
+ * songs if the hub loses it ([stationRestart]).
  */
 fun boundStation(
 	provenance: StationProvenance?,
