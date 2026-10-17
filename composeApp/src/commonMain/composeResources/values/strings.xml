@@ -1168,7 +1168,7 @@
 	<string name="notice_about_error">lb-bot answered an error (%1$d). What is shown is unchanged.</string>
 	<string name="notice_about_error_said">lb-bot answered an error (%1$d): %2$s. What is shown is unchanged.</string>
 	<!-- navi-connect I-039: the fork UI pass. -->
-	<string name="queue_generator_audiomuse">AudioMuse mix</string>
+	<string name="queue_generated_via_audiomuse">%1$s · via AudioMuse</string>
 	<string name="title_similar_albums">Similar albums</string>
 	<string name="info_similar_albums_because">Because you're listening to %1$s</string>
 	<!-- navi-connect I-040: radio and autoplay through the hub's station engine, Auto DJ without it. -->

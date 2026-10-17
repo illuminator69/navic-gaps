@@ -285,20 +285,20 @@ class StationDriverTest {
 
 	@Test
 	fun theLineNamesTheStationAndItsCharacter() {
-		val line = queueGenerator(radio, "q_1", null, generatedMix = false)
+		val line = queueGenerator(radio, "q_1", null, generated = null)
 		assertEquals(QueueGenerator.Station("Cinnamon Girl radio", StationCharacter.Balanced, viaNavidrome = false, yourMix = false), line)
 	}
 
 	@Test
 	fun tier1SaysViaNavidrome() {
-		val line = queueGenerator(radio.copy(engine = ENGINE_TIER1), "q_1", null, false)
+		val line = queueGenerator(radio.copy(engine = ENGINE_TIER1), "q_1", null, null)
 		assertIs<QueueGenerator.Station>(line)
 		assertTrue(line.viaNavidrome)
 	}
 
 	@Test
 	fun yourMixIsNamedAsSuch() {
-		val line = queueGenerator(radio.copy(seed = StationSeed.YourMix, name = ""), "q_1", null, false)
+		val line = queueGenerator(radio.copy(seed = StationSeed.YourMix, name = ""), "q_1", null, null)
 		assertIs<QueueGenerator.Station>(line)
 		assertTrue(line.yourMix)
 	}
@@ -307,26 +307,25 @@ class StationDriverTest {
 	fun exhaustedOffersExploreUnlessAlreadyExploring() {
 		assertEquals(
 			QueueGenerator.Exhausted("Cinnamon Girl radio", offerExplore = true),
-			queueGenerator(radio.copy(exhausted = true), "q_1", null, false)
+			queueGenerator(radio.copy(exhausted = true), "q_1", null, null)
 		)
 		assertEquals(
 			QueueGenerator.Exhausted("Cinnamon Girl radio", offerExplore = false),
-			queueGenerator(radio.copy(exhausted = true, character = "explore"), "q_1", null, false)
+			queueGenerator(radio.copy(exhausted = true, character = "explore"), "q_1", null, null)
 		)
 	}
 
 	@Test
 	fun autoDjIsSaidWhereAutoDjToppedTheQueueUp() {
-		assertEquals(QueueGenerator.AutoDj, queueGenerator(null, "q_album", "q_album", false))
-		assertEquals(QueueGenerator.AutoDj, queueGenerator(radio.copy(lastFromAutoDj = true), "q_1", null, false))
+		assertEquals(QueueGenerator.AutoDj, queueGenerator(null, "q_album", "q_album", null))
+		assertEquals(QueueGenerator.AutoDj, queueGenerator(radio.copy(lastFromAutoDj = true), "q_1", null, null))
 		// Another queue's Auto DJ top-up is not this queue's.
-		assertNull(queueGenerator(null, "q_other", "q_album", false))
+		assertNull(queueGenerator(null, "q_other", "q_album", null))
 	}
 
 	@Test
 	fun aPlainQueueSaysNothingWhateverTheAutoplaySetting() {
-		assertNull(queueGenerator(null, "q_album", null, generatedMix = false))
-		assertEquals(QueueGenerator.AudioMuseMix, queueGenerator(null, "q_mix", null, generatedMix = true))
+		assertNull(queueGenerator(null, "q_album", null, generated = null))
 	}
 
 	// ---- origin: a radio keeps going, a continuation stops with autoplay ----------------------- //
@@ -378,17 +377,17 @@ class StationDriverTest {
 		// the default character ("· Balanced") that no device had chosen.
 		val bound = boundStation(null, "q_9", "st_7", { null }, "Some album")
 		assertEquals("", bound?.character)
-		val line = queueGenerator(bound, "q_9", null, generatedMix = false)
+		val line = queueGenerator(bound, "q_9", null, generated = null)
 		assertIs<QueueGenerator.Station>(line)
 		assertNull(line.character)
 		// With the frame, its character.
 		val framed = boundStation(null, "q_9", "st_7", { HubStationFrame("st_7", 5, 0, "close", false, name = "X radio") }, null)
-		assertEquals(StationCharacter.Close, (queueGenerator(framed, "q_9", null, false) as QueueGenerator.Station).character)
+		assertEquals(StationCharacter.Close, (queueGenerator(framed, "q_9", null, null) as QueueGenerator.Station).character)
 	}
 
 	@Test
 	fun aStoppedStationsLineSaysSo() {
-		assertEquals(QueueGenerator.Stopped("Cinnamon Girl radio", yourMix = false), queueGenerator(radio.copy(stopped = true), "q_1", null, false))
+		assertEquals(QueueGenerator.Stopped("Cinnamon Girl radio", yourMix = false), queueGenerator(radio.copy(stopped = true), "q_1", null, null))
 	}
 
 	@Test

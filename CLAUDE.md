@@ -620,6 +620,13 @@ Rules, each with a reason:
 - **What the queue sheet says comes from the station**, never from the autoplay setting
   (`queueGenerator`, `QueueGeneratorLine`): "Cinnamon Girl radio · Balanced", "· via Navidrome"
   for `engine: tier1`, "Auto DJ", "Nothing left that fits", "… · Off" for a stopped station.
+  A queue generated here without a station (`playMix`: a genre mix, any mix or radio without
+  the engine, a mood search, a journey) is said by the name it was saved under ("Rock",
+  "Cinnamon Girl radio", "Search: rain"), with "· via AudioMuse" only where AudioMuse chose the
+  songs: a mood search, a journey, the fingerprint and alchemy lists (`GeneratedQueue`,
+  `mixBuiltByAudioMuse`). Navidrome's similar songs and a genre's random draw are credited to
+  nobody. The mini player's AudioMuse colour follows the same credit (`wearsAudioMuseColour`).
+  It used to say "AudioMuse mix" over every one of them (`QueueGeneratorLineTest`).
 - **Preferences.** Autoplay is a Boolean (`autoplayOn`); the four-way `AutoplayMode` it replaces
   was read once as a raw int at "autoplayMode" (0 off, 1–3 on) and removed, behind
   `autoplayMigrated` (`AutoplayPrefMigrationTest`). `StationCharacter` (Close, Balanced, Explore)

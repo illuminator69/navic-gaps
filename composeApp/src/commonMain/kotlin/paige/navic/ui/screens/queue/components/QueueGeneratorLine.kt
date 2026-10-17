@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.autoplay_off
 import navic.composeapp.generated.resources.queue_auto_dj
-import navic.composeapp.generated.resources.queue_generator_audiomuse
+import navic.composeapp.generated.resources.queue_generated_via_audiomuse
 import navic.composeapp.generated.resources.queue_station_busy
 import navic.composeapp.generated.resources.queue_station_exhausted
 import navic.composeapp.generated.resources.queue_station_line
@@ -37,10 +37,14 @@ import paige.navic.domain.manager.StationCatalogue
  * What built the queue, on a line of its own under the queue's header (I-040): the station's
  * name and character ("Cinnamon Girl radio · Balanced", "Your mix · Explore"), "via Navidrome"
  * when only Navidrome answered the hub, "Auto DJ" when the fallback topped it up, and "Nothing
- * left that fits" with a one-tap Explore when the station is exhausted. Every word comes from the
- * station's answer or what topped the queue up ([QueueGenerator]), never from the autoplay
- * setting, which said "Mood Flow" over an album. The chips under the header are the control
- * (I-041); this line only says what built the queue, a stopped station as "… · Off".
+ * left that fits" with a one-tap Explore when the station is exhausted. A queue generated here
+ * without a station is said by the name it was saved under: a genre mix "Rock", a radio without
+ * the engine "Cinnamon Girl radio", and "· via AudioMuse" only where AudioMuse chose the songs
+ * ("Search: rain · via AudioMuse"); it used to say "AudioMuse mix" over a genre's random draw.
+ * Every word comes from the station's answer, what topped the queue up or what generated it
+ * ([QueueGenerator]), never from the autoplay setting, which said "Mood Flow" over an album.
+ * The chips under the header are the control (I-041); this line only says what built the
+ * queue, a stopped station as "… · Off".
  *
  * The line starts with its words (B-152: the AudioMuse-coloured dot that led it is gone, in both
  * clients). While a request is out a small spinner eases in AFTER the words, so the words never
@@ -104,7 +108,9 @@ private fun generatorText(generator: QueueGenerator?, catalogue: StationCatalogu
 		stringResource(Res.string.queue_station_line, stationName(generator.name, generator.yourMix), stringResource(Res.string.autoplay_off))
 	is QueueGenerator.Exhausted -> stringResource(Res.string.queue_station_exhausted)
 	QueueGenerator.AutoDj -> stringResource(Res.string.queue_auto_dj)
-	QueueGenerator.AudioMuseMix -> stringResource(Res.string.queue_generator_audiomuse)
+	is QueueGenerator.Generated ->
+		if (generator.audioMuse) stringResource(Res.string.queue_generated_via_audiomuse, generator.name)
+		else generator.name
 }
 
 @Composable

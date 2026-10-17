@@ -510,8 +510,9 @@ private fun BoxScope.MiniPlayerProgressBar(
 					.height(3.dp)
 			)
 		}
-		// AudioMuse mix indicator: while a similarity radio plays, the
-		// progress bar drifts through the AudioMuse logo palette
+		// AudioMuse indicator: while a station plays, or a queue whose songs AudioMuse chose
+		// (`wearsAudioMuseColour`: not a genre mix's random draw, not Navidrome's similar
+		// songs), the progress bar drifts through the AudioMuse logo palette
 		// (periwinkle → pink → orange). Both the colour and the bar's length are read in the DRAW
 		// phase: read in composition, the endless colour animation and the eased progress
 		// recomposed the mini player every frame for the whole of playback (I-041).

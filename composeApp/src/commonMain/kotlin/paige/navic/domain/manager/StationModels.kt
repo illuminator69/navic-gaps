@@ -8,6 +8,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.Mix
+import paige.navic.domain.models.mixBuiltByAudioMuse
+import paige.navic.domain.models.mixQueueName
 import paige.navic.domain.models.settings.StationCharacter
 
 /*
@@ -672,20 +675,51 @@ sealed interface QueueGenerator {
 	/** Auto DJ topped this queue up (no engine, or the hub could not be had for that top-up). */
 	data object AutoDj : QueueGenerator
 
-	/** A mix built here without the engine (the old radio, a journey, a mix). */
-	data object AudioMuseMix : QueueGenerator
+	/**
+	 * A queue generated here without a station ([GeneratedQueue]), by the name it was saved
+	 * under: a mix's own ("Rock"), "Cinnamon Girl radio", "Search: rain", a journey's. "· via
+	 * AudioMuse" follows only when [audioMuse], i.e. AudioMuse chose its songs.
+	 */
+	data class Generated(val name: String, val audioMuse: Boolean) : QueueGenerator
+}
+
+/**
+ * A queue generated here without a station (`RadioManager.playMix`): the name it is saved under
+ * and whether AudioMuse chose its songs. A radio without the engine is "<seed> radio" and
+ * Navidrome's similar songs; a Your mix without it and a journey are AudioMuse's.
+ */
+data class GeneratedQueue(val name: String, val audioMuse: Boolean) {
+	companion object {
+		/** A mix played without a station: a regenerated recipe or a preview's Play. */
+		fun ofMix(mix: Mix) = GeneratedQueue(mixQueueName(mix), mixBuiltByAudioMuse(mix))
+
+		/** A mood (CLAP) search's results, saved as "Search: …": AudioMuse's text search chose them. */
+		fun ofMoodSearch(name: String) = GeneratedQueue(name, audioMuse = true)
+	}
+}
+
+/**
+ * Whether the mini player's progress wears AudioMuse's colours: a station's queue, or a generated
+ * one whose songs AudioMuse chose. A genre mix, an artist mix or a radio without the engine
+ * (Navidrome's similar songs) does not.
+ */
+fun wearsAudioMuseColour(generator: QueueGenerator?): Boolean = when (generator) {
+	is QueueGenerator.Station, is QueueGenerator.Exhausted, is QueueGenerator.Stopped -> true
+	is QueueGenerator.Generated -> generator.audioMuse
+	QueueGenerator.AutoDj, null -> false
 }
 
 /**
  * The line for the current queue. [bound] is the station it belongs to ([boundStation]);
- * [autoDjQueueId] the queue Auto DJ last topped up; [generatedMix] whether the queue is exactly a
- * mix generated here without a station.
+ * [autoDjQueueId] the queue Auto DJ last topped up; [generated] what generated the queue here
+ * without a station, passed only while the queue on screen is exactly the songs it generated (a
+ * nameless one says nothing).
  */
 fun queueGenerator(
 	bound: StationProvenance?,
 	queueId: String?,
 	autoDjQueueId: String?,
-	generatedMix: Boolean
+	generated: GeneratedQueue?
 ): QueueGenerator? {
 	if (bound != null) {
 		if (bound.lastFromAutoDj) return QueueGenerator.AutoDj
@@ -703,7 +737,9 @@ fun queueGenerator(
 		)
 	}
 	if (queueId != null && queueId == autoDjQueueId) return QueueGenerator.AutoDj
-	if (generatedMix) return QueueGenerator.AudioMuseMix
+	if (generated != null && generated.name.isNotBlank()) {
+		return QueueGenerator.Generated(generated.name, generated.audioMuse)
+	}
 	return null
 }
 

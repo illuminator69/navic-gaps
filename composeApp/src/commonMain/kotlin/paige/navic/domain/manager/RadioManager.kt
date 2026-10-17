@@ -53,8 +53,8 @@ import kotlin.time.TimeSource
  * always was, and autoplay is [AutoDj], a port of upstream Feishin's. No path here tops a queue
  * up with whole-library random songs except Auto DJ's own last step, which is upstream's.
  *
- * [isAudioMuseMix] is true while the queue is a station's or exactly the last mix generated here:
- * the mini player's AudioMuse colour.
+ * [isAudioMuseMix] is true while the queue is a station's, or exactly the last queue generated
+ * here when AudioMuse chose its songs ([wearsAudioMuseColour]): the mini player's AudioMuse colour.
  */
 class RadioManager(
 	private val sessionManager: SessionManager,
@@ -68,8 +68,8 @@ class RadioManager(
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-	/** Ids of the last mix generated here without a station, joined. */
-	private val mixSig = MutableStateFlow<String?>(null)
+	/** The last queue generated here without a station: its song ids joined, and what it is. */
+	private val generated = MutableStateFlow<Pair<String, GeneratedQueue>?>(null)
 
 	// True when the server advertises the OpenSubsonic `sonicSimilarity` extension (i.e. the
 	// AudioMuse plugin is loaded): gates Song Journey and makes the no-hub radio and Auto DJ
@@ -128,26 +128,26 @@ class RadioManager(
 		val remote = hubManager.isRemoteActive.value
 		val queueId = if (remote) hubManager.remoteSession.value.savedQueueId
 		else mediaPlayer.localUiState.value.savedQueueId
-		val sig = mixSig.value
 		val shown = mediaPlayer.uiState.value.queue
 		return queueGenerator(
 			bound = boundNow(),
 			queueId = queueId,
 			autoDjQueueId = if (remote) null else stationManager.autoDjQueueId.value,
-			generatedMix = sig != null && shown.isNotEmpty() && queueSig(shown) == sig
+			generated = generated.value?.takeIf { shown.isNotEmpty() && queueSig(shown) == it.first }?.second
 		)
 	}
 
 	private val generatorInputs: List<Flow<Any?>> = listOf(
 		mediaPlayer.steadyState, stationManager.provenance, stationManager.autoDjQueueId,
-		hubManager.stationFrames, hubManager.isRemoteActive, mixSig, stationManager.available,
+		hubManager.stationFrames, hubManager.isRemoteActive, generated, stationManager.available,
 		hubManager.remoteSession.map { it.stationId to it.savedQueueId }.distinctUntilChanged()
 	)
 
 	/**
 	 * What built the queue on screen, for the queue sheet's line: the station's name and
-	 * character, "via Navidrome" when only Navidrome answered, Auto DJ, or nothing left that fits.
-	 * Read from the station and from what topped the queue up, never from the autoplay setting.
+	 * character, "via Navidrome" when only Navidrome answered, Auto DJ, nothing left that fits,
+	 * or a queue generated here by its own name. Read from the station, from what topped the
+	 * queue up and from what generated it, never from the autoplay setting.
 	 */
 	val queueGenerator: StateFlow<QueueGenerator?> = combine(generatorInputs) { generatorNow() }
 		.distinctUntilChanged()
@@ -157,10 +157,7 @@ class RadioManager(
 	val busy: StateFlow<Boolean> get() = stationManager.busy
 
 	val isAudioMuseMix: StateFlow<Boolean> = queueGenerator
-		.map {
-			it is QueueGenerator.Station || it is QueueGenerator.Exhausted || it is QueueGenerator.Stopped ||
-				it is QueueGenerator.AudioMuseMix
-		}
+		.map { wearsAudioMuseColour(it) }
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
 
 	/** The queue sheet's autoplay chips (I-041): which are offered and which is selected. */
@@ -358,7 +355,7 @@ class RadioManager(
 				val similar = resolveIds(
 					runCatching { fetchSimilar(song.id, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
 				).filter { it.id != song.id }
-				playMix((listOf(song) + similar).distinctBy { it.id }, SavedQueueSource.RADIO, "${song.title} radio")
+				playMix((listOf(song) + similar).distinctBy { it.id }, SavedQueueSource.RADIO, GeneratedQueue("${song.title} radio", audioMuse = false))
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start radio for ${song.id}", e)
 			}
@@ -383,7 +380,7 @@ class RadioManager(
 				val similar = resolveIds(
 					runCatching { sessionManager.fetchSimilarSongIds(albumId, RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList())
 				)
-				playMix((seeds + similar).distinctBy { it.id }, SavedQueueSource.RADIO, "$albumName radio")
+				playMix((seeds + similar).distinctBy { it.id }, SavedQueueSource.RADIO, GeneratedQueue("$albumName radio", audioMuse = false))
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start album radio for $albumId", e)
 			}
@@ -413,7 +410,7 @@ class RadioManager(
 					Logger.i("RadioManager", "no songs for artist radio $artistId")
 					return@launch
 				}
-				playMix(queue, SavedQueueSource.RADIO, "$artistName radio")
+				playMix(queue, SavedQueueSource.RADIO, GeneratedQueue("$artistName radio", audioMuse = false))
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start artist radio for $artistId", e)
 			}
@@ -432,7 +429,8 @@ class RadioManager(
 			StationPlay.Empty -> false
 			StationPlay.Unavailable -> {
 				val songs = resolveIds(audioMuseManager.fetchSonicFingerprintIds(RADIO_FALLBACK_COUNT))
-				if (songs.isNotEmpty()) playMix(songs, SavedQueueSource.RADIO, name)
+				// The Sonic Fingerprint: AudioMuse's list.
+				if (songs.isNotEmpty()) playMix(songs, SavedQueueSource.RADIO, GeneratedQueue(name, audioMuse = true))
 				songs.isNotEmpty()
 			}
 		}
@@ -475,7 +473,7 @@ class RadioManager(
 				return StationPlay.Empty
 			}
 			val name = fallbackName.ifBlank { answer.name }
-			mixSig.value = null
+			generated.value = null
 			val queueId = mediaPlayer.newQueueSessionId()
 			// Recorded BEFORE the queue is loaded, so this device's first publish of it already
 			// carries the station id (PROTOCOL §18.2) rather than unbinding the session.
@@ -562,9 +560,10 @@ class RadioManager(
 		if (queue.isEmpty()) return false
 
 		// Saved to history as a RADIO-kind queue under the mix's own name, so the
-		// Continue Listening card says which mix it was. The recipe stays the durable
-		// thing; this snapshot is just where playback resumes from.
-		playMix(queue, SavedQueueSource.RADIO, mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO) })
+		// Continue Listening card says which mix it was, and the queue's line says the same
+		// name. The recipe stays the durable thing; this snapshot is just where playback
+		// resumes from.
+		playMix(queue, SavedQueueSource.RADIO, GeneratedQueue.ofMix(mix))
 		hubManager.actTouchMix(mix.id)
 		return true
 	}
@@ -711,7 +710,7 @@ class RadioManager(
 	fun playGenerated(mix: Mix, songs: List<DomainSong>) {
 		if (songs.isEmpty()) return
 		radioStarted()
-		playMix(songs, SavedQueueSource.RADIO, mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO) })
+		playMix(songs, SavedQueueSource.RADIO, GeneratedQueue.ofMix(mix))
 		hubManager.actTouchMix(mix.id)
 	}
 
@@ -778,9 +777,10 @@ class RadioManager(
 					Logger.i("RadioManager", "no path from $fromId to $toId")
 					return@launch
 				}
+				// `findSonicPath` is the AudioMuse plugin's path between two tracks.
 				playMix(
 					queue, SavedQueueSource.JOURNEY,
-					"${queue.first().title} → ${queue.last().title}"
+					GeneratedQueue("${queue.first().title} → ${queue.last().title}", audioMuse = true)
 				)
 			} catch (e: Exception) {
 				Logger.e("RadioManager", "failed to start journey $fromId -> $toId", e)
@@ -892,31 +892,33 @@ class RadioManager(
 	 */
 	fun playMoodMix(songs: List<DomainSong>, name: String) {
 		if (songs.isEmpty()) return
-		playMix(songs, SavedQueueSource.MANUAL, name)
+		playMix(songs, SavedQueueSource.MANUAL, GeneratedQueue.ofMoodSearch(name))
 	}
 
 	/**
-	 * Play a generated mix as the queue (sets [mixSig] so the AudioMuse indicator
-	 * lights). When another device is the active receiver, hand the mix to the
-	 * session so it plays THERE (the hub forwards a do:load to the active device)
-	 * rather than starting a conflicting local playback that desyncs the session.
+	 * Play a generated queue under [what]'s name. It is recorded in [generated], so the queue's
+	 * line says that name, crediting AudioMuse only when AudioMuse chose the songs. When another
+	 * device is the active receiver, hand the mix to the session so it plays THERE (the hub
+	 * forwards a do:load to the active device) rather than starting a conflicting local playback
+	 * that desyncs the session.
 	 *
 	 * Local mixes are saved to queue history as their [kind] (radio / journey / a search) so the
 	 * saved-queues list can group them; remote mixes are the hub's session (not local history).
 	 */
 	private fun playMix(
 		songs: List<DomainSong>,
-		kind: String = SavedQueueSource.RADIO,
-		name: String? = null
+		kind: String,
+		what: GeneratedQueue
 	) {
-		mixSig.value = songs.joinToString(",") { it.id }
+		generated.value = songs.joinToString(",") { it.id } to what
+		val name = what.name.ifBlank { defaultMixName(kind) }
 		if (hubManager.isRemoteActive.value) {
 			// Tag the shared history record with what this mix IS. Without the kind/name the
 			// hub recorded remote-started mixes as anonymous "manual" queues.
 			hubManager.loadSessionQueue(
 				songs,
 				sourceKind = kind,
-				sourceName = name ?: defaultMixName(kind)
+				sourceName = name
 			)
 		} else {
 			// The LOCAL branch needs the name just as much: this path has no source collection at
@@ -926,7 +928,7 @@ class RadioManager(
 				songs, 0, 0L, true,
 				savedQueueId = mediaPlayer.newQueueSessionId(songs),
 				savedQueueKind = kind,
-				savedQueueName = name ?: defaultMixName(kind)
+				savedQueueName = name
 			)
 		}
 	}

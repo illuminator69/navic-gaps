@@ -114,3 +114,24 @@ object MixKind {
  */
 fun genreSeedNames(mix: Mix): List<String> =
 	listOf(mix.seedId, mix.seedName).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+/**
+ * The name a mix played without a station is saved under, and what the queue's line calls it:
+ * the mix's own ("Rock"), else what it is seeded from, else "Radio". Never a claim about what
+ * built it.
+ */
+fun mixQueueName(mix: Mix): String =
+	mix.name.trim().ifEmpty { mix.seedName.trim() }.ifEmpty { "Radio" }
+
+/**
+ * Whether AudioMuse chose the songs of [mix] played without a station (`RadioManager.generate`):
+ * only the lists AudioMuse makes itself, the Sonic Fingerprint (`fingerprint`, a seedless
+ * `station`) and alchemy (`adaptive`). A `genre` mix is a random draw from the library here, an
+ * `artist` mix Navidrome's similar songs, and a `similar` mix or a seeded `station` asks for
+ * AudioMuse's similar tracks first and Navidrome's after, so neither is credited to AudioMuse.
+ */
+fun mixBuiltByAudioMuse(mix: Mix): Boolean = when (mix.kind) {
+	MixKind.FINGERPRINT, MixKind.ADAPTIVE -> true
+	MixKind.STATION -> mix.seedId.isBlank()
+	else -> false
+}
