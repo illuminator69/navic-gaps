@@ -39,7 +39,8 @@ class StationDriverTest {
 		size: Int = 21,
 		index: Int = 20 - remaining,
 		timing: Int = 1,
-		elsewhere: Boolean = false
+		elsewhere: Boolean = false,
+		chipTap: Boolean = false
 	) = AutoplayLook(
 		autoplayOn = on,
 		remoteActive = remote,
@@ -52,7 +53,8 @@ class StationDriverTest {
 		bound = bound,
 		inFlight = inFlight,
 		autoDjTiming = timing,
-		elsewhereRecent = elsewhere
+		elsewhereRecent = elsewhere,
+		chipTap = chipTap
 	)
 
 	private fun answer(
@@ -110,6 +112,19 @@ class StationDriverTest {
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, repeat = 2)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, inFlight = true)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, size = 0, index = -1)))
+	}
+
+	@Test
+	fun aChipTapDecidesOnAPausedQueueToo() {
+		// S-035 (Feishin's B-144): a character picked while paused, the queue on its last song,
+		// tops it up now, not at the next play.
+		assertEquals(AutoplayStep.Next("st_1", 20), autoplayStep(look(remaining = 0, paused = true, chipTap = true)))
+		assertEquals(AutoplayStep.Start, autoplayStep(look(remaining = 1, paused = true, chipTap = true, bound = null)))
+		assertEquals(AutoplayStep.AutoDj, autoplayStep(look(remaining = 0, paused = true, chipTap = true, available = false)))
+		// Still nothing with autoplay off, repeating, or enough left.
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true, chipTap = true, on = false)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true, chipTap = true, repeat = 2)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 3, paused = true, chipTap = true)))
 	}
 
 	// ---- answers ------------------------------------------------------------------------------- //

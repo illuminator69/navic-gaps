@@ -514,7 +514,9 @@ data class AutoplayLook(
 	val inFlight: Boolean,
 	val autoDjTiming: Int,
 	/** Another device topped the bound station up in the last [STATION_ELSEWHERE_GRACE_MS]. */
-	val elsewhereRecent: Boolean = false
+	val elsewhereRecent: Boolean = false,
+	/** A chip tap asked for this look: it decides paused too (S-035, Feishin's B-144). */
+	val chipTap: Boolean = false
 )
 
 /**
@@ -528,7 +530,9 @@ data class AutoplayLook(
  */
 fun autoplayStep(look: AutoplayLook): AutoplayStep {
 	if (!look.autoplayOn || look.remoteActive || look.inFlight) return AutoplayStep.Idle
-	if (look.paused || look.repeatMode != 0) return AutoplayStep.Idle
+	// Paused waits for playback, except right after a chip: a character picked on a paused queue
+	// on its last song is a request for more now, not at the next play.
+	if ((look.paused && !look.chipTap) || look.repeatMode != 0) return AutoplayStep.Idle
 	if (look.queueSize <= 0 || look.currentIndex !in 0 until look.queueSize) return AutoplayStep.Idle
 	if (!look.stationsAvailable) {
 		return if (autoDjDue(look.remaining, look.autoDjTiming)) AutoplayStep.AutoDj else AutoplayStep.Idle

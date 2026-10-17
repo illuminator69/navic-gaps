@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -100,6 +101,9 @@ class RadioManager(
 	// Re-evaluates the autoplay driver without a player change: a retry after a partial answer,
 	// a character change, Explore.
 	private val driverKick = MutableStateFlow(0)
+
+	/** A chip asked the driver to look: that one look decides paused too ([AutoplayLook.chipTap]). */
+	private val chipLook = MutableStateFlow(false)
 
 	// Reference-cached: uiState emits ~5x/sec during playback with the same
 	// queue list instance; only recompute the signature when it changes.
@@ -225,7 +229,11 @@ class RadioManager(
 					stationManager.setBusy(false)
 				}
 			}
-			if (plan.runDecision) driverKick.update { it + 1 }
+			if (plan.runDecision) {
+				// Paused counts: the look this asks for decides whether or not the music plays.
+				chipLook.value = true
+				driverKick.update { it + 1 }
+			}
 		}
 	}
 
@@ -1008,7 +1016,8 @@ class RadioManager(
 							bound = bound,
 							inFlight = stationManager.busy.value,
 							autoDjTiming = preferenceManager.autoDjTiming,
-							elsewhereRecent = elsewhereRecent()
+							elsewhereRecent = elsewhereRecent(),
+							chipTap = chipLook.getAndUpdate { false }
 						)
 					)
 					if (step == AutoplayStep.Idle || step == AutoplayStep.Exhausted) return@collect
