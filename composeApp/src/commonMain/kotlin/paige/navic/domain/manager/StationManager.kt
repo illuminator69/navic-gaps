@@ -361,6 +361,30 @@ class StationManager(
 	}
 
 	/**
+	 * A chip's `signal` with `apply: true` (S-035): the hub changes the station and edits the
+	 * session's queue itself. Null when it could not be sent or was refused.
+	 */
+	suspend fun signalEdit(stationId: String, trackId: String, kind: String, value: String? = null): StationEditAnswer? {
+		val base = base() ?: return null
+		if (!available.value) return null
+		return try {
+			val response = client.post("$base/sonic/station/signal") {
+				auth()
+				contentType(ContentType.Application.Json)
+				setBody(json.encodeToString(StationSignalBody(stationId, trackId, kind, value, apply = true)))
+			}
+			val text = response.bodyAsText()
+			if (!response.status.isSuccess()) {
+				Logger.w(TAG, "signal $kind (apply) -> HTTP ${response.status.value}")
+				null
+			} else parseStationEditAnswer(text)
+		} catch (e: Exception) {
+			Logger.w(TAG, "signal $kind (apply) failed: ${e.message}")
+			null
+		}
+	}
+
+	/**
 	 * One request, read the way Feishin reads it (`stationFailure`): a fallback (503, a
 	 * `{fallback: true}` body, no engine, the hub disconnected) is told apart from a transient
 	 * failure (a timeout or connection error with the hub socket up, another 5xx, 429, 408), which

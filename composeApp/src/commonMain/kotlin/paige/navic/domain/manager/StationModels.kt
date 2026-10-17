@@ -1,6 +1,12 @@
 package paige.navic.domain.manager
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import paige.navic.domain.models.settings.StationCharacter
 
 /*
@@ -16,6 +22,13 @@ import paige.navic.domain.models.settings.StationCharacter
 
 /** Feature name in `welcome.features` (PROTOCOL §3.1) for a hub with the engine. */
 const val HUB_FEATURE_STATION = "station"
+
+/**
+ * Feature name for a hub that edits the session's bound station's queue itself on a `signal` with
+ * `apply: true` (S-035): it takes the station's songs out after its cut, puts a fresh batch in for a
+ * character, and tells the playing device with `queueChanged`.
+ */
+const val HUB_FEATURE_STATION_EDITS = "stationEdits"
 
 /**
  * Why a station exists (`start.origin`, echoed in every answer, the `station` frame and
@@ -158,8 +171,45 @@ internal data class StationSignalBody(
 	val stationId: String,
 	val trackId: String,
 	val kind: String,
-	val value: String? = null
+	val value: String? = null,
+	/** Sent only when true (`encodeDefaults = false`): the hub edits the queue (S-035). */
+	val apply: Boolean = false
 )
+
+/** What the hub did with a `signal` sent with `apply: true` (S-035). */
+data class StationEditAnswer(
+	val applied: Boolean,
+	/** The edit, or null for `edited: false` (nothing done to the queue; [reason] may say why). */
+	val edited: StationEdit?,
+	val reason: String?
+)
+
+/** `edited: {removed, added, from}`: how many rows went, how many came, from which index. */
+data class StationEdit(val removed: Int, val added: Int, val from: Int?)
+
+/**
+ * Read a `signal` answer `{rev, applied, edited: {removed, added, from} | false, reason?}`. A count
+ * may come as a number or as the list of ids; null when the body is not an answer at all.
+ */
+fun parseStationEditAnswer(text: String): StationEditAnswer? {
+	val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull()
+		as? JsonObject ?: return null
+	fun count(element: JsonElement?): Int = when (element) {
+		is JsonArray -> element.size
+		is JsonPrimitive -> element.content.toIntOrNull() ?: 0
+		else -> 0
+	}
+	val edited = (obj["edited"] as? JsonObject)?.let { e ->
+		StationEdit(
+			removed = count(e["removed"]),
+			added = count(e["added"]),
+			from = (e["from"] as? JsonPrimitive)?.content?.toIntOrNull()
+		)
+	}
+	val applied = (obj["applied"] as? JsonPrimitive)?.content == "true"
+	val reason = (obj["reason"] as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
+	return StationEditAnswer(applied = applied, edited = edited, reason = reason)
+}
 
 /** A refusal's body: `{code, stationId}` for 4xx, `{fallback: true}` for 503. */
 @Serializable

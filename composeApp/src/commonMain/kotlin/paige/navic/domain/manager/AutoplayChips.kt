@@ -14,11 +14,14 @@ import paige.navic.domain.models.settings.StationCharacter
  *   still to come are taken out. Nothing more is added while Off.
  * - A character: autoplay on with that character; a bound station that is stopped or on another
  *   character is told so, and the songs it added that are still to come are swapped for a fresh
- *   batch at once. Then the top-up decision runs at once, not at the next track change.
- * - The cut is the hub's ([STATION_EDIT_KEEP_NEXT_MS]): from the song after the playing one, or
- *   from the one after that with under 20 s left of the playing song.
+ *   batch at once. Then the top-up decision runs at once, not at the next track change, playing or
+ *   paused.
+ * - Who edits (S-035): with the hub's `stationEdits` and the queue being the session's bound station
+ *   ([chipEditsOnHub]), the HUB edits it (`signal` with `apply: true`) and the result reaches every
+ *   device as a queue change; this device sends the signal and nothing else. Otherwise this device
+ *   edits, by the hub's own cut ([STATION_EDIT_KEEP_NEXT_MS]).
  *
- * Never the playing song, the next one only with 20 s or more left of it, never a reload.
+ * Never the playing song, the next one only with under 20 s left of it, never a reload.
  */
 
 /** One chip. [character] for the three character chips. */
@@ -72,39 +75,68 @@ data class ChipTapPlan(
 	val removeTail: Boolean,
 	/** Swap the bound station's unplayed songs after the next one for a fresh `next` batch. */
 	val replaceTail: Boolean,
-	/** Run the top-up decision at once. */
-	val runDecision: Boolean
+	/** Run the top-up decision at once (paused or not). */
+	val runDecision: Boolean,
+	/**
+	 * The signal goes with `apply: true` and the hub edits the queue (S-035): no removes, no
+	 * `next`, no decision here for this tap. The hub's answer or its queue change is the result.
+	 */
+	val applyOnHub: Boolean = false
 )
 
-fun planChipTap(chip: AutoplayChip, bound: StationProvenance?): ChipTapPlan = when (chip) {
-	AutoplayChip.Off -> ChipTapPlan(
-		autoplayOn = false,
-		character = null,
-		stopStation = bound != null && !bound.stopped,
-		signalCharacter = null,
-		removeTail = bound != null,
-		replaceTail = false,
-		runDecision = false
-	)
+/**
+ * Whether the hub edits the queue for a chip (S-035): it offers `stationEdits`, and the queue is
+ * the session's own, bound to the station the chip acts on: this device playing it, or this
+ * device controlling the one that does ([queueId] is then the session's). A station the hub
+ * declined to bind (`unbound`) is this device's to edit.
+ */
+fun chipEditsOnHub(
+	stationEdits: Boolean,
+	bound: StationProvenance?,
+	sessionStationId: String?,
+	sessionQueueId: String?,
+	queueId: String?
+): Boolean =
+	stationEdits && bound != null && !bound.unbound && sessionStationId != null &&
+		bound.stationId == sessionStationId && queueId != null && queueId == sessionQueueId
 
-	AutoplayChip.AutoDj -> ChipTapPlan(
-		autoplayOn = true, character = null, stopStation = false, signalCharacter = null,
-		removeTail = false, replaceTail = false, runDecision = true
-	)
-
-	else -> {
-		val character = chip.character!!
-		val steer = bound != null && (bound.stopped || bound.character != character.wireId)
-		ChipTapPlan(
-			autoplayOn = true,
-			character = character,
-			stopStation = false,
-			signalCharacter = if (steer) character else null,
-			removeTail = false,
-			// A stopped station's songs went when it was stopped: there is nothing to swap.
-			replaceTail = steer && !bound.stopped,
-			runDecision = true
+fun planChipTap(chip: AutoplayChip, bound: StationProvenance?, onHub: Boolean = false): ChipTapPlan {
+	val hub = onHub && bound != null
+	return when (chip) {
+		AutoplayChip.Off -> ChipTapPlan(
+			autoplayOn = false,
+			character = null,
+			// The hub's edit rides the stop, so it is sent again for a station already stopped: its
+			// songs still to come go either way.
+			stopStation = bound != null && (hub || !bound.stopped),
+			signalCharacter = null,
+			removeTail = bound != null && !hub,
+			replaceTail = false,
+			runDecision = false,
+			applyOnHub = hub
 		)
+
+		AutoplayChip.AutoDj -> ChipTapPlan(
+			autoplayOn = true, character = null, stopStation = false, signalCharacter = null,
+			removeTail = false, replaceTail = false, runDecision = true
+		)
+
+		else -> {
+			val character = chip.character!!
+			val steer = bound != null && (bound.stopped || bound.character != character.wireId)
+			ChipTapPlan(
+				autoplayOn = true,
+				character = character,
+				stopStation = false,
+				signalCharacter = if (steer) character else null,
+				removeTail = false,
+				// A stopped station's songs went when it was stopped: there is nothing to swap.
+				replaceTail = steer && !bound.stopped && !hub,
+				// The hub's edit puts a fresh batch in itself (where the old songs were, or at the end).
+				runDecision = !(steer && hub),
+				applyOnHub = steer && hub
+			)
+		}
 	}
 }
 

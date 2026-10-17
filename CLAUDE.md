@@ -34,7 +34,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Area | Entry points |
 |---|---|
 | Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7), and what this device is and its media volume from `HubLocalDevice` (§4) |
-| Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
+| Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt`, `shared/AroundPlayingEdit.kt` (a hub `queueChanged` applied around the playing song, `AroundPlayingEditTest`) |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | Radio and autoplay (stations, I-040) | `domain/manager/RadioManager.kt` (entry points, the autoplay driver, likes, mixes), `domain/manager/StationManager.kt` (the hub's `/sonic/station/...`, availability, the persisted record of what built the queue), `domain/manager/StationModels.kt` (wire shapes and every rule the driver and the queue sheet apply, `StationDriverTest`), `domain/manager/AutoDj.kt` (the no-hub fallback, a port of upstream Feishin's, `AutoDjPlannerTest`), `domain/manager/AutoplayChips.kt` (the queue's autoplay chips, `AutoplayChipsTest`), `domain/models/settings/StationCharacter.kt`, the chip row and `ui/screens/queue/components/QueueGeneratorLine.kt` in the queue sheet (§4) |
 | AudioMuse-AI | `domain/manager/AudioMuseManager.kt` (CLAP mood search; the fingerprint and alchemy lists the old mix kinds play from without the station engine) |
@@ -559,17 +559,30 @@ Rules, each with a reason:
   `station-chips.ts` is the twin). The selected chip is a bound station's own state (Off iff it is
   `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
   bound station (the hub then answers `next` with no tracks and `stopped`, for every device, and
-  says `stopped` in its frames), and the songs that station added that come after the NEXT one in
-  play order are taken out. **A character**: autoplay on with it; a bound station that is stopped
-  or on another character gets `signal character`, its songs after the next one are swapped for a
-  fresh `next` batch at once, and the top-up decision runs at once. Starting any radio turns
-  autoplay back on. Which songs are the station's is `StationProvenance.served` (what this device
-  saw it add); a song the user put in is never taken. The edits are in place and never a reload:
-  locally `MediaPlayerViewModel.editUpcoming` (media-item removes and adds inside
-  `withQueueMutation`, never the playing item or the next one, which may be decoding); as a
-  controller, `remove` acts highest index first and one `enqueue`, never a `setQueue` (a `load` on
-  the playing device). Chip work and the driver's top-ups share one lock (`stationOps`). The old
-  now-playing switch and character button are gone, and `ControlsRow` is upstream's again.
+  says `stopped` in its frames), and the songs that station added that are still to come are taken
+  out. **A character**: autoplay on with it; a bound station that is stopped or on another
+  character gets `signal character`, its songs still to come are swapped for a fresh batch at once,
+  and the top-up decision runs at once, **paused or not** (`AutoplayLook.chipTap`; Feishin's
+  B-144). Starting any radio turns autoplay back on.
+  **Who edits (S-035).** With `stationEdits` in `welcome.features` and the queue being the
+  session's bound station (`chipEditsOnHub`: this device playing it, or controlling the device
+  that does), the tap is ONE request, `signal {kind, value?, apply: true}`, and the hub edits the
+  queue: it reaches the playing device as `queueChanged` and every other device in the session
+  broadcast. Before that each device edited only the songs it had fetched itself, and the playing
+  device did nothing about another device's tap (B-143). Otherwise (an unbound station, an older
+  hub) this device edits, by the hub's own cut: from the song after the playing one, or from the
+  one after that with under 20 s left of the playing song (`chipEditKeepsNext`), when the next may
+  already be loading for a gapless start. The next song used to be kept always, so a radio's second
+  song outlived every chip (B-145). Which songs are the station's is then `StationProvenance.served`
+  (what this device saw it add); a song the user put in is never taken. The edits are in place and
+  never a reload: locally `MediaPlayerViewModel.editUpcoming` (media-item removes and adds inside
+  `withQueueMutation`, never the playing item); as a controller, `remove` acts highest index first
+  and one `enqueue`, never a `setQueue` (a `load` on the playing device). A `queueChanged` is
+  applied the same way (`aroundPlayingEdit`): only the run that changed, around the playing item,
+  so a cut that keeps the next song leaves its media item alone; its queue's signature is the one
+  the publisher already holds, so this device does not republish it. Chip work and the driver's
+  top-ups share one lock (`stationOps`). The old now-playing switch and character button are gone,
+  and `ControlsRow` is upstream's again.
 - **A top-up's songs are in before the driver looks again** (`appendToQueueAndWait`): an append
   still on its way read as "fewer than two left", and a continuation's `start` was followed at once
   by a `next`, ten songs for one top-up (watched on the VM, 2026-10-17). The trigger key also names

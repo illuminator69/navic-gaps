@@ -193,13 +193,21 @@ class RadioManager(
 	 */
 	fun onChipTap(chip: AutoplayChip) {
 		val bound = boundNow()
-		val plan = planChipTap(chip, bound)
+		val remote = hubManager.isRemoteActive.value
+		val session = hubManager.remoteSession.value
+		val onHub = chipEditsOnHub(
+			stationEdits = hubManager.hubOffers(HUB_FEATURE_STATION_EDITS),
+			bound = bound,
+			sessionStationId = session.stationId,
+			sessionQueueId = session.savedQueueId,
+			queueId = if (remote) session.savedQueueId else mediaPlayer.localUiState.value.savedQueueId
+		)
+		val plan = planChipTap(chip, bound, onHub)
 		setAutoplayOn(plan.autoplayOn)
 		plan.character?.let {
 			preferenceManager.stationCharacter = it
 			_character.value = it
 		}
-		val remote = hubManager.isRemoteActive.value
 		// What this device keeps about the bound station says it at once, so the selected chip and
 		// the queue line follow the tap before the hub's frame does.
 		val keep = bound?.takeIf { !remote || stationManager.provenance.value?.stationId == it.stationId }
@@ -214,7 +222,13 @@ class RadioManager(
 			stationOps.withLock {
 				stationManager.setBusy(true)
 				try {
-					if (bound != null) {
+					if (bound != null && plan.applyOnHub) {
+						// The hub edits the session's queue and tells the playing device (S-035):
+						// the signal is the whole of this tap here.
+						val kind = if (plan.stopStation) "stop" else "character"
+						val answer = stationManager.signalEdit(bound.stationId, trackId, kind, plan.signalCharacter?.wireId)
+						Logger.i("RadioManager", "chip $chip: hub edit ${answer?.edited ?: "none"} ${answer?.reason.orEmpty()}")
+					} else if (bound != null) {
 						if (plan.stopStation) stationManager.signal(bound.stationId, trackId, "stop")
 						plan.signalCharacter?.let {
 							stationManager.signal(bound.stationId, trackId, "character", it.wireId)

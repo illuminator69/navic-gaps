@@ -145,4 +145,82 @@ class AutoplayChipsTest {
 		// Not known (no duration): edited like any other.
 		assertFalse(chipEditKeepsNext(null))
 	}
+
+	@Test
+	fun theHubEditsTheSessionsBoundStationPlayingOrControlling() {
+		// Playing it: this device's queue is the session's.
+		assertTrue(chipEditsOnHub(true, radio, sessionStationId = "st_1", sessionQueueId = "q_1", queueId = "q_1"))
+		// Controlling the device that plays it: the queue is the session's by definition.
+		assertTrue(chipEditsOnHub(true, radio.copy(queueId = "q_9"), "st_1", "q_9", queueId = "q_9"))
+		// A hub without `stationEdits`, another station in the session, a station the hub would
+		// not bind, a local queue that is not the session's, no station: this device edits.
+		assertFalse(chipEditsOnHub(false, radio, "st_1", "q_1", "q_1"))
+		assertFalse(chipEditsOnHub(true, radio, "st_2", "q_1", "q_1"))
+		assertFalse(chipEditsOnHub(true, radio, null, "q_1", "q_1"))
+		assertFalse(chipEditsOnHub(true, radio.copy(unbound = true), "st_1", "q_1", "q_1"))
+		assertFalse(chipEditsOnHub(true, radio, "st_1", "q_1", "q_local"))
+		assertFalse(chipEditsOnHub(true, null, "st_1", "q_1", "q_1"))
+	}
+
+	@Test
+	fun withHubEditsACharacterTapIsTheSignalAlone() {
+		val plan = planChipTap(AutoplayChip.Explore, radio, onHub = true)
+		assertTrue(plan.applyOnHub)
+		assertEquals(StationCharacter.Explore, plan.signalCharacter)
+		assertFalse(plan.replaceTail)
+		assertFalse(plan.removeTail)
+		// The hub puts the fresh batch in itself: no top-up here for this tap.
+		assertFalse(plan.runDecision)
+		// The same character changes nothing on the hub: the switch, then the usual decision.
+		val same = planChipTap(AutoplayChip.Balanced, radio, onHub = true)
+		assertFalse(same.applyOnHub)
+		assertNull(same.signalCharacter)
+		assertTrue(same.runDecision)
+		// From a stopped station: the signal with apply starts it again and fills the queue.
+		val restart = planChipTap(AutoplayChip.Close, radio.copy(stopped = true), onHub = true)
+		assertTrue(restart.applyOnHub)
+		assertEquals(StationCharacter.Close, restart.signalCharacter)
+		assertFalse(restart.runDecision)
+	}
+
+	@Test
+	fun withHubEditsOffIsTheStopSignalAlone() {
+		val plan = planChipTap(AutoplayChip.Off, radio, onHub = true)
+		assertTrue(plan.applyOnHub)
+		assertTrue(plan.stopStation)
+		assertFalse(plan.removeTail)
+		assertFalse(plan.runDecision)
+		// Sent again for a station already stopped elsewhere: the hub's edit rides it.
+		val again = planChipTap(AutoplayChip.Off, radio.copy(stopped = true), onHub = true)
+		assertTrue(again.stopStation)
+		assertTrue(again.applyOnHub)
+		assertFalse(again.removeTail)
+		// No station: nothing for the hub to edit.
+		assertFalse(planChipTap(AutoplayChip.Off, null, onHub = true).applyOnHub)
+	}
+
+	@Test
+	fun withoutHubEditsTheClientEditsAsBefore() {
+		val plan = planChipTap(AutoplayChip.Explore, radio, onHub = false)
+		assertFalse(plan.applyOnHub)
+		assertTrue(plan.replaceTail)
+		assertTrue(plan.runDecision)
+		val off = planChipTap(AutoplayChip.Off, radio, onHub = false)
+		assertFalse(off.applyOnHub)
+		assertTrue(off.removeTail)
+	}
+
+	@Test
+	fun aSignalAnswerIsReadWhateverShapeItsCountsTake() {
+		val edited = parseStationEditAnswer("""{"rev":4,"applied":true,"edited":{"removed":5,"added":5,"from":10}}""")
+		assertEquals(StationEdit(5, 5, 10), edited?.edited)
+		assertTrue(edited?.applied == true)
+		val asLists = parseStationEditAnswer("""{"applied":true,"edited":{"removed":["a","b"],"added":["c"],"from":3}}""")
+		assertEquals(StationEdit(2, 1, 3), asLists?.edited)
+		val refused = parseStationEditAnswer("""{"rev":4,"applied":true,"edited":false,"reason":"transfer"}""")
+		assertNull(refused?.edited)
+		assertEquals("transfer", refused?.reason)
+		assertNull(parseStationEditAnswer("""{"edited":false,"reason":null}""")?.reason)
+		assertNull(parseStationEditAnswer("not json"))
+	}
 }

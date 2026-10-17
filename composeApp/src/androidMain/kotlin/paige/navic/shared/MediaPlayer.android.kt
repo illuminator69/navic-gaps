@@ -1802,23 +1802,43 @@ class AndroidMediaPlayerViewModel(
 			}
 
 			val currentIndex = player.currentMediaItemIndex
+			val oldIds = _uiState.value.queue.map { it.id }
+			// Only what changed, around the playing item (S-035): the hub's station edit replaces
+			// the songs after a cut, and with under 20 s left that cut keeps the next song, which
+			// may already be loading for a gapless start. Exact only while the player and the
+			// queue agree; otherwise the whole tail and head are rebuilt, the playing item still
+			// left alone.
+			val edit = if (player.mediaItemCount == oldIds.size && currentIndex == _uiState.value.currentIndex)
+				aroundPlayingEdit(oldIds, currentIndex, songs.map { it.id }, index)
+			else null
 
-			// Rebuild the tail, then the head, leaving the playing item alone. Guarded for the
-			// same reason as removeFromQueue: each of these four calls flushes its listeners
-			// inline, so mid-rebuild the player and _uiState.queue disagree and anything derived
-			// from the pair (current song, replay gain, collection) would be read off nonsense.
+			// Guarded for the same reason as removeFromQueue: each of these calls flushes its
+			// listeners inline, so mid-rebuild the player and _uiState.queue disagree and anything
+			// derived from the pair (current song, replay gain, collection) would be read off
+			// nonsense.
 			withQueueMutation {
-				if (player.mediaItemCount > currentIndex + 1) {
-					player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
-				}
-				if (index + 1 < items.size) {
-					player.addMediaItems(items.subList(index + 1, items.size))
-				}
-				if (currentIndex > 0) {
-					player.removeMediaItems(0, currentIndex)
-				}
-				if (index > 0) {
-					player.addMediaItems(0, items.subList(0, index))
+				if (edit != null) {
+					if (edit.tailRemove > 0) player.removeMediaItems(edit.tailAt, edit.tailAt + edit.tailRemove)
+					if (!edit.tailInsert.isEmpty()) {
+						player.addMediaItems(edit.tailAt, items.subList(edit.tailInsert.first, edit.tailInsert.last + 1))
+					}
+					if (edit.headRemove > 0) player.removeMediaItems(edit.headAt, edit.headAt + edit.headRemove)
+					if (!edit.headInsert.isEmpty()) {
+						player.addMediaItems(edit.headAt, items.subList(edit.headInsert.first, edit.headInsert.last + 1))
+					}
+				} else {
+					if (player.mediaItemCount > currentIndex + 1) {
+						player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
+					}
+					if (index + 1 < items.size) {
+						player.addMediaItems(items.subList(index + 1, items.size))
+					}
+					if (currentIndex > 0) {
+						player.removeMediaItems(0, currentIndex)
+					}
+					if (index > 0) {
+						player.addMediaItems(0, items.subList(0, index))
+					}
 				}
 
 				_uiState.update {
