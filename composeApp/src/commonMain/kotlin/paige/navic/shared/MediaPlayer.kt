@@ -653,13 +653,20 @@ abstract class MediaPlayerViewModel(
 
 	/**
 	 * An in-place edit of what is still to come in the LOCAL queue (the autoplay chips, I-041):
-	 * take out [removeIndices] (queue indices; the playing song and the one after it in play order
-	 * are never touched, whatever is asked) and put [songs] in at [insertAt] (an index in the queue
-	 * as it is after the removals; null for the end, and never before the song after the playing
-	 * one). Media-item removes and adds only: nothing is reloaded, so the music does not stop.
+	 * take out [removeIndices] (queue indices; the playing song is never touched, whatever is asked,
+	 * and with [keepNext] neither is the one after it in play order) and put [songs] in at
+	 * [insertAt] (an index in the queue as it is after the removals; null for the end, and never
+	 * before the playing song, or before the next one with [keepNext]). Media-item removes and adds
+	 * only: nothing is reloaded, so the music does not stop. [keepNext] is the hub's cut (S-035):
+	 * under 20 s left of the playing song its next one may already be loading for a gapless start.
 	 * Returns once [localUiState] shows it; false where there is nothing to edit.
 	 */
-	open suspend fun editUpcoming(removeIndices: List<Int>, songs: List<DomainSong>, insertAt: Int? = null): Boolean = false
+	open suspend fun editUpcoming(
+		removeIndices: List<Int>,
+		songs: List<DomainSong>,
+		insertAt: Int? = null,
+		keepNext: Boolean = false
+	): Boolean = false
 
 	/** Playable right now: either the server is reachable or the song is downloaded. */
 	protected fun isAvailable(songId: String): Boolean {

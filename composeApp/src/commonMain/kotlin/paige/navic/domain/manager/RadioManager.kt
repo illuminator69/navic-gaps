@@ -32,6 +32,7 @@ import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.Logger
+import kotlin.time.Clock
 import kotlin.time.TimeSource
 
 /**
@@ -228,44 +229,59 @@ class RadioManager(
 		}
 	}
 
-	/** The bound station's songs after the next one, in this queue: queue ids, play order, playing index. */
-	private fun upcomingOf(remote: Boolean): Triple<List<String>, List<Int>?, Int> =
+	/** The queue as the chip edits see it: queue ids, play order, playing index, ms left of the playing song. */
+	private data class Upcoming(val ids: List<String>, val order: List<Int>?, val current: Int, val remainingMs: Long?)
+
+	private fun upcomingOf(remote: Boolean): Upcoming =
 		if (remote) {
 			val session = hubManager.remoteSession.value
-			Triple(session.tracks.map { it.id }, session.order, session.index)
+			val playing = session.tracks.getOrNull(session.index)
+			val position = session.positionMs +
+				if (session.isPlaying) (Clock.System.now().toEpochMilliseconds() - session.positionAtMs).coerceAtLeast(0) else 0L
+			Upcoming(
+				session.tracks.map { it.id }, session.order, session.index,
+				playing?.durationMs?.takeIf { it > 0 }?.let { it - position }
+			)
 		} else {
 			val state = mediaPlayer.localUiState.value
-			Triple(state.queue.map { it.id }, mediaPlayer.playOrder.value, state.currentIndex)
+			Upcoming(
+				state.queue.map { it.id }, mediaPlayer.playOrder.value, state.currentIndex,
+				state.currentSong?.duration?.inWholeMilliseconds?.takeIf { it > 0 }
+					?.let { (it * (1f - state.progress.coerceIn(0f, 1f))).toLong() }
+			)
 		}
 
-	/** Off: take out what [bound] added after the next song. Locally an in-place edit; remotely `remove` acts. */
+	/** Off: take out what [bound] added that is still to come. Locally an in-place edit; remotely `remove` acts. */
 	private suspend fun removeStationTail(bound: StationProvenance) {
 		val remote = hubManager.isRemoteActive.value
-		val (ids, order, current) = upcomingOf(remote)
-		val tail = stationTailIndices(ids, order, current, bound.served)
+		val up = upcomingOf(remote)
+		val keepNext = chipEditKeepsNext(up.remainingMs)
+		val tail = stationTailIndices(up.ids, up.order, up.current, bound.served, keepNext)
 		if (tail.isEmpty()) return
 		if (remote) {
 			// Highest first, so each index still names the song it was computed for. Never a
 			// `setQueue`: on the playing device that is a load, a gap in the music.
 			tail.forEach { hubManager.actRemoveQueueItem(it) }
 		} else {
-			mediaPlayer.editUpcoming(tail, emptyList())
+			mediaPlayer.editUpcoming(tail, emptyList(), keepNext = keepNext)
 		}
-		val removed = tail.map { ids[it] }.toSet()
+		val removed = tail.map { up.ids[it] }.toSet()
 		stationManager.provenance.value?.takeIf { it.stationId == bound.stationId }?.let { mine ->
 			stationManager.record(mine.copy(served = mine.served.filterNot { it in removed }))
 		}
 	}
 
 	/**
-	 * A character chip on a bound station: swap what it added after the next song for a fresh
-	 * batch now, in the new character, rather than at the next top-up. The answer arrives first;
-	 * with nothing in it the old songs stay.
+	 * A character chip on a bound station this device edits: swap what it added that is still to
+	 * come for a fresh batch now, in the new character, rather than at the next top-up. The answer
+	 * arrives first; with nothing in it the old songs stay.
 	 */
 	private suspend fun replaceStationTail(bound: StationProvenance) {
 		val remote = hubManager.isRemoteActive.value
-		val (ids, order, current) = upcomingOf(remote)
-		val tail = stationTailIndices(ids, order, current, bound.served)
+		val up = upcomingOf(remote)
+		val keepNext = chipEditKeepsNext(up.remainingMs)
+		val ids = up.ids
+		val tail = stationTailIndices(ids, up.order, up.current, bound.served, keepNext)
 		if (tail.isEmpty()) return
 		val result = stationManager.next(bound.stationId, bound.seq, STATION_BATCH, ids)
 		val answer = (result as? StationResult.Ok)?.answer ?: run {
@@ -289,7 +305,7 @@ class RadioManager(
 			hubManager.enqueueSessionQueue(songs)
 		} else {
 			// Where the first of them stood: the removals are all after it, so it is the same index.
-			mediaPlayer.editUpcoming(tail, songs, insertAt = tail.min())
+			mediaPlayer.editUpcoming(tail, songs, insertAt = tail.min(), keepNext = keepNext)
 		}
 		stationManager.record(batch.provenance.copy(served = batch.provenance.served.filterNot { it in removed }))
 	}

@@ -11,12 +11,14 @@ import paige.navic.domain.models.settings.StationCharacter
  *   character; otherwise the preference (Off when autoplay is off, else the preferred character, or
  *   Auto DJ without the engine).
  * - Off: autoplay off; a bound station is stopped for every device, and the songs it added that are
- *   still to come after the next one are taken out. Nothing more is added while Off.
+ *   still to come are taken out. Nothing more is added while Off.
  * - A character: autoplay on with that character; a bound station that is stopped or on another
- *   character is told so, and the songs it added after the next one are swapped for a fresh batch
- *   at once. Then the top-up decision runs at once, not at the next track change.
+ *   character is told so, and the songs it added that are still to come are swapped for a fresh
+ *   batch at once. Then the top-up decision runs at once, not at the next track change.
+ * - The cut is the hub's ([STATION_EDIT_KEEP_NEXT_MS]): from the song after the playing one, or
+ *   from the one after that with under 20 s left of the playing song.
  *
- * Never the playing song, never the one after it (it may already be decoding), never a reload.
+ * Never the playing song, the next one only with 20 s or more left of it, never a reload.
  */
 
 /** One chip. [character] for the three character chips. */
@@ -107,23 +109,37 @@ fun planChipTap(chip: AutoplayChip, bound: StationProvenance?): ChipTapPlan = wh
 }
 
 /**
- * The queue indices a chip may take out: songs the bound station added ([served]) that come after
- * the NEXT one in play order ([order], the shuffle order, or null for queue order). Highest index
- * first, so they can be removed one by one without shifting the rest. Never the playing song and
- * never the next one; never a song the user put in.
+ * How long the playing song must still have to run for its next one to be edited, the hub's own
+ * cut (S-035): with less, the next song may already be loading or decoding for a gapless start, and
+ * it stays.
+ */
+const val STATION_EDIT_KEEP_NEXT_MS = 20_000L
+
+/** Whether a chip's edit keeps the next song: under [STATION_EDIT_KEEP_NEXT_MS] left of the playing one. */
+fun chipEditKeepsNext(remainingMs: Long?): Boolean = remainingMs != null && remainingMs < STATION_EDIT_KEEP_NEXT_MS
+
+/**
+ * The queue indices a chip may take out when this device edits: songs the bound station added
+ * ([served]) still to come in play order ([order], the shuffle order, or null for queue order),
+ * from the one after the playing song, or from the one after that when [keepNext]
+ * ([chipEditKeepsNext]). Highest index first, so they can be removed one by one without shifting
+ * the rest. Never the playing song; never a song the user put in.
+ *
+ * B-145: the next song was always kept, so the radio's second song outlived every chip.
  */
 fun stationTailIndices(
 	queueIds: List<String>,
 	order: List<Int>?,
 	currentIndex: Int,
-	served: Collection<String>
+	served: Collection<String>,
+	keepNext: Boolean = false
 ): List<Int> {
 	if (currentIndex !in queueIds.indices || served.isEmpty()) return emptyList()
 	val sequence = if (order != null && order.size == queueIds.size && currentIndex in order) order
 	else queueIds.indices.toList()
 	val at = sequence.indexOf(currentIndex)
 	val servedSet = served.toHashSet()
-	return sequence.drop(at + 2)
+	return sequence.drop(at + if (keepNext) 2 else 1)
 		.filter { queueIds[it] in servedSet }
 		.sortedDescending()
 }

@@ -1997,15 +1997,17 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override suspend fun editUpcoming(removeIndices: List<Int>, songs: List<DomainSong>, insertAt: Int?): Boolean {
+	override suspend fun editUpcoming(removeIndices: List<Int>, songs: List<DomainSong>, insertAt: Int?, keepNext: Boolean): Boolean {
 		val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 		return withContext(Dispatchers.Main.immediate) {
 			val state = _uiState.value
 			val current = state.currentIndex
 			if (current !in state.queue.indices) return@withContext false
-			// The song after the playing one, in play order: it may already be decoding (gapless,
-			// audio offload), so it is never removed and nothing goes in before it.
-			val next = controller?.let { c ->
+			// The song after the playing one, in play order: near the end of the playing song it
+			// may already be loading for a gapless start (audio offload: decoding), so with
+			// [keepNext] it is not removed and nothing goes in before it.
+			// Without it the protected one is the playing song alone (`next` is then `current`).
+			val next = if (!keepNext) current else controller?.let { c ->
 				val timeline = c.currentTimeline
 				if (timeline.isEmpty) null
 				else timeline.getNextWindowIndex(current, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)

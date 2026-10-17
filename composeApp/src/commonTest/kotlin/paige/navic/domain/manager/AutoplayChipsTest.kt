@@ -112,13 +112,17 @@ class AutoplayChipsTest {
 	}
 
 	@Test
-	fun theTailIsTheStationsSongsAfterTheNextOneHighestFirst() {
-		// Playing u0 (index 1); next is s1 (index 2), never touched; u1 is the user's.
+	fun theTailIsTheStationsSongsStillToComeHighestFirst() {
+		// Playing u0 (index 1); next is s1 (index 2); u1 is the user's.
 		val ids = listOf("old", "u0", "s1", "s2", "u1", "s3", "s4")
-		assertEquals(listOf(6, 5, 3), stationTailIndices(ids, order = null, currentIndex = 1, served = radio.served))
-		// On the last song or the one before it there is nothing after the next one.
-		assertTrue(stationTailIndices(ids, null, currentIndex = 5, served = radio.served).isEmpty())
+		// B-145: the next song goes too, so the radio's second song does not outlive the chip.
+		assertEquals(listOf(6, 5, 3, 2), stationTailIndices(ids, order = null, currentIndex = 1, served = radio.served))
+		// Under 20 s left of the playing song: the next one may be loading, and stays.
+		assertEquals(listOf(6, 5, 3), stationTailIndices(ids, null, currentIndex = 1, served = radio.served, keepNext = true))
+		// On the last song there is nothing to come; on the one before it, only the next one.
 		assertTrue(stationTailIndices(ids, null, currentIndex = 6, served = radio.served).isEmpty())
+		assertEquals(listOf(6), stationTailIndices(ids, null, currentIndex = 5, served = radio.served))
+		assertTrue(stationTailIndices(ids, null, currentIndex = 5, served = radio.served, keepNext = true).isEmpty())
 		// Nothing served, nothing taken.
 		assertTrue(stationTailIndices(ids, null, 1, emptyList()).isEmpty())
 	}
@@ -128,8 +132,17 @@ class AutoplayChipsTest {
 		val ids = listOf("s1", "u0", "s2", "s3", "s4")
 		// Play order: u0 (playing), s4 (next), s1, s3, s2.
 		val order = listOf(1, 4, 0, 3, 2)
-		assertEquals(listOf(3, 2, 0), stationTailIndices(ids, order, currentIndex = 1, served = radio.served))
-		// s4 is next in play order and stays, although it is last in the queue.
-		assertFalse(4 in stationTailIndices(ids, order, 1, radio.served))
+		assertEquals(listOf(4, 3, 2, 0), stationTailIndices(ids, order, currentIndex = 1, served = radio.served))
+		// Kept with under 20 s left: s4 is next in play order, although it is last in the queue.
+		assertEquals(listOf(3, 2, 0), stationTailIndices(ids, order, currentIndex = 1, served = radio.served, keepNext = true))
+	}
+
+	@Test
+	fun theNextSongIsKeptOnlyWithUnder20SecondsLeft() {
+		assertTrue(chipEditKeepsNext(19_999))
+		assertFalse(chipEditKeepsNext(20_000))
+		assertFalse(chipEditKeepsNext(180_000))
+		// Not known (no duration): edited like any other.
+		assertFalse(chipEditKeepsNext(null))
 	}
 }
