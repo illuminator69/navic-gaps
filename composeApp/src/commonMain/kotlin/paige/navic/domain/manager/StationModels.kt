@@ -373,6 +373,43 @@ fun stationBatch(
 	return StationBatch(applied, ids, retrySoon = ids.isEmpty() && !answer.exhausted && !answer.stopped)
 }
 
+/** What brings back a station the hub lost ([stationRestart]). */
+data class StationRestart(
+	val seed: StationSeed,
+	val character: StationCharacter?,
+	val origin: String
+)
+
+/**
+ * The `start` that brings back a station the hub lost: a `next` answered 404 (expired, or a hub
+ * that forgot it). It is the same station picking up again, so it keeps its character and its
+ * name, and its own seed when this device knows it.
+ *
+ * B-139: a station another device started and this one continued has no seed here (frames carry
+ * none). Brought back, it went on as a NEW continuation of the queue: named after the playing
+ * song and in this device's own character, so "Take a Picture radio · Close" came back as
+ * "I Don't Wanna Lose radio · Balanced" at a top-up. Without its seed it is now seeded from the
+ * queue's last songs ([recentIds]) under its own name: the hub calls a station "<seed name> radio",
+ * so that name goes back as the seed's ("Your mix" is a Your mix seed again). Null when there is
+ * nothing to seed from. [character] is null when the station's own is not known here either; the
+ * caller then uses its preference, as any start does.
+ */
+fun stationRestart(bound: StationProvenance, recentIds: List<String>, playingTitle: String?): StationRestart? {
+	val seed = bound.seed ?: when {
+		bound.name.trim() == YOUR_MIX_STATION_NAME -> StationSeed.YourMix
+		recentIds.isEmpty() -> return null
+		else -> StationSeed(StationSeed.TRACKS, recentIds, stationSeedName(bound.name) ?: playingTitle)
+	}
+	return StationRestart(seed, StationCharacter.fromWire(bound.character), bound.effectiveOrigin)
+}
+
+/** The hub's name for a Your mix station. */
+const val YOUR_MIX_STATION_NAME = "Your mix"
+
+/** The seed name a station called [stationName] was started from (the hub names it "<seed name> radio"). */
+fun stationSeedName(stationName: String): String? =
+	stationName.trim().takeIf { it.endsWith(" radio") }?.removeSuffix(" radio")?.trim()?.ifEmpty { null }
+
 /** A `station` frame for this provenance's station, laid over it. Frames for another station change nothing. */
 internal fun StationProvenance.withFrame(frame: HubStationFrame): StationProvenance =
 	if (frame.stationId != stationId) this

@@ -551,7 +551,8 @@ Rules, each with a reason:
   since been replaced is dropped. `exhausted` stops and the queue sheet says so (the Explore chip widens it);
   `partial` is asked again at the next change, and at the latest 15 s later; `servedElsewhere`
   takes the cursor only and waits 8 s for the other device's batch (as does a `station` frame that
-  moves the cursor while nothing was asked, and a 409), so two devices at the end add one batch; a 404 `station_unknown` starts again once from the recorded seed.
+  moves the cursor while nothing was asked, and a 409), so two devices at the end add one batch; a 404 `station_unknown` starts again once, as the same
+  station (`stationRestart`, below).
 - **Autoplay is the queue's chips, and Off stops everything (I-041).** Under the queue's header,
   one sideways-scrolling `PageChips` row: Off, Close, Balanced, Explore with the engine (the
   catalogue's words), Off and Auto DJ without it (`AutoplayChips.kt`; Feishin's
@@ -572,9 +573,22 @@ Rules, each with a reason:
 - **A top-up's songs are in before the driver looks again** (`appendToQueueAndWait`): an append
   still on its way read as "fewer than two left", and a continuation's `start` was followed at once
   by a `next`, ten songs for one top-up (watched on the VM, 2026-10-17). The trigger key also names
-  the station, so a restart is a new trigger only once its songs are in.
-- **A session station this device has no frame for names no character** (B-139): the record built
-  for it used to claim the default, Balanced, which no device had chosen.
+  the station, so a restart is a new trigger only once its songs are in. **The driver reads the
+  player as it is when it looks**, never the value `combine` handed it: values queued while a step
+  ran could predate that step's songs, and after a restart a `start` was still followed by a
+  `next` (watched again, after the awaited append).
+- **A station the hub lost comes back as itself** (B-139, `stationRestart`). A station another
+  device started and this one continued has no seed here (frames carry none; only `welcome.station`
+  does). Its 404 used to start a NEW continuation of the queue, named after the playing song and in
+  this device's preference: watched on the VM, "Take a Picture radio · Close" became "Desert Island
+  Disk radio · Explore" at a top-up, as the phone's became "I Don't Wanna Lose radio · Balanced".
+  It is now restarted in its own character, seeded from the queue's last songs under its own name
+  (the hub names a station "<seed name> radio", so that name goes back as the seed's; "Your mix"
+  as a Your mix seed). Nothing here names a station's character from this device's preference: a
+  session station without a frame, and the record a 409 builds, name none until a frame does.
+  Not covered: a station known here only through the session, never topped up from here, whose
+  hub forgets it (a restart without its stations file) — the session then names no station, and
+  the queue's next top-up is a plain continuation, named after the playing song.
 - **Failures are read as Feishin reads them** (`stationFailure`, `stationFailureAction`). A
   fallback (503, a `{fallback: true}` body, no `station` feature, a probe that said unavailable,
   the hub disconnected, a bare 404) is Auto DJ for that top-up (with autoplay on) and stops asking

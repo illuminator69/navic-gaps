@@ -1097,28 +1097,35 @@ class RadioManager(
 		}
 	}
 
-	/** Start again from the recorded seed, with the station's own origin and character. */
+	/**
+	 * Bring back a station the hub lost, as itself: its own seed, or its last songs under its own
+	 * name when the seed is not known here, in its own character ([stationRestart], B-139).
+	 */
 	private suspend fun restartStation(state: PlayerUiState, bound: StationProvenance, autoplayOn: Boolean): DriverRetry? {
-		val seed = bound.seed
-		if (seed == null) {
-			// A station this device has no seed for (another device started it): only autoplay
-			// may carry the queue on from its own last songs.
-			return if (autoplayOn) startFromQueue(state, mediaPlayer.playOrder.value, STATION_TRANSIENT_RETRIES) else null
-		}
-		val character = StationCharacter.fromWire(bound.character) ?: _character.value
+		val recent = playOrderRecent(mediaPlayer.playOrder.value, state.queue.size, state.currentIndex, SEED_TRACKS_FROM_QUEUE)
+			.mapNotNull { state.queue.getOrNull(it)?.id }
+			.filterNot { PreviewManager.isPreviewId(it) || it.startsWith("radio_") }
+			.distinct()
+		val restart = stationRestart(bound, recent, state.currentSong?.title)
+			?: return if (autoplayOn) autoDjTopUp(state) else null
+		val character = restart.character ?: _character.value
 		val bind = bindSessionFor()
-		val origin = bound.effectiveOrigin
 		return when (
-			val result = stationManager.start(seed, character, STATION_BATCH, queueIdsOf(state), bind, origin)
+			val result = stationManager.start(restart.seed, character, STATION_BATCH, queueIdsOf(state), bind, restart.origin)
 		) {
 			is StationResult.Ok -> applyBatch(
 				state,
-				bound.copy(seq = 0, rev = 0, origin = stationOrigin(result.answer.origin, origin)),
+				bound.copy(
+					seq = 0,
+					rev = 0,
+					seed = bound.seed ?: restart.seed,
+					origin = stationOrigin(result.answer.origin, restart.origin)
+				),
 				result.answer,
 				fresh = true,
 				askedToBind = bind != null
 			)
-			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, seed)
+			is StationResult.SessionBound -> continueSessionStation(state, result.stationId, restart.seed)
 			// Restarted once; whatever this answer was, the next trigger decides again.
 			is StationResult.Fallback -> if (autoplayOn) autoDjTopUp(state) else null
 			else -> null
@@ -1185,7 +1192,9 @@ class RadioManager(
 				queueId = queueId,
 				stationId = stationId,
 				name = frame?.name ?: hubManager.remoteSession.value.sourceName.orEmpty(),
-				character = frame?.character?.ifBlank { null } ?: _character.value.wireId,
+				// The station's own, from its frame; not yet known when none has come (B-139: this
+				// device's preference here named another device's station wrongly).
+				character = frame?.character.orEmpty(),
 				seed = frame?.seed ?: seed,
 				seq = frame?.seq ?: 0,
 				origin = frame?.origin
