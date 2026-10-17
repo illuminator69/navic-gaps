@@ -14,6 +14,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -143,15 +145,22 @@ fun LibraryScreen() {
 	val savedQueueRepository = koinInject<SavedQueueRepository>()
 	val allSavedQueues by savedQueueRepository.observeAll()
 		.collectAsStateWithLifecycle(initialValue = emptyList())
-	val playerLocalState by player.localUiState.collectAsStateWithLifecycle()
 	// What's playing may be on ANOTHER device, in which case only the hub session knows the
 	// queue's identity — keying this on local state alone left a remotely-playing queue
 	// listed as "continue listening" (and unmarked as current). Same rule as SavedQueuesScreen.
 	val hubManager = koinInject<paige.navic.domain.manager.HubManager>()
 	val hubConnected by hubManager.connected.collectAsStateWithLifecycle()
-	val hubSession by hubManager.remoteSession.collectAsStateWithLifecycle()
-	val playingQueueId = (if (hubConnected) hubSession.savedQueueId else null)
-		?: playerLocalState.savedQueueId
+	// Only the two ids, each as its own narrow flow: the whole local state is re-stamped five
+	// times a second while playing and the remote session on every progress frame, and reading
+	// them whole recomposed this page (and everything under the player and queue sheets above it)
+	// at that rate for the whole of playback (I-041).
+	val localQueueId by remember(player) {
+		player.localUiState.map { it.savedQueueId }.distinctUntilChanged()
+	}.collectAsStateWithLifecycle(player.localUiState.value.savedQueueId)
+	val hubQueueId by remember(hubManager) {
+		hubManager.remoteSession.map { it.savedQueueId }.distinctUntilChanged()
+	}.collectAsStateWithLifecycle(hubManager.remoteSession.value.savedQueueId)
+	val playingQueueId = (if (hubConnected) hubQueueId else null) ?: localQueueId
 	// The queue that's playing is pinned FIRST and marked, rather than hidden: this is one shared
 	// history rendered on two clients, and Feishin's carousel puts it first — a row that silently
 	// omitted whatever you were listening to disagreed with the desktop about what the list even is.

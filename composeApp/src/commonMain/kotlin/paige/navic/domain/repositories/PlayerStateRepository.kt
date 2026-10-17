@@ -45,7 +45,10 @@ class PlayerStateRepository(
 
 	suspend fun setState(value: PlayerUiState) {
 		try {
-			preferences.edit { it[KEY_STATE] = playerStateJson.encodeToString(value) }
+			// Encoded off the main thread (I-041): the whole queue's songs go into the string, once a
+			// second while playing, and the caller collects on the main dispatcher.
+			val encoded = withContext(Dispatchers.Default) { playerStateJson.encodeToString(value) }
+			preferences.edit { it[KEY_STATE] = encoded }
 		} catch (ex: SerializationException) {
 			Logger.e("PlayerStateRepository", "failed to serialise state", ex)
 		} catch (ex: Exception) {

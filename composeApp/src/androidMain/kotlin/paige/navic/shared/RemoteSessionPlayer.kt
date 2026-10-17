@@ -179,6 +179,20 @@ class RemoteSessionPlayer(
 
 	fun onActivated() {
 		graceUntilMs = Clock.System.now().toEpochMilliseconds() + 1500
+		// Nothing below refreshed the state while this facade was not the session's player.
+		invalidateState()
+	}
+
+	/**
+	 * This facade is the media session's player only while another device plays
+	 * (`MediaPlayer.android.kt` swaps it in on `isRemoteActive`), and only then does anyone read its
+	 * state. Rebuilding it on every remote-session frame and every second regardless cost the main
+	 * thread a fifth to a third of its time during LOCAL playback on the VM's emulator, more with a
+	 * longer queue (I-041), so the collectors below refresh it only while it is shown, and
+	 * [onActivated] refreshes it when it is swapped in.
+	 */
+	private fun invalidateIfShown() {
+		if (hubManager.isRemoteActive.value) invalidateState()
 	}
 
 	private fun inGrace(): Boolean = Clock.System.now().toEpochMilliseconds() < graceUntilMs
@@ -187,29 +201,29 @@ class RemoteSessionPlayer(
 		// Recompute the exposed state whenever the remote session changes, and
 		// tick once a second while playing so the scrubber/elapsed time advances.
 		scope.launch {
-			hubManager.remoteSession.collect { invalidateState() }
+			hubManager.remoteSession.collect { invalidateIfShown() }
 		}
 		// The device list is where the receiver's volume lives, and it changes
 		// independently of the session — including when another client moves the
 		// slider. Without this the system volume UI would show a stale level.
 		scope.launch {
-			hubManager.devices.collect { invalidateState() }
+			hubManager.devices.collect { invalidateIfShown() }
 		}
 		// A level this device commanded stands in for the list's until the hub answers, so
 		// both its coming and its going change what `effectiveVolume` reports.
 		scope.launch {
-			hubManager.volumePins.collect { invalidateState() }
+			hubManager.volumePins.collect { invalidateIfShown() }
 		}
 		// Presses taken by the app's own window (`MainActivity.dispatchKeyEvent`) step here too.
 		hubManager.remoteVolumePress = { direction -> pressVolume(direction * VOLUME_STEP) }
 		// Navic left the screen, came back, or the phone was locked: the buttons change hands.
 		scope.launch {
-			volumeKeysGoRemote.collect { invalidateState() }
+			volumeKeysGoRemote.collect { invalidateIfShown() }
 		}
 		scope.launch {
 			while (isActive) {
 				delay(1000)
-				if (hubManager.remoteSession.value.isPlaying) invalidateState()
+				if (hubManager.remoteSession.value.isPlaying) invalidateIfShown()
 			}
 		}
 	}
@@ -228,17 +242,33 @@ class RemoteSessionPlayer(
 	 * The publisher's URL stays as a last resort for the case where we have no session of our own.
 	 */
 	private fun artworkUriFor(track: RemoteTrack): Uri? =
-		runCatching { sessionManager.getCoverArtUrl(track.id) }
-			.getOrNull()
-			?.takeIf { it.isNotBlank() }
-			?.toUri()
-			?: track.imageUrl?.toUri()
+		artworkUris.getOrPut(track.id) {
+			runCatching { sessionManager.getCoverArtUrl(track.id) }
+				.getOrNull()
+				?.takeIf { it.isNotBlank() }
+				?.toUri()
+				?: track.imageUrl?.toUri()
+		}
+
+	/**
+	 * A track's cover URL, minted once. Each mint is a fresh salted token (an MD5 per track), so
+	 * minting on every state read cost a queue's worth of hashing per second AND handed media3 a
+	 * different URI each time, a metadata change for the shade's artwork on every read. Bounded;
+	 * the oldest go first. Touched on the player's looper only.
+	 */
+	private val artworkUris = object : LinkedHashMap<String, Uri?>(64, 0.75f, true) {
+		override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Uri?>?): Boolean = size > ARTWORK_CACHE_MAX
+	}
+
+	/** The playlist built for the track list it was built from (the same list instance), reused until it changes. */
+	private var playlistTracks: List<RemoteTrack>? = null
+	private var playlistItems: List<MediaItemData> = emptyList()
 
 	override fun getState(): State {
 		val session = hubManager.remoteSession.value
 		val tracks = session.tracks
 
-		val playlist = tracks.mapIndexed { index, track ->
+		val playlist = if (tracks === playlistTracks) playlistItems else tracks.mapIndexed { index, track ->
 			MediaItemData.Builder("${track.id}:$index")
 				.setMediaItem(
 					MediaItem.Builder()
@@ -258,6 +288,9 @@ class RemoteSessionPlayer(
 					if (track.durationMs > 0) track.durationMs * 1000 else C.TIME_UNSET
 				)
 				.build()
+		}.also {
+			playlistTracks = tracks
+			playlistItems = it
 		}
 
 		val now = Clock.System.now().toEpochMilliseconds()
@@ -349,5 +382,8 @@ class RemoteSessionPlayer(
 	private companion object {
 		/** One rocker press. 1-in-100 would need a hundred presses to cross the range. */
 		const val VOLUME_STEP = 5
+
+		/** Cover URLs kept by track id: a long queue's worth, and then some. */
+		const val ARTWORK_CACHE_MAX = 600
 	}
 }

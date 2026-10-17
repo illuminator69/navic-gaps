@@ -56,6 +56,8 @@ import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -506,11 +508,12 @@ private fun BoxScope.MiniPlayerProgressBar(
 		}
 		// AudioMuse mix indicator: while a similarity radio plays, the
 		// progress bar drifts through the AudioMuse logo palette
-		// (periwinkle → pink → orange).
+		// (periwinkle → pink → orange). Both the colour and the bar's length are read in the DRAW
+		// phase: read in composition, the endless colour animation and the eased progress
+		// recomposed the mini player every frame for the whole of playback (I-041).
 		val isAudioMuseMix by radioManager.isAudioMuseMix.collectAsState()
-		val audioMuseColor = if (isAudioMuseMix) {
-			val transition = rememberInfiniteTransition(label = "audiomuse")
-			val shift by transition.animateFloat(
+		val shift = if (isAudioMuseMix) {
+			rememberInfiniteTransition(label = "audiomuse").animateFloat(
 				initialValue = 0f,
 				targetValue = 2f,
 				animationSpec = infiniteRepeatable(
@@ -519,20 +522,24 @@ private fun BoxScope.MiniPlayerProgressBar(
 				),
 				label = "audiomuse-color"
 			)
-			val periwinkle = Color(0xFF93A2E8)
-			val pink = Color(0xFFEE7B90)
-			val orange = Color(0xFFF5A661)
-			if (shift < 1f) lerp(periwinkle, pink, shift)
-			else lerp(pink, orange, shift - 1f)
 		} else null
+		val primary = MaterialTheme.colorScheme.primary
 		Box(
 			Modifier
-				.background(
-					(audioMuseColor ?: MaterialTheme.colorScheme.primary)
-						.copy(alpha = alpha)
-				)
-				.fillMaxWidth(if (hasSong) progress else 0f)
+				.fillMaxWidth()
 				.height(3.dp)
+				.drawBehind {
+					val fraction = if (hasSong) progress.coerceIn(0f, 1f) else 0f
+					if (fraction <= 0f) return@drawBehind
+					val color = shift?.value?.let { t ->
+						if (t < 1f) lerp(AUDIOMUSE_PERIWINKLE, AUDIOMUSE_PINK, t)
+						else lerp(AUDIOMUSE_PINK, AUDIOMUSE_ORANGE, t - 1f)
+					} ?: primary
+					drawRect(
+						color = color.copy(alpha = alpha),
+						size = Size(size.width * fraction, size.height)
+					)
+				}
 		)
 		Box(
 			Modifier
@@ -579,3 +586,8 @@ private fun BoxScope.MiniPlayerProgressBar(
 		)
 	}
 }
+
+/** The AudioMuse logo's palette, which the mini player's bar drifts through for a station's queue. */
+private val AUDIOMUSE_PERIWINKLE = Color(0xFF93A2E8)
+private val AUDIOMUSE_PINK = Color(0xFFEE7B90)
+private val AUDIOMUSE_ORANGE = Color(0xFFF5A661)

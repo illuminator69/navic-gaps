@@ -1,6 +1,9 @@
 package paige.navic.domain.repositories
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -66,7 +69,16 @@ class SavedQueueRepository(
 	private var tombstones: Map<String, Long>? = null
 	private val tombstoneMutex = Mutex()
 
+	/**
+	 * Every record, newest first. Room re-emits on every write to the table (a cursor follow, a
+	 * hub broadcast that rewrote one row), mostly with nothing changed, and the screens collect
+	 * this straight into Compose state, whose structural check then compared twenty rows of song
+	 * blobs on the main thread each time (I-041: 3 to 7% of it on the VM's emulator). The
+	 * comparison is made here, off the main thread, and only a real change goes on.
+	 */
 	fun observeAll(): Flow<List<SavedQueueEntity>> = savedQueueDao.observeAll()
+		.distinctUntilChanged()
+		.flowOn(Dispatchers.Default)
 
 	suspend fun get(id: String): SavedQueueEntity? = savedQueueDao.getById(id)
 

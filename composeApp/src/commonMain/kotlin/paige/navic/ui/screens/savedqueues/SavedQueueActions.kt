@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.koin.compose.koinInject
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.HubManager
@@ -35,14 +37,19 @@ fun rememberSavedQueueActions(
 ): SavedQueueActions {
 	val hubManager = koinInject<HubManager>()
 	val hubConnected by hubManager.connected.collectAsState()
-	val remoteSession by hubManager.remoteSession.collectAsState()
-	val playerState by mediaPlayer.localUiState.collectAsState()
+	// The ids only (I-041): both flows move several times a second during playback, and this is
+	// composed on the library home, which then recomposed at that rate.
+	val hubQueueId by remember(hubManager) {
+		hubManager.remoteSession.map { it.savedQueueId }.distinctUntilChanged()
+	}.collectAsState(hubManager.remoteSession.value.savedQueueId)
+	val localQueueId by remember(mediaPlayer) {
+		mediaPlayer.localUiState.map { it.savedQueueId }.distinctUntilChanged()
+	}.collectAsState(mediaPlayer.localUiState.value.savedQueueId)
 
 	// The "current" queue is the hub session's when connected (any device), else the local one.
 	// Gate on `hubConnected`: after the socket drops the mirror still holds the last session,
 	// and using it then highlighted a queue nothing was playing.
-	val activeId = (if (hubConnected) remoteSession.savedQueueId else null)
-		?: playerState.savedQueueId
+	val activeId = (if (hubConnected) hubQueueId else null) ?: localQueueId
 
 	return remember(activeId, hubConnected) {
 		// Every edit is applied locally AND announced to the hub, which propagates it to every client
