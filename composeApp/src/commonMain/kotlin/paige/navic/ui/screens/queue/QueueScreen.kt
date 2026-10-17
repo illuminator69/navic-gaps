@@ -75,7 +75,9 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
-import navic.composeapp.generated.resources.action_clear_queue
+import navic.composeapp.generated.resources.action_clear
+import navic.composeapp.generated.resources.autoplay_off
+import navic.composeapp.generated.resources.queue_auto_dj
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download_next
 import navic.composeapp.generated.resources.action_download_queue
@@ -112,6 +114,9 @@ import paige.navic.domain.models.Mix
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.screens.queue.components.QueueGeneratorLine
+import paige.navic.ui.components.common.PageChips
+import paige.navic.domain.manager.AutoplayChip
+import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.models.settings.QueueInfoType
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -483,14 +488,6 @@ fun QueueScreen() {
 											mixToSave = radioManager.currentRecipe(playerState.currentSong)
 										}
 									)
-									// Downloads are local files, so this is meaningless while another device holds
-									// the session (its queue can be remote placeholders not in our library).
-									if (!isRemoteActive) {
-										QueueDownloadMenuButton(
-											queue = queue,
-											fromIndex = playerState.currentIndex
-										)
-									}
 									FilledTonalButton(
 										onClick = {
 											haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -504,17 +501,32 @@ fun QueueScreen() {
 										// descenders at 1.3x font.
 										modifier = Modifier.heightIn(min = 36.dp)
 									) {
-										Text(stringResource(Res.string.action_clear_queue), maxLines = 1)
+										Text(stringResource(Res.string.action_clear), maxLines = 1)
 									}
 								}
 							}
-							// What built the queue (I-040): the station, Auto DJ, or nothing left that
-							// fits, from the station's own answer. Its dot is the AudioMuse colour.
+						}
+						// Autoplay, under the header as the YouTube Music queue has it (I-041): Off,
+						// Close, Balanced, Explore with the hub's engine (the catalogue's words), Off
+						// and Auto DJ without it. One row that scrolls sideways, the selected chip
+						// filled. A tap acts on the queue at once: Off stops the station and takes
+						// out what it added after the next song, a character swaps those for a
+						// fresh batch. Never the playing song or the next one, never a reload.
+						val autoplayChips by radioManager.chips.collectAsState()
+						PageChips(
+							options = autoplayChips.chips,
+							selected = autoplayChips.selected,
+							label = { autoplayChipLabel(it, catalogue) },
+							onSelect = { radioManager.onChipTap(it) },
+							contentPadding = PaddingValues(horizontal = 24.dp)
+						)
+						// What built the queue (I-040): the station, Auto DJ, or nothing left that
+						// fits, from the station's own answer. Its dot is the AudioMuse colour.
+						Box(Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp)) {
 							QueueGeneratorLine(
 								generator = generator,
 								busy = generatorBusy,
-								catalogue = catalogue,
-								onExplore = { radioManager.explore() }
+								catalogue = catalogue
 							)
 						}
 					}
@@ -805,85 +817,10 @@ private fun QueueSaveButton(
 	}
 }
 
-/**
- * A single download control for the queue: one icon (reflecting the whole-queue download state) that
- * opens a menu with "Download whole queue" (download → cancel while in flight → delete once held) and
- * "Download next N". Consolidates what used to be two adjacent icon buttons.
- */
+/** A chip's words: "Off", "Auto DJ", or the character as the hub's catalogue names it. */
 @Composable
-private fun QueueDownloadMenuButton(queue: List<DomainSong>, fromIndex: Int) {
-	val downloadManager = koinInject<DownloadManager>()
-	val scope = rememberCoroutineScope()
-	val songIds = remember(queue) { queue.map { it.id }.distinct() }
-	val status by downloadManager
-		.getCollectionDownloadStatus(songIds)
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
-	var menuOpen by remember { mutableStateOf(false) }
-
-	Box {
-		IconButton(enabled = queue.isNotEmpty(), onClick = { menuOpen = true }) {
-			when (status) {
-				DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED ->
-					CircularProgressIndicator(
-						modifier = Modifier.size(20.dp),
-						strokeWidth = 2.dp
-					)
-
-				DownloadStatus.DOWNLOADED -> Icon(
-					Icons.Outlined.Delete,
-					contentDescription = stringResource(Res.string.action_delete_download),
-					modifier = Modifier.size(22.dp)
-				)
-
-				else -> Icon(
-					Icons.Outlined.Download,
-					contentDescription = stringResource(Res.string.action_download_queue),
-					modifier = Modifier.size(22.dp)
-				)
-			}
-		}
-		DropdownMenu(
-			expanded = menuOpen,
-			onDismissRequest = { menuOpen = false }
-		) {
-			// Whole-queue action — label + behaviour follow the current state.
-			val (wholeLabel, wholeIcon) = when (status) {
-				DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED ->
-					Res.string.action_cancel to Icons.Outlined.Close
-				DownloadStatus.DOWNLOADED ->
-					Res.string.action_delete_download to Icons.Outlined.Delete
-				else -> Res.string.action_download_queue to Icons.Outlined.Download
-			}
-			DropdownMenuItem(
-				text = { Text(stringResource(wholeLabel)) },
-				onClick = {
-					menuOpen = false
-					scope.launch {
-						when (status) {
-							DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED ->
-								downloadManager.downloadSongs(
-									queue.distinctBy { it.id },
-									source = DownloadSource.QUEUE
-								)
-							DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED ->
-								downloadManager.cancelDownloads(songIds)
-							DownloadStatus.DOWNLOADED ->
-								downloadManager.deleteDownloads(songIds)
-						}
-					}
-				},
-				leadingIcon = { Icon(wholeIcon, null) }
-			)
-			DropdownMenuItem(
-				text = { Text(stringResource(Res.string.action_download_next, DOWNLOAD_NEXT_COUNT)) },
-				onClick = {
-					menuOpen = false
-					scope.launch {
-						downloadManager.downloadNextSongs(queue, fromIndex, DOWNLOAD_NEXT_COUNT)
-					}
-				},
-				leadingIcon = { Icon(Icons.Outlined.Download, null) }
-			)
-		}
-	}
+private fun autoplayChipLabel(chip: AutoplayChip, catalogue: StationCatalogue): String = when (chip) {
+	AutoplayChip.Off -> stringResource(Res.string.autoplay_off)
+	AutoplayChip.AutoDj -> stringResource(Res.string.queue_auto_dj)
+	else -> chip.character!!.let { catalogue.infoFor(it).label.ifBlank { it.label } }
 }

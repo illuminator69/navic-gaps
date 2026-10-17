@@ -1170,17 +1170,11 @@
 	<string name="queue_generator_audiomuse">AudioMuse mix</string>
 	<string name="title_similar_albums">Similar albums</string>
 	<string name="info_similar_albums_because">Because you're listening to %1$s</string>
-	<string name="title_autoplay">Autoplay</string>
 	<!-- navi-connect I-040: radio and autoplay through the hub's station engine, Auto DJ without it. -->
-	<string name="autoplay_on">On</string>
 	<string name="autoplay_off">Off</string>
-	<string name="now_playing_autoplay">Autoplay · %1$s</string>
-	<string name="option_autoplay">Autoplay</string>
-	<string name="subtitle_autoplay_off">Off. The queue stops at its end.</string>
-	<string name="subtitle_autoplay_off_radio">Off. The radio playing keeps going; an album or a playlist stops at its end.</string>
-	<string name="info_autoplay_station">An album or a playlist continues as a radio of what is playing, built by the hub. A radio keeps going either way.</string>
-	<string name="info_autoplay_auto_dj">The hub has no radio to offer, so Auto DJ keeps the queue going: Navidrome's similar songs, then songs of the same genre, of the album artist, and of the whole library.</string>
-	<string name="option_station_character">Character</string>
+	<string name="title_auto_dj">Auto DJ</string>
+	<string name="info_auto_dj_settings">When the hub has no radio to offer, Auto DJ keeps the queue going: Navidrome's similar songs, then the same genre, the album artist and the library. Autoplay is switched on in the queue.</string>
+	<string name="action_clear">Clear</string>
 	<string name="option_auto_dj_count">Songs added each time</string>
 	<string name="option_auto_dj_only_similar">Only similar songs</string>
 	<string name="subtitle_auto_dj_only_similar">Stop at the first source that finds something, rather than filling up from the genre, the artist or the library</string>
@@ -1192,7 +1186,6 @@
 	<string name="queue_auto_dj">Auto DJ</string>
 	<string name="queue_station_exhausted">Nothing left that fits</string>
 	<string name="queue_station_busy">Finding more songs</string>
-	<string name="action_station_explore">Explore</string>
 	<string name="action_start_radio">Start radio</string>
 	<string name="mix_your_mix_line">Built from what you play most</string>
 	<string name="mood_mix_name">Search: %1$s</string>

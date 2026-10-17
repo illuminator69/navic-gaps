@@ -307,16 +307,12 @@ class StationDriverTest {
 	// ---- origin: a radio keeps going, a continuation stops with autoplay ----------------------- //
 
 	@Test
-	fun theOriginRuleOnAndOffForRadioContinueAndUnknown() {
-		val origins = listOf(ORIGIN_RADIO, ORIGIN_CONTINUE, null)
-		for (origin in origins) {
+	fun offStopsEveryStationRadiosIncluded() {
+		// I-041 replaces the origin rule: Off stops everything; On continues every bound station.
+		for (origin in listOf(ORIGIN_RADIO, ORIGIN_CONTINUE, null)) {
 			val bound = radio.copy(origin = origin)
-			// Autoplay on: every bound station continues.
 			assertEquals(AutoplayStep.Next("st_1", 20), autoplayStep(look(remaining = 1, bound = bound, on = true)), "on, $origin")
-			// Autoplay off: only a radio does. An origin nobody said is a continuation.
-			val off = autoplayStep(look(remaining = 1, bound = bound, on = false))
-			if (origin == ORIGIN_RADIO) assertEquals(AutoplayStep.Next("st_1", 20), off, "off, radio")
-			else assertEquals(AutoplayStep.Idle, off, "off, $origin")
+			assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = bound, on = false)), "off, $origin")
 		}
 	}
 
@@ -326,11 +322,48 @@ class StationDriverTest {
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = null, on = false)))
 		assertEquals(AutoplayStep.AutoDj, autoplayStep(look(remaining = 0, available = false, on = true)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, available = false, on = false)))
-		// A radio with autoplay off and the engine gone: Auto DJ obeys the switch.
-		assertEquals(
-			AutoplayStep.Idle,
-			autoplayStep(look(remaining = 0, available = false, on = false, bound = radio.copy(origin = ORIGIN_RADIO)))
-		)
+	}
+
+	@Test
+	fun aStoppedStationAddsNothingWhateverTheSwitch() {
+		val stopped = radio.copy(stopped = true)
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, bound = stopped, on = true)))
+		// `next` on a stopped station answers no tracks and `stopped`: kept, and not asked again soon.
+		val batch = stationBatch(radio, answer(seq = 20).copy(stopped = true), emptySet(), fresh = false)
+		assertTrue(batch.provenance.stopped)
+		assertFalse(batch.retrySoon)
+		// A frame says it for every device, and a later one (a character chip elsewhere) clears it.
+		val framed = radio.withFrame(HubStationFrame("st_1", 20, 1, "close", exhausted = false, stopped = true))
+		assertTrue(framed.stopped)
+		assertFalse(framed.withFrame(HubStationFrame("st_1", 20, 2, "close", exhausted = false, stopped = false)).stopped)
+	}
+
+	@Test
+	fun aBatchRecordsWhatTheStationAddedForTheChips() {
+		val batch = stationBatch(radio.copy(served = listOf("x")), answer("a", "b", "q"), queued = setOf("q"), fresh = false)
+		assertEquals(listOf("x", "a", "b"), batch.provenance.served)
+		val many = (1..StationProvenance.SERVED_KEEP + 5).map { "s$it" }
+		assertEquals(StationProvenance.SERVED_KEEP, radio.withServed(many).served.size)
+		assertEquals("s${StationProvenance.SERVED_KEEP + 5}", radio.withServed(many).served.last())
+	}
+
+	@Test
+	fun aSessionStationWithNoFrameNamesNoCharacter() {
+		// B-139: the record built for a session station this device has no frame for used to claim
+		// the default character ("· Balanced") that no device had chosen.
+		val bound = boundStation(null, "q_9", "st_7", { null }, "Some album")
+		assertEquals("", bound?.character)
+		val line = queueGenerator(bound, "q_9", null, generatedMix = false)
+		assertIs<QueueGenerator.Station>(line)
+		assertNull(line.character)
+		// With the frame, its character.
+		val framed = boundStation(null, "q_9", "st_7", { HubStationFrame("st_7", 5, 0, "close", false, name = "X radio") }, null)
+		assertEquals(StationCharacter.Close, (queueGenerator(framed, "q_9", null, false) as QueueGenerator.Station).character)
+	}
+
+	@Test
+	fun aStoppedStationsLineSaysSo() {
+		assertEquals(QueueGenerator.Stopped("Cinnamon Girl radio", yourMix = false), queueGenerator(radio.copy(stopped = true), "q_1", null, false))
 	}
 
 	@Test

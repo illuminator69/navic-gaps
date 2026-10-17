@@ -122,6 +122,11 @@ data class StationAnswer(
 	val exhausted: Boolean = false,
 	val partial: Boolean = false,
 	val servedElsewhere: Boolean = false,
+	/**
+	 * The station was stopped (`signal stop`, from any device, I-041): `next` answers no tracks and
+	 * this flag until a `character` signal starts it again. False from a hub that predates it.
+	 */
+	val stopped: Boolean = false,
 	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE], echoed; null from a hub that does not say. */
 	val origin: String? = null,
 	/** `start` only: whether `bindSession` bound the session. Null from a hub that does not say. */
@@ -285,10 +290,26 @@ data class StationProvenance(
 	 * station is continued from here without binding, so its id is not put on this queue's
 	 * `setQueue`, and the bind is not tried again.
 	 */
-	val unbound: Boolean = false
+	val unbound: Boolean = false,
+	/** Stopped for every device (the Off chip, I-041): nothing more is added until a character chip. */
+	val stopped: Boolean = false,
+	/**
+	 * The ids this station added to this queue, as this device saw them (a radio's first batch,
+	 * every top-up), newest last, at most [SERVED_KEEP]. The Off and character chips remove or
+	 * replace only these, never a song the user put in (I-041).
+	 */
+	val served: List<String> = emptyList()
 ) {
-	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE]: whether it keeps going with autoplay off. */
+	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE], as recorded; kept for the record, no longer a rule. */
 	val effectiveOrigin: String get() = stationOrigin(origin, null)
+
+	/** [served] with [ids] added, the oldest dropped past [SERVED_KEEP]. */
+	fun withServed(ids: List<String>): StationProvenance =
+		if (ids.isEmpty()) this else copy(served = (served + ids).takeLast(SERVED_KEEP))
+
+	companion object {
+		const val SERVED_KEEP = 300
+	}
 }
 
 /** The `station` frame and `welcome.station` (PROTOCOL §18.2); [name] / [seed] in welcome only. */
@@ -300,7 +321,8 @@ data class HubStationFrame(
 	val exhausted: Boolean,
 	val name: String? = null,
 	val seed: StationSeed? = null,
-	val origin: String? = null
+	val origin: String? = null,
+	val stopped: Boolean = false
 )
 
 /** A station's provenance after an answer was applied to its queue. */
@@ -314,7 +336,8 @@ internal fun StationProvenance.applied(answer: StationAnswer): StationProvenance
 	rev = maxOf(rev, answer.rev),
 	exhausted = answer.exhausted,
 	lastFromAutoDj = false,
-	origin = answer.origin?.takeIf { it.isNotBlank() } ?: origin
+	origin = answer.origin?.takeIf { it.isNotBlank() } ?: origin,
+	stopped = answer.stopped
 )
 
 /** What one `start` / `next` answer does: the record after it, the ids to append, and whether to ask again soon. */
@@ -346,7 +369,8 @@ fun stationBatch(
 	val applied = bound.applied(answer)
 		.let { if (fresh) it.copy(seq = answer.seq, rev = answer.rev) else it }
 		.let { if (askedToBind && answer.bound == false) it.copy(unbound = true) else it }
-	return StationBatch(applied, ids, retrySoon = ids.isEmpty() && !answer.exhausted)
+		.withServed(ids)
+	return StationBatch(applied, ids, retrySoon = ids.isEmpty() && !answer.exhausted && !answer.stopped)
 }
 
 /** A `station` frame for this provenance's station, laid over it. Frames for another station change nothing. */
@@ -358,7 +382,8 @@ internal fun StationProvenance.withFrame(frame: HubStationFrame): StationProvena
 		character = frame.character.ifBlank { character },
 		exhausted = frame.exhausted,
 		name = frame.name?.takeIf { it.isNotBlank() } ?: name,
-		origin = frame.origin?.takeIf { it.isNotBlank() } ?: origin
+		origin = frame.origin?.takeIf { it.isNotBlank() } ?: origin,
+		stopped = frame.stopped
 	)
 
 // --------------------------------------------------------------------------------------------- //
@@ -451,21 +476,19 @@ data class AutoplayLook(
  * than [STATION_LOOKAHEAD] songs are left and stops for good once the station is exhausted; a
  * queue no station built asks `start` at the same point. Without it, Auto DJ at its own timing.
  *
- * Autoplay on: every bound station continues, and a queue no station built continues as one.
- * Autoplay off: only a station that is a RADIO continues (it was asked for); a continuation stops,
- * nothing new is started, and Auto DJ, which obeys the switch, does nothing.
+ * Off stops everything, radios included (I-041; the Off chip): nothing is asked and nothing is
+ * started. A station stopped by any device ([StationProvenance.stopped]) adds nothing either.
  */
 fun autoplayStep(look: AutoplayLook): AutoplayStep {
-	if (look.remoteActive || look.inFlight) return AutoplayStep.Idle
+	if (!look.autoplayOn || look.remoteActive || look.inFlight) return AutoplayStep.Idle
 	if (look.paused || look.repeatMode != 0) return AutoplayStep.Idle
 	if (look.queueSize <= 0 || look.currentIndex !in 0 until look.queueSize) return AutoplayStep.Idle
 	if (!look.stationsAvailable) {
-		return if (look.autoplayOn && autoDjDue(look.remaining, look.autoDjTiming)) AutoplayStep.AutoDj
-		else AutoplayStep.Idle
+		return if (autoDjDue(look.remaining, look.autoDjTiming)) AutoplayStep.AutoDj else AutoplayStep.Idle
 	}
 	if (look.remaining >= STATION_LOOKAHEAD) return AutoplayStep.Idle
-	val bound = look.bound ?: return if (look.autoplayOn) AutoplayStep.Start else AutoplayStep.Idle
-	if (!look.autoplayOn && bound.effectiveOrigin != ORIGIN_RADIO) return AutoplayStep.Idle
+	val bound = look.bound ?: return AutoplayStep.Start
+	if (bound.stopped) return AutoplayStep.Idle
 	if (bound.exhausted) return AutoplayStep.Exhausted
 	// Its batch is on its way through the session; the driver looks again after the grace.
 	if (look.elsewhereRecent) return AutoplayStep.Idle
@@ -499,12 +522,15 @@ fun boundStation(
 		queueId = queueId,
 		stationId = sessionStationId,
 		name = frame?.name ?: sessionName.orEmpty(),
-		character = frame?.character?.ifBlank { null } ?: StationCharacter.Default.wireId,
+		// Not known until the station's frame is (B-139): an empty character is said as none,
+		// never as the default, which named a Balanced that no device had chosen.
+		character = frame?.character.orEmpty(),
 		seed = frame?.seed,
 		seq = frame?.seq ?: 0,
 		rev = frame?.rev ?: 0,
 		exhausted = frame?.exhausted ?: false,
-		origin = frame?.origin
+		origin = frame?.origin,
+		stopped = frame?.stopped ?: false
 	)
 }
 
@@ -517,10 +543,14 @@ sealed interface QueueGenerator {
 	/** A station: "Cinnamon Girl radio · Balanced", "… · via Navidrome" when Navidrome answered. */
 	data class Station(
 		val name: String,
-		val character: StationCharacter,
+		/** Null while the station's character is not known on this device (no frame yet). */
+		val character: StationCharacter?,
 		val viaNavidrome: Boolean,
 		val yourMix: Boolean
 	) : QueueGenerator
+
+	/** The station is stopped (the Off chip, from any device): nothing more is added. */
+	data class Stopped(val name: String, val yourMix: Boolean) : QueueGenerator
 
 	/** The station has nothing left that fits; [offerExplore] when it is not on Explore already. */
 	data class Exhausted(val name: String, val offerExplore: Boolean) : QueueGenerator
@@ -545,8 +575,9 @@ fun queueGenerator(
 ): QueueGenerator? {
 	if (bound != null) {
 		if (bound.lastFromAutoDj) return QueueGenerator.AutoDj
-		val character = StationCharacter.fromWire(bound.character) ?: StationCharacter.Default
+		val character = StationCharacter.fromWire(bound.character)
 		val yourMix = bound.seed?.kind == StationSeed.YOUR_MIX
+		if (bound.stopped) return QueueGenerator.Stopped(bound.name, yourMix)
 		if (bound.exhausted) {
 			return QueueGenerator.Exhausted(bound.name, offerExplore = character != StationCharacter.Explore)
 		}

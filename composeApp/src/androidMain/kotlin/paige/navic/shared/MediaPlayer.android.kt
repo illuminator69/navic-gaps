@@ -1981,6 +1981,58 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override suspend fun appendToQueueAndWait(songs: List<DomainSong>) {
+		if (songs.isEmpty()) return
+		val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+		withContext(Dispatchers.Main.immediate) {
+			controller?.addMediaItems(items)
+			_uiState.update { state ->
+				val newQueue = state.queue + songs
+				state.copy(
+					queue = newQueue,
+					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
+					currentSong = if (state.currentIndex == -1) newQueue.firstOrNull() else state.currentSong
+				)
+			}
+		}
+	}
+
+	override suspend fun editUpcoming(removeIndices: List<Int>, songs: List<DomainSong>, insertAt: Int?): Boolean {
+		val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+		return withContext(Dispatchers.Main.immediate) {
+			val state = _uiState.value
+			val current = state.currentIndex
+			if (current !in state.queue.indices) return@withContext false
+			// The song after the playing one, in play order: it may already be decoding (gapless,
+			// audio offload), so it is never removed and nothing goes in before it.
+			val next = controller?.let { c ->
+				val timeline = c.currentTimeline
+				if (timeline.isEmpty) null
+				else timeline.getNextWindowIndex(current, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
+					.takeIf { it != C.INDEX_UNSET }
+			} ?: (current + 1)
+			val removals = removeIndices.distinct()
+				.filter { it in state.queue.indices && it != current && it != next }
+				.sortedDescending()
+			if (removals.isEmpty() && songs.isEmpty()) return@withContext true
+			withQueueMutation {
+				removals.forEach { controller?.removeMediaItem(it) }
+				val newQueue = state.queue.toMutableList().apply { removals.forEach { removeAt(it) } }
+				val newIndex = current - removals.count { it < current }
+				val newNext = next - removals.count { it < next }
+				val earliest = maxOf(newIndex, newNext) + 1
+				val at = (insertAt ?: newQueue.size).coerceIn(earliest.coerceAtMost(newQueue.size), newQueue.size)
+				if (items.isNotEmpty()) controller?.addMediaItems(at, items)
+				newQueue.addAll(at, songs)
+				_uiState.update {
+					it.copy(queue = newQueue, currentIndex = newIndex, currentSong = newQueue.getOrNull(newIndex))
+				}
+			}
+			updatePlaybackState()
+			true
+		}
+	}
+
 	override fun removeFromQueue(index: Int) {
 		viewModelScope.launch {
 			// Defensive: the displayed list can diverge from the local queue (remote

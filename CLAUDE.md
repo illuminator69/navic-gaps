@@ -36,7 +36,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Shared session | `domain/manager/HubManager.kt` (act helpers, `resolveQueue`, remote mirror), `androidMain/.../shared/RemoteSessionPlayer.kt` (a media3 `SimpleBasePlayer` facade so the notification and Bluetooth keys drive the *remote* session); the hub socket's HttpClient comes from `HubSocketClientFactory` (§7), and what this device is and its media volume from `HubLocalDevice` (§4) |
 | Player | `shared/MediaPlayer.kt` (blended `uiState` + raw `localUiState`), `androidMain/.../shared/MediaPlayer.android.kt` |
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
-| Radio and autoplay (stations, I-040) | `domain/manager/RadioManager.kt` (entry points, the autoplay driver, likes, mixes), `domain/manager/StationManager.kt` (the hub's `/sonic/station/...`, availability, the persisted record of what built the queue), `domain/manager/StationModels.kt` (wire shapes and every rule the driver and the queue sheet apply, `StationDriverTest`), `domain/manager/AutoDj.kt` (the no-hub fallback, a port of upstream Feishin's, `AutoDjPlannerTest`), `domain/models/settings/StationCharacter.kt`, `ui/screens/nowPlaying/components/controls/{NowPlayingAutoplaySelector,NowPlayingCharacterButton}.kt`, `ui/screens/queue/components/QueueGeneratorLine.kt` (§4) |
+| Radio and autoplay (stations, I-040) | `domain/manager/RadioManager.kt` (entry points, the autoplay driver, likes, mixes), `domain/manager/StationManager.kt` (the hub's `/sonic/station/...`, availability, the persisted record of what built the queue), `domain/manager/StationModels.kt` (wire shapes and every rule the driver and the queue sheet apply, `StationDriverTest`), `domain/manager/AutoDj.kt` (the no-hub fallback, a port of upstream Feishin's, `AutoDjPlannerTest`), `domain/manager/AutoplayChips.kt` (the queue's autoplay chips, `AutoplayChipsTest`), `domain/models/settings/StationCharacter.kt`, the chip row and `ui/screens/queue/components/QueueGeneratorLine.kt` in the queue sheet (§4) |
 | AudioMuse-AI | `domain/manager/AudioMuseManager.kt` (CLAP mood search; the fingerprint and alchemy lists the old mix kinds play from without the station engine) |
 | lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Listening history (Stats' tabs) | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*` (`ListeningStats`, hosted by upstream's `StatisticsScreen`), the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
@@ -547,16 +547,33 @@ Rules, each with a reason:
   1–3 songs, `origin: "continue"` and `bindSession`; a 409 `session_bound` continues the session's
   station instead, and `bound: false` continues it from here unbound (its id then stays off the
   publish, and the bind is not tried again). One request at a time; an answer for a queue that has
-  since been replaced is dropped. `exhausted` stops and the queue sheet says so, with Explore;
+  since been replaced is dropped. `exhausted` stops and the queue sheet says so (the Explore chip widens it);
   `partial` is asked again at the next change, and at the latest 15 s later; `servedElsewhere`
   takes the cursor only and waits 8 s for the other device's batch (as does a `station` frame that
   moves the cursor while nothing was asked, and a 409), so two devices at the end add one batch; a 404 `station_unknown` starts again once from the recorded seed.
-- **A radio keeps going with autoplay off; a continuation does not.** Every entry point (a
-  track's, an album's, an artist's radio, Your mix, a mix) sends `origin: "radio"`, which the hub
-  echoes in its answers, the `station` frame and `welcome.station`. On: every bound station
-  continues and a plain queue continues as one. Off: only a `radio` continues, nothing new starts,
-  and Auto DJ, which obeys the switch, does nothing. An origin an older hub does not echo is what
-  this device sent, else `continue` (`stationOrigin`).
+- **Autoplay is the queue's chips, and Off stops everything (I-041).** Under the queue's header,
+  one sideways-scrolling `PageChips` row: Off, Close, Balanced, Explore with the engine (the
+  catalogue's words), Off and Auto DJ without it (`AutoplayChips.kt`; Feishin's
+  `station-chips.ts` is the twin). The selected chip is a bound station's own state (Off iff it is
+  `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
+  bound station (the hub then answers `next` with no tracks and `stopped`, for every device, and
+  says `stopped` in its frames), and the songs that station added that come after the NEXT one in
+  play order are taken out. **A character**: autoplay on with it; a bound station that is stopped
+  or on another character gets `signal character`, its songs after the next one are swapped for a
+  fresh `next` batch at once, and the top-up decision runs at once. Starting any radio turns
+  autoplay back on. Which songs are the station's is `StationProvenance.served` (what this device
+  saw it add); a song the user put in is never taken. The edits are in place and never a reload:
+  locally `MediaPlayerViewModel.editUpcoming` (media-item removes and adds inside
+  `withQueueMutation`, never the playing item or the next one, which may be decoding); as a
+  controller, `remove` acts highest index first and one `enqueue`, never a `setQueue` (a `load` on
+  the playing device). Chip work and the driver's top-ups share one lock (`stationOps`). The old
+  now-playing switch and character button are gone, and `ControlsRow` is upstream's again.
+- **A top-up's songs are in before the driver looks again** (`appendToQueueAndWait`): an append
+  still on its way read as "fewer than two left", and a continuation's `start` was followed at once
+  by a `next`, ten songs for one top-up (watched on the VM, 2026-10-17). The trigger key also names
+  the station, so a restart is a new trigger only once its songs are in.
+- **A session station this device has no frame for names no character** (B-139): the record built
+  for it used to claim the default, Balanced, which no device had chosen.
 - **Failures are read as Feishin reads them** (`stationFailure`, `stationFailureAction`). A
   fallback (503, a `{fallback: true}` body, no `station` feature, a probe that said unavailable,
   the hub disconnected, a bare 404) is Auto DJ for that top-up (with autoplay on) and stops asking
@@ -573,7 +590,7 @@ Rules, each with a reason:
   stars go to Navidrome, which the hub never hears from. A character change is `signal character`.
 - **What the queue sheet says comes from the station**, never from the autoplay setting
   (`queueGenerator`, `QueueGeneratorLine`): "Cinnamon Girl radio · Balanced", "· via Navidrome"
-  for `engine: tier1`, "Auto DJ", "Nothing left that fits" + Explore.
+  for `engine: tier1`, "Auto DJ", "Nothing left that fits", "… · Off" for a stopped station.
 - **Preferences.** Autoplay is a Boolean (`autoplayOn`); the four-way `AutoplayMode` it replaces
   was read once as a raw int at "autoplayMode" (0 off, 1–3 on) and removed, behind
   `autoplayMigrated` (`AutoplayPrefMigrationTest`). `StationCharacter` (Close, Balanced, Explore)

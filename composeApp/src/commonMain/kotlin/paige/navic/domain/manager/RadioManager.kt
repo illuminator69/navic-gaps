@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
@@ -145,57 +147,164 @@ class RadioManager(
 		.distinctUntilChanged()
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
-	/** The character on show: the bound station's, else the one new stations start with. */
-	val shownCharacter: StateFlow<StationCharacter> = combine(
-		combine(generatorInputs) { boundNow()?.character }, _character
-	) { bound, preferred -> StationCharacter.fromWire(bound) ?: preferred }
-		.distinctUntilChanged()
-		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), preferenceManager.stationCharacter)
-
-	/**
-	 * The queue on screen is a radio that keeps going whether or not autoplay is on (a bound
-	 * station of origin `radio`, not exhausted): the settings' Off wording, and the character
-	 * button, which still steers it.
-	 */
-	val radioKeepsGoing: StateFlow<Boolean> = combine(generatorInputs) {
-		boundNow()?.let { it.effectiveOrigin == ORIGIN_RADIO && !it.exhausted } ?: false
-	}
-		.distinctUntilChanged()
-		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
-
 	/** A station request (or an Auto DJ top-up) is out. */
 	val busy: StateFlow<Boolean> get() = stationManager.busy
 
 	val isAudioMuseMix: StateFlow<Boolean> = queueGenerator
-		.map { it is QueueGenerator.Station || it is QueueGenerator.Exhausted || it is QueueGenerator.AudioMuseMix }
+		.map {
+			it is QueueGenerator.Station || it is QueueGenerator.Exhausted || it is QueueGenerator.Stopped ||
+				it is QueueGenerator.AudioMuseMix
+		}
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
 
+	/** The queue sheet's autoplay chips (I-041): which are offered and which is selected. */
+	data class ChipsUi(val chips: List<AutoplayChip>, val selected: AutoplayChip)
+
+	val chips: StateFlow<ChipsUi> = combine(
+		combine(generatorInputs) { boundNow() }, _autoplayOn, _character, stationManager.available
+	) { bound, on, character, available ->
+		ChipsUi(autoplayChips(available), selectedAutoplayChip(available, on, character, bound))
+	}
+		.distinctUntilChanged()
+		.stateIn(
+			scope,
+			SharingStarted.WhileSubscribed(5_000),
+			ChipsUi(autoplayChips(false), if (preferenceManager.autoplayOn) AutoplayChip.AutoDj else AutoplayChip.Off)
+		)
+
 	/**
-	 * Change the character: what new stations start with, and the bound station's from its next
-	 * batch (a `character` signal). Steering the station playing is the point of the control, so
-	 * the queue on screen stays as it is.
+	 * Station work that edits the queue, one at a time: the driver's top-ups and the chips' stop,
+	 * steer and swap. Two of them at once could add a batch twice or swap songs a top-up was
+	 * appending (I-041).
 	 */
-	fun setCharacter(character: StationCharacter) {
-		preferenceManager.stationCharacter = character
-		_character.value = character
-		val bound = boundNow() ?: return
-		if (bound.character == character.wireId && !bound.exhausted) return
-		val mine = stationManager.provenance.value?.takeIf { it.stationId == bound.stationId }
-		if (mine != null) stationManager.record(mine.copy(character = character.wireId, exhausted = false))
+	private val stationOps = Mutex()
+
+	/**
+	 * A tap on an autoplay chip ([planChipTap]). Off: autoplay off, the bound station stopped for
+	 * every device and the songs it added after the next one taken out. A character: autoplay on
+	 * with it; a bound station on another character (or stopped) is steered, the songs it added
+	 * after the next one are swapped for a fresh batch at once, and the top-up decision runs now.
+	 * Never the playing song or the next one, never a reload.
+	 */
+	fun onChipTap(chip: AutoplayChip) {
+		val bound = boundNow()
+		val plan = planChipTap(chip, bound)
+		setAutoplayOn(plan.autoplayOn)
+		plan.character?.let {
+			preferenceManager.stationCharacter = it
+			_character.value = it
+		}
+		val remote = hubManager.isRemoteActive.value
+		// What this device keeps about the bound station says it at once, so the selected chip and
+		// the queue line follow the tap before the hub's frame does.
+		val keep = bound?.takeIf { !remote || stationManager.provenance.value?.stationId == it.stationId }
+		if (keep != null && (plan.stopStation || plan.signalCharacter != null)) {
+			stationManager.record(
+				if (plan.stopStation) keep.copy(stopped = true)
+				else keep.copy(character = plan.signalCharacter!!.wireId, stopped = false, exhausted = false)
+			)
+		}
 		val trackId = mediaPlayer.uiState.value.currentSong?.id.orEmpty()
 		scope.launch {
-			stationManager.signal(bound.stationId, trackId, "character", character.wireId)
-			driverKick.update { it + 1 }
+			stationOps.withLock {
+				stationManager.setBusy(true)
+				try {
+					if (bound != null) {
+						if (plan.stopStation) stationManager.signal(bound.stationId, trackId, "stop")
+						plan.signalCharacter?.let {
+							stationManager.signal(bound.stationId, trackId, "character", it.wireId)
+						}
+						val latest = boundNow()?.takeIf { it.stationId == bound.stationId } ?: bound
+						if (plan.removeTail) removeStationTail(latest)
+						if (plan.replaceTail) replaceStationTail(latest)
+					}
+				} catch (e: Exception) {
+					Logger.e("RadioManager", "autoplay chip $chip failed", e)
+				} finally {
+					stationManager.setBusy(false)
+				}
+			}
+			if (plan.runDecision) driverKick.update { it + 1 }
 		}
 	}
 
-	/** The exhausted line's one tap: widen the station to Explore, which clears "exhausted" on the hub. */
-	fun explore() = setCharacter(StationCharacter.Explore)
+	/** The bound station's songs after the next one, in this queue: queue ids, play order, playing index. */
+	private fun upcomingOf(remote: Boolean): Triple<List<String>, List<Int>?, Int> =
+		if (remote) {
+			val session = hubManager.remoteSession.value
+			Triple(session.tracks.map { it.id }, session.order, session.index)
+		} else {
+			val state = mediaPlayer.localUiState.value
+			Triple(state.queue.map { it.id }, mediaPlayer.playOrder.value, state.currentIndex)
+		}
+
+	/** Off: take out what [bound] added after the next song. Locally an in-place edit; remotely `remove` acts. */
+	private suspend fun removeStationTail(bound: StationProvenance) {
+		val remote = hubManager.isRemoteActive.value
+		val (ids, order, current) = upcomingOf(remote)
+		val tail = stationTailIndices(ids, order, current, bound.served)
+		if (tail.isEmpty()) return
+		if (remote) {
+			// Highest first, so each index still names the song it was computed for. Never a
+			// `setQueue`: on the playing device that is a load, a gap in the music.
+			tail.forEach { hubManager.actRemoveQueueItem(it) }
+		} else {
+			mediaPlayer.editUpcoming(tail, emptyList())
+		}
+		val removed = tail.map { ids[it] }.toSet()
+		stationManager.provenance.value?.takeIf { it.stationId == bound.stationId }?.let { mine ->
+			stationManager.record(mine.copy(served = mine.served.filterNot { it in removed }))
+		}
+	}
+
+	/**
+	 * A character chip on a bound station: swap what it added after the next song for a fresh
+	 * batch now, in the new character, rather than at the next top-up. The answer arrives first;
+	 * with nothing in it the old songs stay.
+	 */
+	private suspend fun replaceStationTail(bound: StationProvenance) {
+		val remote = hubManager.isRemoteActive.value
+		val (ids, order, current) = upcomingOf(remote)
+		val tail = stationTailIndices(ids, order, current, bound.served)
+		if (tail.isEmpty()) return
+		val result = stationManager.next(bound.stationId, bound.seq, STATION_BATCH, ids)
+		val answer = (result as? StationResult.Ok)?.answer ?: run {
+			Logger.i("RadioManager", "chip swap: $result, the songs stay")
+			return
+		}
+		if (answer.servedElsewhere) {
+			markServedElsewhere()
+			return
+		}
+		val removed = tail.map { ids[it] }.toSet()
+		val kept = ids.toSet() - removed
+		val batch = stationBatch(bound, answer, kept, fresh = false)
+		val songs = resolveIds(batch.append).filter { it.id !in kept }
+		if (songs.isEmpty()) {
+			stationManager.record(batch.provenance)
+			return
+		}
+		if (remote) {
+			tail.forEach { hubManager.actRemoveQueueItem(it) }
+			hubManager.enqueueSessionQueue(songs)
+		} else {
+			// Where the first of them stood: the removals are all after it, so it is the same index.
+			mediaPlayer.editUpcoming(tail, songs, insertAt = tail.min())
+		}
+		stationManager.record(batch.provenance.copy(served = batch.provenance.served.filterNot { it in removed }))
+	}
 
 	// ---- Radio ------------------------------------------------------------------------------ //
 
+	/**
+	 * Starting any radio turns autoplay back on, with the character it had (I-041): a radio is
+	 * asked for to keep going, and Off stops every station, radios included.
+	 */
+	private fun radioStarted() = setAutoplayOn(true)
+
 	/** A track's radio: the track, then its station. */
 	fun startRadio(song: DomainSong) {
+		radioStarted()
 		scope.launch {
 			try {
 				val seed = StationSeed(StationSeed.TRACK, listOf(song.id), song.title)
@@ -218,6 +327,7 @@ class RadioManager(
 
 	/** An album's radio: up to five of its tracks, spread over it, then their station. */
 	fun startAlbumRadio(albumId: String, albumName: String) {
+		radioStarted()
 		scope.launch {
 			try {
 				val tracks = songDao.getSongsByAlbumId(albumId).map { it.toDomainModel() }
@@ -246,6 +356,7 @@ class RadioManager(
 	 * sent one to `getSonicSimilarTracks`.
 	 */
 	fun startArtistRadio(artistId: String, artistName: String) {
+		radioStarted()
 		scope.launch {
 			try {
 				val songs = songDao.getSongsByArtistId(artistId).map { it.toDomainModel() }
@@ -279,6 +390,7 @@ class RadioManager(
 	 * something plays.
 	 */
 	suspend fun playYourMix(name: String): Boolean = try {
+		radioStarted()
 		when (playStation(StationSeed.YourMix, emptyList(), _character.value, name)) {
 			StationPlay.Played -> true
 			StationPlay.Empty -> false
@@ -343,7 +455,9 @@ class RadioManager(
 					rev = answer.rev,
 					exhausted = answer.exhausted,
 					// This device's entry point started it: a radio, also for a hub that echoes nothing.
-					origin = stationOrigin(answer.origin, ORIGIN_RADIO)
+					origin = stationOrigin(answer.origin, ORIGIN_RADIO),
+					stopped = answer.stopped,
+					served = tracks.map { it.id }
 				)
 			)
 			if (hubManager.isRemoteActive.value) {
@@ -387,6 +501,7 @@ class RadioManager(
 	 * engines it always had. Returns false when nothing could be built.
 	 */
 	suspend fun regenerate(mix: Mix): Boolean {
+		radioStarted()
 		if (stationBacked(mix)) {
 			val recipe = stationRecipe(mix)
 			if (recipe != null) {
@@ -539,6 +654,7 @@ class RadioManager(
 	/** Play a tracklist a preview already built, without running the engine twice. */
 	fun playGenerated(mix: Mix, songs: List<DomainSong>) {
 		if (songs.isEmpty()) return
+		radioStarted()
 		playMix(songs, SavedQueueSource.RADIO, mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO) })
 		hubManager.actTouchMix(mix.id)
 	}
@@ -871,14 +987,19 @@ class RadioManager(
 					// The trigger is not the cursor: an answer that only moved it (served elsewhere)
 					// waits for the next change rather than asking again at once. A like or a
 					// character change moves `rev`, which does ask again (it can clear "exhausted").
+					// The station's id is part of it: a restart or a continuation that names a new
+					// station at the same moment is a new trigger only once its songs are in.
 					val triggerKey = "${state.savedQueueId}:${state.currentSong?.id}:$remaining:" +
-						"${step::class.simpleName}:${bound?.rev}:${input.on}"
+						"${step::class.simpleName}:${bound?.stationId}:${bound?.rev}:${input.on}"
 					if (triggerKey != trigger) {
 						trigger = triggerKey
 						transientAttempts = 0
 					}
 					val sig = "$triggerKey:${input.kick}"
 					if (sig == lastSig) return@collect
+					// A chip's stop, steer or swap is editing the queue: look again once it is done
+					// (it asks for that look itself).
+					if (!stationOps.tryLock()) return@collect
 					lastSig = sig
 					stationManager.setBusy(true)
 					val retry = try {
@@ -888,6 +1009,7 @@ class RadioManager(
 						null
 					} finally {
 						stationManager.setBusy(false)
+						stationOps.unlock()
 					}
 					when (retry) {
 						DriverRetry.Transient -> {
@@ -1120,7 +1242,9 @@ class RadioManager(
 		val songs = resolveIds(batch.append).filter { it.id !in queued }
 		// The record first: the append republishes the queue, and the publish names the station.
 		stationManager.record(batch.provenance)
-		if (songs.isNotEmpty()) mediaPlayer.appendToQueue(songs)
+		// Awaited: the driver's next look must see these songs, or it asks for another batch for
+		// the same top-up (a `start` followed at once by a `next`, 10 songs for one top-up).
+		if (songs.isNotEmpty()) mediaPlayer.appendToQueueAndWait(songs)
 		// `partial`, every track already queued, or none of them in this library: ask again at
 		// the next trigger, and at the latest in a little while, so a queue on its last song
 		// does not just end.
@@ -1132,7 +1256,7 @@ class RadioManager(
 		val picks = autoDj.collect(current, state.queue.mapTo(HashSet()) { it.id })
 		if (!stillPlaying(state)) return null
 		if (picks.isEmpty()) return DriverRetry.Later
-		mediaPlayer.appendToQueue(picks)
+		mediaPlayer.appendToQueueAndWait(picks)
 		stationManager.recordAutoDj(state.savedQueueId)
 		return null
 	}

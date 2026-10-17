@@ -1,11 +1,9 @@
 package paige.navic.ui.screens.nowPlaying.components.rows
 
-import paige.navic.di.isLandscape
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -20,12 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingAutoplaySelector
-import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingCharacterButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -36,8 +31,7 @@ fun NowPlayingControlsRow(
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit,
-	hazeState: HazeState? = null
+	onSetSongRating: (Int) -> Unit
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	var visible by rememberSaveable { mutableStateOf(false) }
@@ -63,17 +57,6 @@ fun NowPlayingControlsRow(
 				songRating = songRating,
 				onSetSongRating = onSetSongRating
 			)
-			Spacer(modifier = Modifier.height(12.dp))
-			Row(
-				modifier = Modifier.align(Alignment.CenterHorizontally),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp)
-			) {
-				NowPlayingAutoplaySelector(hazeState = hazeState)
-				// Only renders while autoplay is on and the hub's station engine can be steered.
-				NowPlayingCharacterButton(hazeState = hazeState)
-			}
-			Spacer(modifier = Modifier.height(12.dp))
 			NowPlayingProgressBar()
 			NowPlayingDurationsRow()
 			if (preferenceManager.nowPlayingSongInfo) {

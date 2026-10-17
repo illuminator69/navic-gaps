@@ -644,6 +644,23 @@ abstract class MediaPlayerViewModel(
 	 */
 	open fun appendToQueue(songs: List<DomainSong>) {}
 
+	/**
+	 * [appendToQueue], returning once the player and [localUiState] both hold the songs. Autoplay
+	 * looks at the queue again the moment a top-up returns, and an append still on its way read as
+	 * "fewer than two left": the next look asked for a second batch for the same top-up (I-041).
+	 */
+	open suspend fun appendToQueueAndWait(songs: List<DomainSong>) = appendToQueue(songs)
+
+	/**
+	 * An in-place edit of what is still to come in the LOCAL queue (the autoplay chips, I-041):
+	 * take out [removeIndices] (queue indices; the playing song and the one after it in play order
+	 * are never touched, whatever is asked) and put [songs] in at [insertAt] (an index in the queue
+	 * as it is after the removals; null for the end, and never before the song after the playing
+	 * one). Media-item removes and adds only: nothing is reloaded, so the music does not stop.
+	 * Returns once [localUiState] shows it; false where there is nothing to edit.
+	 */
+	open suspend fun editUpcoming(removeIndices: List<Int>, songs: List<DomainSong>, insertAt: Int? = null): Boolean = false
+
 	/** Playable right now: either the server is reachable or the song is downloaded. */
 	protected fun isAvailable(songId: String): Boolean {
 		val isOnline = connectivityManager.isOnline.value

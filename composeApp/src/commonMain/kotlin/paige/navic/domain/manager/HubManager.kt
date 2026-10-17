@@ -150,7 +150,9 @@ data class RemoteSessionState(
 	 */
 	val stationId: String? = null,
 	/** What the session's queue is called (`session.sourceName`): a radio's own name, an album's. */
-	val sourceName: String? = null
+	val sourceName: String? = null,
+	/** `session.order`: the queue's indices in play order while shuffled, null in queue order. */
+	val order: List<Int>? = null
 ) {
 	val nowPlaying: RemoteTrack? get() = tracks.getOrNull(index)
 }
@@ -271,7 +273,8 @@ class HubManager(
 			exhausted = obj["exhausted"]?.jsonPrimitive?.booleanOrNull ?: previous?.exhausted ?: false,
 			name = obj["name"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.name,
 			seed = seed ?: previous?.seed,
-			origin = obj["origin"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.origin
+			origin = obj["origin"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.origin,
+			stopped = obj["stopped"]?.jsonPrimitive?.booleanOrNull ?: previous?.stopped ?: false
 		)
 		// Bounded: a station frame names one station, and only a handful are alive on a hub (8).
 		_stationFrames.update { frames -> (frames - id + (id to frame)).entries.toList().takeLast(16).associate { it.toPair() } }
@@ -1801,6 +1804,7 @@ class HubManager(
 			savedQueueId = obj["savedQueueId"]?.jsonPrimitive?.contentOrNullSafe(),
 			stationId = obj["stationId"]?.jsonPrimitive?.contentOrNullSafe(),
 			sourceName = obj["sourceName"]?.jsonPrimitive?.contentOrNullSafe(),
+			order = (obj["order"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.intOrNull },
 			// `remainingMs` was true when the frame was built: counted down from here on.
 			sleepTimer = (obj["sleepTimer"] as? JsonObject)?.let { timer ->
 				sessionSleepTimer(
