@@ -948,8 +948,7 @@ class RadioManager(
 	 * Each look at the player goes through [autoplayStep]; a step runs once per trigger (queue,
 	 * playing song, songs left, the station's `rev`, the switch), with one request out at a time,
 	 * inside this manager's process scope, so it carries on with the screen off for as long as the
-	 * playback service lives. It runs with autoplay off too: a radio keeps going regardless, and
-	 * [autoplayStep] decides what the switch stops.
+	 * playback service lives. With autoplay off it adds nothing, radios included ([autoplayStep]).
 	 *
 	 * A transient failure is asked again up to [STATION_TRANSIENT_RETRIES] times,
 	 * [STATION_TRANSIENT_RETRY_MS] apart, for the same trigger, then waits for the next one; it
@@ -962,21 +961,31 @@ class RadioManager(
 			var transientAttempts = 0
 			combine(
 				mediaPlayer.localUiState, mediaPlayer.playOrder, _autoplayOn, stationManager.available, driverKick
-			) { state, order, on, available, kick -> AutoplayInput(state, order, on, available, kick) }
-				.collect { input ->
-					val state = input.state
-					val remaining = playOrderRemaining(input.order, state.queue.size, state.currentIndex)
-					val bound = if (input.available) stationManager.boundFor(state) else null
+			) { _, _, _, _, kick -> kick }
+				.collect { kick ->
+					// The emission is the cue to look, not what to look at. `combine` hands over
+					// values queued while the last step ran, so one combined before that step's
+					// songs went in (the queue still on its last song) and paired with the record
+					// that step wrote (a new station after a restart) read as a fresh trigger: a
+					// `start` at once followed by a `next`, ten songs for one top-up (the restart
+					// path, seen on the emulator against a hub that had lost the station). What the
+					// player holds NOW is what decides.
+					val state = mediaPlayer.localUiState.value
+					val order = mediaPlayer.playOrder.value
+					val on = _autoplayOn.value
+					val available = stationManager.available.value
+					val remaining = playOrderRemaining(order, state.queue.size, state.currentIndex)
+					val bound = if (available) stationManager.boundFor(state) else null
 					val step = autoplayStep(
 						AutoplayLook(
-							autoplayOn = input.on,
+							autoplayOn = on,
 							remoteActive = hubManager.isRemoteActive.value,
 							paused = state.isPaused,
 							repeatMode = state.repeatMode,
 							queueSize = state.queue.size,
 							currentIndex = state.currentIndex,
 							remaining = remaining,
-							stationsAvailable = input.available,
+							stationsAvailable = available,
 							bound = bound,
 							inFlight = stationManager.busy.value,
 							autoDjTiming = preferenceManager.autoDjTiming,
@@ -990,12 +999,12 @@ class RadioManager(
 					// The station's id is part of it: a restart or a continuation that names a new
 					// station at the same moment is a new trigger only once its songs are in.
 					val triggerKey = "${state.savedQueueId}:${state.currentSong?.id}:$remaining:" +
-						"${step::class.simpleName}:${bound?.stationId}:${bound?.rev}:${input.on}"
+						"${step::class.simpleName}:${bound?.stationId}:${bound?.rev}:$on"
 					if (triggerKey != trigger) {
 						trigger = triggerKey
 						transientAttempts = 0
 					}
-					val sig = "$triggerKey:${input.kick}"
+					val sig = "$triggerKey:$kick"
 					if (sig == lastSig) return@collect
 					// A chip's stop, steer or swap is editing the queue: look again once it is done
 					// (it asks for that look itself).
@@ -1003,7 +1012,7 @@ class RadioManager(
 					lastSig = sig
 					stationManager.setBusy(true)
 					val retry = try {
-						runStep(step, state, input.order, input.on, transientAttempts)
+						runStep(step, state, order, on, transientAttempts)
 					} catch (e: Exception) {
 						Logger.e("RadioManager", "autoplay $step failed", e)
 						null
@@ -1022,14 +1031,6 @@ class RadioManager(
 				}
 		}
 	}
-
-	private data class AutoplayInput(
-		val state: PlayerUiState,
-		val order: List<Int>?,
-		val on: Boolean,
-		val available: Boolean,
-		val kick: Int
-	)
 
 	/** What a step leaves for later: a transient failure's retry, or a partial answer's. */
 	private enum class DriverRetry { Transient, Later }
