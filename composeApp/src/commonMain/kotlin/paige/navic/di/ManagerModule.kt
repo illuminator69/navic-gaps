@@ -1,5 +1,8 @@
 package paige.navic.di
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.domain.manager.AudioMuseManager
@@ -22,9 +25,19 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.StationManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.ui.util.AmbientColorHolder
+import paige.navic.ui.util.CoverSeedStore
 
 val managerModule = module {
 	singleOf(::AmbientColorHolder)
+	// I-043: cover seed colours, persisted. An explicit lambda: singleOf would try to resolve the
+	// constructor's default parameters. Main-thread only, so its delayed write runs on Main too.
+	single {
+		CoverSeedStore(
+			load = { get<PreferenceManager>().coverSeeds },
+			save = { get<PreferenceManager>().coverSeeds = it },
+			scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+		)
+	}
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
 		SyncManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply {

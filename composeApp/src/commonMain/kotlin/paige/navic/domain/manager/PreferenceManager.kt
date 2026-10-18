@@ -188,6 +188,9 @@ class PreferenceManager(
 	// What built the current queue, when a station did (`StationProvenance`, JSON), so a restart
 	// does not turn a radio into a queue nobody continues. Written by StationManager alone.
 	var stationProvenance by preference("")
+	// navi-connect I-043: every cover's two seed colours, so a page is coloured in its first frame
+	// (`CoverSeedStore`, JSON from `CoverSeedCodec`). Written by that store alone.
+	var coverSeeds by preference("")
 	// The saved-queue id of a queue Auto DJ has topped up, for the queue sheet's line.
 	var autoDjQueueId by preference("")
 	// The hub's last character catalogue (`GET /sonic/station/characters`), JSON, so the labels
