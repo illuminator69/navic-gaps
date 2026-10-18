@@ -38,59 +38,62 @@ val SheetHideMotionSpec = tween<Float>(
 )
 
 object Material3Transitions {
-	val SharedXAxisEnterTransition: (Density) -> EnterTransition = { _ ->
-		fadeIn(
-			animationSpec = tween(durationMillis = DurationLong1, easing = EmphasizedEasing)
+	// navi-connect I-042: the four specs are built from a PageMotion (PageMotion.kt), so the
+	// Quick style can shorten them. The vals are the Expressive/Standard timing, unchanged.
+	fun enter(motion: PageMotion): (Density) -> EnterTransition = { density ->
+		pageEnter(motion, density, sign = 1)
+	}
+
+	fun popEnter(motion: PageMotion): (Density) -> EnterTransition = { density ->
+		pageEnter(motion, density, sign = -1)
+	}
+
+	fun exit(motion: PageMotion): (Density) -> ExitTransition = { density ->
+		pageExit(motion, density, sign = -1)
+	}
+
+	fun popExit(motion: PageMotion): (Density) -> ExitTransition = { density ->
+		pageExit(motion, density, sign = 1)
+	}
+
+	val SharedXAxisEnterTransition: (Density) -> EnterTransition = enter(DefaultPageMotion)
+
+	val SharedXAxisPopEnterTransition: (Density) -> EnterTransition = popEnter(DefaultPageMotion)
+
+	val SharedXAxisExitTransition: (Density) -> ExitTransition = exit(DefaultPageMotion)
+
+	val SharedXAxisPopExitTransition: (Density) -> ExitTransition = popExit(DefaultPageMotion)
+
+	private fun pageEnter(motion: PageMotion, density: Density, sign: Int): EnterTransition {
+		val easing = when (motion.enterEasing) {
+			PageEasing.Emphasized -> EmphasizedEasing
+			PageEasing.EmphasizedDecelerate -> EmphasizedDecelerateEasing
+		}
+		return fadeIn(
+			animationSpec = tween(durationMillis = motion.enterFadeMs, easing = easing)
 		) +
 			slideInHorizontally(
-				animationSpec = tween(durationMillis = DurationLong2, easing = EmphasizedEasing)
+				animationSpec = tween(durationMillis = motion.enterSlideMs, easing = easing)
 			) {
-				it / 2
+				val travel = motion.enterSlideDp?.let { dp -> with(density) { dp.dp.roundToPx() } }
+					?: (it / 2)
+				sign * travel
 			}
 	}
 
-	val SharedXAxisPopEnterTransition: (Density) -> EnterTransition = { _ ->
-		fadeIn(
-			animationSpec = tween(durationMillis = DurationLong1, easing = EmphasizedEasing)
-		) +
-			slideInHorizontally(
-				animationSpec = tween(durationMillis = DurationLong2, easing = EmphasizedEasing)
-			) {
-				-it / 2
-			}
-	}
-
-	val SharedXAxisExitTransition: (Density) -> ExitTransition = { density ->
+	private fun pageExit(motion: PageMotion, density: Density, sign: Int): ExitTransition =
 		fadeOut(
 			animationSpec = tween(
-				durationMillis = DurationMedium1,
+				durationMillis = motion.exitFadeMs,
 				easing = EmphasizedAccelerateEasing
 			)
 		) +
 			slideOutHorizontally(
 				animationSpec = tween(
-					durationMillis = DurationMedium2,
+					durationMillis = motion.exitSlideMs,
 					easing = EmphasizedAccelerateEasing
 				)
 			) {
-				with(density) { -30.dp.roundToPx() }
+				sign * with(density) { motion.exitSlideDp.dp.roundToPx() }
 			}
-	}
-
-	val SharedXAxisPopExitTransition: (Density) -> ExitTransition = { density ->
-		fadeOut(
-			animationSpec = tween(
-				durationMillis = DurationMedium1,
-				easing = EmphasizedAccelerateEasing
-			)
-		) +
-			slideOutHorizontally(
-				animationSpec = tween(
-					durationMillis = DurationMedium2,
-					easing = EmphasizedAccelerateEasing
-				)
-			) {
-				with(density) { 30.dp.roundToPx() }
-			}
-	}
 }

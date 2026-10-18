@@ -1759,6 +1759,9 @@ true of invented *album art*, and not of an icon naming the kind.
   move; `QuickPageMotion` is a starting proposal the user tunes on the phone, one number per edit.
   Components keep `MotionScheme.expressive()` under Quick (`Theme.kt`; `standard()` is the
   one-line alternative).
+  Page pushes and pops: `NavDisplay`'s `transitionSpec` / `popTransitionSpec` in `App.kt` read
+  the style inside the lambda and build `Material3Transitions.enter` / `exit` / `popEnter` /
+  `popExit(motion)`; the old `SharedXAxis*` vals are the same specs at the default timing.
 - **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
   `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
   `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039
