@@ -50,6 +50,9 @@ fun NavicTheme(
 		when (preferenceManager.animationStyle) {
 			AnimationStyle.Expressive -> MotionScheme.expressive()
 			AnimationStyle.Standard -> MotionScheme.standard()
+			// navi-connect I-042: Quick changes page, cover and sheet timing only (PageMotion.kt);
+			// components keep the Expressive springs. `standard()` here if they read as bouncy.
+			AnimationStyle.Quick -> MotionScheme.expressive()
 		}
 	}
 	// When a cover scheme is supplied, also drive the default content colour from
