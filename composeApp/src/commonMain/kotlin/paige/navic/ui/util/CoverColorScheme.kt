@@ -126,66 +126,9 @@ private const val PALETTE_PX = 128
 private const val PALETTE_ATTEMPTS = 3
 private const val PALETTE_RETRY_DELAY_MS = 400L
 
-/** A palette swatch's packed ARGB as a Compose [Color]. */
-private fun Swatch.toColor(): Color = Color(rgb)
-
-/** Shortest distance between two hues on the colour wheel, in degrees (0-180). */
-private fun hueDistance(a: Float, b: Float): Float {
-	val d = abs(a - b) % 360f
-	return if (d > 180f) 360f - d else d
-}
-
-/** Beyond this many degrees apart, two swatches are not the same colour to the eye. */
-private const val HUE_FAMILY_DEGREES = 45f
-
-/** Below this saturation a swatch has no meaningful hue, and belongs to the greyscale family. */
-private const val NEUTRAL_SATURATION = 0.12f
-
-/**
- * The leading swatch of the most populous colour FAMILY — what a person would say the artwork
- * "is" — rather than the single most populous swatch.
- *
- * `Palette.dominantSwatch` is the biggest *quantisation box*, which is not the same thing and on
- * real sleeves is often not even close. Median cut subdivides crowded regions, so a colour that
- * covers half the cover in a hundred shades is split across half a dozen boxes and each one is
- * small, while a flat minority area — a border, a patch of sky — survives whole and wins. Measured
- * on Yo La Tengo's `I Can Hear the Heart Beating as One`: red/magenta 43% of the sleeve, lilac
- * 43%, pale blue 13%, and `dominantSwatch` answered the blue. The page came out ice blue for a
- * cover nobody would describe as blue.
- *
- * So each swatch is scored by the population of its whole neighbourhood, weighted by how far each
- * neighbour's hue is from its own — a kernel density estimate over the hue wheel, with no bin
- * edges for a family to fall across. Swatches too desaturated to have a hue are scored as one
- * greyscale family instead, which is what keeps a black-and-white cover neutral rather than
- * handing it whichever faint tint happens to survive quantisation.
- */
-private fun List<Swatch>.dominantByColorFamily(): Swatch? {
-	if (isEmpty()) return null
-	val neutral = filter { it.hsl[1] < NEUTRAL_SATURATION }
-	val chromatic = filter { it.hsl[1] >= NEUTRAL_SATURATION }
-
-	val neutralScore = neutral.sumOf { it.population.toDouble() }
-	// Scored once, and the winner read off the same list: computing the score in two places is two
-	// chances for the comparison and the pick to disagree.
-	val (best, bestScore) = chromatic
-		.map { swatch ->
-			swatch to chromatic.sumOf { other ->
-				val weight = 1f - hueDistance(swatch.hsl[0], other.hsl[0]) / HUE_FAMILY_DEGREES
-				if (weight <= 0f) 0.0 else other.population * weight.toDouble()
-			}
-		}
-		.maxByOrNull { it.second }
-		?: (null to 0.0)
-
-	return if (best == null || neutralScore > bestScore) {
-		neutral.maxByOrNull { it.population } ?: best
-	} else {
-		// The family's own leading swatch: the colour to name it by, at the tone it actually is.
-		chromatic
-			.filter { hueDistance(it.hsl[0], best.hsl[0]) <= HUE_FAMILY_DEGREES }
-			.maxByOrNull { it.population }
-	}
-}
+/** A palette swatch as the pure colour rules take it ([deriveCoverSeeds]). */
+private fun Swatch.toSample(): SwatchSample =
+	SwatchSample(rgb = rgb, hue = hsl[0], saturation = hsl[1], lightness = hsl[2], population = population)
 
 /** A readable Material scheme derived from artwork plus the extracted seed color. */
 data class CoverColors(
@@ -349,13 +292,15 @@ fun rememberCoverColorScheme(
 	// fetch — no cover id, or Navidrome's generic avatar — nothing will ever replace it, and an
 	// artist with no picture sat permanently in the colour of whatever album you opened it from.
 	val hasSeedSource = themingOn && (resolved || (initialSeed != null && coverUri != null))
-	// The most POPULOUS colour, by family (see [dominantByColorFamily] — NOT `dominantSwatch`).
+	// The most POPULOUS colour, by family (see `dominantByColorFamily` in CoverSeeds.kt — NOT `dominantSwatch`).
 	// It decides page BRIGHTNESS — a mostly-black cover has to give a dark page — and, since the
 	// scheme's neutrals are seeded from it below, every background. On its own it's still a poor
 	// accent: on a black-and-yellow sleeve it's the black, not the yellow the cover reads as.
-	val dominant = remember(palette, initialSeed, fallback, themingOn, coverUri) {
+	// The cover reduced to its two colours, by the pure rules in CoverSeeds.kt.
+	val seeds = remember(palette) { palette?.let { p -> deriveCoverSeeds(p.swatches.map { it.toSample() }) } }
+	val dominant = remember(seeds, initialSeed, fallback, themingOn, coverUri) {
 		if (!themingOn) fallback
-		else palette?.swatches?.dominantByColorFamily()?.toColor()
+		else seeds?.dominant?.let(::Color)
 			?: initialSeed?.takeIf { coverUri != null }
 			?: fallback
 	}
@@ -363,14 +308,7 @@ fun rememberCoverColorScheme(
 	// rejected, so what survives is the colour a human would name the cover by (the yellow).
 	// A genuinely greyscale cover has no survivor and falls back to the dominant, staying neutral
 	// rather than having a hue invented for it.
-	val vivid = remember(palette) {
-		palette?.swatches
-			?.filter { it.hsl[1] >= 0.25f && it.hsl[2] in 0.25f..0.85f }
-			// By family here too, and for the same reason: the accent should be the colour the
-			// artwork is known by, not whichever shade of it quantisation happened to keep whole.
-			?.dominantByColorFamily()
-			?.toColor()
-	}
+	val vivid = seeds?.vivid?.let(::Color)
 	// The WASH is the dominant colour pulled a third of the way toward the vivid one: enough for
 	// the page to actually read as the cover's colour, not so much that a saturated cover turns
 	// the background into a glare. This is what "expressive" means here — a black-and-yellow cover
