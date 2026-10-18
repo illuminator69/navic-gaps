@@ -33,6 +33,7 @@ import coil3.request.crossfade
 import org.koin.compose.koinInject
 import paige.navic.di.getStaticImageLoader
 import paige.navic.domain.manager.SessionManager
+import paige.navic.ui.util.ColourArrivalTrace
 import kotlin.time.TimeSource
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
@@ -111,7 +112,8 @@ fun BlendBackground(
 			contentDescription = null,
 			contentScale = ContentScale.Crop,
 			colorFilter = ColorFilter.colorMatrix(colorMatrix),
-			modifier = Modifier.fillMaxSize()
+			modifier = Modifier.fillMaxSize(),
+			onSuccess = { ColourArrivalTrace.mark("art.loaded $coverArtId") }
 		)
 		Box(
 			modifier = Modifier

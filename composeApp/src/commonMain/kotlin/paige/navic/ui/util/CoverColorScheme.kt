@@ -291,9 +291,11 @@ fun rememberCoverColorScheme(
 		val id = paletteKey ?: return@LaunchedEffect
 		val uri = coverUri ?: return@LaunchedEffect
 		paletteCache[id]?.let {
+			ColourArrivalTrace.mark("seeds.hit $id")
 			palette = it
 			return@LaunchedEffect
 		}
+		ColourArrivalTrace.mark("seeds.fetch.start $id")
 		// LaunchedEffect bodies run on the composition dispatcher (main). The Ktor fetch suspends
 		// off it on its own, but the quantisation afterwards is plain CPU work, and it lands
 		// exactly when the artwork changes — i.e. the moment the colour adaptation is visible.
@@ -314,7 +316,11 @@ fun rememberCoverColorScheme(
 			if (result != null) break
 			Logger.w("CoverColorScheme", "palette fetch failed for $id (attempt ${attempt + 1})", outcome.exceptionOrNull())
 		}
-		if (result == null) return@LaunchedEffect
+		if (result == null) {
+			ColourArrivalTrace.mark("seeds.fetch.fail $id")
+			return@LaunchedEffect
+		}
+		ColourArrivalTrace.mark("seeds.fetch.done $id")
 		paletteCache[id] = result
 		palette = result
 	}
@@ -588,6 +594,7 @@ fun rememberNowPlayingCoverArtId(): String? {
 			.map { it.currentSong?.coverArtId }
 			.distinctUntilChanged()
 	}.collectAsStateWithLifecycle(player.uiState.value.currentSong?.coverArtId)
+	ColourArrivalTrace.playerId(coverArtId)
 	return coverArtId
 }
 

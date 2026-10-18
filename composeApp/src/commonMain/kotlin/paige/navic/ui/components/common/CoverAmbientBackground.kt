@@ -20,6 +20,7 @@ import paige.navic.di.LocalNavStack
 import paige.navic.ui.navigation.railFollowsCover
 import paige.navic.ui.navigation.railWearsCover
 import paige.navic.ui.theme.NavicTheme
+import paige.navic.ui.util.ColourArrivalTrace
 import paige.navic.ui.util.CoverColors
 import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
@@ -122,10 +123,11 @@ val LocalCoverAmbientBottom = compositionLocalOf<Color?> { null }
 fun BrowsingAmbient(content: @Composable () -> Unit) {
 	val coverArtId = rememberNowPlayingCoverArtId()
 	val cover: CoverColors = rememberCoverColorScheme(coverArtId, isDark = rememberAppIsDark())
+	ColourArrivalTrace.mark("wash.compose resolved=${cover.resolved} id=$coverArtId")
 	// Nothing playing, theming off, or a palette that hasn't landed: the app's own scheme, and no
 	// background of our own. `resolved` rather than `coverArtId != null` — see CoverColorScheme.
 	if (!cover.themed || !cover.resolved) {
-		NavicTheme(cover.scheme, content = content)
+		NavicTheme(cover.scheme) { TracedWashContent(content) }
 		return
 	}
 	val (ambientTop, ambientBottom) = coverAmbientGradient(cover.seed, cover.isDark)
@@ -137,11 +139,17 @@ fun BrowsingAmbient(content: @Composable () -> Unit) {
 		CompositionLocalProvider(LocalCoverAmbientBottom provides ambientBottom) {
 			NavicTheme(
 				cover.scheme.copy(background = Color.Transparent),
-				contentColor = onAmbientColor(ambientTop, cover.scheme),
-				content = content
-			)
+				contentColor = onAmbientColor(ambientTop, cover.scheme)
+			) { TracedWashContent(content) }
 		}
 	}
+}
+
+/** Diagnostics (I-043): logs each time the page under the wash is created afresh. */
+@Composable
+private fun TracedWashContent(content: @Composable () -> Unit) {
+	remember { ColourArrivalTrace.mark("wash.content.created") }
+	content()
 }
 
 /**
