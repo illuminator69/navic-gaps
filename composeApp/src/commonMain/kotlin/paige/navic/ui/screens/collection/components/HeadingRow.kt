@@ -1,7 +1,5 @@
 package paige.navic.ui.screens.collection.components
 
-import androidx.compose.animation.BoundsTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +34,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.theme.defaultFont
-import paige.navic.ui.util.EmphasizedDecelerateEasing
+import paige.navic.ui.util.rememberCoverBoundsTransform
 import paige.navic.di.LocalPlatformContext
 
 @Composable
@@ -65,12 +63,7 @@ fun CollectionDetailScreenHeadingRow(
 					.size(212.dp)
 					.sharedElement(
 						sharedContentState = this@with.rememberSharedContentState("${tab}-${collection.id}-cover"),
-						boundsTransform = BoundsTransform { _, _ ->
-							tween(
-								durationMillis = 500,
-								easing = EmphasizedDecelerateEasing
-							)
-						},
+						boundsTransform = rememberCoverBoundsTransform(),
 						animatedVisibilityScope = LocalNavAnimatedContentScope.current
 					)
 					.alpha(titleAlpha)

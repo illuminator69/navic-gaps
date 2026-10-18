@@ -1,5 +1,6 @@
 package paige.navic.ui.util
 
+import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
@@ -9,9 +10,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
 
 private val pathForAnimation =
 	Path().apply {
@@ -36,6 +41,23 @@ val SheetHideMotionSpec = tween<Float>(
 	durationMillis = 600,
 	easing = EmphasizedAccelerateEasing
 )
+
+/**
+ * navi-connect I-042: a cover's shared-element flight between a list and its page, timed by the
+ * animation style so it lands with the page (PageMotion.sharedBoundsMs).
+ */
+@Composable
+fun rememberCoverBoundsTransform(): BoundsTransform {
+	val durationMs = pageMotionOf(koinInject<PreferenceManager>().animationStyle).sharedBoundsMs
+	return remember(durationMs) {
+		BoundsTransform { _, _ ->
+			tween(
+				durationMillis = durationMs,
+				easing = EmphasizedDecelerateEasing
+			)
+		}
+	}
+}
 
 object Material3Transitions {
 	// navi-connect I-042: the four specs are built from a PageMotion (PageMotion.kt), so the

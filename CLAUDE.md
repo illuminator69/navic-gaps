@@ -1762,6 +1762,9 @@ true of invented *album art*, and not of an icon naming the kind.
   Page pushes and pops: `NavDisplay`'s `transitionSpec` / `popTransitionSpec` in `App.kt` read
   the style inside the lambda and build `Material3Transitions.enter` / `exit` / `popEnter` /
   `popExit(motion)`; the old `SharedXAxis*` vals are the same specs at the default timing.
+  The cover's shared-element flight: the three sites (`ArtGrid`, the collection heading, the
+  image viewer) take `rememberCoverBoundsTransform()`, so the cover lands with the page. A new
+  shared-element cover goes through it too, never a hard-coded `tween(500)`.
 - **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
   `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
   `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039
