@@ -1765,6 +1765,8 @@ true of invented *album art*, and not of an icon naming the kind.
   The cover's shared-element flight: the three sites (`ArtGrid`, the collection heading, the
   image viewer) take `rememberCoverBoundsTransform()`, so the cover lands with the page. A new
   shared-element cover goes through it too, never a hard-coded `tween(500)`.
+  Sheets: the shared `ModalBottomSheet` wrapper takes its show / hide times from it (so the
+  player and queue scenes too); only the times, the one-motion opening is unchanged.
 - **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
   `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
   `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039

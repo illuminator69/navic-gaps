@@ -33,14 +33,18 @@ val EmphasizedEasing = PathEasing(pathForAnimation)
 val EmphasizedAccelerateEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 val EmphasizedDecelerateEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 
-val SheetShowMotionSpec = tween<Float>(
-	durationMillis = 400,
+// navi-connect I-042: a sheet's opening and closing times follow the animation style
+// (PageMotion.kt); the vals are the Expressive/Standard timing, unchanged.
+fun sheetShowMotionSpec(motion: PageMotion) = tween<Float>(
+	durationMillis = motion.sheetShowMs,
 	easing = EmphasizedDecelerateEasing
 )
-val SheetHideMotionSpec = tween<Float>(
-	durationMillis = 600,
+fun sheetHideMotionSpec(motion: PageMotion) = tween<Float>(
+	durationMillis = motion.sheetHideMs,
 	easing = EmphasizedAccelerateEasing
 )
+val SheetShowMotionSpec = sheetShowMotionSpec(DefaultPageMotion)
+val SheetHideMotionSpec = sheetHideMotionSpec(DefaultPageMotion)
 
 /**
  * navi-connect I-042: a cover's shared-element flight between a list and its page, timed by the
