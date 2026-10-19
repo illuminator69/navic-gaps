@@ -47,7 +47,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
-| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
+| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
 | Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
@@ -219,7 +219,7 @@ that before suspecting the merge.
 - **`App.kt`** — every nav entry, the `Washed` wrapper on the root tabs, the composition locals,
   the `NavDisplay` entry decorators (rule 14), and `AlbumMatchHost()` under the theme (§5,
   I-022: drop it and "Fix album match" opens nothing, with no error), and `ColourArrivalEffects()`
-  beside it (§6 rule 8: drop it and cold starts go neutral again, with no error). P1 added two more fork lines the same way: `AvatarMenuDrawer { … }` around the page and the rail, and `NewSheetHost()` beside `AlbumMatchHost()` (§7: drop either and the avatar or the New button opens nothing, with no error). Take the fork's whole and
+  beside it (§6 rule 8: drop it and cold starts go neutral again, with no error). P1 added two more fork lines the same way: `AvatarMenuDrawer { … }` around the page and the rail, and `NewSheetHost()` beside `AlbumMatchHost()` (§7: drop either and the avatar or the New button opens nothing, with no error). Round 2 added a third: `AppWash( … ) { NavDisplay( … ) }`, the playing cover's wash behind the pages (§6 rule 9: drop it and a page change flashes the colours and a back gesture shows a white bar, again with no error; the blur source and the window-insets modifier are on the `AppWash`, not on `NavDisplay`). Take the fork's whole and
   re-apply upstream's structural changes by hand.
 - **`PreferenceManager.kt`**, **`SessionManager.kt`**, **`DownloadManager.kt`**,
   **`DbRepository.kt`**, **`SongDao.kt`** — union merges where both sides append. Usually textual
@@ -1284,7 +1284,7 @@ from a second palette built without kmpalette's default skin-tone filter, which 
 dark cover's `accent` is its `vivid`, unchanged: there the dark field already fails the colourful
 bounds. Page brightness and the wash still come from the default palette alone.
 
-Eight rules, each of which is a bug that shipped:
+Nine rules, each of which is a bug that shipped:
 
 1. **An unresolved cover is an absence, not a colour.** The derivation used to run whether or not a
    palette had landed: with none, the dominant fell back to `colorScheme.surface`, the accent seed
@@ -1347,6 +1347,22 @@ Eight rules, each of which is a bug that shipped:
    artwork itself (Coil, then its 400 ms crossfade), which on a cold start lands seconds after the
    colour.
 
+9. **The wash is behind the pages, not on them (P1 round 2).** Each washed page used to draw its own opaque wash,
+   so while two pages cross-faded (a tab switch, a push, a pop) the app's neutral surface showed through the fade and
+   the colours flashed pale for a moment (measured on the AVD at animation scale 10: the page's edge went from lum 189
+   to 206 on the tap and settled back over the transition), and after a committed back gesture the page being left is
+   removed a few pixels before the page coming in has finished sliding, so a bar of that same neutral surface (white
+   on a light base) stood at the edge (12 px of a 336 px frame, shrinking to 0; the same for any pop, root or not).
+   `AppWash`, composed once around `NavDisplay` in `App.kt`, draws the playing cover's wash and provides
+   `LocalAppWash`; `BrowsingAmbient` draws none of its own while that is true and is transparent over it. Same gate as
+   the page's (`themed && resolved`, the cover from `washCoverArtId`), so nothing playing is the plain surface as ever.
+   Artist and album pages draw their own opaque wash over it, from their own cover (a thin bar of the PLAYING cover's
+   colour at the edge of a pop to one of them is possible and not fixed). The cause of the early removal was not
+   found (the committed back runs on, with the page being left already gone); do not rely on the bar being absent
+   without the backdrop. Every surface but the artist and album pages is washed: Settings and all its pages, the smart
+   playlist form, shares, a genre's albums (`WashedBrowsingScreens`); what a host composes outside every page (the New
+   sheet's dialog and paste sheet, the changelog sheet) is themed from `rememberNowPlayingCoverAmbient()`.
+
 **The tablet rail follows browsing pages only (B-008, option 2).** The `SideBar` sits beside
 `NavDisplay`, so it cannot read a page's `BrowsingAmbient`. `RailAmbient`, beside it in
 `CoverAmbientBackground.kt`, wraps it in `App.kt` and takes the same now-playing scheme itself
@@ -1360,8 +1376,8 @@ otherwise keep the stale colours beside them. A present id whose fetch fails sti
 previous palette on the rail, as on a page that was already open. The rail is
 `WideNavigationRail`'s non-modal container, i.e. the scheme's `surface`: opaque, and at the
 artwork's brightness like the page beside it (see rule 6 for why its nested `NavicTheme` is fine).
-**The limit:** detail and artist pages, Settings, the image viewer and a two-pane
-`CollectionDetail` keep the base rail, so a light rail beside a dark artwork-themed *detail* page
+**The limit:** detail and artist pages, the image viewer and a two-pane
+`CollectionDetail` keep the base rail (Settings and its pages are washed since P1 round 2), so a light rail beside a dark artwork-themed *detail* page
 is still expected (option 3, every screen publishing its scheme, would close it). A new washed tab
 goes in `WashedBrowsingScreens` as well as behind `Washed` — and so does a washed PUSHED page:
 Library Matches, Downloads and Saved queues are (I-026, I-039), wrapped at their `entry<…>` in `App.kt`; `WashedBrowsingDriftTest`
@@ -1767,9 +1783,10 @@ true of invented *album art*, and not of an icon naming the kind.
   its key, never its position. Rise 8 dp and fade over 240 ms, the first five 30 ms apart, the rest together at 150 ms;
   the stagger is stretched by `animator_duration_scale` like the durations. **Reduced motion is the system animation
   scale and needs no flag** (measured: at scale 0 no in-between frame and no blank frame; the tile reads the scale from
-  `rememberCoroutineScope()` in composition so it never starts invisible). `Fold` rolls a block's height out (300 ms,
-  450 tall); `CoverArt`/`RemoteCoverArt`/`ArtGridItem` take `placeholderName` for a tinted box the cover fades in over.
-  None of it follows `AnimationStyle`. A shelf calls `gate.claimAll` after its first frame so a tile scrolled in later
+  `rememberCoroutineScope()` in composition so it never starts invisible). `Fold` rolls a block's height out and follows the
+  animation style (`FoldMotion`: the motion scheme's springs under Expressive and Standard, `PageMotion.foldMs` under
+  Quick; the capsule's corners and chevron move with it); `CoverArt`/`RemoteCoverArt`/`ArtGridItem` take `placeholderName` for a tinted box the cover fades in over.
+  The arrival's own timings do not follow `AnimationStyle`. A shelf calls `gate.claimAll` after its first frame so a tile scrolled in later
   does not arrive on its own.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
@@ -1802,6 +1819,11 @@ true of invented *album art*, and not of an icon naming the kind.
   a Tailscale or LAN address will not do.
 - **The fork's UI rules the phone taught (I-039, 2026-10-16).** The pass rebuilt every surface on
   upstream's parts and then came back for motion, place and continuity:
+  - **A chip that swaps a list's rows resets the scroll in the same frame** (`requestScrollToItem(0)`, Saved queues,
+    B-161). `LazyColumn` keeps the first visible KEY in place, so rows that came in above the row on screen arrived out
+    of sight and the chip looked inert on the way back; with the reset, rows that leave fade, the ones that stay slide,
+    the ones that come in fade in, wherever the page was scrolled. The list is clipped to its bounds: a row animating
+    in from above the view otherwise drew through the top bar.
   - **A glitch is fixed without removing the animation.** Material 1.5's `FilterChip` eases its own
     check in (fastSpatial, which overshoots) and out (defaultEffects); two chips trading it briefly
     overflowed a full wrapping row. `PageChips` gives wrapping rows one spec for both (B-130); the
