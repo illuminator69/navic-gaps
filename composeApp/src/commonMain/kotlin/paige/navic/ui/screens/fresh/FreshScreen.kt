@@ -285,25 +285,15 @@ fun FreshScreen(nested: Boolean = false) {
  * owning this album, and that is the whole set this screen exists for.
  */
 private fun open(backStack: MutableList<NavKey>, release: LbFreshRelease) {
-	// An album the library holds opens the library album. This used to send every
-	// row to the external page regardless, relying on that page's redirect — which
-	// reads `navidromeAlbumIds` off the index, and an album lb-bot filled itself
-	// has none, so a tile badged "in library" opened a *download* page.
-	if (release.releaseAlbumId.isNotBlank()) {
-		backStack.add(Screen.CollectionDetail(release.releaseAlbumId, ""))
-		return
-	}
-	val rgid = release.releaseGroupMbid
-	if (rgid.isBlank()) return
-	backStack.add(
-		Screen.ExternalAlbum(
-			rgid = rgid,
-			artistMbid = release.artistMbids.firstOrNull().orEmpty(),
-			artistName = release.artist,
-			title = release.releaseName,
-			artistId = if (release.artistOwned) release.artistId else ""
-		)
-	)
+	// The rule is `freshAlbumTarget`'s, shared with Home's Fresh shelf.
+	freshAlbumTarget(
+		albumId = release.releaseAlbumId,
+		rgid = release.releaseGroupMbid,
+		artistMbid = release.artistMbids.firstOrNull().orEmpty(),
+		artistName = release.artist,
+		title = release.releaseName,
+		artistId = if (release.artistOwned) release.artistId else ""
+	)?.let { backStack.add(it) }
 }
 
 /**

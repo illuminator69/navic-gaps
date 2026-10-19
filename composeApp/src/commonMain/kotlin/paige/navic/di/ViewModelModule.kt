@@ -18,6 +18,7 @@ import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
 import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
 import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
+import paige.navic.ui.screens.home.HomeViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningCardViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
@@ -50,6 +51,7 @@ import paige.navic.ui.viewmodel.RootViewModel
 val viewModelModule = module {
 	viewModelOf(::ArtistDetailViewModel)
 	viewModelOf(::FreshViewModel)
+	viewModelOf(::HomeViewModel)
 	viewModelOf(::DiscoverViewModel)
 	viewModelOf(::MixListViewModel)
 	viewModelOf(::WishlistViewModel)

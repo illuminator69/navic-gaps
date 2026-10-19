@@ -13,10 +13,12 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_home
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 
@@ -29,6 +31,13 @@ import paige.navic.ui.viewmodel.RootViewModel
 fun HomeScreen() {
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val listState = rememberLazyListState()
+
+	// Always the persistent store: a tab switch clears the back stack, and this page's ViewModel must
+	// outlive that (CLAUDE.md §2 rule 14). It reads on every visit.
+	val viewModel = koinViewModel<HomeViewModel>(
+		viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>()
+	)
+	LaunchedEffect(viewModel) { viewModel.revalidate() }
 
 	val rootViewModel = koinViewModel<RootViewModel>()
 	LaunchedEffect(Unit) {
