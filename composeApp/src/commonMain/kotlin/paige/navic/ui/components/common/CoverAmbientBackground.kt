@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import paige.navic.di.ForceSystemBars
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.navigation.railFollowsCover
 import paige.navic.ui.navigation.railWearsCover
 import paige.navic.ui.theme.NavicTheme
@@ -27,6 +28,8 @@ import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberAppIsDark
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
+import paige.navic.ui.util.rememberPlayerRestored
+import org.koin.compose.koinInject
 
 /**
  * The cover-ambient page background: the blurred artwork with the page's own
@@ -119,27 +122,41 @@ fun CoverAmbientBackground(
  */
 val LocalCoverAmbientBottom = compositionLocalOf<Color?> { null }
 
+/**
+ * The cover a browsing page wears: the playing one; on a cold start, until the player has
+ * restored, the one that was playing last time ([lastWash]), whose colours [CoverSeedStore] already
+ * holds; after that, with nothing playing, none.
+ */
+internal fun washCoverArtId(nowPlaying: String?, playerRestored: Boolean, lastWash: String): String? =
+	nowPlaying ?: lastWash.takeIf { !playerRestored && it.isNotBlank() }
+
 @Composable
 fun BrowsingAmbient(content: @Composable () -> Unit) {
-	val coverArtId = rememberNowPlayingCoverArtId()
+	val preferences = koinInject<PreferenceManager>()
+	val coverArtId = washCoverArtId(
+		rememberNowPlayingCoverArtId(),
+		rememberPlayerRestored(),
+		preferences.lastNowPlayingCoverArtId
+	)
 	val cover: CoverColors = rememberCoverColorScheme(coverArtId, isDark = rememberAppIsDark())
 	ColourArrivalTrace.mark("wash.compose resolved=${cover.resolved} id=$coverArtId")
 	// Nothing playing, theming off, or a palette that hasn't landed: the app's own scheme, and no
 	// background of our own. `resolved` rather than `coverArtId != null` — see CoverColorScheme.
-	if (!cover.themed || !cover.resolved) {
-		NavicTheme(cover.scheme) { TracedWashContent(content) }
-		return
-	}
+	val showWash = cover.themed && cover.resolved
 	val (ambientTop, ambientBottom) = coverAmbientGradient(cover.seed, cover.isDark)
 	// Status-bar icons follow the page's (cover-driven) brightness, as on the detail pages —
 	// required now that a browsing page's brightness can differ from the app theme's.
-	ForceSystemBars(cover.isDark)
+	if (showWash) ForceSystemBars(cover.isDark)
+	// ONE structure whether or not the colours have landed (I-043): the content keeps its place in
+	// the composition, so a page is never thrown away and rebuilt (scroll position, everything it
+	// remembered) at the moment its colours arrive. Only the background and the values change.
+	// BrowsingAmbientStructureTest holds it to one `NavicTheme` call.
 	Box(Modifier.fillMaxSize()) {
-		CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
-		CompositionLocalProvider(LocalCoverAmbientBottom provides ambientBottom) {
+		if (showWash) CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
+		CompositionLocalProvider(LocalCoverAmbientBottom provides ambientBottom.takeIf { showWash }) {
 			NavicTheme(
-				cover.scheme.copy(background = Color.Transparent),
-				contentColor = onAmbientColor(ambientTop, cover.scheme)
+				if (showWash) cover.scheme.copy(background = Color.Transparent) else cover.scheme,
+				contentColor = if (showWash) onAmbientColor(ambientTop, cover.scheme) else null
 			) { TracedWashContent(content) }
 		}
 	}

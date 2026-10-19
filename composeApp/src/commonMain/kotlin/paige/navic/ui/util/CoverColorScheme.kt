@@ -526,6 +526,14 @@ fun rememberNowPlayingCoverArtId(): String? {
 	return coverArtId
 }
 
+/** Whether the player has restored the last session's queue (`MediaPlayerViewModel.restored`). */
+@Composable
+fun rememberPlayerRestored(): Boolean {
+	val player = koinInject<MediaPlayerViewModel>()
+	val restored by player.restored.collectAsStateWithLifecycle()
+	return restored
+}
+
 /**
  * [CoverAmbient] for the CURRENTLY-PLAYING song's cover — for surfaces not tied
  * to a specific item (queue, device picker, mood / sort sheets).

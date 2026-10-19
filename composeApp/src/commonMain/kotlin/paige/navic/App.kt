@@ -154,6 +154,7 @@ import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.PlatformContext
 import paige.navic.ui.components.snackbars.NavicSnackBar
 import paige.navic.ui.screens.song.SongDetailSheet
+import paige.navic.ui.ColourArrivalEffects
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.BrowsingAmbient
@@ -471,6 +472,9 @@ fun App() {
 				// navi-connect: the level the phone's volume buttons set on the device that is
 				// playing, drawn by the app itself. A fork line, like the one above.
 				RemoteVolumeHud()
+				// navi-connect I-043: keeps cover colours ready before a page needs them (the last
+				// playing cover for the cold start, then the prefetch). A fork line, like the two above.
+				ColourArrivalEffects()
 			}
 		}
 	}

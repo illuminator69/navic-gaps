@@ -384,9 +384,21 @@ abstract class MediaPlayerViewModel(
 			&& preferenceManager.explicitContentPlayback != ExplicitContentPlayback.Allowed
 	}
 
+	/**
+	 * False until the launch's [restoreState] has returned, whatever it found (I-043). Until then
+	 * "nothing playing" may only mean "not restored yet", and a browsing page wears the last
+	 * session's cover rather than going neutral and flipping back a second later.
+	 */
+	private val _restored = MutableStateFlow(false)
+	val restored: StateFlow<Boolean> = _restored.asStateFlow()
+
 	init {
 		viewModelScope.launch {
-			restoreState()
+			try {
+				restoreState()
+			} finally {
+				_restored.value = true
+			}
 			// Before any queue can be replaced: sessionIdFor answers from this index, and an empty one
 			// would mint a duplicate for the very first queue played after launch.
 			savedQueueRepository.primeIndex()
