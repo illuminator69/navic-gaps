@@ -1,5 +1,32 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.blurEffect
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import paige.navic.ui.util.rememberFoldMotion
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -20,8 +47,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -221,116 +246,121 @@ fun StagedNowPlaying() {
 		)
 	}
 
+	// A vertical drag on the player drives the queue (PlayerAreaScrollConnection); the save menu is
+	// drawn in this layout, over a frosted copy of the player (saveMenuHaze).
+	val playerScroll = remember(queueState) { PlayerAreaScrollConnection(queueState) }
+	val saveMenuHaze = remember { HazeState() }
+	var saveMenuOpen by remember { mutableStateOf(false) }
+	var saveAnchor by remember { mutableStateOf<Rect?>(null) }
+
 	Box(
 		Modifier
 			.fillMaxSize()
 			.onSizeChanged { containerPx = it.height.toFloat() }
 	) {
-		if (preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic) {
-			BlendBackground(
-				coverArtId = song?.coverArtId,
-				// Held while the queue covers the player (SheetCover).
-				isPaused = playerState.isPaused || coveredBySheet
+		Box(
+			Modifier
+				.fillMaxSize()
+				.hazeSource(saveMenuHaze)
+				.then(
+					if (isPlayerCurrent) Modifier
+						.nestedScroll(playerScroll)
+						// Consumes nothing: every vertical drag on the player is offered to the queue and then
+						// to the sheet, through the nested scroll above.
+						.scrollable(rememberScrollableState { 0f }, Orientation.Vertical)
+					else Modifier
+				)
+		) {
+			if (preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic) {
+				BlendBackground(
+					coverArtId = song?.coverArtId,
+					// Held while the queue covers the player (SheetCover).
+					isPaused = playerState.isPaused || coveredBySheet
+				)
+			}
+			if (isPlayerCurrent) StagedPlayer(
+				compactionNow = compactionNow,
+				statusTop = statusTop,
+				peekPx = peekPx,
+				onCompactBottom = { if (it != compactBottomPx) compactBottomPx = it },
+				header = {
+					StagedHeader(
+						playingFrom = playingFrom,
+						onClose = animateToDismiss,
+						songRating = songRating,
+						onSetSongRating = { viewModel.rateSong(it) }
+					)
+				},
+				info = { pop ->
+					Box(pop.padding(horizontal = 8.dp)) {
+						NowPlayingInfoRow(
+							songIsStarred = songIsStarred,
+							onSetSongIsStarred = { viewModel.starSong(it) },
+							songRating = songRating,
+							onSetSongRating = { viewModel.rateSong(it) },
+							showMoreButton = false,
+							showRemoteCue = false,
+							// The star is the rating now (you, 2026-10-19); favourites are in the Save menu.
+							trailing = {
+								ExpandingRating(
+									rating = songRating,
+									onRate = { viewModel.rateSong(it) },
+									songKey = song?.id,
+									enabled = song != null
+								)
+							}
+						)
+					}
+				},
+				actions = { pop ->
+					Row(
+						modifier = pop.fillMaxWidth().padding(horizontal = 24.dp),
+						horizontalArrangement = Arrangement.spacedBy(8.dp)
+					) {
+						ActionPill(
+							icon = Icons.Outlined.Lyrics,
+							label = stringResource(Res.string.action_lyrics),
+							onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
+							modifier = Modifier.weight(1f)
+						)
+						ActionPill(
+							icon = Icons.Outlined.PlaylistAdd,
+							label = stringResource(Res.string.action_save),
+							onClick = { saveMenuOpen = true },
+							enabled = song != null,
+							modifier = Modifier
+								.weight(1f)
+								.onGloballyPositioned { saveAnchor = it.boundsInRoot() }
+						)
+						// Another device playing: the pill is inverted (filled, its words cut out of it), so
+						// "not on this phone" reads at a glance.
+						ActionPill(
+							icon = if (isRemoteActive) Icons.Outlined.Devices else Icons.Outlined.Smartphone,
+							label = if (isRemoteActive && remoteName != null) remoteName
+							else stringResource(Res.string.staged_this_phone),
+							onClick = { showDevicePicker = true },
+							modifier = Modifier.weight(1f),
+							inverted = isRemoteActive
+						)
+					}
+				},
+				miniHeader = {
+					// Composed only once it starts to show (it is fully clear until halfway from half to
+					// full): a disabled button still takes the touches behind it, and the invisible play
+					// button sat on the header's more button (seen on the AVD).
+					if (miniHeaderActive) MiniHeader(
+						song = song,
+						isPaused = playerState.isPaused,
+						topInsetPx = statusTop,
+						alpha = { miniHeaderAlpha(compactionNow()) },
+						onDevices = { showDevicePicker = true },
+						onPlayPause = { if (isRemoteActive) hubManager.actPlayPause() else player.togglePlay() }
+					)
+				},
+				songInfo = preferenceManager.nowPlayingSongInfo
 			)
 		}
 		if (!isPlayerCurrent) return@Box
-
-		val pop = rememberEntrancePop(200)
-		StagedPlayerLayout(
-			compaction = compactionNow,
-			topInsetPx = statusTop,
-			peekPx = peekPx,
-			onCompactBottom = { if (it != compactBottomPx) compactBottomPx = it },
-			header = {
-				StagedHeader(
-					playingFrom = playingFrom,
-					onClose = animateToDismiss,
-					songRating = songRating,
-					onSetSongRating = { viewModel.rateSong(it) }
-				)
-			},
-			cover = {
-				NowPlayingArtworkPager(modifier = Modifier.fillMaxSize(), isLandscape = false)
-			},
-			info = {
-				Box(pop.padding(horizontal = 8.dp)) {
-					NowPlayingInfoRow(
-						songIsStarred = songIsStarred,
-						onSetSongIsStarred = { viewModel.starSong(it) },
-						songRating = songRating,
-						onSetSongRating = { viewModel.rateSong(it) },
-						showMoreButton = false,
-						showRemoteCue = false,
-						// The star is the rating now (you, 2026-10-19); favourites are the Save pill's heart.
-						trailing = {
-							ExpandingRating(
-								rating = songRating,
-								onRate = { viewModel.rateSong(it) },
-								songKey = song?.id,
-								enabled = song != null
-							)
-						}
-					)
-				}
-			},
-			actions = {
-				Row(
-					modifier = pop.fillMaxWidth().padding(horizontal = 24.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp)
-				) {
-					ActionPill(
-						icon = Icons.Outlined.Lyrics,
-						label = stringResource(Res.string.action_lyrics),
-						onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
-						modifier = Modifier.weight(1f)
-					)
-					Box(Modifier.weight(1f)) {
-						SongSaveControl(
-							song = song,
-							favourite = songIsStarred,
-							onSetFavourite = { viewModel.starSong(it) },
-							onSaveToPlaylist = { savingToPlaylist = song }
-						)
-					}
-					// Another device playing: the pill is inverted (filled, its words cut out of it), so
-					// "not on this phone" reads at a glance.
-					ActionPill(
-						icon = if (isRemoteActive) Icons.Outlined.Devices else Icons.Outlined.Smartphone,
-						label = if (isRemoteActive && remoteName != null) remoteName
-						else stringResource(Res.string.staged_this_phone),
-						onClick = { showDevicePicker = true },
-						modifier = Modifier.weight(1f),
-						inverted = isRemoteActive
-					)
-				}
-			},
-			progress = {
-				Box(pop.padding(horizontal = 8.dp)) { NowPlayingProgressBar() }
-			},
-			durations = {
-				Column(pop.padding(horizontal = 8.dp)) {
-					NowPlayingDurationsRow()
-					if (preferenceManager.nowPlayingSongInfo) NowPlayingTechnicalInfoRow()
-				}
-			},
-			controls = {
-				Box(pop.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
-					NowPlayingButtonsRow()
-				}
-			}
-		)
-
-		// Composed only once it starts to show (it is fully clear until halfway from half to full): a
-		// disabled button still takes the touches behind it, and the invisible play button sat on the
-		// header's more button (seen on the AVD).
-		if (miniHeaderActive) MiniHeader(
-			song = song,
-			isPaused = playerState.isPaused,
-			topInsetPx = statusTop,
-			alpha = { miniHeaderAlpha(compactionNow()) },
-			onDevices = { showDevicePicker = true },
-			onPlayPause = { if (isRemoteActive) hubManager.actPlayPause() else player.togglePlay() }
-		)
 
 		val next = peekRow(playerState.queue.map { it.id }, playerState.currentIndex, if (isRemoteActive) null else playOrder)
 			?.let { playerState.queue.getOrNull(it) }
@@ -345,6 +375,22 @@ fun StagedNowPlaying() {
 		) {
 			QueueContent(layerLayout)
 		}
+
+		SaveMenu(
+			open = saveMenuOpen,
+			anchor = saveAnchor,
+			haze = saveMenuHaze,
+			favourite = songIsStarred,
+			onDismiss = { saveMenuOpen = false },
+			onSetFavourite = {
+				saveMenuOpen = false
+				viewModel.starSong(it)
+			},
+			onSaveToPlaylist = {
+				saveMenuOpen = false
+				savingToPlaylist = song
+			}
+		)
 	}
 
 	if (showDevicePicker) {
@@ -355,47 +401,141 @@ fun StagedNowPlaying() {
 	}
 }
 
+/** The player's pieces in [StagedPlayerLayout], with the controls' entrance pop shared. */
+@Composable
+private fun StagedPlayer(
+	compactionNow: () -> Compaction,
+	statusTop: Int,
+	peekPx: Float,
+	onCompactBottom: (Float) -> Unit,
+	header: @Composable () -> Unit,
+	info: @Composable (pop: Modifier) -> Unit,
+	actions: @Composable (pop: Modifier) -> Unit,
+	miniHeader: @Composable () -> Unit,
+	songInfo: Boolean
+) {
+	val pop = rememberEntrancePop(200)
+	StagedPlayerLayout(
+		compaction = compactionNow,
+		topInsetPx = statusTop,
+		peekPx = peekPx,
+		onCompactBottom = onCompactBottom,
+		header = header,
+		cover = {
+			NowPlayingArtworkPager(modifier = Modifier.fillMaxSize(), isLandscape = false)
+		},
+		info = { info(pop) },
+		actions = { actions(pop) },
+		progress = {
+			Box(pop.padding(horizontal = 8.dp)) { NowPlayingProgressBar() }
+		},
+		durations = {
+			Column(pop.padding(horizontal = 8.dp)) {
+				NowPlayingDurationsRow()
+				if (songInfo) NowPlayingTechnicalInfoRow()
+			}
+		},
+		controls = {
+			Box(pop.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+				NowPlayingButtonsRow()
+			}
+		}
+	)
+
+	miniHeader()
+}
+
 /**
- * The Save pill (P2 notes, you, 2026-10-19): the playing song to favourites (a heart; the player's
- * star is the rating now) or to playlists ([AddToPlaylistSheet]). Its heart is filled while the song
- * is a favourite, the one place the player says so. Saving the QUEUE stays in the queue's header.
+ * The Save pill's menu (P2 notes, you, 2026-10-19): the playing song to favourites (a heart; the
+ * player's star is the rating now) or to playlists ([AddToPlaylistSheet]). Saving the QUEUE stays in
+ * the queue's header. Drawn in the player's own layout rather than as a popup window, so it can be
+ * frosted like the pills: a rounded box over a blur of the player behind it ([haze]), centred under
+ * the pill ([anchor], in root coordinates), opening from its top. A tap outside or Back closes it.
  */
 @Composable
-private fun SongSaveControl(
-	song: DomainSong?,
+private fun SaveMenu(
+	open: Boolean,
+	anchor: Rect?,
+	haze: HazeState,
 	favourite: Boolean,
+	onDismiss: () -> Unit,
 	onSetFavourite: (Boolean) -> Unit,
 	onSaveToPlaylist: () -> Unit
 ) {
-	var menuOpen by remember { mutableStateOf(false) }
-	Box {
-		ActionPill(
-			icon = if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite,
-			label = stringResource(Res.string.action_save),
-			onClick = { menuOpen = true },
-			enabled = song != null,
-			modifier = Modifier.fillMaxWidth()
+	NavigationBackHandler(
+		state = rememberNavigationEventState(NavigationEventInfo.None),
+		isBackEnabled = open,
+		onBackCompleted = onDismiss
+	)
+	if (open) {
+		Box(
+			Modifier
+				.fillMaxSize()
+				.pointerInput(Unit) { detectTapGestures { onDismiss() } }
 		)
-		DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-			DropdownMenuItem(
-				text = {
-					Text(stringResource(if (favourite) Res.string.staged_remove_from_favorites else Res.string.staged_save_to_favorites))
-				},
-				leadingIcon = { Icon(if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite, null) },
-				onClick = {
-					menuOpen = false
-					onSetFavourite(!favourite)
+	}
+	val anchorRect = anchor ?: return
+	var origin by remember { mutableStateOf(Offset.Zero) }
+	val motion = rememberFoldMotion()
+	val onSurface = MaterialTheme.colorScheme.onSurface
+	val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
+	val edge = with(LocalDensity.current) { 16.dp.roundToPx() }
+	Layout(
+		content = {
+			AnimatedVisibility(
+				visible = open,
+				enter = fadeIn(motion.effects()) + scaleIn(motion.spatial(), initialScale = 0.85f, transformOrigin = TransformOrigin(0.5f, 0f)),
+				exit = fadeOut(motion.effects()) + scaleOut(motion.spatial(), targetScale = 0.85f, transformOrigin = TransformOrigin(0.5f, 0f))
+			) {
+				Column(
+					Modifier
+						.width(IntrinsicSize.Max)
+						.clip(RoundedCornerShape(20.dp))
+						.hazeEffect(state = haze) { blurEffect { blurRadius = 24.dp } }
+						// The pills' own fill, over the frost.
+						.background(onSurface.copy(alpha = 0.10f))
+						.padding(vertical = 6.dp)
+				) {
+					SaveMenuRow(
+						icon = if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite,
+						label = stringResource(if (favourite) Res.string.staged_remove_from_favorites else Res.string.staged_save_to_favorites),
+						onClick = { onSetFavourite(!favourite) }
+					)
+					SaveMenuRow(
+						icon = Icons.Outlined.PlaylistAdd,
+						label = stringResource(Res.string.staged_save_to_playlist),
+						onClick = onSaveToPlaylist
+					)
 				}
-			)
-			DropdownMenuItem(
-				text = { Text(stringResource(Res.string.staged_save_to_playlist)) },
-				leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, null) },
-				onClick = {
-					menuOpen = false
-					onSaveToPlaylist()
-				}
-			)
+			}
+		},
+		modifier = Modifier
+			.fillMaxSize()
+			.onGloballyPositioned { origin = it.positionInRoot() }
+	) { measurables, constraints ->
+		val placeable = measurables.firstOrNull()?.measure(constraints.copy(minWidth = 0, minHeight = 0))
+		layout(constraints.maxWidth, constraints.maxHeight) {
+			placeable ?: return@layout
+			val centre = (anchorRect.center.x - origin.x).roundToInt()
+			val x = (centre - placeable.width / 2).coerceIn(edge, (constraints.maxWidth - edge - placeable.width).coerceAtLeast(edge))
+			val y = (anchorRect.bottom - origin.y).roundToInt() + gap
+			placeable.place(x, y)
 		}
+	}
+}
+
+@Composable
+private fun SaveMenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(role = Role.Button, onClick = onClick)
+			.padding(horizontal = 18.dp, vertical = 12.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+		Spacer(Modifier.width(12.dp))
+		Text(label, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
 	}
 }
 

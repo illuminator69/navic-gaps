@@ -150,6 +150,14 @@ class StagedQueueState internal constructor(
 		launchMove(releaseTarget(offset, velocityPxPerS, a))
 	}
 
+	/** A release of a drag that started on the player ([playerReleaseTarget]): a flick opens to half. */
+	internal fun settleFromPlayer(velocityPxPerS: Float) {
+		val a = anchors ?: return
+		val offset = draggable.offset
+		if (offset.isNaN()) return
+		launchMove(playerReleaseTarget(offset, velocityPxPerS, a))
+	}
+
 	internal fun launchMove(d: QueueDetent) {
 		settleJob?.cancel()
 		settleJob = scope.launch { goTo(d) }
@@ -372,5 +380,66 @@ private class LayerScrollConnection(private val state: StagedQueueState) : Neste
 		if (resting && available.y <= 0f) return Velocity.Zero
 		state.settle(available.y)
 		return available
+	}
+}
+
+/**
+ * A vertical drag on the player itself (you, 2026-10-19): up opens the queue (to half on a flick,
+ * [playerReleaseTarget]); down, while the queue is up, brings it back down and never takes the player
+ * with it. Only a downward drag that starts with the queue at peek (and has not moved it) is left to
+ * the player's sheet, which then closes as before.
+ *
+ * Sits between a vertical `scrollable` that consumes nothing on the player's area and the sheet's
+ * own nested scroll above it. Pre-scroll reaches the sheet first, which takes nothing while it is
+ * fully open; what the layer does not take of a downward drag reaches the sheet after.
+ */
+internal class PlayerAreaScrollConnection(private val state: StagedQueueState) : NestedScrollConnection {
+	/** This gesture began with the queue up, or has moved it: the whole of it is the queue's. */
+	private var queueGesture: Boolean? = null
+
+	private fun decide(): Boolean {
+		queueGesture?.let { return it }
+		val a = state.anchors
+		val offset = state.offsetTop
+		val up = a != null && !offset.isNaN() && offset < a.peekTop - 1f
+		queueGesture = up
+		return up
+	}
+
+	override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+		if (source != NestedScrollSource.UserInput) return Offset.Zero
+		val a = state.anchors ?: return Offset.Zero
+		val offset = state.offsetTop
+		if (offset.isNaN()) return Offset.Zero
+		val queue = decide()
+		return when {
+			available.y < 0f -> {
+				state.stopMoving()
+				queueGesture = true
+				Offset(0f, state.dragBy(maxOf(available.y, a.fullTop - offset)))
+			}
+
+			available.y > 0f && queue -> {
+				state.stopMoving()
+				state.dragBy(minOf(available.y, a.peekTop - offset))
+				// All of it: past peek the player stays where it is.
+				available
+			}
+
+			else -> Offset.Zero
+		}
+	}
+
+	override suspend fun onPreFling(available: Velocity): Velocity {
+		val queue = queueGesture == true
+		queueGesture = null
+		if (!queue) return Velocity.Zero
+		state.settleFromPlayer(available.y)
+		return available
+	}
+
+	override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+		queueGesture = null
+		return Velocity.Zero
 	}
 }

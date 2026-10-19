@@ -86,6 +86,18 @@ fun releaseTarget(offsetTop: Float, velocityPxPerS: Float, anchors: QueueAnchors
 		.first
 }
 
+/**
+ * Where a release goes when the drag started on the PLAYER, not the layer (you, 2026-10-19): a swipe
+ * up anywhere opens the queue to half. The fling's projection never carries it past half; only a
+ * finger that took the layer above the half line itself can finish at full. Downward it is
+ * [releaseTarget].
+ */
+fun playerReleaseTarget(offsetTop: Float, velocityPxPerS: Float, anchors: QueueAnchors): QueueDetent {
+	val target = releaseTarget(offsetTop, velocityPxPerS, anchors)
+	val half = anchors.halfTop ?: return target
+	return if (target == QueueDetent.Full && offsetTop > half) QueueDetent.Half else target
+}
+
 /** A tap on the handle moves one place: peek to half to full, and full back to half. */
 fun handleTapTarget(current: QueueDetent, anchors: QueueAnchors): QueueDetent {
 	val hasHalf = anchors.halfTop != null

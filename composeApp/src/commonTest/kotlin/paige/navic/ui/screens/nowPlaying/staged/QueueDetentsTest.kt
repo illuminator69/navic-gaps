@@ -177,4 +177,21 @@ class QueueDetentsTest {
 		assertTrue(!stagedPlayerFits(500f, 500f))
 		assertTrue(!stagedPlayerFits(600f, 960f))
 	}
+
+	@Test
+	fun aSwipeOnThePlayerOpensTheQueueToHalfAndNoFurtherByAFlick() {
+		// From peek, a flick of any speed stops at half.
+		assertEquals(QueueDetent.Half, playerReleaseTarget(734f, -1500f, board))
+		assertEquals(QueueDetent.Half, playerReleaseTarget(734f, -4500f, board))
+		assertEquals(QueueDetent.Half, playerReleaseTarget(600f, -3000f, board))
+		// A finger that took the layer past the half line itself may still finish at full.
+		assertEquals(QueueDetent.Full, playerReleaseTarget(300f, -1500f, board))
+		// Down from half or full it comes back down, to peek at most, as a release on the layer does.
+		assertEquals(QueueDetent.Peek, playerReleaseTarget(440f, 1500f, board))
+		assertEquals(QueueDetent.Half, playerReleaseTarget(150f, 1500f, board))
+		// A slow release stays with the nearest place.
+		assertEquals(QueueDetent.Peek, playerReleaseTarget(700f, 0f, board))
+		// No half: the player's flick goes to full, there being nowhere between.
+		assertEquals(QueueDetent.Full, playerReleaseTarget(450f, -4500f, noHalf))
+	}
 }
