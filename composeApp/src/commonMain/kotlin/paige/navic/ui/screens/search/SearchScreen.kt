@@ -125,13 +125,6 @@ import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.util.buildSongInfoString
 import paige.navic.ui.viewmodel.RootViewModel
 
-enum class SearchCategory(val res: StringResource) {
-	ALL(Res.string.title_all),
-	SONGS(Res.string.title_songs),
-	ALBUMS(Res.string.title_albums),
-	ARTISTS(Res.string.title_artists)
-}
-
 // TODO: clean this up, holy shit
 @Composable
 fun SearchScreen(
