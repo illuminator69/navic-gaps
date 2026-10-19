@@ -108,6 +108,51 @@ class HomeViewModel(
 		.distinctUntilChanged()
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), syncManager.syncState.value.isSyncing)
 
+	// --- An album's long-press sheet --------------------------------------------------------------
+
+	private val _selectedAlbum = MutableStateFlow<DomainAlbum?>(null)
+
+	/** The album whose menu is open (a long press on a Recently added tile), the library lists' own sheet. */
+	val selectedAlbum: StateFlow<DomainAlbum?> = _selectedAlbum.asStateFlow()
+
+	private val _starred = MutableStateFlow(false)
+	val starred: StateFlow<Boolean> = _starred.asStateFlow()
+
+	private val _rating = MutableStateFlow(0)
+	val rating: StateFlow<Int> = _rating.asStateFlow()
+
+	fun selectAlbum(album: DomainAlbum) {
+		viewModelScope.launch {
+			_selectedAlbum.value = album
+			_starred.value = albumRepository.isAlbumStarred(album)
+			_rating.value = albumRepository.getAlbumRating(album)
+		}
+	}
+
+	fun clearSelection() {
+		_selectedAlbum.value = null
+	}
+
+	fun starAlbum(isStarred: Boolean) {
+		viewModelScope.launch {
+			val selection = _selectedAlbum.value ?: return@launch
+			runCatching {
+				if (isStarred) albumRepository.starAlbum(selection) else albumRepository.unstarAlbum(selection)
+				_starred.value = isStarred
+			}
+		}
+	}
+
+	fun setRating(newRating: Int) {
+		viewModelScope.launch {
+			val selection = _selectedAlbum.value ?: return@launch
+			runCatching {
+				_rating.value = newRating
+				albumRepository.rateAlbum(selection, newRating)
+			}
+		}
+	}
+
 	private var freshJob: Job? = null
 
 	init {

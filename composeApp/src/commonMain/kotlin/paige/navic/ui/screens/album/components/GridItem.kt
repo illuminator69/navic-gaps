@@ -41,7 +41,10 @@ fun AlbumListScreenGridItem(
 	onSetShareId: (String) -> Unit,
 	onPlayNext: () -> Unit,
 	onAddToQueue: () -> Unit,
-	onSetRating: (Int) -> Unit
+	onSetRating: (Int) -> Unit,
+	// Home's shelf (P1): a tinted box the cover fades in over, in the time the shelf says.
+	placeholderName: String? = null,
+	crossfadeMs: Int = 500
 ) {
 	val backStack = LocalNavStack.current
 	val snackBarManager = koinInject<SnackBarManager>()
@@ -67,7 +70,9 @@ fun AlbumListScreenGridItem(
 			title = album.name ?: "[unknown album]",
 			subtitle = album.artistName,
 			id = album.id,
-			tab = tab
+			tab = tab,
+			placeholderName = placeholderName,
+			crossfadeMs = crossfadeMs
 		)
 		if (selected) {
 			CollectionSheet(

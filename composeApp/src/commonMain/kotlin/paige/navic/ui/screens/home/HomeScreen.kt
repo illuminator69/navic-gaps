@@ -61,12 +61,16 @@ import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Person
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.layouts.ArtGridItem
+import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
+import paige.navic.ui.screens.share.dialogs.ShareDialog
+import kotlin.time.Duration
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.common.RemoteCoverArt
@@ -135,6 +139,11 @@ fun HomeScreen() {
 	val nothingPlaying by viewModel.nothingPlaying.collectAsStateWithLifecycle()
 	val yourMixAvailable by viewModel.yourMixAvailable.collectAsStateWithLifecycle()
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
+	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
+	val starred by viewModel.starred.collectAsStateWithLifecycle()
+	val rating by viewModel.rating.collectAsStateWithLifecycle()
+	var shareId by remember { mutableStateOf<String?>(null) }
+	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
 	val continueQueues = remember(queues, playingQueueId) { continueListening(queues, playingQueueId) }
 	val recentAlbums = recent.data.orEmpty()
@@ -220,16 +229,21 @@ fun HomeScreen() {
 							moreLabel = seeAll,
 							more = Screen.AlbumList(nested = true, listType = DomainAlbumListType.Newest)
 						) { album, arrival ->
-							ArtGridItem(
+							// The library lists' own tile, so a long press opens the album's sheet as it does there.
+							AlbumListScreenGridItem(
 								modifier = arrival,
-								onClick = dropUnlessResumed {
-									backStack.add(Screen.CollectionDetail(album.id, RECENT_TAB))
-								},
-								coverArtId = album.coverArtId,
-								title = album.name ?: "[unknown album]",
-								subtitle = album.artistName,
-								id = album.id,
 								tab = RECENT_TAB,
+								album = album,
+								selected = album == selectedAlbum,
+								starred = starred,
+								rating = rating,
+								onSelect = { viewModel.selectAlbum(album) },
+								onDeselect = { viewModel.clearSelection() },
+								onSetStarred = { viewModel.starAlbum(it) },
+								onSetShareId = { shareId = it },
+								onPlayNext = { selectedAlbum?.let { player.playNext(it as DomainSongCollection) } },
+								onAddToQueue = { selectedAlbum?.let { player.addToQueue(it as DomainSongCollection) } },
+								onSetRating = { viewModel.setRating(it) },
 								placeholderName = album.name ?: album.id,
 								crossfadeMs = COVER_FADE_MS
 							)
@@ -299,6 +313,13 @@ fun HomeScreen() {
 			}
 		}
 	}
+
+	ShareDialog(
+		id = shareId,
+		onIdClear = { shareId = null },
+		expiry = shareExpiry,
+		onExpiryChange = { shareExpiry = it }
+	)
 
 	menuQueue?.let { target ->
 		SavedQueueSheet(
