@@ -49,6 +49,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
 | Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
+| Player and its queue (P2) | `ui/screens/nowPlaying/NowPlayingScreen.kt` chooses: a portrait phone (under 600 dp, taller than wide; `stagedPlayerFits`) gets `ui/screens/nowPlaying/staged/StagedNowPlaying.kt`, the player with the queue as a layer inside it (`StagedQueueLayer.kt`); landscape and wider windows keep the old player with its toolbar and the `Screen.Queue` sheet. The rules are pure: `QueueDetents.kt` (peek / half / full, anchors, release, handle, Back, the compaction curves; `QueueDetentsTest`), `QueueGrouping.kt` (rows by who added them, the peek row, Playing from; `QueueGroupingTest`), `SheetScroll.kt` (`SheetScrollTest`). The queue's content is written once, `QueueContent(QueueLayout)` in `ui/screens/queue/QueueScreen.kt`, hosted by the sheet (`QueueScreen`) and by the layer. The autoplay switch is `autoplayToggleChip` over the chip rules (`AutoplayChips.kt`, `RadioManager.onAutoplayToggle`). Settings has no "Toolbar position" row any more; `nowPlayingToolbarPosition` stays and the landscape player and the lyrics sheet still read it (§4) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -380,6 +381,32 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   silence); rebuilding around it still replaces the next item, which a player in audio offload is
   already decoding; and a whole queue sent to the hub is a `setQueue`, a `load` on the receiver.
   Anything that is not one edit (a clear, the playing song removed) still loads the snapshot.
+- **On a portrait phone the queue is a layer inside the player, not a sheet (P2).** One
+  `AnchoredDraggableState` with three places: peek (a strip naming the next song in play order,
+  shorter with a "Casting to" line above it while another device plays), half (the player compacts
+  above it and keeps title, progress and controls; the half line is 52 % of the height or 26 dp
+  under the measured compact block, and a screen too short for it has no half), full (a mini header
+  over the queue). A release goes to `releaseTarget` (0.15 s projection, nearest place); Back and
+  the handle move one place; the list and the layer share a scroll by `layerShare` (the Material
+  sheet's rule; what is left of a downward scroll at peek stays, so it never drags the player down).
+  The player's pieces are placed once at rest and moved to their compact places by the layer's
+  position in placement layers (`StagedPlayerLayout`), so nothing is re-measured while it moves.
+  The header and the mini header take turns (`headerAlpha` / `miniHeaderAlpha`), never both half
+  there. Settled at full the layer reports itself to `SheetCover` as depth + 1, so the player's
+  blur and wave hold as they did under the queue window. `QueueContent(QueueLayout.Layer)`: the
+  Autoplay switch and Save in its header, the character chips (dimmed at 0.4 while autoplay is off,
+  still a tap that turns it on with that character), the off note (only for a queue a station is
+  bound to), and at full only the Up next / Related switch, the count with Clear and the generator
+  line. Rows are grouped by who added them (`queueListItems`: Autoplay = in the bound station's
+  served list; "Queued by you" only beside an autoplay group; "Up next" otherwise); a dragged row
+  moves through a frozen copy of the list, past headers, and the mirror moves only when it passes a
+  row. **Outside a drag the list groups by the player's own index**, not by the uid-tracked playing
+  row: that follows a track change a frame late, and the scroll to "Now playing" landed on the song
+  just played (LazyColumn then kept that row's key at the top; seen on the AVD). The layer is as tall
+  as at full and slides, so what is pinned to its bottom (the undo snackbar) is lifted by the part
+  off screen (`QueueLayout.Layer.hiddenBelowPx`). Navigating out from the layer leaves the player by
+  `NowPlayingSheetController.requestHide`. A rotation drops to the old player; the place is not
+  carried.
 - **A queue reorder must not look like a track change.** Two places read the playing track by
   *index*, and a reorder moves the index without moving the music. `ArtworkPager` draws from a
   snapshot swapped only once the pager has been repositioned, and snaps rather than animates when
@@ -1652,7 +1679,9 @@ true of invented *album art*, and not of an icon naming the kind.
   every 200 ms (250 ms remote), so collecting it recomposes the reader ~5×/sec for the whole of
   playback. Take the narrow `progress` flow only where the playhead is actually drawn. Upstream's
   new surfaces get this wrong by default — its `SideBar` mini player did.
-- **A sheet on the shared wrapper has one resting place: fully shown** (I-026). The wrapper's
+- **A sheet on the shared wrapper has one resting place: fully shown** (I-026). **The one
+  exception is the staged queue (P2, §4)**, which is not a sheet on the wrapper but a layer inside
+  the player with three places, as the brief asked; nothing else gets more than one. The wrapper's
   default state enables only `Hidden` and `Expanded` — the state upstream's own sheets pass.
   Material's default also enables a half-way place, which the opening heads for and which
   exists only while the sheet is taller than half the screen: a fork sheet that reads after it
