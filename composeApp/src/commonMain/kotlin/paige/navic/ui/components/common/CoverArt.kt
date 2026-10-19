@@ -48,6 +48,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Error
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.CoverSeedPrefetcher
+import paige.navic.ui.util.placeholderBrush
 import paige.navic.util.Logger
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import paige.navic.util.CoverPlaceholder
@@ -84,7 +85,13 @@ fun CoverArt(
 	 * per-file `mf-…` id that was never fetched while online — the album's stored cover is drawn
 	 * instead: downloads and album tiles cache that one. Looked up only on failure.
 	 */
-	fallbackAlbumId: String? = null
+	fallbackAlbumId: String? = null,
+	/**
+	 * navi-connect P1: when set, the box behind the image is the name's tinted gradient
+	 * ([placeholderBrush]) instead of `surfaceContainer`, so a tile is coloured from its first
+	 * frame and the cover fades in over it (Home's shelves). Null changes nothing.
+	 */
+	placeholderName: String? = null
 ) {
 	val coilPlatformContext = LocalCoilPlatformContext.current
 
@@ -114,11 +121,14 @@ fun CoverArt(
 			.build()
 	}
 
+	val tint = remember(placeholderName) { placeholderName?.let { placeholderBrush(it) } }
+	val boxColor = MaterialTheme.colorScheme.surfaceContainer
+
 	val commonModifier = modifier
 		.then(if (square) Modifier.aspectRatio(1f) else Modifier)
 		.shadow(shadowElevation, shape)
 		.clip(shape)
-		.background(MaterialTheme.colorScheme.surfaceContainer)
+		.then(if (tint != null) Modifier.background(tint) else Modifier.background(boxColor))
 		.then(
 			if (onClick != null)
 				Modifier.combinedClickable(
