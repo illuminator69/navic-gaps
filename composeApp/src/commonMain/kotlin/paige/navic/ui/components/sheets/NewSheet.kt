@@ -59,6 +59,7 @@ import paige.navic.icons.outlined.Sparkle
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.downloads.PasteLinkSheet
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
+import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /*
@@ -112,24 +113,39 @@ fun NewSheetHost() {
 	when (followUp) {
 		// The new playlist's page opens after it is made; the Room insert has already put it in the
 		// lists, so there is nothing for `onRefresh` to refresh.
-		NewSheetItem.Playlist -> DialogViewModelScope {
-			PlaylistCreateDialog(
+		NewSheetItem.Playlist -> NowPlayingColours {
+			DialogViewModelScope {
+				PlaylistCreateDialog(
+					onDismissRequest = { followUp = null },
+					onRefresh = {},
+					navigateAfterwards = true,
+					onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor()) }
+				)
+			}
+		}
+		NewSheetItem.AddFromLink -> NowPlayingColours {
+			PasteLinkSheet(
+				resolve = lbBot::resolveLink,
 				onDismissRequest = { followUp = null },
-				onRefresh = {},
-				navigateAfterwards = true,
-				onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor()) }
+				onResolved = { key ->
+					followUp = null
+					backStack.add(key)
+				}
 			)
 		}
-		NewSheetItem.AddFromLink -> PasteLinkSheet(
-			resolve = lbBot::resolveLink,
-			onDismissRequest = { followUp = null },
-			onResolved = { key ->
-				followUp = null
-				backStack.add(key)
-			}
-		)
 		else -> Unit
 	}
+}
+
+/**
+ * What this host shows after the sheet has gone is composed outside every page, so it would wear the
+ * app's plain scheme; every surface wears the playing song's colours (the artist and album pages
+ * aside), so the dialog and the paste sheet are themed from the playing cover as the sheet is.
+ */
+@Composable
+private fun NowPlayingColours(content: @Composable () -> Unit) {
+	val ambient = rememberNowPlayingCoverAmbient()
+	NavicTheme(ambient.scheme, contentColor = ambient.onAmbient, content = content)
 }
 
 /**

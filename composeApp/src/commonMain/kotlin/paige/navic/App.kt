@@ -161,6 +161,7 @@ import paige.navic.ui.ColourArrivalEffects
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.pageMotionOf
 import paige.navic.ui.util.rememberLibraryTabBackground
+import paige.navic.ui.components.common.AppWash
 import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.components.common.RailAmbient
 import paige.navic.ui.components.common.RemoteVolumeHud
@@ -399,72 +400,79 @@ fun App() {
 								}
 							}
 						) {
-							NavDisplay(
+							// navi-connect P1 round 2: the playing cover's wash is drawn HERE, behind the pages, and a
+							// washed page draws none of its own (`AppWash`). A page change used to flash the colours and a
+							// back gesture showed a white bar, both of them the neutral surface showing between or through
+							// the pages; now what shows is the colour the page already is. The blur source is the whole of
+							// it, backdrop included, as the pages' own wash was. A fork line: drop it and the flash is back.
+							AppWash(
 								modifier = Modifier
-									// weight(1f), not fillMaxSize(): the Scaffold now sits in a Row
-									// beside the SideBar, so filling would push the rail off screen.
 									.weight(1f)
 									.consumeWindowInsets(
 										WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
 									)
 									.background(rememberLibraryTabBackground())
-									.expressiveBlurSource(expressiveBlur),
-								backStack = backStack,
-								sceneStrategies = sceneStrategies,
-								// Upstream's, restored: it arrived at alpha42 and no fork merge ever
-								// carried it (App.kt is taken fork-whole), and NavDisplay's default is
-								// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
-								// lived in the activity's store for the life of the process — every
-								// artist page ever opened stayed alive and re-read on every library
-								// bump. With it, a ViewModel dies when its entry leaves the back stack —
-								// and a tab switch clears the back stack, so every root tab and the
-								// lyrics opt out through `PersistentViewModelStoreOwner` (the list of
-								// sites is CLAUDE.md §2 rule 14; the decorator and the opt-outs are one
-								// change and must not be merged apart). navigation3 keys each store by the
-								// entry's content key, so an entry that is merely covered (a sheet over
-								// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
-								// CLAUDE.md §2 — both decorators, in this order.
-								entryDecorators = listOf(
-									rememberSaveableStateHolderNavEntryDecorator(),
-									rememberViewModelStoreNavEntryDecorator()
-								),
-								onBack = {
-									if (backStack.size >= 2) {
-										backStack.removeLastOrNull()
-									}
-								},
-								entryProvider = entries,
-								// navi-connect I-042: page timing follows the animation style (PageMotion.kt).
-								transitionSpec = {
-									val motion = pageMotionOf(preferenceManager.animationStyle)
-									Material3Transitions.enter(motion)(
-										density
-									) togetherWith Material3Transitions.exit(motion)(
-										density
-									)
-								},
-								popTransitionSpec = {
-									val motion = pageMotionOf(preferenceManager.animationStyle)
-									Material3Transitions.popEnter(motion)(
-										density
-									) togetherWith Material3Transitions.popExit(motion)(
-										density
-									)
-								},
-								predictivePopTransitionSpec = {
-									if (preferenceManager.enablePredictiveBackAnimations) {
-										slideInHorizontally(
-											animationSpec = tween(300, easing = EaseOutQuart),
-											initialOffsetX = { -it }
-										) togetherWith slideOutHorizontally(
-											animationSpec = tween(300, easing = EaseOutQuart),
-											targetOffsetX = { it }
+									.expressiveBlurSource(expressiveBlur)
+							) {
+								NavDisplay(
+									modifier = Modifier.fillMaxSize(),
+									backStack = backStack,
+									sceneStrategies = sceneStrategies,
+									// Upstream's, restored: it arrived at alpha42 and no fork merge ever
+									// carried it (App.kt is taken fork-whole), and NavDisplay's default is
+									// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
+									// lived in the activity's store for the life of the process — every
+									// artist page ever opened stayed alive and re-read on every library
+									// bump. With it, a ViewModel dies when its entry leaves the back stack —
+									// and a tab switch clears the back stack, so every root tab and the
+									// lyrics opt out through `PersistentViewModelStoreOwner` (the list of
+									// sites is CLAUDE.md §2 rule 14; the decorator and the opt-outs are one
+									// change and must not be merged apart). navigation3 keys each store by the
+									// entry's content key, so an entry that is merely covered (a sheet over
+									// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
+									// CLAUDE.md §2 — both decorators, in this order.
+									entryDecorators = listOf(
+										rememberSaveableStateHolderNavEntryDecorator(),
+										rememberViewModelStoreNavEntryDecorator()
+									),
+									onBack = {
+										if (backStack.size >= 2) {
+											backStack.removeLastOrNull()
+										}
+									},
+									entryProvider = entries,
+									// navi-connect I-042: page timing follows the animation style (PageMotion.kt).
+									transitionSpec = {
+										val motion = pageMotionOf(preferenceManager.animationStyle)
+										Material3Transitions.enter(motion)(
+											density
+										) togetherWith Material3Transitions.exit(motion)(
+											density
 										)
-									} else {
-										ContentTransform(EnterTransition.None, ExitTransition.None)
+									},
+									popTransitionSpec = {
+										val motion = pageMotionOf(preferenceManager.animationStyle)
+										Material3Transitions.popEnter(motion)(
+											density
+										) togetherWith Material3Transitions.popExit(motion)(
+											density
+										)
+									},
+									predictivePopTransitionSpec = {
+										if (preferenceManager.enablePredictiveBackAnimations) {
+											slideInHorizontally(
+												animationSpec = tween(300, easing = EaseOutQuart),
+												initialOffsetX = { -it }
+											) togetherWith slideOutHorizontally(
+												animationSpec = tween(300, easing = EaseOutQuart),
+												targetOffsetX = { it }
+											)
+										} else {
+											ContentTransform(EnterTransition.None, ExitTransition.None)
+										}
 									}
-								}
-							)
+								)
+							}
 						}
 					}
 				}
@@ -597,11 +605,13 @@ private fun entryProvider(
 			Washed { SearchScreen(key.nested) }
 		}
 		entry<Screen.ShareList> {
-			ShareListScreen()
+			Washed { ShareListScreen() }
 		}
 		// The fork's pushed library pages wear the playing song's colours like its other pages:
 		// `Washed`, i.e. `BrowsingAmbient`, and a line each in `WashedBrowsingScreens` so the
-		// tablet rail follows too (`WashedBrowsingDriftTest` fails when the two disagree).
+		// tablet rail follows too (`WashedBrowsingDriftTest` fails when the two disagree). Every
+		// surface does but the artist and album pages (their own cover decides those), Settings and
+		// the smart playlist form included.
 		entry<Screen.LibraryMatches> {
 			Washed { LibraryMatchesScreen() }
 		}
@@ -632,67 +642,67 @@ private fun entryProvider(
 
 		// settings
 		entry<Screen.Settings.Root>(metadata = listPane("settings")) {
-			SettingsScreen()
+			Washed { SettingsScreen() }
 		}
 		entry<Screen.Settings.Appearance>(metadata = detailPane("settings")) {
-			SettingsAppearanceScreen()
+			Washed { SettingsAppearanceScreen() }
 		}
 		entry<Screen.Settings.BottomAppBar>(metadata = detailPane("settings")) {
-			BottomBarScreen()
+			Washed { BottomBarScreen() }
 		}
 		entry<Screen.Settings.NowPlaying>(metadata = detailPane("settings")) {
-			SettingsNowPlayingScreen()
+			Washed { SettingsNowPlayingScreen() }
 		}
 		entry<Screen.Settings.Playback>(metadata = detailPane("settings")) {
-			SettingsPlaybackScreen()
+			Washed { SettingsPlaybackScreen() }
 		}
 		entry<Screen.Settings.Effects>(metadata = detailPane("settings")) {
-			AudioEffectsScreen()
+			Washed { AudioEffectsScreen() }
 		}
 		entry<Screen.Settings.Developer>(metadata = detailPane("settings")) {
-			SettingsDeveloperScreen()
+			Washed { SettingsDeveloperScreen() }
 		}
 		entry<Screen.GenreDetail> { key ->
-			GenreDetailScreen(key.genreName)
+			Washed { GenreDetailScreen(key.genreName) }
 		}
 		entry<Screen.Settings.DownloadQuality> {
-			SettingsDownloadQualityScreen()
+			Washed { SettingsDownloadQualityScreen() }
 		}
 		entry<Screen.Settings.AppIcon>(metadata = detailPane("settings")) {
-			SettingsAppIconScreen()
+			Washed { SettingsAppIconScreen() }
 		}
 		entry<Screen.Settings.Equaliser> {
-			SettingsEqualiserScreen()
+			Washed { SettingsEqualiserScreen() }
 		}
 		entry<Screen.Settings.About>(metadata = detailPane("settings")) {
-			SettingsAboutScreen()
+			Washed { SettingsAboutScreen() }
 		}
 		entry<Screen.Settings.DataStorage>(metadata = detailPane("settings")) {
-			SettingsDataStorageScreen()
+			Washed { SettingsDataStorageScreen() }
 		}
 		entry<Screen.Settings.PendingActions>(metadata = detailPane("settings")) {
-			PendingActionsScreen()
+			Washed { PendingActionsScreen() }
 		}
 		entry<Screen.Settings.Fonts> {
-			FontsScreen()
+			Washed { FontsScreen() }
 		}
 		entry<Screen.Settings.Themes> {
-			SettingsThemesScreen()
+			Washed { SettingsThemesScreen() }
 		}
 		entry<Screen.Settings.CustomHeaders> {
-			SettingsCustomHeadersScreen()
+			Washed { SettingsCustomHeadersScreen() }
 		}
 		entry<Screen.Settings.StreamingQuality> {
-			SettingsStreamingQualityScreen()
+			Washed { SettingsStreamingQualityScreen() }
 		}
 		entry<Screen.Settings.Logs> {
-			SettingsLogsScreen()
+			Washed { SettingsLogsScreen() }
 		}
 		entry<Screen.Settings.NaviConnect>(metadata = detailPane("settings")) {
-			NaviConnectScreen()
+			Washed { NaviConnectScreen() }
 		}
 		entry<Screen.SmartPlaylistEditor> { key ->
-			SmartPlaylistEditorScreen(playlistId = key.playlistId)
+			Washed { SmartPlaylistEditorScreen(playlistId = key.playlistId) }
 		}
 	}
 }

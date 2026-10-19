@@ -56,6 +56,7 @@ import paige.navic.util.Logger
 import paige.navic.ui.components.common.Markdown
 import paige.navic.ui.components.dialogs.LinkConfirmationDialog
 import paige.navic.ui.theme.defaultFont
+import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 @Serializable
 data class GitHubRelease(
@@ -124,7 +125,10 @@ fun ChangelogSheet() {
 			sheetState = rememberBottomSheetState(
 				initialValue = SheetValue.Hidden,
 				enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-			)
+			),
+			// Composed at the app's root, outside every page: the playing song's colours like every
+			// other surface (P1 round 2), not the app's plain scheme.
+			ambient = rememberNowPlayingCoverAmbient()
 		) {
 			Column(
 				modifier = Modifier

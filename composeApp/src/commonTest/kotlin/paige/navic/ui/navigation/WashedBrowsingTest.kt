@@ -42,16 +42,27 @@ class WashedBrowsingTest {
 	}
 
 	@Test
-	fun detailArtistSettingsAndOtherPagesAreNotWashed() {
+	fun detailArtistAndOtherPagesAreNotWashed() {
+		// An album, an artist and a song are themed by their own cover; the viewer and the login have
+		// no playing song to wear.
 		val base = listOf(
 			Screen.CollectionDetail("al-1", "albums"), Screen.ArtistDetail("ar-1"),
-			Screen.SongDetailScreen("s-1"), Screen.GenreDetail("Rock"),
-			Screen.ExternalAlbum("rg-1"), Screen.ExternalArtist("mb-1"),
-			Screen.ImageView("c-1", "t", "k"), Screen.ShareList,
-			Screen.SmartPlaylistEditor(), Screen.Login,
-			Screen.Settings.Root, Screen.Settings.Appearance, Screen.Settings.NaviConnect
+			Screen.SongDetailScreen("s-1"), Screen.ExternalAlbum("rg-1"), Screen.ExternalArtist("mb-1"),
+			Screen.ImageView("c-1", "t", "k"), Screen.Login
 		)
 		base.forEach { assertFalse(it.isWashedBrowsing(), "$it should keep the base scheme") }
+	}
+
+	@Test
+	fun settingsAndTheFormsWearThePlayingSongToo() {
+		// Every surface but the artist and album pages (P1 round 2): the phone showed the New sheet's
+		// smart playlist form and Settings in the app's plain scheme.
+		val washed = listOf(
+			Screen.Settings.Root, Screen.Settings.Appearance, Screen.Settings.NaviConnect,
+			Screen.Settings.About, Screen.Settings.Logs, Screen.SmartPlaylistEditor(),
+			Screen.ShareList, Screen.GenreDetail("Rock")
+		)
+		washed.forEach { assertTrue(it.isWashedBrowsing(), "$it should be washed") }
 	}
 
 	// --- isPageOverlay -----------------------------------------------------------------------
@@ -96,9 +107,9 @@ class WashedBrowsingTest {
 	}
 
 	@Test
-	fun settingsArtistAndImagePagesKeepTheBaseRail() {
-		assertFalse(listOf<NavKey>(Screen.Settings.Root).railFollowsCover())
-		assertFalse(listOf<NavKey>(Screen.Settings.Root, Screen.Settings.Appearance).railFollowsCover())
+	fun settingsThemesTheRailAndArtistAndImagePagesKeepTheBaseRail() {
+		assertTrue(listOf<NavKey>(Screen.Settings.Root).railFollowsCover())
+		assertTrue(listOf<NavKey>(Screen.Settings.Root, Screen.Settings.Appearance).railFollowsCover())
 		assertFalse(listOf<NavKey>(Screen.Library(), Screen.ArtistDetail("ar-1")).railFollowsCover())
 		assertFalse(listOf<NavKey>(Screen.Library(), Screen.ImageView("c-1", "t", "k")).railFollowsCover())
 	}

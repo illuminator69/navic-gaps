@@ -145,6 +145,40 @@ val LocalCoverAmbientBottom = compositionLocalOf<Color?> { null }
 internal fun washCoverArtId(nowPlaying: String?, playerRestored: Boolean, lastWash: String): String? =
 	nowPlaying ?: lastWash.takeIf { !playerRestored && it.isNotBlank() }
 
+/**
+ * True while [AppWash] is drawing the playing cover's wash behind the pages: a washed page then draws
+ * none of its own ([BrowsingAmbient]) and is transparent over it.
+ */
+val LocalAppWash = compositionLocalOf { false }
+
+/**
+ * The playing cover's wash, drawn ONCE behind `NavDisplay` (P1 round 2). Two things the phone showed:
+ * a page change flashed the colours (every washed page drew its own opaque wash, so while two pages
+ * cross-faded the app's neutral surface showed through and the page went pale for a moment), and a
+ * back gesture showed a white bar (the page being left is removed a few pixels before the page coming
+ * in has finished sliding, and what was left between them was that same neutral surface). With the
+ * wash behind the pages, what shows through is the colour the page already is.
+ *
+ * Nothing playing, theming off or a palette not landed (BrowsingAmbient's own gate, rule 1 of the
+ * colour engine): no wash, and the plain surface behind, as ever. Artist and album pages draw their own
+ * opaque wash over this, from their own cover.
+ */
+@Composable
+fun AppWash(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+	val preferences = koinInject<PreferenceManager>()
+	val coverArtId = washCoverArtId(
+		rememberNowPlayingCoverArtId(),
+		rememberPlayerRestored(),
+		preferences.lastNowPlayingCoverArtId
+	)
+	val cover: CoverColors = rememberCoverColorScheme(coverArtId, isDark = rememberAppIsDark())
+	val showWash = cover.themed && cover.resolved
+	Box(modifier) {
+		if (showWash) CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
+		CompositionLocalProvider(LocalAppWash provides showWash, content = content)
+	}
+}
+
 @Composable
 fun BrowsingAmbient(content: @Composable () -> Unit) {
 	val preferences = koinInject<PreferenceManager>()
@@ -165,8 +199,12 @@ fun BrowsingAmbient(content: @Composable () -> Unit) {
 	// the composition, so a page is never thrown away and rebuilt (scroll position, everything it
 	// remembered) at the moment its colours arrive. Only the background and the values change.
 	// BrowsingAmbientStructureTest holds it to one `NavicTheme` call.
+	// The backdrop behind the pages (`AppWash`) already draws this wash when there is one, so a page
+	// draws none of its own: it fades and slides OVER the same colours, and nothing neutral shows
+	// through while it does.
+	val backdropDrawn = LocalAppWash.current
 	Box(Modifier.fillMaxSize()) {
-		if (showWash) CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
+		if (showWash && !backdropDrawn) CoverAmbientBackground(coverArtId, cover.seed, cover.isDark)
 		CompositionLocalProvider(LocalCoverAmbientBottom provides ambientBottom.takeIf { showWash }) {
 			NavicTheme(
 				if (showWash) cover.scheme.copy(background = Color.Transparent) else cover.scheme,

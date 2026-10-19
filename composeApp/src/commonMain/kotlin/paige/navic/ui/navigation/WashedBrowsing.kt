@@ -24,7 +24,17 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	Screen.MixList::class, Screen.Search::class, Screen.Statistics::class,
 	// The fork's pushed pages (I-026, I-039): not tabs, washed like the tabs are.
 	Screen.LibraryMatches::class, Screen.Downloads::class,
-	Screen.SavedQueues::class
+	Screen.SavedQueues::class,
+	// P1 round 2: every surface wears the playing song's colours but the artist and album pages, so
+	// Settings and its pages, the smart playlist form, shares and a genre's albums are washed too.
+	Screen.Settings.Root::class, Screen.Settings.Appearance::class, Screen.Settings.BottomAppBar::class,
+	Screen.Settings.NowPlaying::class, Screen.Settings.Playback::class, Screen.Settings.Effects::class,
+	Screen.Settings.Developer::class, Screen.Settings.DownloadQuality::class, Screen.Settings.AppIcon::class,
+	Screen.Settings.Equaliser::class, Screen.Settings.About::class, Screen.Settings.DataStorage::class,
+	Screen.Settings.PendingActions::class, Screen.Settings.Fonts::class, Screen.Settings.Themes::class,
+	Screen.Settings.CustomHeaders::class, Screen.Settings.StreamingQuality::class, Screen.Settings.Logs::class,
+	Screen.Settings.NaviConnect::class,
+	Screen.SmartPlaylistEditor::class, Screen.ShareList::class, Screen.GenreDetail::class
 )
 
 /**
