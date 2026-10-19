@@ -31,7 +31,6 @@ import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
-import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.subtitle_configure_lyric_providers
 import navic.composeapp.generated.resources.subtitle_lyrics_fake_beat_by_beat
@@ -44,7 +43,6 @@ import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.CoverArtTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
-import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -170,16 +168,10 @@ fun SettingsNowPlayingScreen() {
 						checked = preferenceManager.nowPlayingSongInfo,
 						onCheckedChange = { preferenceManager.nowPlayingSongInfo = it },
 						content = { Text(stringResource(Res.string.option_now_playing_song_info)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
 					)
-					SettingsChoiceItem(
-						content = { Text(stringResource(Res.string.option_now_playing_toolbar_position)) },
-						choices = ToolbarPosition.entries.toImmutableList(),
-						selectedChoice = preferenceManager.nowPlayingToolbarPosition,
-						onChoiceSelected = { preferenceManager.nowPlayingToolbarPosition = it },
-						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
-					)
+					// navi-connect P2: no "Toolbar position" row. On a portrait phone the player's header
+					// replaces the toolbar; the preference stays (nowPlayingToolbarPosition), unread there.
 				}
 			}
 		}

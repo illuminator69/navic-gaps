@@ -58,11 +58,27 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
+import paige.navic.ui.screens.nowPlaying.staged.StagedNowPlaying
+import paige.navic.ui.screens.nowPlaying.staged.stagedPlayerFits
 import paige.navic.ui.navigation.rememberCoveredBySheet
+
+/**
+ * The player. A portrait phone (narrower than 600 dp, taller than wide) gets the staged player with
+ * the queue as a layer inside it (P2, [StagedNowPlaying]); landscape and wider windows keep this one,
+ * with its toolbar and the queue as a sheet of its own (`Screen.Queue`). A rotation while the layer
+ * is open drops to this layout, and the layer's place is not carried back.
+ */
+@Composable
+fun NowPlayingScreen() {
+	BoxWithConstraints(Modifier.fillMaxSize()) {
+		if (stagedPlayerFits(maxWidth.value, maxHeight.value)) StagedNowPlaying()
+		else LegacyNowPlaying()
+	}
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowPlayingScreen() {
+private fun LegacyNowPlaying() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
