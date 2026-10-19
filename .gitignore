@@ -22,3 +22,7 @@ prepare/
 /redesign.md
 /Navic Redesign.dc.html
 /design_handoff_widgets/
+
+# Python bytecode (tools/)
+__pycache__/
+*.pyc
