@@ -116,6 +116,18 @@ class QueueDetentsTest {
 	}
 
 	@Test
+	fun theHeaderAndTheMiniHeaderNeverStandOnEachOther() {
+		val path = (0..100).map { Compaction(1f, it / 100f) }
+		for (k in path) {
+			assertTrue(headerAlpha(k) == 0f || miniHeaderAlpha(k) == 0f, "both showing at $k")
+		}
+		// And the cover has cleared before the mini header's cover arrives.
+		for (k in path) {
+			assertTrue(coverAlpha(k) == 0f || miniHeaderAlpha(k) == 0f, "cover and mini header at $k")
+		}
+	}
+
+	@Test
 	fun everyCurveIsMonotonicAlongTheGesture() {
 		val curves = mapOf(
 			"coverScale" to ::coverScale,
@@ -153,5 +165,16 @@ class QueueDetentsTest {
 		// A fling that passes half finishes on the curve of where it lands.
 		assertEquals(DetentCurve.Open, detentCurve(QueueDetent.Peek, QueueDetent.Full))
 		assertEquals(DetentCurve.Rise, detentCurve(QueueDetent.Full, QueueDetent.Peek))
+	}
+
+	@Test
+	fun onlyAPortraitPhoneGetsTheStagedPlayer() {
+		assertTrue(stagedPlayerFits(448f, 997f))
+		assertTrue(stagedPlayerFits(390f, 844f))
+		// Landscape, a tablet, a square window: the old player and the queue sheet.
+		assertTrue(!stagedPlayerFits(997f, 448f))
+		assertTrue(!stagedPlayerFits(800f, 1280f))
+		assertTrue(!stagedPlayerFits(500f, 500f))
+		assertTrue(!stagedPlayerFits(600f, 960f))
 	}
 }

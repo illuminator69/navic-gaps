@@ -1258,4 +1258,20 @@
 	<string name="home_your_mix_line">Made from what you play</string>
 	<string name="home_library_empty">Nothing in your library yet</string>
 	<string name="home_library_error">Couldn't read your library</string>
+	<!-- navi-connect P2: the staged queue inside the player (portrait phones). -->
+	<string name="staged_playing_from">Playing from</string>
+	<string name="staged_playing_from_album">Playing from album</string>
+	<string name="staged_playing_from_playlist">Playing from playlist</string>
+	<string name="staged_up_next">Up next</string>
+	<string name="staged_nothing_up_next">Nothing up next</string>
+	<string name="staged_casting_to">Casting to %1$s</string>
+	<string name="staged_this_phone">This phone</string>
+	<string name="staged_autoplay">Autoplay</string>
+	<string name="staged_section_now_playing">Now playing</string>
+	<string name="staged_section_queued_by_you">Queued by you</string>
+	<string name="staged_section_autoplay">Autoplay · %1$s</string>
+	<string name="staged_section_up_next">Up next</string>
+	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and the songs it had added are gone. Songs you queued stay.</string>
+	<string name="staged_open_queue">Open the queue</string>
+	<string name="staged_collapse_queue">Collapse the queue</string>
 </resources>

@@ -49,7 +49,10 @@ fun NowPlayingInfoRow(
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit
+	onSetSongRating: (Int) -> Unit,
+	/** The staged player (P2) carries the more button in its header and says where it casts above the queue. */
+	showMoreButton: Boolean = true,
+	showRemoteCue: Boolean = true
 ) {
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -75,7 +78,7 @@ fun NowPlayingInfoRow(
 		horizontalArrangement = Arrangement.spacedBy(8.dp)
 	) {
 		Column(Modifier.weight(1f)) {
-			if (isRemoteActive) {
+			if (isRemoteActive && showRemoteCue) {
 				Text(
 					remoteSessionCue(remoteDeviceName, sessionPlaying = !playerState.isPaused),
 					style = MaterialTheme.typography.labelMedium,
@@ -166,10 +169,12 @@ fun NowPlayingInfoRow(
 				songIsStarred = songIsStarred,
 				onSetSongIsStarred = onSetSongIsStarred
 			)
-			NowPlayingMoreButton(
-				songRating = songRating,
-				onSetSongRating = onSetSongRating
-			)
+			if (showMoreButton) {
+				NowPlayingMoreButton(
+					songRating = songRating,
+					onSetSongRating = onSetSongRating
+				)
+			}
 		}
 	}
 }

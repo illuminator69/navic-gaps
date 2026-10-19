@@ -42,8 +42,12 @@ fun queueListItems(
 ): List<QueueListItem> {
 	val count = minOf(songIds.size, uids.size)
 	if (count == 0) return emptyList()
-	val served = bound?.served?.toHashSet()
 	val playing = currentIndex.takeIf { it in 0 until count }
+	// "Queued by you" only beside an autoplay group: with nothing upcoming the station's, the rest
+	// is one "Up next" (a station continued here after a transfer, or one Off emptied).
+	val served = bound?.served?.toHashSet()?.takeIf { set ->
+		((playing?.plus(1) ?: 0) until count).any { songIds[it] in set }
+	}
 	val items = ArrayList<QueueListItem>(count + 4)
 	var previous: QueueGroup? = null
 	for (i in 0 until count) {
@@ -59,6 +63,27 @@ fun queueListItems(
 		previous = group
 	}
 	return items
+}
+
+/**
+ * Where each row stands in its run (the rows between two headers, or the played rows before the
+ * first): its uid to (position, run length), for the row's segmented shape.
+ */
+fun rowRunPositions(items: List<QueueListItem>): Map<Long, Pair<Int, Int>> {
+	val out = HashMap<Long, Pair<Int, Int>>(items.size)
+	val run = ArrayList<Long>()
+	fun flush() {
+		run.forEachIndexed { i, uid -> out[uid] = i to run.size }
+		run.clear()
+	}
+	for (item in items) {
+		when (item) {
+			is QueueListItem.Header -> flush()
+			is QueueListItem.Row -> run += item.uid
+		}
+	}
+	flush()
+	return out
 }
 
 /**

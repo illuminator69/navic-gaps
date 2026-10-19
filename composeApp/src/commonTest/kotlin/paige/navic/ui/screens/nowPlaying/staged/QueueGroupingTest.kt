@@ -149,4 +149,30 @@ class QueueGroupingTest {
 		assertEquals(PlayingFrom("album", "Sunday"), playingFromText(SavedQueueSource.ALBUM, "Sunday", "Quiet Engines"))
 		assertEquals(PlayingFrom(null, "Search: rain"), playingFromText(SavedQueueSource.MOOD_FLOW, null, "Search: rain"))
 	}
+	@Test
+	fun queuedByYouOnlyStandsBesideAnAutoplayGroup() {
+		// A station whose songs this device never saw added (a transfer), or all taken out by Off:
+		// nothing upcoming is the station's, so the rest is one "Up next", never "Queued by you".
+		val unseen = station.copy(served = emptyList())
+		assertEquals(
+			listOf(Header(QueueGroup.Playing, 100L), Row(0, 100L, QueueGroup.Playing), Header(QueueGroup.Next, 101L), Row(1, 101L, QueueGroup.Next)),
+			queueListItems(ids(2), uids(2), currentIndex = 0, bound = unseen)
+		)
+		// A served song already played does not make one either.
+		val playedOnly = station.copy(served = listOf("s0"))
+		assertEquals(
+			listOf(Row(0, 100L, QueueGroup.Played), Header(QueueGroup.Playing, 101L), Row(1, 101L, QueueGroup.Playing), Header(QueueGroup.Next, 102L), Row(2, 102L, QueueGroup.Next)),
+			queueListItems(ids(3), uids(3), currentIndex = 1, bound = playedOnly)
+		)
+	}
+
+	@Test
+	fun eachRowKnowsItsPlaceInItsRunForItsShape() {
+		val items = queueListItems(ids(6), uids(6), currentIndex = 1, bound = station.copy(served = listOf("s4", "s5")))
+		// s0 played | Playing s1 | Queued s2 s3 | Autoplay s4 s5
+		assertEquals(
+			mapOf(100L to (0 to 1), 101L to (0 to 1), 102L to (0 to 2), 103L to (1 to 2), 104L to (0 to 2), 105L to (1 to 2)),
+			rowRunPositions(items)
+		)
+	}
 }

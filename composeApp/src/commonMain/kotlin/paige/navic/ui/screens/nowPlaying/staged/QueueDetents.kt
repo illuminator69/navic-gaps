@@ -17,6 +17,12 @@ import kotlin.math.max
 
 enum class QueueDetent { Peek, Half, Full }
 
+/** The window width the staged player stops at: the tablet line (600 dp) the rest of the app uses. */
+const val STAGED_MAX_WIDTH_DP = 600f
+
+/** Whether a player window of this size (dp) gets the staged player: a portrait phone. */
+fun stagedPlayerFits(widthDp: Float, heightDp: Float): Boolean = widthDp < STAGED_MAX_WIDTH_DP && heightDp > widthDp
+
 /** Where the layer's top rests at each place. [halfTop] is null on a screen too short for half. */
 data class QueueAnchors(val peekTop: Float, val halfTop: Float?, val fullTop: Float) {
 	fun top(d: QueueDetent): Float? = when (d) {
@@ -129,13 +135,18 @@ private fun staged(rest: Float, half: Float, full: Float, c: Compaction) =
 /** The cover: 342 dp at rest, 0.445 (152 dp) at half, 0.3 at full, where it has gone. */
 fun coverScale(c: Compaction): Float = staged(1f, 0.445f, 0.3f, c)
 
-fun coverAlpha(c: Compaction): Float = staged(1f, 1f, 0f, c)
+/** The cover clears over the first half of the way from half to full, before the mini header arrives. */
+fun coverAlpha(c: Compaction): Float = (1f - c.toFull * 2f).coerceIn(0f, 1f)
 
-/** The header (chevron, "Playing from", more): through half, gone at full. */
-fun headerAlpha(c: Compaction): Float = staged(1f, 1f, 0f, c)
+/**
+ * The header (chevron, "Playing from", more): through half, gone halfway to full. It and the mini
+ * header take turns, never both half there: cross-faded together, "Playing from" and the mini
+ * header's title stood on each other (seen in the AVD's frames, 2026-10-19).
+ */
+fun headerAlpha(c: Compaction): Float = (1f - c.toFull * 2f).coerceIn(0f, 1f)
 
-/** The mini header that replaces the player at full: only on the way from half to full. */
-fun miniHeaderAlpha(c: Compaction): Float = staged(0f, 0f, 1f, c)
+/** The mini header that replaces the player at full: over the second half of the way from half to full. */
+fun miniHeaderAlpha(c: Compaction): Float = (c.toFull * 2f - 1f).coerceIn(0f, 1f)
 
 /** The action row and the durations: gone halfway to the half line. */
 fun actionsAlpha(c: Compaction): Float = (1f - c.toHalf * 2f).coerceIn(0f, 1f)

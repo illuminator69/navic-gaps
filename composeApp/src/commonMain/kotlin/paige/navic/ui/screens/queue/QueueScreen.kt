@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousRoundedRectangle
+import kotlin.math.roundToInt
 import kotlin.time.DurationUnit
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -144,6 +146,30 @@ import paige.navic.ui.screens.nowPlaying.staged.QueueDetent
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.draggableItemsIndexed
+import androidx.compose.material3.Switch
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import navic.composeapp.generated.resources.staged_autoplay
+import navic.composeapp.generated.resources.staged_autoplay_off_note
+import navic.composeapp.generated.resources.staged_playing_from
+import navic.composeapp.generated.resources.staged_section_autoplay
+import navic.composeapp.generated.resources.staged_section_now_playing
+import navic.composeapp.generated.resources.staged_section_queued_by_you
+import navic.composeapp.generated.resources.staged_section_up_next
+import org.koin.core.parameter.parametersOf
+import paige.navic.domain.manager.StationProvenance
+import paige.navic.domain.manager.autoplayToggleShowsOn
+import paige.navic.domain.manager.characterChips
+import paige.navic.domain.models.settings.StationCharacter
+import paige.navic.ui.screens.nowPlaying.staged.QueueGroup
+import paige.navic.ui.screens.nowPlaying.staged.QueueListItem
+import paige.navic.ui.screens.nowPlaying.staged.queueListItems
+import paige.navic.ui.screens.nowPlaying.staged.rowRunPositions
+import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
+import paige.navic.ui.util.DraggableListState
+import paige.navic.ui.util.Fold
 import paige.navic.ui.util.rememberDraggableListState
 
 /** A queue slot with a stable id so reorders animate (see [QueueScreen]). */
@@ -160,7 +186,13 @@ sealed interface QueueLayout {
 
 	data class Layer(
 		val detent: () -> QueueDetent,
-		val onNavigateOut: (Screen) -> Unit
+		val onNavigateOut: (Screen) -> Unit,
+		/**
+		 * How much of the content is below the screen's edge (px): the layer is as tall as at full
+		 * and slides, so at half its bottom is off screen. What is pinned to the bottom (the undo
+		 * snackbar) is lifted by this.
+		 */
+		val hiddenBelowPx: () -> Float = { 0f }
 	) : QueueLayout
 }
 
@@ -239,9 +271,35 @@ internal fun QueueContent(layout: QueueLayout) {
 	// landed. That flicker is what a drag looked like from the queue.
 	var playingUid by remember { mutableStateOf<Long?>(null) }
 
+	// The layer's list (P2): the mirror grouped by who put each song there, a header per run. While
+	// a row is dragged the list is frozen as it was ([layerDragItems]) and the row moves in it, past
+	// headers too; the mirror moves only when the row passes another row. Regrouped on release.
+	val isLayer = layout is QueueLayout.Layer
+	val boundStation by radioManager.boundStation.collectAsState()
+	val layerDragItems = remember { mutableStateListOf<QueueListItem>() }
+	var layerDragging by remember { mutableStateOf(false) }
+	val groupedRef = remember { arrayOf<List<QueueListItem>>(emptyList()) }
+
 	val haptic = LocalHapticFeedback.current
 	val draggableState = rememberDraggableListState(viewModel.listState) { from, to ->
-		if (from in displayQueue.indices && to in displayQueue.indices) {
+		if (isLayer) {
+			if (!layerDragging) {
+				layerDragItems.clear()
+				layerDragItems.addAll(groupedRef[0])
+				layerDragging = true
+			}
+			if (from !in layerDragItems.indices || to !in layerDragItems.indices) return@rememberDraggableListState
+			if (layerDragItems[from] !is QueueListItem.Row) return@rememberDraggableListState
+			val fromQ = layerDragItems.subList(0, from).count { it is QueueListItem.Row }
+			layerDragItems.add(to, layerDragItems.removeAt(from))
+			val toQ = layerDragItems.subList(0, to).count { it is QueueListItem.Row }
+			if (fromQ != toQ && fromQ in displayQueue.indices && toQ in displayQueue.indices) {
+				if (dragOrigin.value == null) dragOrigin.value = fromQ
+				dragTarget.value = toQ
+				displayQueue.add(toQ, displayQueue.removeAt(fromQ))
+			}
+			haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+		} else if (from in displayQueue.indices && to in displayQueue.indices) {
 			if (dragOrigin.value == null) dragOrigin.value = from
 			dragTarget.value = to
 			displayQueue.add(to, displayQueue.removeAt(from))
@@ -262,6 +320,7 @@ internal fun QueueContent(layout: QueueLayout) {
 				if (hubManager.isRemoteActive.value) hubManager.actMoveQueueItem(from, to)
 				else player.moveQueueItem(from, to)
 			}
+			layerDragging = false
 		}
 	}
 
@@ -307,6 +366,21 @@ internal fun QueueContent(layout: QueueLayout) {
 		?.takeIf { it >= 0 }
 		?: playerState.currentIndex
 
+	// Grouped by the player's own index unless a row is being dragged (the mirror is ahead of the
+	// player then): [playingIndex] follows a track change a frame late, and the composition that
+	// brought the new song would still group by the old one; the scroll to "Now playing" then
+	// landed on the song just played and the list kept that row's key at the top.
+	val groupingIndex = if (draggableState.draggingItemIndex == null && !layerDragging) playerState.currentIndex
+	else playingIndex
+	val grouped = if (isLayer) {
+		val entries = displayQueue.toList()
+		remember(entries, groupingIndex, boundStation) {
+			queueListItems(entries.map { it.song.id }, entries.map { it.uid }, groupingIndex, boundStation)
+		}
+	} else emptyList()
+	groupedRef[0] = grouped
+	val layerItems: List<QueueListItem> = if (layerDragging) layerDragItems else grouped
+
 	// Auto-scroll on a genuine TRACK CHANGE only — keyed on the song, not the index.
 	//
 	// Keyed on currentIndex, any queue edit that shifted the playing track re-ran this: drop a
@@ -326,7 +400,13 @@ internal fun QueueContent(layout: QueueLayout) {
 		if (draggableState.draggingItemIndex != null) return@LaunchedEffect
 		runCatching {
 			if (queue.isNotEmpty()) {
-				draggableState.listState.scrollToItem(playingIndex.coerceAtLeast(0))
+				// The layer's list has headers among the rows: its "Now playing" header goes to the top
+				// (grouped by the player's index, see `groupingIndex`).
+				val target = if (isLayer) {
+					groupedRef[0].indexOfFirst { it is QueueListItem.Header && it.group == QueueGroup.Playing }
+						.coerceAtLeast(0)
+				} else playingIndex.coerceAtLeast(0)
+				draggableState.listState.scrollToItem(target)
 			}
 		}
 	}
@@ -396,6 +476,56 @@ internal fun QueueContent(layout: QueueLayout) {
 	}
 
 	Box(modifier = Modifier.fillMaxSize()) {
+	if (layout is QueueLayout.Layer) {
+		QueueLayerBody(
+			layout = layout,
+			queue = queue,
+			layerItems = layerItems,
+			entryOf = { uid -> displayQueue.firstOrNull { it.uid == uid }?.song },
+			queueIndexOf = { uid -> displayQueue.indexOfFirst { it.uid == uid } },
+			playingUid = displayQueue.getOrNull(playingIndex)?.uid,
+			isPaused = playerState.isPaused,
+			boundStation = boundStation,
+			draggableState = draggableState,
+			countText = "$songsText • $totalDurationText",
+			onToggleCount = {
+				preferenceManager.queueInfoType = when (infoType) {
+					QueueInfoType.Full -> QueueInfoType.Remaining
+					QueueInfoType.Remaining -> QueueInfoType.Full
+				}
+			},
+			onClear = {
+				haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+				player.captureQueueUndo(QueueUndoKind.CLEAR)
+				if (isRemoteActive) hubManager.actClearQueue()
+				else player.clearQueue()
+			},
+			onRowClick = { index, song ->
+				platformContext.clickSound()
+				if (index >= 0 && playingIndex != index) {
+					// A tap does not move the list (B-132).
+					tappedSongId[0] = song.id
+					if (isRemoteActive) hubManager.actJump(index) else player.playAt(index)
+				}
+			},
+			onRowLongClick = { song ->
+				haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+				viewModel.selectSong(song)
+			},
+			onRowRemove = { index ->
+				if (index >= 0) {
+					haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+					player.captureQueueUndo(QueueUndoKind.REMOVE)
+					if (isRemoteActive) hubManager.actRemoveQueueItem(index)
+					else player.removeFromQueue(index)
+				}
+			},
+			isOnline = isOnline,
+			isDownloaded = { downloadedSongs.containsKey(it) },
+			allDownloads = allDownloads,
+			onSelectRelated = { viewModel.selectSong(it) }
+		)
+	} else {
 	// No ambient wash here: the sheet HOST (BottomSheetScene) already tints this sheet from
 	// the now-playing cover and themes its content. Painting a second one in here just fought
 	// the real one. The rows stay translucent and let that single surface through — which is
@@ -610,10 +740,15 @@ internal fun QueueContent(layout: QueueLayout) {
 		}
 	}
 
+		}
 		SnackbarHost(
 			hostState = undoSnackbarState,
 			modifier = Modifier
 				.align(Alignment.BottomCenter)
+				.offset {
+					val hidden = (layout as? QueueLayout.Layer)?.hiddenBelowPx?.invoke() ?: 0f
+					IntOffset(0, -hidden.roundToInt())
+				}
 				.padding(horizontal = 12.dp, vertical = 16.dp)
 		)
 	}
@@ -678,7 +813,7 @@ internal fun QueueContent(layout: QueueLayout) {
  * Self-contained, so the staged player's action row and the queue's header both carry it (P2).
  */
 @Composable
-internal fun QueueSaveControl() {
+internal fun QueueSaveControl(trigger: QueueSaveTrigger = DefaultQueueSaveTrigger) {
 	val player = koinInject<MediaPlayerViewModel>()
 	val hubManager = koinInject<HubManager>()
 	val radioManager = koinInject<RadioManager>()
@@ -704,7 +839,8 @@ internal fun QueueSaveControl() {
 		onSaveAsPlaylist = { savingQueue = true },
 		onSaveAsMix = {
 			mixToSave = radioManager.currentRecipe(playerState.currentSong)
-		}
+		},
+		trigger = trigger
 	)
 
 	mixToSave?.let { recipe ->
@@ -727,6 +863,257 @@ internal fun QueueSaveControl() {
 			// The queue stays open; the snackbar names the playlist.
 			navigateAfterwards = false
 		)
+	}
+}
+
+/**
+ * The queue as the staged layer draws it (P2, portrait phones): a header row ("Playing from", the
+ * Autoplay switch, Save), the character chips (dimmed while autoplay is off, and still a tap that
+ * turns it on with that character), the note that says what Off did, and at full only the
+ * Up next / Related switch, the count with Clear and the generator line. The rows are grouped by
+ * who put them there ([queueListItems]); every row behaviour of the sheet is kept.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun QueueLayerBody(
+	layout: QueueLayout.Layer,
+	queue: List<DomainSong>,
+	layerItems: List<QueueListItem>,
+	entryOf: (Long) -> DomainSong?,
+	queueIndexOf: (Long) -> Int,
+	playingUid: Long?,
+	isPaused: Boolean,
+	boundStation: StationProvenance?,
+	draggableState: DraggableListState,
+	countText: String,
+	onToggleCount: () -> Unit,
+	onClear: () -> Unit,
+	onRowClick: (index: Int, song: DomainSong) -> Unit,
+	onRowLongClick: (DomainSong) -> Unit,
+	onRowRemove: (index: Int) -> Unit,
+	isOnline: Boolean,
+	isDownloaded: (String) -> Boolean,
+	allDownloads: List<DownloadEntity>,
+	onSelectRelated: (DomainSong) -> Unit
+) {
+	val radioManager = koinInject<RadioManager>()
+	val player = koinInject<MediaPlayerViewModel>()
+	val chipsUi by radioManager.chips.collectAsState()
+	val preferredCharacter by radioManager.character.collectAsState()
+	val catalogue by radioManager.catalogue.collectAsState()
+	val generator by radioManager.queueGenerator.collectAsState()
+	val generatorBusy by radioManager.busy.collectAsState()
+	val nowPlaying = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
+	val playingFrom by nowPlaying.playingFrom.collectAsStateWithLifecycle()
+	val atFull = layout.detent() == QueueDetent.Full
+	val autoplayOn = autoplayToggleShowsOn(chipsUi.selected)
+	var selectedTab by rememberSaveable { mutableStateOf(0) }
+	val shownTab = if (atFull && queue.isNotEmpty()) selectedTab else 0
+	val autoplayLabel = stringResource(Res.string.staged_autoplay)
+
+	Column(Modifier.fillMaxSize()) {
+		Row(
+			modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			Column(Modifier.weight(1f)) {
+				playingFrom?.let { from ->
+					Text(
+						text = stringResource(Res.string.staged_playing_from),
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1
+					)
+					Text(
+						text = from.name,
+						style = MaterialTheme.typography.titleSmall,
+						fontWeight = FontWeight.SemiBold,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
+			Text(
+				text = autoplayLabel,
+				style = MaterialTheme.typography.labelLarge,
+				modifier = Modifier.padding(end = 8.dp)
+			)
+			// One code path with the chips (RadioManager.onAutoplayToggle → onChipTap).
+			Switch(
+				checked = autoplayOn,
+				onCheckedChange = { radioManager.onAutoplayToggle(it) },
+				modifier = Modifier.semantics { contentDescription = autoplayLabel }
+			)
+			QueueSaveControl()
+		}
+
+		val characters = characterChips(chipsUi.chips)
+		if (characters.isNotEmpty()) {
+			PageChips(
+				options = characters,
+				// Off shows the character autoplay would come back with, dimmed.
+				selected = chipsUi.selected.takeIf { it in characters } ?: AutoplayChip.of(preferredCharacter),
+				label = { autoplayChipLabel(it, catalogue) },
+				onSelect = { radioManager.onChipTap(it) },
+				contentPadding = PaddingValues(horizontal = 24.dp),
+				modifier = Modifier.alpha(if (autoplayOn) 1f else 0.4f)
+			)
+		}
+		// Only for a queue a station is bound to: never said over an album's songs.
+		Fold(visible = !autoplayOn && boundStation != null) {
+			Text(
+				text = stringResource(Res.string.staged_autoplay_off_note),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 4.dp)
+			)
+		}
+
+		Fold(visible = atFull && queue.isNotEmpty()) {
+			Column {
+				SingleChoiceSegmentedButtonRow(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(horizontal = 24.dp, vertical = 8.dp)
+				) {
+					SegmentedButton(
+						shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+						onClick = { selectedTab = 0 },
+						selected = selectedTab == 0,
+						label = { Text(stringResource(Res.string.tab_up_next)) }
+					)
+					SegmentedButton(
+						shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+						onClick = { selectedTab = 1 },
+						selected = selectedTab == 1,
+						label = { Text(stringResource(Res.string.tab_related)) }
+					)
+				}
+				Row(
+					modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.CenterVertically
+				) {
+					Row(
+						modifier = Modifier.weight(1f).heightIn(min = 36.dp).clickable(onClick = onToggleCount),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Text(
+							text = countText,
+							style = MaterialTheme.typography.titleMedium,
+							fontWeight = FontWeight.SemiBold,
+							fontFamily = defaultFont(round = 100f),
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis
+						)
+					}
+					FilledTonalButton(
+						onClick = onClear,
+						colors = ButtonDefaults.filledTonalButtonColors(),
+						contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+						modifier = Modifier.heightIn(min = 36.dp)
+					) {
+						Text(stringResource(Res.string.action_clear), maxLines = 1)
+					}
+				}
+				Box(Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 4.dp)) {
+					QueueGeneratorLine(generator = generator, busy = generatorBusy, catalogue = catalogue)
+				}
+			}
+		}
+
+		val spatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+		val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+		AnimatedContent(
+			targetState = shownTab,
+			modifier = Modifier.weight(1f),
+			transitionSpec = {
+				val direction = if (targetState > initialState) 1 else -1
+				(slideInHorizontally(spatialSpec) { it / 4 * direction } + fadeIn(effectsSpec))
+					.togetherWith(slideOutHorizontally(spatialSpec) { -it / 4 * direction } + fadeOut(effectsSpec))
+			},
+			label = "layerQueueTab"
+		) { tab ->
+			if (tab != 0) {
+				RelatedTab(isOnline = isOnline, allDownloads = allDownloads, onSelect = onSelectRelated)
+				return@AnimatedContent
+			}
+			val positions = remember(layerItems) { rowRunPositions(layerItems) }
+			val autoplayGroupLabel = when {
+				boundStation?.stopped == true -> stringResource(Res.string.staged_section_autoplay, stringResource(Res.string.autoplay_off))
+				else -> StationCharacter.fromWire(boundStation?.character)
+					?.let { stringResource(Res.string.staged_section_autoplay, catalogue.infoFor(it).label.ifBlank { it.label }) }
+					?: autoplayLabel
+			}
+			LazyColumn(
+				modifier = Modifier
+					.padding(horizontal = 12.dp)
+					.fillMaxSize()
+					// Rows animating in from above the view never draw over the header (B-161's rule).
+					.clipToBounds(),
+				state = draggableState.listState,
+				contentPadding = WindowInsets.systemBars.only(WindowInsetsSides.Bottom).asPaddingValues(),
+				verticalArrangement = if (queue.isNotEmpty()) Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+				else Arrangement.Center
+			) {
+				draggableItemsIndexed(
+					state = draggableState,
+					items = layerItems,
+					key = { _, item ->
+						when (item) {
+							is QueueListItem.Header -> "h:${item.group}:${item.key}"
+							is QueueListItem.Row -> item.uid
+						}
+					},
+					contentType = { _, item -> item is QueueListItem.Header }
+				) { _, item, isDragging ->
+					when (item) {
+						is QueueListItem.Header -> Text(
+							text = when (item.group) {
+								QueueGroup.Playing -> stringResource(Res.string.staged_section_now_playing)
+								QueueGroup.Queued -> stringResource(Res.string.staged_section_queued_by_you)
+								QueueGroup.Autoplay -> autoplayGroupLabel
+								QueueGroup.Next, QueueGroup.Played -> stringResource(Res.string.staged_section_up_next)
+							},
+							style = MaterialTheme.typography.titleSmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 2.dp)
+						)
+
+						is QueueListItem.Row -> {
+							val song = entryOf(item.uid) ?: return@draggableItemsIndexed
+							val (position, runLength) = positions[item.uid] ?: (0 to 1)
+							val current = item.uid == playingUid
+							QueueScreenItem(
+								index = position,
+								dragKey = item.uid,
+								count = runLength,
+								song = song,
+								isPlaying = current && !isPaused,
+								isSelected = current,
+								isDragging = isDragging,
+								draggableState = draggableState,
+								dragEnabled = true,
+								onClick = { onRowClick(queueIndexOf(item.uid), song) },
+								onLongClick = { onRowLongClick(song) },
+								onRemove = { onRowRemove(queueIndexOf(item.uid)) },
+								isOffline = !isOnline,
+								isDownloaded = isDownloaded(song.id)
+							)
+						}
+					}
+				}
+				if (queue.isEmpty()) {
+					item {
+						ContentUnavailable(
+							icon = Icons.Outlined.PlaylistRemove,
+							label = stringResource(Res.string.info_no_queue)
+						)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -812,27 +1199,30 @@ private const val DOWNLOAD_NEXT_COUNT = 10
  * a mix can be saved too ([mixOffered]) it opens a menu of the two, as the download control
  * beside it does.
  */
+/** What opens the save control: [enabled], its accessible [label], and what a tap does. */
+internal typealias QueueSaveTrigger = @Composable (enabled: Boolean, label: String, onClick: () -> Unit) -> Unit
+
+/** The queue header's own trigger: a 22 dp glyph button. */
+internal val DefaultQueueSaveTrigger: QueueSaveTrigger = { enabled, label, onClick ->
+	IconButton(enabled = enabled, onClick = onClick) {
+		Icon(Icons.Outlined.PlaylistAdd, contentDescription = label, modifier = Modifier.size(22.dp))
+	}
+}
+
 @Composable
 internal fun QueueSaveButton(
 	playlistEnabled: Boolean,
 	mixOffered: Boolean,
 	onSaveAsPlaylist: () -> Unit,
-	onSaveAsMix: () -> Unit
+	onSaveAsMix: () -> Unit,
+	trigger: QueueSaveTrigger = DefaultQueueSaveTrigger
 ) {
 	var menuOpen by remember { mutableStateOf(false) }
 	Box {
-		IconButton(
-			enabled = playlistEnabled || mixOffered,
-			onClick = { if (mixOffered) menuOpen = true else onSaveAsPlaylist() }
-		) {
-			Icon(
-				Icons.Outlined.PlaylistAdd,
-				contentDescription = stringResource(
-					if (mixOffered) Res.string.action_save else Res.string.action_save_as_playlist
-				),
-				modifier = Modifier.size(22.dp)
-			)
-		}
+		trigger(
+			playlistEnabled || mixOffered,
+			stringResource(if (mixOffered) Res.string.action_save else Res.string.action_save_as_playlist)
+		) { if (mixOffered) menuOpen = true else onSaveAsPlaylist() }
 		DropdownMenu(
 			expanded = menuOpen,
 			onDismissRequest = { menuOpen = false }

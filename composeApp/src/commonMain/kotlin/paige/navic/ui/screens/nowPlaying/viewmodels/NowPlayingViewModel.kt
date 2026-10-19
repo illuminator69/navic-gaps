@@ -4,17 +4,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.models.SavedQueueSource
+import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.ui.screens.nowPlaying.staged.PlayingFrom
+import paige.navic.ui.screens.nowPlaying.staged.playingFromText
 import paige.navic.shared.MediaPlayerViewModel
 import kotlinx.coroutines.flow.StateFlow
 
 class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
-	private val songRepository: SongRepository
+	private val songRepository: SongRepository,
+	private val savedQueueRepository: SavedQueueRepository
 ) : ViewModel(), KoinComponent {
 	val songIsStarred: StateFlow<Boolean>
 		field = MutableStateFlow(false)
@@ -22,7 +28,30 @@ class NowPlayingViewModel(
 	val songRating: StateFlow<Int>
 		field = MutableStateFlow(0)
 
+	/**
+	 * The staged player's "Playing from" (P2): the queue's saved-queue record, by the id the queue
+	 * carries (local, or the hub session's when another device plays), named as the user renamed it
+	 * or as it was born ([playingFromText]). Null when nothing is known. Read when the queue changes;
+	 * a rename happens on the saved-queues page, with the player closed, and this view model lives
+	 * with the player's entry.
+	 */
+	val playingFrom: StateFlow<PlayingFrom?>
+		field = MutableStateFlow(null)
+
 	init {
+		viewModelScope.launch {
+			player.steadyState
+				.map { Triple(it.savedQueueId, it.savedQueueKind, it.savedQueueName) }
+				.distinctUntilChanged()
+				.collect { (id, kind, bornName) ->
+					val record = id?.let { runCatching { savedQueueRepository.get(it) }.getOrNull() }
+					playingFrom.value = playingFromText(
+						kind = record?.sourceKind?.takeIf { it != SavedQueueSource.MANUAL } ?: kind,
+						name = record?.name,
+						sourceName = record?.sourceName ?: bornName
+					)
+				}
+		}
 		viewModelScope.launch {
 			// Distinct on the song, NOT the whole state: `uiState` re-emits every 200 ms with a
 			// new playhead, and this used to fire two Room queries on each of those — twice a

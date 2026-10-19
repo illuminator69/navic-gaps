@@ -160,6 +160,14 @@ class RadioManager(
 		.map { wearsAudioMuseColour(it) }
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
 
+	/**
+	 * The station bound to the queue on screen (this device's record, or the session's while another
+	 * device plays), for the staged queue's groups (P2): its served list says which songs are autoplay's.
+	 */
+	val boundStation: StateFlow<StationProvenance?> = combine(generatorInputs) { boundNow() }
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
 	/** The queue sheet's autoplay chips (I-041): which are offered and which is selected. */
 	data class ChipsUi(val chips: List<AutoplayChip>, val selected: AutoplayChip)
 

@@ -170,7 +170,8 @@ val viewModelModule = module {
 	viewModel { params ->
 		NowPlayingViewModel(
 			player = params.get(),
-			songRepository = get()
+			songRepository = get(),
+			savedQueueRepository = get()
 		)
 	}
 	viewModelOf(::NavtabsViewModel)
