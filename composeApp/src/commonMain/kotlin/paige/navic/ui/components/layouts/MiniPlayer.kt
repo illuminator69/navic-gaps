@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
@@ -62,7 +61,6 @@ import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -83,7 +81,6 @@ import navic.composeapp.generated.resources.info_paused_on
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.HubManager
@@ -92,7 +89,6 @@ import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
-import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
@@ -103,11 +99,9 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.blur.LocalExpressiveBlur
 import paige.navic.ui.components.common.blur.expressiveBlurEffect
-import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.heldWhileCoveredBySheet
 import paige.navic.ui.navigation.rememberCoveredBySheet
-import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.util.playPauseIconPainter
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
@@ -132,17 +126,8 @@ fun MiniPlayer(
 	// frosted backdrop (RootBottomBar's hazeEffect over the screen content) shows
 	// through the card; otherwise keep the opaque surface.
 	val expressiveBlur = LocalExpressiveBlur.current
-	val navtabsViewModel = koinViewModel<NavtabsViewModel>()
-	val navtabsState by navtabsViewModel.state.collectAsState()
-	val tabs = remember(navtabsState) {
-		((navtabsState as? UiState.Success)?.data ?: NavbarConfig.default)
-			.tabs.filter { tab -> tab.visible }
-	}
 	val backStack = LocalNavStack.current
 	val haptics = LocalHapticFeedback.current
-	val navBarPadding = if (tabs.size < 2)
-		with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
-	else 0.dp
 
 	// steadyState: the mini-player is on screen almost everywhere, and the only thing here that
 	// follows the playhead is [MiniPlayerProgressBar], which collects it in its own scope.
@@ -224,7 +209,7 @@ fun MiniPlayer(
 			modifier = Modifier
 				.widthIn(max = if (detached) 600.dp else Dp.Unspecified)
 				.padding(
-					bottom = if (detached) outerPadding + navBarPadding else 0.dp,
+					bottom = if (detached) outerPadding else 0.dp,
 					start = outerPadding,
 					end = outerPadding
 				)
@@ -273,7 +258,7 @@ fun MiniPlayer(
 					start = if (detached) 10.dp else 16.dp,
 					end = if (detached) 10.dp else 16.dp,
 					top = if (detached) 10.dp else 16.dp,
-					bottom = (if (detached) 10.dp else 12.dp) + if (detached) 0.dp else navBarPadding
+					bottom = if (detached) 10.dp else 12.dp
 				) + if (!detached)
 					windowInsets.asPaddingValues()
 				else PaddingValues(),

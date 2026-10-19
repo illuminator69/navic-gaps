@@ -11,12 +11,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.dropUnlessResumed
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.di.LocalNavStack
-import paige.navic.ui.navigation.rememberVisibleNavigationTabs
-import paige.navic.ui.navigation.Screen
+import paige.navic.domain.manager.ShellController
+import paige.navic.ui.navigation.ShellTab
+import paige.navic.ui.navigation.isSelected
+import paige.navic.ui.navigation.onShellTabTapped
 import paige.navic.ui.viewmodel.RootViewModel
 
+/**
+ * The phone's bar: the four fixed [ShellTab]s (P1). What is selected and what a tap does are
+ * [ShellTab.isSelected] and [onShellTabTapped], the same ones the tablet's rail uses.
+ */
 @Composable
 fun BottomBar(
 	modifier: Modifier = Modifier,
@@ -25,32 +32,22 @@ fun BottomBar(
 	enabled: Boolean = true
 ) {
 	val rootViewModel = koinViewModel<RootViewModel>()
+	val shellController = koinInject<ShellController>()
 	val backStack = LocalNavStack.current
-	val tabs = rememberVisibleNavigationTabs()
-
-	val onTabSelected = { destination: Screen ->
-		if (backStack.lastOrNull() == destination) {
-			rootViewModel.requestScrollToTop()
-		} else {
-			backStack.apply {
-				clear()
-				add(destination)
-			}
-		}
-	}
+	val top = backStack.lastOrNull()
 
 	NavigationBar(
 		modifier = modifier,
 		containerColor = containerColor,
 		windowInsets = windowInsets
 	) {
-		tabs.forEach { tab ->
-			val selected = backStack.lastOrNull() == tab.destination
+		ShellTab.entries.forEach { tab ->
+			val selected = tab.isSelected(top)
 			NavigationBarItem(
 				selected = selected,
 				enabled = enabled,
 				onClick = dropUnlessResumed {
-					onTabSelected(tab.destination)
+					onShellTabTapped(tab, backStack, rootViewModel, shellController)
 				},
 				icon = {
 					if (selected) {

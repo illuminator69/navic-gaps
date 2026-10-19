@@ -12,10 +12,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
@@ -25,11 +21,9 @@ import navic.composeapp.generated.resources.option_bottom_bar_visibility_mode
 import navic.composeapp.generated.resources.option_hide_bottom_bar_if_idle
 import navic.composeapp.generated.resources.option_mini_player_progress_style
 import navic.composeapp.generated.resources.option_mini_player_style
-import navic.composeapp.generated.resources.option_navigation_bar_tabs
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_mini_player
-import navic.composeapp.generated.resources.title_navigation_bar
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalPlatformContext
@@ -44,15 +38,12 @@ import paige.navic.ui.components.layouts.NestedTopBarDefaults
 import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
-import paige.navic.ui.screens.settings.components.SettingsNavItem
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
-import paige.navic.ui.screens.settings.dialogs.NavtabsDialog
 
 @Composable
 fun BottomBarScreen() {
 	val platformContext = LocalPlatformContext.current
 	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
-	var tabsDialogOpen by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	Scaffold(
@@ -100,14 +91,6 @@ fun BottomBarScreen() {
 					}
 				}
 
-				SettingsGroup(title = { Text(stringResource(Res.string.title_navigation_bar)) }) {
-					SettingsNavItem(
-						onClick = { tabsDialogOpen = true },
-						content = { Text(stringResource(Res.string.option_navigation_bar_tabs)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
-					)
-				}
-
 				SettingsGroup(title = { Text(stringResource(Res.string.title_mini_player)) }) {
 					SettingsChoiceItem(
 						choices = MiniPlayerStyle.entries.toImmutableList(),
@@ -141,9 +124,4 @@ fun BottomBarScreen() {
 			}
 		}
 	}
-
-	NavtabsDialog(
-		presented = tabsDialogOpen,
-		onDismissRequest = { tabsDialogOpen = false }
-	)
 }

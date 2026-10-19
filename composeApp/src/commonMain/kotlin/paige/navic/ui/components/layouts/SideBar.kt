@@ -47,30 +47,23 @@ import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Menu
 import paige.navic.icons.outlined.MenuOpen
 import paige.navic.icons.outlined.Radio
+import paige.navic.domain.manager.ShellController
 import paige.navic.domain.models.creditText
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.WideNavigationRailItem
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.navigation.rememberVisibleNavigationTabs
+import paige.navic.ui.navigation.ShellTab
+import paige.navic.ui.navigation.isSelected
+import paige.navic.ui.navigation.onShellTabTapped
 import paige.navic.ui.viewmodel.RootViewModel
 
 @Composable
 fun SideBar() {
 	val rootViewModel = koinViewModel<RootViewModel>()
+	val shellController = koinInject<ShellController>()
 	val backStack = LocalNavStack.current
-	val tabs = rememberVisibleNavigationTabs()
-
-	val onTabSelected = { destination: Screen ->
-		if (backStack.lastOrNull() == destination) {
-			rootViewModel.requestScrollToTop()
-		} else {
-			backStack.apply {
-				clear()
-				add(destination)
-			}
-		}
-	}
+	val top = backStack.lastOrNull()
 
 	val railState = rememberWideNavigationRailState()
 	val railExpanded = railState.targetValue == WideNavigationRailValue.Expanded
@@ -106,12 +99,12 @@ fun SideBar() {
 				.verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(itemSpacing)
 		) {
-			tabs.forEach { tab ->
-				val selected = backStack.lastOrNull() == tab.destination
+			ShellTab.entries.forEach { tab ->
+				val selected = tab.isSelected(top)
 				WideNavigationRailItem(
 					selected = selected,
 					onClick = dropUnlessResumed {
-						onTabSelected(tab.destination)
+						onShellTabTapped(tab, backStack, rootViewModel, shellController)
 					},
 					icon = {
 						if (selected) {
