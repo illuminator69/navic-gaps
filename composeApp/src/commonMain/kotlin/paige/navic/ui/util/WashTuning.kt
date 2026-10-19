@@ -23,7 +23,13 @@ data class WashTuning(
 	val bottomAlpha: Float,
 	/** Laid over the blurred artwork, under the gradient. */
 	val artScrimColor: Color,
-	val artScrimAlpha: Float
+	val artScrimAlpha: Float,
+	/**
+	 * Light pages: neither stop is darker than this relative luminance. The top is lifted toward
+	 * white and the bottom's depth cut short to keep them above it, so a light page whose seed was
+	 * pulled toward a dark accent stays readable. 0 for dark pages: nothing is clamped.
+	 */
+	val minLuminance: Float = 0f
 )
 
 private val DarkWash = WashTuning(
@@ -38,24 +44,30 @@ private val DarkWash = WashTuning(
 )
 
 /**
- * Light pages, from the owner's approved mockups (2026-10-19) as the contrast test allowed them:
- * the cover's blurred artwork LIFTED by a white scrim (so a dark band in it can never be darker
- * than a mid grey), a thin gradient over it (half at the top, 0.6 at mid height, opaque at the
- * bottom) so the artwork shows, and a top near white with a bottom one fixed lightness step deeper
- * in the cover's hue (L* about 96 to 84). They used to read flat: the old bottom was only 3 to 9
- * L* below the top. The mockup's thinner gradient over black-scrimmed artwork fell to 3.1:1 for
- * secondary text over a dark band; the white scrim is what pays for it. Smaller white scrims pass
- * only with a whiter top (0.40 needs topMix 0.96, top L* 97 to 99).
+ * Light pages: the top in the cover's own field tone (the seed moved 0.28 toward white, about as
+ * close to the cover as the old 0.34), the bottom one fixed Oklab lightness step (0.08, about 9 L*)
+ * deeper in the cover's hue, so a light page has the depth a dark one has instead of the old 3 to
+ * 9 L*. Over the blurred artwork lifted by a white scrim, so a dark band in it can never pull the
+ * page below a mid grey, and nearly opaque, so the artwork reads as texture.
+ *
+ * An earlier tuning (I-043 Task 8, 2026-10-19) had a near-white top (0.92) under a thinner
+ * gradient. Its contrast test took mid-tone seeds (L* 40 to 87) that a light page never gets, and
+ * only a near-white top passed them; on real covers the page then came out paler than the cards
+ * on it, whose surfaces are seeded from the same field colour. `WashTuningTest` now takes the
+ * seeds a light page can get: a light cover's dominant is at least luminance 0.5, and the wash seed
+ * is that pulled 35% toward the vivid swatch, which can reach 0.22. [WashTuning.minLuminance] keeps
+ * those readable; a typical light cover (seed luminance 0.6 and up) keeps the full depth.
  */
 private val LightWash = WashTuning(
-	topMix = 0.92f,
+	topMix = 0.28f,
 	bottomMix = 0f,
-	bottomDepth = 0.10f,
-	topAlpha = 0.50f,
-	midAlpha = 0.60f,
+	bottomDepth = 0.08f,
+	topAlpha = 0.85f,
+	midAlpha = 0.90f,
 	bottomAlpha = 1f,
 	artScrimColor = Color.White,
-	artScrimAlpha = 0.43f
+	artScrimAlpha = 0.43f,
+	minLuminance = 0.5f
 )
 
 fun washTuning(isDark: Boolean): WashTuning = if (isDark) DarkWash else LightWash

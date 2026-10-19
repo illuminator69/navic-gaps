@@ -62,7 +62,7 @@ fun CoverAmbientBackground(
 	modifier: Modifier = Modifier,
 	/**
 	 * Dark pages only: passed straight to [BlendBackground] (null keeps the tuning's black 0.4). A
-	 * light page always lifts the artwork with its tuning's white scrim, because its thin gradient's
+	 * light page always lifts the artwork with its tuning's white scrim, because its gradient's
 	 * contrast depends on it (`WashTuningTest`).
 	 */
 	artworkScrim: Brush? = null
@@ -79,8 +79,8 @@ fun CoverAmbientBackground(
 		modifier = modifier.drawWithCache {
 			val (top, bottom) = coverAmbientGradient(animatedSeed.value, isDark)
 			// Dark: mostly opaque, so what reaches the text stays essentially the ambient colour that
-			// `onAmbientColor` guarantees contrast against. Light: thin over the lifted artwork, and
-			// `WashTuningTest` checks the composite instead.
+			// `onAmbientColor` guarantees contrast against. Light: as opaque, over artwork lifted by a
+			// white scrim, and `WashTuningTest` checks the composite over the darkest artwork.
 			val wash = Brush.verticalGradient(
 				listOfNotNull(
 					top.copy(alpha = tuning.topAlpha),

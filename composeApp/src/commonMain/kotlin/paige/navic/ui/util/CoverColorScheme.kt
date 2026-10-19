@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmpalette.generatePalette
 import com.kmpalette.loader.NetworkLoader
 import com.kmpalette.loader.rememberNetworkLoader
+import com.kmpalette.palette.graphics.Palette
 import com.kmpalette.palette.graphics.Palette.Swatch
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -107,6 +108,11 @@ private const val PALETTE_RETRY_DELAY_MS = 400L
 private fun Swatch.toSample(): SwatchSample =
 	SwatchSample(rgb = rgb, hue = hsl[0], saturation = hsl[1], lightness = hsl[2], population = population)
 
+/** The default filter's near-black and near-white rules, without its skin-tone one. */
+private val BlackAndWhiteOnly = object : Palette.Filter {
+	override fun isAllowed(rgb: Int, hsl: FloatArray): Boolean = hsl[2] > 0.05f && hsl[2] < 0.95f
+}
+
 /**
  * A cover's [CoverSeeds], fetched from [uri] and quantised: the one fetch every colour path uses
  * (the page's own, and [CoverSeedPrefetcher]'s ahead of need). Retried, and each failure LOGGED.
@@ -122,8 +128,17 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 	for (attempt in 0 until PALETTE_ATTEMPTS) {
 		if (attempt > 0) delay(PALETTE_RETRY_DELAY_MS * attempt)
 		val outcome = runCatching {
+			val bitmap = loader.load(Url(uri))
 			withContext(Dispatchers.Default) {
-				deriveCoverSeeds(loader.load(Url(uri)).generatePalette().swatches.map { it.toSample() })
+				deriveCoverSeeds(
+					swatches = bitmap.generatePalette().swatches.map { it.toSample() },
+					// Only near-black and near-white dropped: the default filter's skin-tone rule
+					// would hide every brown and tan from the light-cover accent.
+					unfiltered = bitmap.generatePalette {
+						clearFilters()
+						addFilter(BlackAndWhiteOnly)
+					}.swatches.map { it.toSample() }
+				)
 			}
 		}
 		if (outcome.isSuccess) return outcome.getOrNull()
@@ -294,14 +309,17 @@ fun rememberCoverColorScheme(
 	// A genuinely greyscale cover has no survivor and falls back to the dominant, staying neutral
 	// rather than having a hue invented for it.
 	val vivid = seeds?.vivid?.let(::Color)
+	// What `primary` is seeded from: the vivid swatch on a dark cover, the most salient colour on a
+	// light one (see [CoverSeeds.accent]).
+	val accent = seeds?.accent?.let(::Color) ?: vivid
 	// The WASH is the dominant colour pulled a third of the way toward the vivid one: enough for
 	// the page to actually read as the cover's colour, not so much that a saturated cover turns
 	// the background into a glare. This is what "expressive" means here — a black-and-yellow cover
 	// should give a dark page that is unmistakably YELLOW-dark, not a flat grey one.
 	val seed = if (vivid != null) lerp(dominant, vivid, 0.35f) else dominant
-	// The ACCENT (buttons, primary) is the vivid swatch, saturation-boosted so even muted artwork
-	// yields an obvious cover colour rather than a washed near-grey `primary`.
-	val accentSeed = (vivid ?: dominant).boostedAccent()
+	// The ACCENT (buttons, primary), saturation-boosted so even muted artwork yields an obvious
+	// cover colour rather than a washed near-grey `primary`.
+	val accentSeed = (accent ?: dominant).boostedAccent()
 	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
 	// immersive page (light text), a light cover a light page (dark text) — independent of
 	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
@@ -453,7 +471,10 @@ fun Color.boostedAccent(): Color {
 fun coverAmbientGradient(seed: Color, isDark: Boolean): Pair<Color, Color> {
 	val tuning = washTuning(isDark)
 	val target = if (isDark) Color.Black else Color.White
-	val top = lerp(seed, target, tuning.topMix)
+	val top = lerp(seed, target, tuning.topMix).let { mixed ->
+		if (mixed.luminance() >= tuning.minLuminance) mixed
+		else lerp(mixed, Color.White, leastFractionAbove(tuning.minLuminance) { lerp(mixed, Color.White, it) })
+	}
 	if (tuning.bottomDepth <= 0f) return top to lerp(seed, target, tuning.bottomMix)
 	// A fixed lightness step below the top, toward a deeper shade of the seed: `lerp` is in Oklab,
 	// so lightness moves linearly with the fraction, and every cover — a pale one included, whose
@@ -462,7 +483,25 @@ fun coverAmbientGradient(seed: Color, isDark: Boolean): Pair<Color, Color> {
 	val topL = top.convert(ColorSpaces.Oklab).red
 	val deepL = deep.convert(ColorSpaces.Oklab).red
 	val fraction = if (topL - deepL <= tuning.bottomDepth) 1f else tuning.bottomDepth / (topL - deepL)
-	return top to lerp(top, deep, fraction)
+	val bottom = lerp(top, deep, fraction)
+	if (bottom.luminance() >= tuning.minLuminance) return top to bottom
+	// Too deep to read on: the most depth that stays above the floor.
+	val backOff = leastFractionAbove(tuning.minLuminance) { lerp(top, deep, fraction * (1f - it)) }
+	return top to lerp(top, deep, fraction * (1f - backOff))
+}
+
+/**
+ * The smallest fraction in 0..1 whose [colour] is at least [floor] luminance, for a [colour] that
+ * gets lighter as the fraction grows. Bisected: lightness is monotonic along an Oklab `lerp`.
+ */
+private inline fun leastFractionAbove(floor: Float, colour: (Float) -> Color): Float {
+	var low = 0f
+	var high = 1f
+	repeat(16) {
+		val mid = (low + high) / 2f
+		if (colour(mid).luminance() >= floor) high = mid else low = mid
+	}
+	return high
 }
 
 /**

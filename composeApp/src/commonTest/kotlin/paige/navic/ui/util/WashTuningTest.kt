@@ -13,12 +13,39 @@ import kotlin.test.assertTrue
 
 /**
  * The page wash's numbers ([washTuning], [coverAmbientGradient]): dark pages exactly as they were,
- * light pages with depth (I-043 Task 8) and still readable over the darkest artwork.
+ * light pages in the cover's own tone, with depth, and readable over the darkest artwork.
  */
 class WashTuningTest {
 
-	/** Twelve seeds, hue every 30 degrees, saturation 0.6, lightness 0.5. */
+	/** Twelve seeds, hue every 30 degrees, saturation 0.6, lightness 0.5: for the dark tuning. */
 	private val seeds = (0 until 12).map { hsl(it * 30f, 0.6f, 0.5f) }
+
+	/**
+	 * The seeds a LIGHT page can get. A page is light when the cover's dominant is at least
+	 * luminance 0.5, and the wash seed is that pulled 35% toward the vivid swatch, which reaches
+	 * down to about 0.22. Hue every 30 degrees, saturation 0.3 and 0.7, at four luminances.
+	 * The first light tuning was held to mid-tone seeds no light page gets (L* 40 to 87), and only
+	 * a near-white top passed them: the page came out paler than the cards on it.
+	 */
+	private val lightSeeds = (0 until 12).flatMap { h ->
+		listOf(0.3f, 0.7f).flatMap { s -> listOf(0.22f, 0.35f, 0.5f, 0.8f).map { y -> hslAtLuminance(h * 30f, s, y) } }
+	}
+
+	/** A typical light cover's seeds: luminance 0.6 and up. These keep the full depth. */
+	private val typicalLightSeeds = (0 until 12).flatMap { h ->
+		listOf(0.3f, 0.7f).flatMap { s -> listOf(0.6f, 0.8f).map { y -> hslAtLuminance(h * 30f, s, y) } }
+	}
+
+	/** The colour at hue [h] and saturation [s] whose relative luminance is [y]. */
+	private fun hslAtLuminance(h: Float, s: Float, y: Float): Color {
+		var low = 0f
+		var high = 1f
+		repeat(40) {
+			val mid = (low + high) / 2
+			if (hsl(h, s, mid).luminance() < y) low = mid else high = mid
+		}
+		return hsl(h, s, high)
+	}
 
 	private fun hsl(h: Float, s: Float, l: Float): Color {
 		val c = (1 - kotlin.math.abs(2 * l - 1)) * s
@@ -72,18 +99,29 @@ class WashTuningTest {
 
 	@Test
 	fun aLightPageHasDepth() {
-		for (seed in seeds) {
+		for (seed in typicalLightSeeds) {
 			val (top, bottom) = coverAmbientGradient(seed, false)
 			val span = lstar(top) - lstar(bottom)
-			assertTrue(span >= 10f, "seed $seed: L* span $span")
+			assertTrue(span >= 8f, "seed $seed: L* span $span")
+		}
+	}
+
+	@Test
+	fun aLightPageKeepsTheCoversTone() {
+		// The top stays the cover's own field colour, not white: never more than this far above it.
+		for (seed in typicalLightSeeds) {
+			val (top, _) = coverAmbientGradient(seed, false)
+			val lift = lstar(top) - lstar(seed)
+			assertTrue(lift <= 8f, "seed $seed: top is $lift L* above the seed")
 		}
 	}
 
 	@Test
 	fun aLightPageStaysReadable() {
-		for (seed in seeds) {
-			val (_, bottom) = coverAmbientGradient(seed, false)
-			assertTrue(bottom.luminance() >= 0.30f, "seed $seed: bottom luminance ${bottom.luminance()}")
+		for (seed in lightSeeds) {
+			val (top, bottom) = coverAmbientGradient(seed, false)
+			assertTrue(top.luminance() >= 0.5f - 1e-3f, "seed $seed: top luminance ${top.luminance()}")
+			assertTrue(bottom.luminance() >= 0.5f - 1e-3f, "seed $seed: bottom luminance ${bottom.luminance()}")
 		}
 	}
 
@@ -93,7 +131,7 @@ class WashTuningTest {
 		val midAlpha = light.midAlpha ?: (light.topAlpha + light.bottomAlpha) / 2
 		for (artwork in listOf(Color.Black, Color(0.25f, 0.25f, 0.25f))) {
 			val base = over(artwork, light.artScrimColor, light.artScrimAlpha)
-			for (seed in seeds) {
+			for (seed in lightSeeds) {
 				val (top, bottom) = coverAmbientGradient(seed, false)
 				// Top band, mid band, and the bottom, each as the page draws it.
 				val bands = listOf(

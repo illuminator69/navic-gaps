@@ -1,5 +1,7 @@
 package paige.navic.ui.util
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import kotlin.math.abs
 
 /**
@@ -23,20 +25,38 @@ data class SwatchSample(
  * - [dominant]: the cover's most populous colour family, by its leading swatch — what a person
  *   would say the artwork "is". It decides page brightness and seeds the scheme's neutrals.
  * - [vivid]: the most populous COLOURFUL family (washed-out, near-black and near-white swatches
- *   rejected), the colour the cover is known by; null for a genuinely greyscale cover, which then
- *   stays neutral rather than having a hue invented for it.
+ *   rejected); null for a genuinely greyscale cover, which then stays neutral rather than having a
+ *   hue invented for it. The page WASH is pulled toward it.
+ * - [accent]: what the scheme's `primary` (buttons, the play bar, links) is seeded from. On a dark
+ *   cover it is [vivid]. On a light one it is the most SALIENT colourful family instead (see
+ *   [salientFamily]), because there the most populous one is usually the pale field itself.
  */
-data class CoverSeeds(val dominant: Int, val vivid: Int?)
+data class CoverSeeds(val dominant: Int, val vivid: Int?, val accent: Int? = vivid)
 
-/** A cover's [CoverSeeds] from its swatches; null when quantisation gave none. */
-fun deriveCoverSeeds(swatches: List<SwatchSample>): CoverSeeds? {
+/** The vivid rule's bounds: below them a swatch is washed out, near black or near white. */
+private fun SwatchSample.isColourful(): Boolean = saturation >= 0.25f && lightness in 0.25f..0.85f
+
+/**
+ * A cover's [CoverSeeds] from its swatches; null when quantisation gave none.
+ *
+ * [swatches] is the palette as kmpalette builds it by default, and decides [CoverSeeds.dominant]
+ * and [CoverSeeds.vivid] exactly as they always were (page brightness and the wash are unchanged).
+ * [unfiltered] is a palette of the same image built WITHOUT the default filter's skin-tone rule
+ * (it drops every hue 10 to 37 degrees with saturation up to 0.82, so browns and tans never reach
+ * a palette at all): the light-cover accent is chosen from it. Measured on Vashti Bunyan's
+ * `Lookaftering`, a brown hare on cream, the filter removed the whole hare.
+ */
+fun deriveCoverSeeds(swatches: List<SwatchSample>, unfiltered: List<SwatchSample> = swatches): CoverSeeds? {
 	val dominant = swatches.dominantByColorFamily() ?: return null
 	val vivid = swatches
-		.filter { it.saturation >= 0.25f && it.lightness in 0.25f..0.85f }
+		.filter { it.isColourful() }
 		// By family here too, and for the same reason: the accent should be the colour the
 		// artwork is known by, not whichever shade of it quantisation happened to keep whole.
 		.dominantByColorFamily()
-	return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb)
+	// The same test `rememberCoverColorScheme` uses for page brightness.
+	val lightCover = Color(dominant.rgb).luminance() >= 0.5f
+	val accent = if (!lightCover) vivid else unfiltered.filter { it.isColourful() }.salientFamily() ?: vivid
+	return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb, accent = accent?.rgb)
 }
 
 /** Shortest distance between two hues on the colour wheel, in degrees (0-180). */
@@ -47,6 +67,38 @@ private fun hueDistance(a: Float, b: Float): Float {
 
 /** Beyond this many degrees apart, two swatches are not the same colour to the eye. */
 private const val HUE_FAMILY_DEGREES = 45f
+
+/** A salient family is named by its own hue: swatches this close, not the whole family. */
+private const val ACCENT_HUE_DEGREES = 15f
+
+/** HSL chroma, 0 to 1: how far from grey a swatch is at its lightness. */
+private fun SwatchSample.chroma(): Float = (1f - abs(2f * lightness - 1f)) * saturation
+
+/** A swatch's pull on the eye: its area, weighted by the square of its chroma. */
+private fun SwatchSample.salience(): Double = population * (chroma() * chroma()).toDouble()
+
+/**
+ * The colour that catches the eye on a light cover: the hue family with the most SALIENCE
+ * (population times chroma squared) rather than the most pixels, named by its most salient swatch
+ * within [ACCENT_HUE_DEGREES] of the winner.
+ *
+ * By population, a pastel field that passes the colourful bounds simply wins on size: on
+ * `Mahjong Room`, pale blue covers about 46% of the sleeve and the red keyboard 17%, so the accent
+ * was the page's own pale blue and nothing on the page was red. Chroma squared ranks the keyboard first
+ * (chroma 0.6 against the field's 0.15). Dark covers never needed this: their dark field fails the
+ * lightness bound, so the most populous colourful family was already the detail on it. And the
+ * whole family's leading swatch is not the name: within 45 degrees of a brown hare sits the cream
+ * paper it is printed on, which has more pixels.
+ */
+private fun List<SwatchSample>.salientFamily(): SwatchSample? {
+	val best = maxByOrNull { swatch ->
+		sumOf { other ->
+			val weight = 1f - hueDistance(swatch.hue, other.hue) / HUE_FAMILY_DEGREES
+			if (weight <= 0f) 0.0 else other.salience() * weight
+		}
+	} ?: return null
+	return filter { hueDistance(it.hue, best.hue) <= ACCENT_HUE_DEGREES }.maxByOrNull { it.salience() }
+}
 
 /** Below this saturation a swatch has no meaningful hue, and belongs to the greyscale family. */
 private const val NEUTRAL_SATURATION = 0.12f

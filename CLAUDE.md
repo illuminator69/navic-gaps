@@ -1250,8 +1250,8 @@ Rules, each with a reason:
 Every browsing and detail page is washed in the current artwork's colours. This is the fork's
 largest UI divergence and the thing most likely to be broken by an upstream merge.
 
-**The pipeline.** A cover is reduced to two colours, `CoverSeeds` (`dominant`, `vivid`), by the pure
-`deriveCoverSeeds` (`CoverSeeds.kt`), and those two are **persisted** in `CoverSeedStore` (the
+**The pipeline.** A cover is reduced to three colours, `CoverSeeds` (`dominant`, `vivid`, `accent`),
+by the pure `deriveCoverSeeds` (`CoverSeeds.kt`), and those are **persisted** in `CoverSeedStore` (the
 `coverSeeds` preference, LRU 512, written at most every 2 s). `ui/util/CoverColorScheme.kt`'s
 `rememberCoverColorScheme` reads the store **in composition**, so a cover seen before is coloured in
 the first frame; only a miss fetches (`fetchCoverSeeds`), and the store is also filled ahead of need
@@ -1261,8 +1261,9 @@ by `CoverSeedPrefetcher` — every cover a `CoverArt` tile shows, and the next t
 `BrowsingAmbient` / `Washed` draws it: blurred artwork plus a `coverAmbientGradient` scrim, with the
 seed read in the *draw* phase, all of the wash's numbers in `WashTuning` (dark pages: two stops at
 0.82 / 0.92 over a black 0.4 artwork scrim, as ever; light pages: a white 0.43 scrim lifting the
-artwork, a thin three-stop gradient, a bottom one fixed lightness step deeper — `WashTuningTest`
-holds its contrast over the darkest artwork). The library home, every root tab behind `App.kt`'s
+artwork, a three-stop gradient whose top stays in the cover's own field tone and whose bottom is one
+fixed lightness step deeper, neither below luminance 0.5 — `WashTuningTest` holds its contrast over
+the darkest artwork, on the seeds a light page can actually get). The library home, every root tab behind `App.kt`'s
 `Washed`, and both detail screens go through that one path — not four copies.
 
 Upstream's `rememberColorSchemeFromCoverArt` / `rememberDominantColorState` is the engine this
@@ -1270,6 +1271,15 @@ replaced. It dies with the composition (the fork carries the persisted seed stor
 derived-scheme cache, added because covers popped back to neutral while scrolling and
 `RootBottomBar` is rebuilt inside every `Scaffold`) and it seeds from `dominantSwatch`, which
 reliably picks a flat minority patch.
+
+**The accent on a light cover is not the vivid swatch.** `vivid` (what the wash is pulled toward)
+is the most populous colourful family, and on a light cover that is usually the pale field itself:
+Mahjong Room's accent was its own pale blue, with the red keyboard nowhere on the page. So on a light
+cover `accent` is the family with the most *salience* (population times chroma squared), chosen
+from a second palette built without kmpalette's default skin-tone filter, which drops every hue
+10 to 37 degrees with saturation up to 0.82 and so took Lookaftering's brown hare out entirely. A
+dark cover's `accent` is its `vivid`, unchanged: there the dark field already fails the colourful
+bounds. Page brightness and the wash still come from the default palette alone.
 
 Eight rules, each of which is a bug that shipped:
 

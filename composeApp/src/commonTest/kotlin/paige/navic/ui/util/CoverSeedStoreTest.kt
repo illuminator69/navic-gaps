@@ -17,7 +17,7 @@ class CoverSeedStoreTest {
 	private fun store(cap: Int = 512, load: () -> String = { "" }, save: (String) -> Unit = {}) =
 		CoverSeedStore(load = load, save = save, scope = idle, cap = cap)
 
-	private val navy = CoverSeeds(dominant = 0xFF0A1430.toInt(), vivid = 0xFFE8D020.toInt())
+	private val navy = CoverSeeds(dominant = 0xFF0A1430.toInt(), vivid = 0xFFE8D020.toInt(), accent = 0xFFD02020.toInt())
 	private val grey = CoverSeeds(dominant = 0xFF808080.toInt(), vivid = null)
 
 	@Test

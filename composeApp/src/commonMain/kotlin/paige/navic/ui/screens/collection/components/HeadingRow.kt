@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousRoundedRectangle
@@ -57,6 +57,9 @@ fun CollectionDetailScreenHeadingRow(
 				.padding(top = 24.dp, bottom = 6.dp),
 			contentAlignment = Alignment.Center
 		) {
+			// The blur ends in a hard edge 30 dp out, where it is still a few percent dark: invisible
+			// on a dark page, a grey box on a light one. Half as dark there.
+			val shadowAlpha = if (LocalContentColor.current.luminance() < 0.5f) 0.25f else 0.5f
 			CoverArt(
 				coverArtId = collection.coverArtId,
 				contentDescription = collection.name,
@@ -73,12 +76,16 @@ fun CollectionDetailScreenHeadingRow(
 						},
 						animatedVisibilityScope = LocalNavAnimatedContentScope.current
 					)
-					.alpha(titleAlpha)
-					// Soft drop shadow so the card reads as floating above the wash.
-					.dropShadow(
-						coverCardShape,
-						Shadow(radius = 30.dp, color = Color.Black, alpha = 0.5f)
-					),
+					// Soft drop shadow so the card reads as floating above the wash. BEFORE the fade,
+					// and faded by its own alpha: `alpha()` draws what follows it into a layer the size
+					// of the square cover, which cut the shadow off at the square and left only its
+					// corners showing round the rounded cover while the page scrolled.
+					.dropShadow(coverCardShape) {
+						radius = 30.dp.toPx()
+						color = Color.Black
+						alpha = shadowAlpha * titleAlpha
+					}
+					.alpha(titleAlpha),
 				crossfadeMs = 0
 			)
 		}
