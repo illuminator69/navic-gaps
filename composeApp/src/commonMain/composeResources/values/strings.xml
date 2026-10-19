@@ -1231,4 +1231,11 @@
 	<string name="title_new">New</string>
 	<string name="action_open_menu">Menu</string>
 	<string name="info_open_menu_attention">Menu, something needs attention</string>
+	<string name="title_needs_attention">Needs attention</string>
+	<string name="title_activity">Activity</string>
+	<string name="title_listening">Listening</string>
+	<string name="title_library_tools">Library tools</string>
+	<string name="title_app">App</string>
+	<string name="option_autoplay_default">Autoplay by default</string>
+	<string name="option_attention_dot">Attention dot</string>
 </resources>

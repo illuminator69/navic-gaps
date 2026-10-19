@@ -98,6 +98,7 @@ import paige.navic.ui.components.common.blur.expressiveBlurSource
 import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.layouts.SideBar
 import paige.navic.ui.components.sheets.AlbumMatchHost
+import paige.navic.ui.components.sheets.AvatarMenuDrawer
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.navigation.ListPageSceneStrategy
 import paige.navic.ui.navigation.AppDeepLink
@@ -380,86 +381,90 @@ fun App() {
 			LocalExpressiveBlur provides expressiveBlur
 		) {
 			NavicTheme {
-				Row(modifier = Modifier.fillMaxSize()) {
-					if (platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
-						&& Screen.Login !in backStack) {
-						// navi-connect (B-008): the cover's scheme while a washed page is on top.
-						RailAmbient { SideBar() }
-					}
-					Scaffold(
-						modifier = Modifier.nestedScroll(scrollManager.connection),
-						snackbarHost = {
-							SnackbarHost(hostState = snackBarState) { snackBarData ->
-								NavicSnackBar(snackBarData = snackBarData)
-							}
+				// navi-connect P1: the avatar menu is composed ONCE, around the page and the rail, and opened from
+				// any header avatar through ShellController. A fork line: drop it and the avatar opens nothing.
+				AvatarMenuDrawer {
+					Row(modifier = Modifier.fillMaxSize()) {
+						if (platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
+							&& Screen.Login !in backStack) {
+							// navi-connect (B-008): the cover's scheme while a washed page is on top.
+							RailAmbient { SideBar() }
 						}
-					) {
-						NavDisplay(
-							modifier = Modifier
-								// weight(1f), not fillMaxSize(): the Scaffold now sits in a Row
-								// beside the SideBar, so filling would push the rail off screen.
-								.weight(1f)
-								.consumeWindowInsets(
-									WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
-								)
-								.background(rememberLibraryTabBackground())
-								.expressiveBlurSource(expressiveBlur),
-							backStack = backStack,
-							sceneStrategies = sceneStrategies,
-							// Upstream's, restored: it arrived at alpha42 and no fork merge ever
-							// carried it (App.kt is taken fork-whole), and NavDisplay's default is
-							// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
-							// lived in the activity's store for the life of the process — every
-							// artist page ever opened stayed alive and re-read on every library
-							// bump. With it, a ViewModel dies when its entry leaves the back stack —
-							// and a tab switch clears the back stack, so every root tab and the
-							// lyrics opt out through `PersistentViewModelStoreOwner` (the list of
-							// sites is CLAUDE.md §2 rule 14; the decorator and the opt-outs are one
-							// change and must not be merged apart). navigation3 keys each store by the
-							// entry's content key, so an entry that is merely covered (a sheet over
-							// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
-							// CLAUDE.md §2 — both decorators, in this order.
-							entryDecorators = listOf(
-								rememberSaveableStateHolderNavEntryDecorator(),
-								rememberViewModelStoreNavEntryDecorator()
-							),
-							onBack = {
-								if (backStack.size >= 2) {
-									backStack.removeLastOrNull()
-								}
-							},
-							entryProvider = entries,
-							// navi-connect I-042: page timing follows the animation style (PageMotion.kt).
-							transitionSpec = {
-								val motion = pageMotionOf(preferenceManager.animationStyle)
-								Material3Transitions.enter(motion)(
-									density
-								) togetherWith Material3Transitions.exit(motion)(
-									density
-								)
-							},
-							popTransitionSpec = {
-								val motion = pageMotionOf(preferenceManager.animationStyle)
-								Material3Transitions.popEnter(motion)(
-									density
-								) togetherWith Material3Transitions.popExit(motion)(
-									density
-								)
-							},
-							predictivePopTransitionSpec = {
-								if (preferenceManager.enablePredictiveBackAnimations) {
-									slideInHorizontally(
-										animationSpec = tween(300, easing = EaseOutQuart),
-										initialOffsetX = { -it }
-									) togetherWith slideOutHorizontally(
-										animationSpec = tween(300, easing = EaseOutQuart),
-										targetOffsetX = { it }
-									)
-								} else {
-									ContentTransform(EnterTransition.None, ExitTransition.None)
+						Scaffold(
+							modifier = Modifier.nestedScroll(scrollManager.connection),
+							snackbarHost = {
+								SnackbarHost(hostState = snackBarState) { snackBarData ->
+									NavicSnackBar(snackBarData = snackBarData)
 								}
 							}
-						)
+						) {
+							NavDisplay(
+								modifier = Modifier
+									// weight(1f), not fillMaxSize(): the Scaffold now sits in a Row
+									// beside the SideBar, so filling would push the rail off screen.
+									.weight(1f)
+									.consumeWindowInsets(
+										WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+									)
+									.background(rememberLibraryTabBackground())
+									.expressiveBlurSource(expressiveBlur),
+								backStack = backStack,
+								sceneStrategies = sceneStrategies,
+								// Upstream's, restored: it arrived at alpha42 and no fork merge ever
+								// carried it (App.kt is taken fork-whole), and NavDisplay's default is
+								// the saveable-state decorator ALONE. Without the ViewModel-store decorator every ViewModel
+								// lived in the activity's store for the life of the process — every
+								// artist page ever opened stayed alive and re-read on every library
+								// bump. With it, a ViewModel dies when its entry leaves the back stack —
+								// and a tab switch clears the back stack, so every root tab and the
+								// lyrics opt out through `PersistentViewModelStoreOwner` (the list of
+								// sites is CLAUDE.md §2 rule 14; the decorator and the opt-outs are one
+								// change and must not be merged apart). navigation3 keys each store by the
+								// entry's content key, so an entry that is merely covered (a sheet over
+								// it, a detail pane beside it) keeps its ViewModel. Merge rule: navic-gaps
+								// CLAUDE.md §2 — both decorators, in this order.
+								entryDecorators = listOf(
+									rememberSaveableStateHolderNavEntryDecorator(),
+									rememberViewModelStoreNavEntryDecorator()
+								),
+								onBack = {
+									if (backStack.size >= 2) {
+										backStack.removeLastOrNull()
+									}
+								},
+								entryProvider = entries,
+								// navi-connect I-042: page timing follows the animation style (PageMotion.kt).
+								transitionSpec = {
+									val motion = pageMotionOf(preferenceManager.animationStyle)
+									Material3Transitions.enter(motion)(
+										density
+									) togetherWith Material3Transitions.exit(motion)(
+										density
+									)
+								},
+								popTransitionSpec = {
+									val motion = pageMotionOf(preferenceManager.animationStyle)
+									Material3Transitions.popEnter(motion)(
+										density
+									) togetherWith Material3Transitions.popExit(motion)(
+										density
+									)
+								},
+								predictivePopTransitionSpec = {
+									if (preferenceManager.enablePredictiveBackAnimations) {
+										slideInHorizontally(
+											animationSpec = tween(300, easing = EaseOutQuart),
+											initialOffsetX = { -it }
+										) togetherWith slideOutHorizontally(
+											animationSpec = tween(300, easing = EaseOutQuart),
+											targetOffsetX = { it }
+										)
+									} else {
+										ContentTransform(EnterTransition.None, ExitTransition.None)
+									}
+								}
+							)
+						}
 					}
 				}
 				// version check is annoying to do on iOS
