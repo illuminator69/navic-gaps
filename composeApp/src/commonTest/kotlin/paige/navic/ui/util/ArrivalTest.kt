@@ -79,8 +79,5 @@ class ArrivalTest {
 		assertEquals(8, ARRIVAL_RISE_DP)
 		assertEquals(240, ARRIVAL_MS)
 		assertEquals(280, COVER_FADE_MS)
-		assertEquals(300, FOLD_MS)
-		assertEquals(450, FOLD_TALL_MS)
-		assertEquals(220, FOLD_FADE_MS)
 	}
 }

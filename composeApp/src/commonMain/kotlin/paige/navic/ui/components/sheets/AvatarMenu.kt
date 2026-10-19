@@ -1,7 +1,6 @@
 package paige.navic.ui.components.sheets
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -107,9 +106,8 @@ import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.theme.warning
-import paige.navic.ui.util.FOLD_MS
 import paige.navic.ui.util.Fold
-import paige.navic.ui.util.FoldEasing
+import paige.navic.ui.util.rememberFoldMotion
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /*
@@ -564,7 +562,7 @@ private fun MenuGroup(
 					// Down is "closed"; it turns to point up when open (the board's chevrons).
 					val turn by animateFloatAsState(
 						targetValue = if (open) 180f else 0f,
-						animationSpec = tween(FOLD_MS, easing = FoldEasing)
+						animationSpec = rememberFoldMotion().spatial()
 					)
 					Icon(
 						Icons.Outlined.KeyboardArrowDown,

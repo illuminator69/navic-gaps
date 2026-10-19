@@ -2,7 +2,6 @@ package paige.navic.ui.screens.home
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,9 +42,8 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.ui.screens.library.components.ContinueListeningCard
-import paige.navic.ui.util.FOLD_MS
 import paige.navic.ui.util.Fold
-import paige.navic.ui.util.FoldEasing
+import paige.navic.ui.util.rememberFoldMotion
 
 /** A saved queue's card in the box: the design's, smaller than a shelf card. */
 private val BoxCardWidth = 104.dp
@@ -53,8 +51,8 @@ private val BoxCardWidth = 104.dp
 /**
  * "Continue listening" (board 1, 1h): a capsule that says how many saved queues there are and, tapped,
  * rolls out into a box of them at the same width. The capsule's corners ease from the pill's 21 dp to
- * the box's 18 dp as it opens, and the page below follows the height (a [Fold], 450 ms for a box that
- * holds cards).
+ * the box's 18 dp as it opens, and the page below follows the height (a [Fold]). All of it moves as the
+ * animation style says (`FoldMotion`): the motion scheme's springs, or Quick's short times.
  *
  * [queues] are the ones to show (the playing one first, [continueListening]); [totalCount] is how many
  * saved queues there are, which the capsule says and a trailing "See all" backs up when more than the
@@ -72,13 +70,15 @@ fun ContinueListeningPill(
 	onSeeAll: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	// The capsule's own motion is the fold's, so it follows the animation style with the box it opens.
+	val motion = rememberFoldMotion(tall = true)
 	val corner by animateDpAsState(
 		targetValue = if (expanded) 18.dp else 21.dp,
-		animationSpec = tween(FOLD_MS, easing = FoldEasing)
+		animationSpec = motion.spatial()
 	)
 	val turn by animateFloatAsState(
 		targetValue = if (expanded) 180f else 0f,
-		animationSpec = tween(FOLD_MS, easing = FoldEasing)
+		animationSpec = motion.spatial()
 	)
 	val count = pluralStringResource(Res.plurals.home_saved_queues_count, totalCount, totalCount)
 

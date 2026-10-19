@@ -22,7 +22,13 @@ data class PageMotion(
 	val exitSlideDp: Int,
 	val sharedBoundsMs: Int,
 	val sheetShowMs: Int,
-	val sheetHideMs: Int
+	val sheetHideMs: Int,
+	/**
+	 * A fold (`Fold.kt`) and what moves with it, in ms, and for one that holds a list; null is the motion
+	 * scheme's own springs, which is what Expressive and Standard use.
+	 */
+	val foldMs: Int? = null,
+	val foldTallMs: Int? = null
 )
 
 /** Which of [Material3Transitions]' easings the incoming page uses. */
@@ -53,8 +59,13 @@ val QuickPageMotion = PageMotion(
 	exitSlideDp = 30,
 	sharedBoundsMs = 350,
 	sheetShowMs = 300,
-	sheetHideMs = 250
+	sheetHideMs = 250,
+	foldMs = 200,
+	foldTallMs = 280
 )
+
+/** The fold's time under [motion], or null for the motion scheme's springs. */
+fun foldMs(motion: PageMotion, tall: Boolean): Int? = if (tall) motion.foldTallMs else motion.foldMs
 
 fun pageMotionOf(style: AnimationStyle): PageMotion = when (style) {
 	AnimationStyle.Expressive, AnimationStyle.Standard -> DefaultPageMotion
