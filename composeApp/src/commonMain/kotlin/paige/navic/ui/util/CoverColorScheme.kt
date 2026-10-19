@@ -245,17 +245,11 @@ fun rememberCoverColorScheme(
 		// Looked at again here, not only in composition: the store is not Compose state, so seeds
 		// the prefetcher wrote after this composition read it would otherwise never be seen.
 		store[id]?.let {
-			ColourArrivalTrace.mark("seeds.hit $id")
 			fetched = it
 			return@LaunchedEffect
 		}
-		ColourArrivalTrace.mark("seeds.fetch.start $id")
 		val result = fetchCoverSeeds(networkLoader, uri)
-		if (result == null) {
-			ColourArrivalTrace.mark("seeds.fetch.fail $id")
-			return@LaunchedEffect
-		}
-		ColourArrivalTrace.mark("seeds.fetch.done $id")
+		if (result == null) return@LaunchedEffect
 		store.put(id, result)
 		fetched = result
 	}
@@ -531,7 +525,6 @@ fun rememberNowPlayingCoverArtId(): String? {
 			.map { it.currentSong?.coverArtId }
 			.distinctUntilChanged()
 	}.collectAsStateWithLifecycle(player.uiState.value.currentSong?.coverArtId)
-	ColourArrivalTrace.playerId(coverArtId)
 	return coverArtId
 }
 

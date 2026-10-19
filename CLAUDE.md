@@ -47,7 +47,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
-| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt` |
+| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -215,7 +215,8 @@ that before suspecting the merge.
   to `mediaLibrarySession`, and nothing but reading it caught that.
 - **`App.kt`** — every nav entry, the `Washed` wrapper on the root tabs, the composition locals,
   the `NavDisplay` entry decorators (rule 14), and `AlbumMatchHost()` under the theme (§5,
-  I-022: drop it and "Fix album match" opens nothing, with no error). Take the fork's whole and
+  I-022: drop it and "Fix album match" opens nothing, with no error), and `ColourArrivalEffects()`
+  beside it (§6 rule 8: drop it and cold starts go neutral again, with no error). Take the fork's whole and
   re-apply upstream's structural changes by hand.
 - **`PreferenceManager.kt`**, **`SessionManager.kt`**, **`DownloadManager.kt`**,
   **`DbRepository.kt`**, **`SongDao.kt`** — union merges where both sides append. Usually textual
@@ -1249,20 +1250,28 @@ Rules, each with a reason:
 Every browsing and detail page is washed in the current artwork's colours. This is the fork's
 largest UI divergence and the thing most likely to be broken by an upstream merge.
 
-**The pipeline.** `ui/util/CoverColorScheme.kt`'s `rememberCoverColorScheme` fetches a palette,
-picks a seed and derives a `CoverColors` (`scheme`, `seed`, `dominant`, `isDark`, `resolved`,
-`themed`). `ui/components/common/CoverAmbientBackground.kt`'s `BrowsingAmbient` / `Washed` draws it:
-blurred artwork plus a `coverAmbientGradient` scrim, with the seed read in the *draw* phase. The
-library home, every root tab behind `App.kt`'s `Washed`, and both detail screens go through that
-one path — not four copies.
+**The pipeline.** A cover is reduced to two colours, `CoverSeeds` (`dominant`, `vivid`), by the pure
+`deriveCoverSeeds` (`CoverSeeds.kt`), and those two are **persisted** in `CoverSeedStore` (the
+`coverSeeds` preference, LRU 512, written at most every 2 s). `ui/util/CoverColorScheme.kt`'s
+`rememberCoverColorScheme` reads the store **in composition**, so a cover seen before is coloured in
+the first frame; only a miss fetches (`fetchCoverSeeds`), and the store is also filled ahead of need
+by `CoverSeedPrefetcher` — every cover a `CoverArt` tile shows, and the next three songs
+(`ColourArrivalEffects`). From the seeds it derives a `CoverColors` (`scheme`, `seed`, `dominant`,
+`isDark`, `resolved`, `themed`). `ui/components/common/CoverAmbientBackground.kt`'s
+`BrowsingAmbient` / `Washed` draws it: blurred artwork plus a `coverAmbientGradient` scrim, with the
+seed read in the *draw* phase, all of the wash's numbers in `WashTuning` (dark pages: two stops at
+0.82 / 0.92 over a black 0.4 artwork scrim, as ever; light pages: a white 0.43 scrim lifting the
+artwork, a thin three-stop gradient, a bottom one fixed lightness step deeper — `WashTuningTest`
+holds its contrast over the darkest artwork). The library home, every root tab behind `App.kt`'s
+`Washed`, and both detail screens go through that one path — not four copies.
 
 Upstream's `rememberColorSchemeFromCoverArt` / `rememberDominantColorState` is the engine this
-replaced. It dies with the composition (the fork carries a 128-entry palette cache plus a
+replaced. It dies with the composition (the fork carries the persisted seed store above plus a
 derived-scheme cache, added because covers popped back to neutral while scrolling and
 `RootBottomBar` is rebuilt inside every `Scaffold`) and it seeds from `dominantSwatch`, which
 reliably picks a flat minority patch.
 
-Seven rules, each of which is a bug that shipped:
+Eight rules, each of which is a bug that shipped:
 
 1. **An unresolved cover is an absence, not a colour.** The derivation used to run whether or not a
    palette had landed: with none, the dominant fell back to `colorScheme.surface`, the accent seed
@@ -1277,7 +1286,8 @@ Seven rules, each of which is a bug that shipped:
    honoured the *first* (the size is a parameter on `getCoverArtUrl` now, and the **2-arg**
    overload is the one to keep through a merge); and the failure path was
    `runCatching{}.getOrNull() ?: return`, unlogged and **permanent for that composable**, because
-   the `LaunchedEffect` key never changes again. Retried three times and logged now.
+   the `LaunchedEffect` key never changes again. Retried three times and logged now
+   (`fetchCoverSeeds`, the one fetch the page and the prefetcher share).
 3. **Nothing may theme off Navidrome's generic artist avatar.** `util/CoverPlaceholder.kt` is
    consulted inside `rememberCoverColorScheme` as well as in `CoverArt`; quantising the served grey
    glyph otherwise answers "this artist is grey" for every artist without a picture. Likewise
@@ -1308,7 +1318,21 @@ Seven rules, each of which is a bug that shipped:
    every sheet. It defaults **true** — a pref defaulting false would un-theme every existing
    install. While it is on, the *Theme mode* row and the theme picker are **greyed, not hidden**:
    artwork decides what a browsing page looks like, but those values still drive the settings
-   screens, every dialog, and any page with no artwork to read.
+   screens, every dialog, and any page with no artwork to read. Off, nothing is fetched or
+   prefetched either (`CoverSeedPrefetcher.request`).
+8. **A page's colours arrive with the page, never after it (I-043).** Three things, measured on
+   the VM AVD: a cold start sat on the app's neutral scheme for ~3 s and then flipped to the wash,
+   and the page under it was built TWICE, because `BrowsingAmbient` returned early into a bare
+   `NavicTheme` while unresolved and wrapped it in a `Box` once resolved, so the content changed
+   place in the composition and lost its scroll position and everything it remembered. Now:
+   `BrowsingAmbient` keeps **one** `NavicTheme` call and one structure whatever the state
+   (`BrowsingAmbientStructureTest`); a cold start wears the last playing cover
+   (`lastNowPlayingCoverArtId`, `washCoverArtId`) until `MediaPlayerViewModel.restored`, a cleared
+   queue clears it so nothing playing stays neutral; and the colours come from the persisted store
+   (above). **Bump `CoverSeedCodec.VERSION` whenever `deriveCoverSeeds` changes**, or every install
+   keeps wearing colours worked out by the old rules. Still after the page, by design: the blurred
+   artwork itself (Coil, then its 400 ms crossfade), which on a cold start lands seconds after the
+   colour.
 
 **The tablet rail follows browsing pages only (B-008, option 2).** The `SideBar` sits beside
 `NavDisplay`, so it cannot read a page's `BrowsingAmbient`. `RailAmbient`, beside it in

@@ -48,16 +48,13 @@ class CoverSeedPrefetcher(
 			running++
 			scope.launch {
 				try {
-					ColourArrivalTrace.mark("seeds.fetch.start $id")
 					// A loader per fetch: its request builder is one mutable object, and two
 					// fetches run at once.
 					val seeds = fetchCoverSeeds(NetworkLoader(paletteHttpClient), sessionManager.getCoverArtUrl(id, size = PALETTE_PX))
 					if (seeds != null) {
-						ColourArrivalTrace.mark("seeds.fetch.done $id")
 						store.put(id, seeds)
 						queue.done(id)
 					} else {
-						ColourArrivalTrace.mark("seeds.fetch.fail $id")
 						queue.failed(id)
 					}
 				} finally {
