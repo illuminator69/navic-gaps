@@ -27,6 +27,9 @@ import dev.chrisbanes.haze.blur.blurEffect
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import paige.navic.ui.util.rememberFoldMotion
+import androidx.compose.animation.core.Animatable
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -251,6 +254,8 @@ fun StagedNowPlaying() {
 	val playerScroll = remember(queueState) { PlayerAreaScrollConnection(queueState) }
 	val saveMenuHaze = remember { HazeState() }
 	var saveMenuOpen by remember { mutableStateOf(false) }
+	// 0 = the Save pill, 1 = the panel it grows into (SaveMorph).
+	val saveMorph = remember { Animatable(0f) }
 	var saveAnchor by remember { mutableStateOf<Rect?>(null) }
 
 	Box(
@@ -331,6 +336,8 @@ fun StagedNowPlaying() {
 							modifier = Modifier
 								.weight(1f)
 								.onGloballyPositioned { saveAnchor = it.boundsInRoot() }
+								// The morphing shape stands in for the pill while it is anything but closed.
+								.graphicsLayer { alpha = if (saveMorph.value > 0f || saveMorph.isRunning) 0f else 1f }
 						)
 						// Another device playing: the pill is inverted (filled, its words cut out of it), so
 						// "not on this phone" reads at a glance.
@@ -376,21 +383,33 @@ fun StagedNowPlaying() {
 			QueueContent(layerLayout)
 		}
 
-		SaveMenu(
+		val saveLabel = stringResource(Res.string.action_save)
+		SaveMorph(
 			open = saveMenuOpen,
 			anchor = saveAnchor,
 			haze = saveMenuHaze,
-			favourite = songIsStarred,
+			progress = saveMorph,
+			fill = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
 			onDismiss = { saveMenuOpen = false },
-			onSetFavourite = {
-				saveMenuOpen = false
-				viewModel.starSong(it)
-			},
-			onSaveToPlaylist = {
-				saveMenuOpen = false
-				savingToPlaylist = song
-			}
-		)
+			face = { PillFace(Icons.Outlined.PlaylistAdd, saveLabel) }
+		) {
+			SaveMenuRow(
+				icon = if (songIsStarred) Icons.Filled.Favorite else Icons.Outlined.Favorite,
+				label = stringResource(if (songIsStarred) Res.string.staged_remove_from_favorites else Res.string.staged_save_to_favorites),
+				onClick = {
+					saveMenuOpen = false
+					viewModel.starSong(!songIsStarred)
+				}
+			)
+			SaveMenuRow(
+				icon = Icons.Outlined.PlaylistAdd,
+				label = stringResource(Res.string.staged_save_to_playlist),
+				onClick = {
+					saveMenuOpen = false
+					savingToPlaylist = song
+				}
+			)
+		}
 	}
 
 	if (showDevicePicker) {
@@ -445,85 +464,7 @@ private fun StagedPlayer(
 	miniHeader()
 }
 
-/**
- * The Save pill's menu (P2 notes, you, 2026-10-19): the playing song to favourites (a heart; the
- * player's star is the rating now) or to playlists ([AddToPlaylistSheet]). Saving the QUEUE stays in
- * the queue's header. Drawn in the player's own layout rather than as a popup window, so it can be
- * frosted like the pills: a rounded box over a blur of the player behind it ([haze]), centred under
- * the pill ([anchor], in root coordinates), opening from its top. A tap outside or Back closes it.
- */
-@Composable
-private fun SaveMenu(
-	open: Boolean,
-	anchor: Rect?,
-	haze: HazeState,
-	favourite: Boolean,
-	onDismiss: () -> Unit,
-	onSetFavourite: (Boolean) -> Unit,
-	onSaveToPlaylist: () -> Unit
-) {
-	NavigationBackHandler(
-		state = rememberNavigationEventState(NavigationEventInfo.None),
-		isBackEnabled = open,
-		onBackCompleted = onDismiss
-	)
-	if (open) {
-		Box(
-			Modifier
-				.fillMaxSize()
-				.pointerInput(Unit) { detectTapGestures { onDismiss() } }
-		)
-	}
-	val anchorRect = anchor ?: return
-	var origin by remember { mutableStateOf(Offset.Zero) }
-	val motion = rememberFoldMotion()
-	val onSurface = MaterialTheme.colorScheme.onSurface
-	val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
-	val edge = with(LocalDensity.current) { 16.dp.roundToPx() }
-	Layout(
-		content = {
-			AnimatedVisibility(
-				visible = open,
-				enter = fadeIn(motion.effects()) + scaleIn(motion.spatial(), initialScale = 0.85f, transformOrigin = TransformOrigin(0.5f, 0f)),
-				exit = fadeOut(motion.effects()) + scaleOut(motion.spatial(), targetScale = 0.85f, transformOrigin = TransformOrigin(0.5f, 0f))
-			) {
-				Column(
-					Modifier
-						.width(IntrinsicSize.Max)
-						.clip(RoundedCornerShape(20.dp))
-						.hazeEffect(state = haze) { blurEffect { blurRadius = 24.dp } }
-						// The pills' own fill, over the frost.
-						.background(onSurface.copy(alpha = 0.10f))
-						.padding(vertical = 6.dp)
-				) {
-					SaveMenuRow(
-						icon = if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite,
-						label = stringResource(if (favourite) Res.string.staged_remove_from_favorites else Res.string.staged_save_to_favorites),
-						onClick = { onSetFavourite(!favourite) }
-					)
-					SaveMenuRow(
-						icon = Icons.Outlined.PlaylistAdd,
-						label = stringResource(Res.string.staged_save_to_playlist),
-						onClick = onSaveToPlaylist
-					)
-				}
-			}
-		},
-		modifier = Modifier
-			.fillMaxSize()
-			.onGloballyPositioned { origin = it.positionInRoot() }
-	) { measurables, constraints ->
-		val placeable = measurables.firstOrNull()?.measure(constraints.copy(minWidth = 0, minHeight = 0))
-		layout(constraints.maxWidth, constraints.maxHeight) {
-			placeable ?: return@layout
-			val centre = (anchorRect.center.x - origin.x).roundToInt()
-			val x = (centre - placeable.width / 2).coerceIn(edge, (constraints.maxWidth - edge - placeable.width).coerceAtLeast(edge))
-			val y = (anchorRect.bottom - origin.y).roundToInt() + gap
-			placeable.place(x, y)
-		}
-	}
-}
-
+/** A row of the Save panel ([SaveMorph]): the playing song to favourites or to playlists. */
 @Composable
 private fun SaveMenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
 	Row(
@@ -767,9 +708,28 @@ private fun ActionPill(
 			horizontalArrangement = Arrangement.Center,
 			verticalAlignment = Alignment.CenterVertically
 		) {
-			Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(18.dp))
-			Spacer(Modifier.width(6.dp))
-			Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+			PillFaceContent(icon, label, contentDescription)
+		}
+	}
+}
+
+@Composable
+private fun PillFaceContent(icon: ImageVector, label: String, contentDescription: String?) {
+	Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(18.dp))
+	Spacer(Modifier.width(6.dp))
+	Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** The pill's icon and label alone, centred, for the shape that stands in for it ([SaveMorph]). */
+@Composable
+private fun PillFace(icon: ImageVector, label: String) {
+	CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+		Row(
+			modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+			horizontalArrangement = Arrangement.Center,
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			PillFaceContent(icon, label, null)
 		}
 	}
 }
