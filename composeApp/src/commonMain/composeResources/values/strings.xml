@@ -1229,4 +1229,6 @@
 	<string name="info_mood_search_empty">No matches. Mood search may be unavailable, or your library may not be analysed yet.</string>
 	<string name="title_home">Home</string>
 	<string name="title_new">New</string>
+	<string name="action_open_menu">Menu</string>
+	<string name="info_open_menu_attention">Menu, something needs attention</string>
 </resources>

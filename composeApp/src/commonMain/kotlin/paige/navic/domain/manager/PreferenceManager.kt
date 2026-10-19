@@ -251,6 +251,11 @@ class PreferenceManager(
 	// minutes and the app is routinely killed inside that window — see LbBotManager.
 	var lbBotWatches by preference("{}")
 
+	// P1: the amber dot on the header avatar when one of this device's lb-bot requests failed or
+	// waits on a choice (`needsAttentionCount`). On by default; the avatar menu has the switch. It
+	// only hides the dot: the "Needs attention" row and its count stay.
+	var showAttentionDot by preference(true)
+
 	// Fresh-releases filters. Persisted because they are decisions about how someone
 	// reads that page — "only my artists, last 30 days, albums" — not per-visit state.
 	// Stored as the enum's own name (see FreshViewModel), read back defensively so a

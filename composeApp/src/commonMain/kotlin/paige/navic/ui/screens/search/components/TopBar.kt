@@ -35,6 +35,7 @@ import paige.navic.di.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Close
+import paige.navic.ui.components.common.AvatarButton
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -55,7 +56,16 @@ fun SearchScreenTopBar(
 	Row(
 		verticalAlignment = Alignment.CenterVertically
 	) {
-		if (nested) {
+		// Leading slot: a nested Search has a back arrow; the root Search page leads with the avatar
+		// like every other root page (P1). Its header is its own bar, so it places the avatar itself.
+		if (!nested) {
+			Box(
+				modifier = Modifier.size(56.dp),
+				contentAlignment = Alignment.Center
+			) {
+				AvatarButton()
+			}
+		} else {
 			Box(
 				modifier = Modifier.size(56.dp),
 				contentAlignment = Alignment.Center
@@ -79,7 +89,6 @@ fun SearchScreenTopBar(
 			modifier = Modifier
 				.weight(1f)
 				.height(72.dp)
-				.padding(start = if (nested) 0.dp else 18.dp)
 				.focusRequester(focusRequester),
 			lineLimits = TextFieldLineLimits.SingleLine,
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
