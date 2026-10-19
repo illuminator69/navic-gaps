@@ -20,8 +20,8 @@ import androidx.compose.ui.graphics.luminance
 import kotlin.math.abs
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmpalette.generatePalette
+import com.kmpalette.loader.NetworkLoader
 import com.kmpalette.loader.rememberNetworkLoader
-import com.kmpalette.palette.graphics.Palette
 import com.kmpalette.palette.graphics.Palette.Swatch
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -29,6 +29,7 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.Url
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -61,34 +62,9 @@ internal val paletteHttpClient: HttpClient by lazy {
 }
 
 /**
- * Extracted palettes, kept for the app's lifetime and keyed by cover id.
- *
- * Without this, every composable that asks for a cover's colours re-downloads and re-quantises the
- * image — and a composable inside a lazy list gets disposed and recreated as you scroll, so its
- * colours would pop back to the neutral default and fade in again on every pass. Bounded because a
- * long session browses a lot of covers; entries are cheap (a handful of swatches each).
- *
- * Only ever touched from the main thread (composition + `LaunchedEffect` bodies).
- */
-private const val PALETTE_CACHE_MAX = 128
-private val paletteCache = object {
-	// Insertion-ordered, so the first key is the oldest.
-	private val entries = mutableMapOf<String, Palette>()
-
-	operator fun get(id: String): Palette? = entries[id]
-
-	operator fun set(id: String, palette: Palette) {
-		entries[id] = palette
-		while (entries.size > PALETTE_CACHE_MAX) {
-			entries.remove(entries.keys.first())
-		}
-	}
-}
-
-/**
  * Derived Material schemes, keyed by the inputs that produce them.
  *
- * [paletteCache] above stops the artwork being re-downloaded and re-quantised, but the step AFTER
+ * [CoverSeedStore] stops the artwork being re-downloaded and re-quantised, but the step AFTER
  * it — materialKolor's HCT/CAM16 derivation of ~30 colour roles from the seed — is a `remember`
  * inside `rememberDynamicColorScheme`, so it dies with the composition that made it. That matters
  * because `RootBottomBar` (and so the mini-player, which reads the now-playing cover) is built
@@ -96,7 +72,7 @@ private val paletteCache = object {
  * for the whole derivation again on the UI thread, mid-transition, for a song that hadn't changed.
  *
  * Small, because the key is (seed, brightness, style) and a session only plays so many covers.
- * Main-thread only, like [paletteCache].
+ * Main-thread only, like [CoverSeedStore].
  */
 private const val SCHEME_CACHE_MAX = 64
 private data class SchemeKey(
@@ -129,6 +105,33 @@ private const val PALETTE_RETRY_DELAY_MS = 400L
 /** A palette swatch as the pure colour rules take it ([deriveCoverSeeds]). */
 private fun Swatch.toSample(): SwatchSample =
 	SwatchSample(rgb = rgb, hue = hsl[0], saturation = hsl[1], lightness = hsl[2], population = population)
+
+/**
+ * A cover's [CoverSeeds], fetched from [uri] and quantised: the one fetch every colour path uses
+ * (the page's own, and [CoverSeedPrefetcher]'s ahead of need). Retried, and each failure LOGGED.
+ * This used to be `runCatching { … }.getOrNull() ?: return@LaunchedEffect`: silent, and permanent
+ * for the life of the composable, because the effect's key never changes again. A single flaky
+ * fetch therefore pinned one screen to the unresolved state while a sheet opened seconds later — a
+ * fresh composable, a fresh attempt — showed the right colours for the same cover.
+ *
+ * The Ktor fetch suspends off the caller's thread on its own, but the quantisation afterwards is
+ * plain CPU work, so it runs on [Dispatchers.Default]. Null when every attempt failed.
+ */
+internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverSeeds? {
+	for (attempt in 0 until PALETTE_ATTEMPTS) {
+		if (attempt > 0) delay(PALETTE_RETRY_DELAY_MS * attempt)
+		val outcome = runCatching {
+			withContext(Dispatchers.Default) {
+				deriveCoverSeeds(loader.load(Url(uri)).generatePalette().swatches.map { it.toSample() })
+			}
+		}
+		if (outcome.isSuccess) return outcome.getOrNull()
+		val error = outcome.exceptionOrNull()
+		if (error is CancellationException) throw error
+		Logger.w("CoverColorScheme", "palette fetch failed for $uri (attempt ${attempt + 1})", error)
+	}
+	return null
+}
 
 /** A readable Material scheme derived from artwork plus the extracted seed color. */
 data class CoverColors(
@@ -189,7 +192,7 @@ fun rememberCoverColorScheme(
 	 * for the life of the composable.
 	 *
 	 * When set, this is the fetch URL and also the cache key, which is safe
-	 * because [paletteCache] is keyed by a plain string either way. The
+	 * because [CoverSeedStore] is keyed by a plain string either way. The
 	 * placeholder check is skipped: it identifies Navidrome's generic artist
 	 * glyph by cover id and means nothing for a foreign URL.
 	 */
@@ -226,47 +229,36 @@ fun rememberCoverColorScheme(
 	// wrapper never resolved at all. Loading the bitmap and building the palette directly is both
 	// simpler and the thing we can actually reason about.)
 	//
-	// NOT keyed on the cover id: the previous palette stays put until the new one is ready, so
-	// changing songs eases from the old colour instead of flashing through the neutral default.
-	var palette by remember { mutableStateOf(paletteKey?.let { paletteCache[it] }) }
+	// The store is read IN COMPOSITION, so a cover whose colours are known (from an earlier visit,
+	// an earlier run, or the prefetcher) is resolved in the first frame of the page that wears it.
+	val store = koinInject<CoverSeedStore>()
+	val cached = if (hasArt) paletteKey?.let { store[it] } else null
+	// What a fetch here brought. NOT keyed on the cover id: the previous cover's seeds stay put
+	// until the new one's are ready, so changing to a cover not yet stored eases from the old
+	// colour instead of flashing through the neutral default.
+	var fetched by remember { mutableStateOf<CoverSeeds?>(null) }
 
 	LaunchedEffect(coverUri, paletteKey) {
 		val id = paletteKey ?: return@LaunchedEffect
 		val uri = coverUri ?: return@LaunchedEffect
-		paletteCache[id]?.let {
+		// Looked at again here, not only in composition: the store is not Compose state, so seeds
+		// the prefetcher wrote after this composition read it would otherwise never be seen.
+		store[id]?.let {
 			ColourArrivalTrace.mark("seeds.hit $id")
-			palette = it
+			fetched = it
 			return@LaunchedEffect
 		}
 		ColourArrivalTrace.mark("seeds.fetch.start $id")
-		// LaunchedEffect bodies run on the composition dispatcher (main). The Ktor fetch suspends
-		// off it on its own, but the quantisation afterwards is plain CPU work, and it lands
-		// exactly when the artwork changes — i.e. the moment the colour adaptation is visible.
-		// Retried, and the failure LOGGED. This used to be `runCatching { … }.getOrNull() ?:
-		// return@LaunchedEffect`: silent, and permanent for the life of the composable, because the
-		// effect's key never changes again. A single flaky fetch therefore pinned one screen to the
-		// unresolved state while a sheet opened seconds later — a fresh composable, a fresh
-		// attempt — showed the right colours for the same cover. That asymmetry was the bug report.
-		var result: Palette? = null
-		for (attempt in 0 until PALETTE_ATTEMPTS) {
-			if (attempt > 0) delay(PALETTE_RETRY_DELAY_MS * attempt)
-			val outcome = runCatching {
-				withContext(Dispatchers.Default) {
-					networkLoader.load(Url(uri)).generatePalette()
-				}
-			}
-			result = outcome.getOrNull()
-			if (result != null) break
-			Logger.w("CoverColorScheme", "palette fetch failed for $id (attempt ${attempt + 1})", outcome.exceptionOrNull())
-		}
+		val result = fetchCoverSeeds(networkLoader, uri)
 		if (result == null) {
 			ColourArrivalTrace.mark("seeds.fetch.fail $id")
 			return@LaunchedEffect
 		}
 		ColourArrivalTrace.mark("seeds.fetch.done $id")
-		paletteCache[id] = result
-		palette = result
+		store.put(id, result)
+		fetched = result
 	}
+	val seeds = cached ?: fetched
 
 	val appScheme = MaterialTheme.colorScheme
 	val fallback = appScheme.surface
@@ -284,7 +276,7 @@ fun rememberCoverColorScheme(
 	 * An unresolved cover is not a colour. It is an absence, and the app's own scheme is what an
 	 * absence should look like.
 	 */
-	val resolved = themingOn && palette != null
+	val resolved = themingOn && seeds != null
 	// `initialSeed` is a real colour — the screen we navigated FROM (see [AmbientColorHolder]) — so
 	// a cover still being fetched eases from something meaningful rather than from nothing. But it
 	// is a BRIDGE to a pending resolve, not evidence about THIS artwork (hence `resolved` stays
@@ -296,8 +288,6 @@ fun rememberCoverColorScheme(
 	// It decides page BRIGHTNESS — a mostly-black cover has to give a dark page — and, since the
 	// scheme's neutrals are seeded from it below, every background. On its own it's still a poor
 	// accent: on a black-and-yellow sleeve it's the black, not the yellow the cover reads as.
-	// The cover reduced to its two colours, by the pure rules in CoverSeeds.kt.
-	val seeds = remember(palette) { palette?.let { p -> deriveCoverSeeds(p.swatches.map { it.toSample() }) } }
 	val dominant = remember(seeds, initialSeed, fallback, themingOn, coverUri) {
 		if (!themingOn) fallback
 		else seeds?.dominant?.let(::Color)
@@ -323,7 +313,7 @@ fun rememberCoverColorScheme(
 	// Keyed on the DOMINANT colour, never the vivid one: a bright accent on a dark cover must not
 	// flip the whole page to light.
 	val coverIsDark = if (!followArtworkBrightness) isDark
-		else if (palette != null) dominant.luminance() < 0.5f else isDark
+		else if (seeds != null) dominant.luminance() < 0.5f else isDark
 	// Content keeps colourful covers faithful AND leaves a true-greyscale cover naturally
 	// grey — it doesn't amplify chroma like Vibrant (which invented a teal from a B&W cover),
 	// so no Monochrome special-case is needed; a dark scheme already yields a bright `primary`.
