@@ -99,6 +99,7 @@ import paige.navic.ui.components.common.blur.rememberExpressiveBlur
 import paige.navic.ui.components.layouts.SideBar
 import paige.navic.ui.components.sheets.AlbumMatchHost
 import paige.navic.ui.components.sheets.AvatarMenuDrawer
+import paige.navic.ui.components.sheets.NewSheetHost
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.navigation.ListPageSceneStrategy
 import paige.navic.ui.navigation.AppDeepLink
@@ -479,6 +480,9 @@ fun App() {
 				// finishes — and the sheet must go on saying what was written. A fork line:
 				// without it the "Fix album match" and "Wrong edition?" rows open nothing.
 				AlbumMatchHost()
+				// navi-connect P1: the New sheet, composed ONCE like the one above and opened by the bar's New
+				// button from any page. A fork line: drop it and New opens nothing.
+				NewSheetHost()
 				// navi-connect: the level the phone's volume buttons set on the device that is
 				// playing, drawn by the app itself. A fork line, like the one above.
 				RemoteVolumeHud()

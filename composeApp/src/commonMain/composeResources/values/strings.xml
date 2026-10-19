@@ -1238,4 +1238,10 @@
 	<string name="title_app">App</string>
 	<string name="option_autoplay_default">Autoplay by default</string>
 	<string name="option_attention_dot">Attention dot</string>
+	<string name="new_playlist">Playlist</string>
+	<string name="new_playlist_hint">Songs you choose, in your order</string>
+	<string name="new_smart_playlist">Smart playlist</string>
+	<string name="new_smart_playlist_hint">Fills itself from rules</string>
+	<string name="new_add_link">Add from a link</string>
+	<string name="new_add_link_hint">Paste a streaming link to find the album</string>
 </resources>
