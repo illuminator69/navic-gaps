@@ -406,7 +406,22 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   as at full and slides, so what is pinned to its bottom (the undo snackbar) is lifted by the part
   off screen (`QueueLayout.Layer.hiddenBelowPx`). Navigating out from the layer leaves the player by
   `NowPlayingSheetController.requestHide`. A rotation drops to the old player; the place is not
-  carried.
+  carried. **The phone's first notes (2026-10-19):** the queue header's left says what it plays
+  from and what built it (`QueueGeneratorLine`, said once when it repeats the name); "Playing from"
+  reads the hub session's record id while another device plays (the mirrored player state carries
+  none); no "Casting to" line, the device pill is inverted instead (an offscreen layer, its content
+  drawn `BlendMode.DstOut`); the title row's star is the RATING (`StagedRating.kt`: opens left into
+  five, open when rated, a tap on the set star clears it); the Save pill is the playing song's:
+  favourites (a heart, filled while it is one; `starSong`) or `AddToPlaylistSheet` (editable
+  playlists, + adds and becomes a bin, the sheet stays open, New playlist bottom left puts the new
+  one first, Done bottom right). Saving the queue stays in the queue's header. The mini header is
+  composed only from where it starts to show: a disabled Material button still takes the touches
+  behind it, and the clear one ate the header's more button's taps.
+- **The remote mirror's base is cached by tracks and index; everything else is read per frame.**
+  `HubManager.refreshMirror` rebuilds the resolved queue only when the track ids or the index change,
+  and `pushRemoteProgress` lays the frame's play state, progress, shuffle and repeat over it. Shuffle
+  and repeat used to live in the base, so a tap on either during remote playback showed nothing until
+  the next song. A new per-session field goes in `pushRemoteProgress`, not the base.
 - **A queue reorder must not look like a track change.** Two places read the playing track by
   *index*, and a reorder moves the index without moving the music. `ArtworkPager` draws from a
   snapshot swapped only once the pager has been repositioned, and snaps rather than animates when
