@@ -46,6 +46,25 @@ fun autoplayChips(stationsAvailable: Boolean): List<AutoplayChip> =
 	if (stationsAvailable) listOf(AutoplayChip.Off, AutoplayChip.Close, AutoplayChip.Balanced, AutoplayChip.Explore)
 	else listOf(AutoplayChip.Off, AutoplayChip.AutoDj)
 
+/*
+ * The staged queue (P2, portrait phones) shows autoplay as a switch beside a row of the character
+ * chips only. The switch is a tap on a chip ([autoplayToggleChip]), so it has the chips' plan, hub
+ * edit and signals, and nothing of its own.
+ */
+
+/** The chip a tap on the autoplay switch performs: Off, or on with the preferred character (Auto DJ without the engine). */
+fun autoplayToggleChip(turnOn: Boolean, stationsAvailable: Boolean, preferred: StationCharacter): AutoplayChip = when {
+	!turnOn -> AutoplayChip.Off
+	stationsAvailable -> AutoplayChip.of(preferred)
+	else -> AutoplayChip.AutoDj
+}
+
+/** The chips beside the switch: the characters only. Empty without the engine, when the switch is the whole control. */
+fun characterChips(chips: List<AutoplayChip>): List<AutoplayChip> = chips.filter { it.character != null }
+
+/** The switch shows on iff the selected chip ([selectedAutoplayChip]) is not Off. */
+fun autoplayToggleShowsOn(selected: AutoplayChip): Boolean = selected != AutoplayChip.Off
+
 /** The chip shown selected. */
 fun selectedAutoplayChip(
 	stationsAvailable: Boolean,

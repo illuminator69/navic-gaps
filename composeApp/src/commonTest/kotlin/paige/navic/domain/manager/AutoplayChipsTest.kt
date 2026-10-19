@@ -236,4 +236,45 @@ class AutoplayChipsTest {
 		assertNull(parseStationEditAnswer("""{"edited":false,"reason":null}""")?.reason)
 		assertNull(parseStationEditAnswer("not json"))
 	}
+
+	// The staged queue's autoplay toggle (P2): one switch over the same chip rules.
+
+	@Test
+	fun theToggleOffIsTheOffChipAndItsPlanIsUnchanged() {
+		assertEquals(AutoplayChip.Off, autoplayToggleChip(turnOn = false, stationsAvailable = true, StationCharacter.Balanced))
+		assertEquals(AutoplayChip.Off, autoplayToggleChip(turnOn = false, stationsAvailable = false, StationCharacter.Balanced))
+		val plan = planChipTap(autoplayToggleChip(false, true, StationCharacter.Balanced), radio, onHub = false)
+		assertEquals(planChipTap(AutoplayChip.Off, radio, onHub = false), plan)
+		assertTrue(plan.stopStation)
+		assertTrue(plan.removeTail)
+		assertEquals(planChipTap(AutoplayChip.Off, radio, onHub = true), planChipTap(autoplayToggleChip(false, true, StationCharacter.Close), radio, onHub = true))
+	}
+
+	@Test
+	fun theToggleOnIsThePreferredCharacterWithTheEngineAndAutoDjWithout() {
+		assertEquals(AutoplayChip.Explore, autoplayToggleChip(turnOn = true, stationsAvailable = true, StationCharacter.Explore))
+		assertEquals(AutoplayChip.Balanced, autoplayToggleChip(turnOn = true, stationsAvailable = true, StationCharacter.Balanced))
+		assertEquals(AutoplayChip.AutoDj, autoplayToggleChip(turnOn = true, stationsAvailable = false, StationCharacter.Explore))
+	}
+
+	@Test
+	fun theChipRowBesideTheToggleIsTheCharactersOnly() {
+		assertEquals(
+			listOf(AutoplayChip.Close, AutoplayChip.Balanced, AutoplayChip.Explore),
+			characterChips(listOf(AutoplayChip.Off, AutoplayChip.Close, AutoplayChip.Balanced, AutoplayChip.Explore))
+		)
+		// Without the engine the toggle is the whole control and no chip row is drawn.
+		assertTrue(characterChips(listOf(AutoplayChip.Off, AutoplayChip.AutoDj)).isEmpty())
+		assertTrue(characterChips(autoplayChips(stationsAvailable = false)).isEmpty())
+	}
+
+	@Test
+	fun theToggleShowsOnIffTheSelectedChipIsNotOff() {
+		assertTrue(autoplayToggleShowsOn(AutoplayChip.Balanced))
+		assertTrue(autoplayToggleShowsOn(AutoplayChip.AutoDj))
+		assertFalse(autoplayToggleShowsOn(AutoplayChip.Off))
+		// A stopped bound station is Off whatever the preference says.
+		assertFalse(autoplayToggleShowsOn(selectedAutoplayChip(true, autoplayOn = true, StationCharacter.Close, radio.copy(stopped = true))))
+		assertTrue(autoplayToggleShowsOn(selectedAutoplayChip(true, autoplayOn = false, StationCharacter.Close, radio)))
+	}
 }

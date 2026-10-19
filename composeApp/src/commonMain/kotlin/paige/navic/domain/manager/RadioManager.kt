@@ -250,6 +250,14 @@ class RadioManager(
 		}
 	}
 
+	/**
+	 * The staged queue's autoplay switch (P2): a tap on the chip it stands for ([autoplayToggleChip]),
+	 * so the plan, the hub edit and the signals are the chips' own, by one path.
+	 */
+	fun onAutoplayToggle(on: Boolean) {
+		onChipTap(autoplayToggleChip(on, stationManager.available.value, _character.value))
+	}
+
 	/** The queue as the chip edits see it: queue ids, play order, playing index, ms left of the playing song. */
 	private data class Upcoming(val ids: List<String>, val order: List<Int>?, val current: Int, val remainingMs: Long?)
 
