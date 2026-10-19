@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -163,6 +165,13 @@ fun SavedQueuesScreen() {
 		filtered.sortedByDescending { it.id == activeId }
 	}
 
+	// A chip tap shows another list, and the list starts at its top: rows that leave fade out, the ones
+	// that stay slide up or down, rows that come in fade in, wherever the page was scrolled to. Without
+	// the reset the list stayed anchored on the row it was showing (LazyColumn keeps the first visible
+	// KEY in place), so every row that came in above it did so out of sight and the chip looked inert;
+	// and rows above the view flew in through the top bar (B-161).
+	val listState = rememberLazyListState()
+
 	var sheetTarget by remember { mutableStateOf<SavedQueueEntity?>(null) }
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
@@ -214,7 +223,10 @@ fun SavedQueuesScreen() {
 						label = { kind ->
 							if (kind == null) stringResource(Res.string.filter_all) else queueKindLabel(kind)
 						},
-						onSelect = { kindFilter = it },
+						onSelect = {
+							listState.requestScrollToItem(0)
+							kindFilter = it
+						},
 						contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp)
 					)
 				}
@@ -249,9 +261,13 @@ fun SavedQueuesScreen() {
 			)
 
 			else -> LazyColumn(
+				state = listState,
 				modifier = Modifier
 					.padding(top = innerPadding.calculateTopPadding())
 					.fillMaxSize()
+					// A row animating out or in draws wherever it is going to or from, which was the top bar when
+					// the page was scrolled: the list shows nothing outside itself.
+					.clipToBounds()
 					.padding(horizontal = 16.dp),
 				contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 24.dp),
 				verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
