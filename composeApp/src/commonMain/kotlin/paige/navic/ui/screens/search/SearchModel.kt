@@ -155,7 +155,8 @@ fun searchPhase(
  * Offline, Search finds downloaded music only (the board's promise, made true here rather than by a
  * banner over the whole cached library): the downloaded songs whose title, artist or album matches, the
  * albums they come from, and their artists, each artist carrying how many of its albums are downloaded.
- * Typo-tolerant like the online pass. Albums are built from the songs; the caller swaps in Room's rows.
+ * Typo-tolerant like the online pass. Albums are built from the downloaded songs (an album row opens
+ * the library album page by its id, which loads from Room as ever).
  */
 fun offlineHits(downloaded: List<DomainSong>, query: String): LibraryHits {
 	val q = PreparedQuery.of(query) ?: return LibraryHits.None

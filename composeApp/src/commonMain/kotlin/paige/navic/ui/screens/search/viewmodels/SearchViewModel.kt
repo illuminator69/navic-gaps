@@ -7,20 +7,29 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.manager.LbAlbumCandidate
-import paige.navic.domain.manager.LbArtistCandidate
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.ui.core.UiState
+import paige.navic.domain.search.mbFuzzyQuery
+import paige.navic.ui.screens.search.LibraryHits
+import paige.navic.ui.screens.search.Lookup
+import paige.navic.ui.screens.search.SearchEvent
+import paige.navic.ui.screens.search.SearchUi
+import paige.navic.ui.screens.search.reduce
+import paige.navic.ui.screens.search.splitExternalArtists
+import paige.navic.util.Logger
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(FlowPreview::class)
@@ -31,9 +40,6 @@ class SearchViewModel(
 	connectivityManager: ConnectivityManager,
 	downloadManager: DownloadManager
 ) : ViewModel() {
-	val searchState: StateFlow<UiState<List<Any>>>
-		field = MutableStateFlow<UiState<List<Any>>>(UiState.Success(emptyList()))
-
 	val searchHistory: StateFlow<List<String>>
 		field = MutableStateFlow<List<String>>(emptyList())
 
@@ -54,86 +60,96 @@ class SearchViewModel(
 	val gridState = LazyGridState()
 
 	/**
-	 * "Not in your library": MusicBrainz artists, so search can reach past the
-	 * library at all. Until `/lb/artist/lookup` was whitelisted on the hub, an
-	 * external artist page was only reachable if the client already held an MBID
-	 * from a Fresh row — which blocked every acquisition path that starts with
-	 * "I want this artist".
-	 *
-	 * Empty forever when lb-bot is absent, and the section does not render (§7).
+	 * Everything the page shows for the settled query (P3, `SearchState.kt`): the library hits, the
+	 * two lb-bot lookups and the phase. Moved only through [reduce], which drops an answer for any
+	 * query but the current one.
 	 */
-	val externalArtists: StateFlow<List<LbArtistCandidate>>
-		field = MutableStateFlow<List<LbArtistCandidate>>(emptyList())
+	val ui: StateFlow<SearchUi>
+		field = MutableStateFlow(
+			reduce(SearchUi(), SearchEvent.Environment(isOnline.value, lbBotManager.isConfigured))
+		)
 
-	/**
-	 * The album half of the same reach. Unlike [externalArtists] these rows carry
-	 * ownership, marked by release-group id rather than guessed from a name, so an
-	 * owned hit opens the library album instead of a download page.
-	 *
-	 * Empty forever when lb-bot is absent, and the section does not render (§7).
-	 */
-	val externalAlbums: StateFlow<List<LbAlbumCandidate>>
-		field = MutableStateFlow<List<LbAlbumCandidate>>(emptyList())
+	private fun send(event: SearchEvent) {
+		ui.update { reduce(it, event) }
+	}
 
 	init {
 		viewModelScope.launch {
-			snapshotFlow { searchQuery.text }
-				.debounce(300.milliseconds)
-				.collectLatest { queryText ->
-					val query = queryText.toString()
-					if (query.isBlank()) {
-						searchState.value = UiState.Success(emptyList())
-					} else {
-						searchState.value = UiState.Loading()
-						try {
-							searchState.value = UiState.Success(repository.search(query))
-						} catch (e: Exception) {
-							if (e !is CancellationException) {
-								searchState.value = UiState.Error(e)
-							}
-						}
-						lookUpExternalArtists(query)
-						lookUpExternalAlbums(query)
+			// The connection is part of the key: going offline mid-query searches again, downloads only.
+			combine(snapshotFlow { searchQuery.text.toString() }, isOnline) { query, online -> query to online }
+				// An emptied field is Browse at once; a query settles for 300 ms first.
+				.debounce { (query, _) -> if (query.isBlank()) 0.milliseconds else 300.milliseconds }
+				.distinctUntilChanged()
+				.collectLatest { (query, online) ->
+					send(SearchEvent.Environment(online, lbBotManager.isConfigured))
+					send(SearchEvent.QueryChanged(query))
+					if (query.isBlank()) return@collectLatest
+					val hits = try {
+						repository.search(query, downloadedSongs.value.keys)
+					} catch (e: Exception) {
+						if (e is CancellationException) throw e
+						Logger.e("SearchViewModel", "library search failed", e)
+						LibraryHits.None
 					}
+					send(SearchEvent.LibraryLanded(query, hits))
+					lookUp(query)
 				}
 		}
 	}
 
 	/**
-	 * A live MusicBrainz search behind lb-bot's global 1 req/sec lock, not a
-	 * local index read — so it rides the same 300 ms debounce as the library
-	 * search and skips anything too short to be worth a second of that budget.
+	 * lb-bot's MusicBrainz lookups for [query], whichever of the two are out ([Lookup.Looking]). A
+	 * live MusicBrainz search behind lb-bot's global 1 req/sec lock, so at most one of each per
+	 * settled query, and one AFTER the other, never two budgets queued behind each other and behind
+	 * any running discography scan. The words go out with MusicBrainz's own fuzzy terms
+	 * ([mbFuzzyQuery]), which costs no request. A failure is [Lookup.Failed], said on the page.
 	 */
-	private suspend fun lookUpExternalArtists(query: String) {
-		if (query.trim().length < EXTERNAL_LOOKUP_MIN_LENGTH) {
-			externalArtists.value = emptyList()
-			return
+	private suspend fun lookUp(query: String) {
+		if (ui.value.query != query) return
+		if (ui.value.artists is Lookup.Looking) {
+			val result = when (val r = lbBotManager.artistLookupResult(mbFuzzyQuery(query.trim()))) {
+				is LbBotManager.LbResult.Ok -> {
+					val owned = try {
+						lbBotManager.ownedArtistIdsByMbid(r.value.map { it.mbid })
+					} catch (e: Exception) {
+						if (e is CancellationException) throw e
+						emptyMap()
+					}
+					val split = splitExternalArtists(r.value, owned)
+					val ownedIds = split.mapNotNull { it.ownedNdArtistId }
+					if (ownedIds.isNotEmpty()) {
+						send(SearchEvent.OwnedArtistsLanded(query, repository.artistsByIds(ownedIds)))
+					}
+					Lookup.Done(split)
+				}
+				is LbBotManager.LbResult.Failed -> Lookup.Failed
+			}
+			send(SearchEvent.ArtistsLanded(query, result))
 		}
-		externalArtists.value = try {
-			lbBotManager.artistLookup(query.trim())
-		} catch (e: Exception) {
-			if (e is CancellationException) throw e
-			emptyList()
+		if (ui.value.query != query) return
+		if (ui.value.albums is Lookup.Looking) {
+			val result = when (val r = lbBotManager.albumLookupResult(mbFuzzyQuery(query.trim()))) {
+				is LbBotManager.LbResult.Ok -> Lookup.Done(r.value)
+				is LbBotManager.LbResult.Failed -> Lookup.Failed
+			}
+			send(SearchEvent.AlbumsLanded(query, result))
 		}
 	}
 
-	/**
-	 * The album lookup, on the same terms — and deliberately issued from the same
-	 * debounce site as [lookUpExternalArtists] rather than from one of its own.
-	 * Both spend lb-bot's single global MusicBrainz second, so two independent
-	 * debounces would be two budgets queued behind each other and behind any
-	 * running discography scan.
-	 */
-	private suspend fun lookUpExternalAlbums(query: String) {
-		if (query.trim().length < EXTERNAL_LOOKUP_MIN_LENGTH) {
-			externalAlbums.value = emptyList()
-			return
-		}
-		externalAlbums.value = try {
-			lbBotManager.albumLookup(query.trim())
-		} catch (e: Exception) {
-			if (e is CancellationException) throw e
-			emptyList()
+	private var retryJob: Job? = null
+
+	/** The "Couldn't reach lb-bot" pill: ask the failed lookups once more, for the query on screen. */
+	fun retryLookups() {
+		val query = ui.value.query
+		if (query.isBlank() || retryJob?.isActive == true) return
+		send(SearchEvent.RetryLookups(query))
+		retryJob = viewModelScope.launch {
+			try {
+				lookUp(query)
+			} catch (e: Exception) {
+				if (e is CancellationException) throw e
+				Logger.e("SearchViewModel", "lookup retry failed", e)
+			}
 		}
 	}
 
@@ -190,4 +206,3 @@ class SearchViewModel(
 	}
 }
 
-private const val EXTERNAL_LOOKUP_MIN_LENGTH = 3

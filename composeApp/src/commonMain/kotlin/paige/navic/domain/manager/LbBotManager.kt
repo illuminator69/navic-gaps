@@ -53,6 +53,7 @@ import kotlin.time.Clock
 import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.entities.LbResponseCacheEntity
 import paige.navic.domain.repositories.DbRepository
+import paige.navic.domain.search.ownedArtistsByMbid
 import paige.navic.util.Logger
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -2507,6 +2508,25 @@ class LbBotManager(
 			is LbResult.Ok -> LbResult.Ok(result.value.candidates)
 			is LbResult.Failed -> result
 		}
+	}
+
+	/**
+	 * Which of [mbids] the library holds, as MBID to Navidrome artist id (P3, Search): the user's
+	 * override, then Navidrome's tag, then the index mirror's row for that MBID, and only artists
+	 * Room still lists. By MBID only, never by name (`ownedArtistsByMbid`). Local reads, no request.
+	 */
+	suspend fun ownedArtistIdsByMbid(mbids: List<String>): Map<String, String> {
+		val wanted = mbids.filter { it.isNotBlank() }.distinct()
+		if (wanted.isEmpty()) return emptyMap()
+		val overrides = if (isConfigured) _artistOverrides.value else emptyMap()
+		val tagged = library.artistsTaggedWith(wanted)
+		val mirrored = wanted.mapNotNull { mbid ->
+			responseCache.findArtist("", mbid)?.artist?.ndArtistId
+				?.takeIf { it.isNotBlank() }
+				?.let { mbid to it }
+		}.toMap()
+		val held = library.heldArtistIds(overrides.filterValues { it.mbid in wanted }.keys + mirrored.values)
+		return ownedArtistsByMbid(wanted, overrides, tagged, mirrored, held)
 	}
 
 	/**

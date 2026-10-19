@@ -159,14 +159,16 @@ fun SearchScreen(
 	val selectedAlbumRating by albumListViewModel.rating.collectAsStateWithLifecycle()
 
 	val query = viewModel.searchQuery
-	val state by viewModel.searchState.collectAsState()
+	val searchUi by viewModel.ui.collectAsStateWithLifecycle()
+	val state: UiState<List<Any>> = searchUi.hits.let { UiState.Success(it.albums + it.artists + it.songs + it.playlists) }
 	val searchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
 	val isOnline by viewModel.isOnline.collectAsState()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsState()
 	// "Not in your library" — MusicBrainz artists, from lb-bot. Empty when lb-bot
 	// is absent, and the section then does not render at all (§7).
-	val externalArtists by viewModel.externalArtists.collectAsStateWithLifecycle()
-	val externalAlbums by viewModel.externalAlbums.collectAsStateWithLifecycle()
+	val externalArtists = (searchUi.artists as? Lookup.Done)?.items.orEmpty()
+		.filter { it.ownedNdArtistId == null }.map { it.candidate }
+	val externalAlbums = (searchUi.albums as? Lookup.Done)?.items.orEmpty()
 	// Resolved here rather than in the rows: a LazyGridScope builder lambda is
 	// not composable, so a `stringResource` inside one does not compile.
 	val inLibraryLabel = stringResource(Res.string.label_in_library)

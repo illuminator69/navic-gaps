@@ -82,6 +82,13 @@ interface SongDao {
 	@Query("SELECT * FROM SongEntity WHERE songId IN (:ids)")
 	suspend fun getSongsByIds(ids: List<String>): List<SongEntity>
 
+	/** Every song's id, title and artist, for Search's typo-tolerant pass (P3). */
+	@Query("SELECT songId AS id, title AS name, artistName AS artist FROM SongEntity")
+	suspend fun searchNames(): List<SearchNameRow>
+
+	@Query("SELECT COUNT(*) FROM SongEntity")
+	suspend fun count(): Int
+
 	// Offline-radio fallback (AudioMuse / similar-songs agents unavailable): a local mix.
 	@Query("SELECT * FROM SongEntity WHERE genre = :genre ORDER BY RANDOM() LIMIT :limit")
 	suspend fun getRandomSongsByGenre(genre: String, limit: Int): List<SongEntity>

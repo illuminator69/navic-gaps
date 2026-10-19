@@ -130,6 +130,13 @@ interface AlbumDao {
 	@Query("SELECT * FROM AlbumEntity WHERE albumId IN (:ids)")
 	suspend fun getAlbumsByIds(ids: List<String>): List<AlbumWithSongs>
 
+	/** Every album's id, name and artist, for Search's typo-tolerant pass (P3). */
+	@Query("SELECT albumId AS id, name AS name, artistName AS artist FROM AlbumEntity")
+	suspend fun searchNames(): List<SearchNameRow>
+
+	@Query("SELECT COUNT(*) FROM AlbumEntity")
+	suspend fun count(): Int
+
 	@Transaction
 	suspend fun updateAllAlbums(remoteAlbums: List<AlbumEntity>) {
 		val remoteIds = remoteAlbums.map { it.albumId }.toSet()

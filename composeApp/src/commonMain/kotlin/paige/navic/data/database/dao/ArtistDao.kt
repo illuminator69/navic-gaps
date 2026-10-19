@@ -75,6 +75,20 @@ interface ArtistDao {
 	@Query("SELECT * FROM ArtistEntity WHERE artistId IN (:ids)")
 	suspend fun getArtistsByIds(ids: List<String>): List<ArtistEntity>
 
+	/** Every artist's id and name, for Search's typo-tolerant pass (P3, `LibraryFuzzyIndex`). */
+	@Query("SELECT artistId AS id, name AS name, NULL AS artist FROM ArtistEntity")
+	suspend fun searchNames(): List<SearchNameRow>
+
+	@Query("SELECT COUNT(*) FROM ArtistEntity")
+	suspend fun count(): Int
+
+	/**
+	 * Library artists whose Navidrome MusicBrainz tag is one of [mbids]: how Search tells which
+	 * MusicBrainz hit the library already holds (P3). By id, never by name: two artists share names.
+	 */
+	@Query("SELECT artistId, musicBrainzId FROM ArtistEntity WHERE musicBrainzId IN (:mbids)")
+	suspend fun idsByMusicBrainzId(mbids: List<String>): List<ArtistMbidRow>
+
 	/**
 	 * Every artist's id with its cover art id and nothing else: what a page of rows needs to
 	 * draw a picture beside each and to know which ids are pages that exist, in one query.
@@ -126,4 +140,17 @@ data class CoverHashCount(
 data class ArtistArt(
 	val artistId: String,
 	val coverArtId: String?
+)
+
+/** One row of [ArtistDao.idsByMusicBrainzId]. */
+data class ArtistMbidRow(
+	val artistId: String,
+	val musicBrainzId: String?
+)
+
+/** A name to search, with the artist it is credited to where it has one: [ArtistDao.searchNames] and its twins. */
+data class SearchNameRow(
+	val id: String,
+	val name: String?,
+	val artist: String?
 )

@@ -31,6 +31,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.ArtistMbidRow
 import paige.navic.data.database.dao.GenreDao
 import paige.navic.data.database.dao.LbIndexDao
 import paige.navic.data.database.dao.LyricDao
@@ -464,6 +465,15 @@ class DbRepository(
 		// Nothing was deleted: there was no such row, or songs hang off it. Read only to say which.
 		if (albumDao.getAlbumById(albumId) == null) AlbumForgotten.NOT_THERE else AlbumForgotten.KEPT
 	}
+
+	/** Library artists tagged with one of [mbids] (P3: which MusicBrainz hit the library already holds). */
+	suspend fun artistsTaggedWith(mbids: List<String>): List<ArtistMbidRow> =
+		if (mbids.isEmpty()) emptyList() else artistDao.idsByMusicBrainzId(mbids)
+
+	/** Which of [ids] Room lists: an id is a page only while it does. */
+	suspend fun heldArtistIds(ids: Collection<String>): Set<String> =
+		if (ids.isEmpty()) emptySet()
+		else artistDao.getArtistsByIds(ids.distinct()).mapTo(HashSet()) { it.artistId }
 
 	/** Whether Room lists [artistId]: an id is only worth re-reading while it does. */
 	suspend fun holdsArtist(artistId: String): Result<Boolean> = runDbOp {

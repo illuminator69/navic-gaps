@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.ShareRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.search.LibraryFuzzyIndex
 
 val repositoryModule = module {
 	singleOf(::AlbumRepository)
@@ -23,6 +24,7 @@ val repositoryModule = module {
 	singleOf(::GenreRepository)
 	singleOf(::LyricsRepository)
 	singleOf(::SearchRepository)
+	singleOf(::LibraryFuzzyIndex)
 	singleOf(::ShareRepository)
 	singleOf(::CollectionRepository)
 	singleOf(::PlaylistRepository)
