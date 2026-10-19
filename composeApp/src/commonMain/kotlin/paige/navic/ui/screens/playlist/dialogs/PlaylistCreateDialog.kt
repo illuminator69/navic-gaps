@@ -26,6 +26,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistAdd
@@ -42,7 +43,9 @@ fun PlaylistCreateDialog(
 	onRefresh: () -> Unit,
 	songs: ImmutableList<DomainSong> = persistentListOf(),
 	navigateAfterwards: Boolean = true,
-	onSmartRequested: (() -> Unit)? = null
+	onSmartRequested: (() -> Unit)? = null,
+	/** navi-connect P2: the playlist just made, for a caller that shows it (the player's playlist sheet). */
+	onCreated: ((DomainPlaylist) -> Unit)? = null
 ) {
 	val buttonCount = if (onSmartRequested != null) 3 else 2
 	val viewModel = koinViewModel<PlaylistCreateDialogViewModel>(
@@ -56,6 +59,7 @@ fun PlaylistCreateDialog(
 		viewModel.events.collect { event ->
 			when (event) {
 				is PlaylistCreateDialogViewModel.Event.Dismiss -> {
+					onCreated?.invoke(event.playlist)
 					onDismissRequest()
 					onRefresh()
 					if (navigateAfterwards) {

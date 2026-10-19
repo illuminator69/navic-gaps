@@ -1264,7 +1264,6 @@
 	<string name="staged_playing_from_playlist">Playing from playlist</string>
 	<string name="staged_up_next">Up next</string>
 	<string name="staged_nothing_up_next">Nothing up next</string>
-	<string name="staged_casting_to">Casting to %1$s</string>
 	<string name="staged_this_phone">This phone</string>
 	<string name="staged_autoplay">Autoplay</string>
 	<string name="staged_section_now_playing">Now playing</string>
@@ -1274,4 +1273,14 @@
 	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and the songs it had added are gone. Songs you queued stay.</string>
 	<string name="staged_open_queue">Open the queue</string>
 	<string name="staged_collapse_queue">Collapse the queue</string>
+	<string name="staged_rate_song">Rate this song</string>
+	<string name="staged_rate_stars">Rate %1$d of 5</string>
+	<string name="staged_save_to_favorites">Save to favorites</string>
+	<string name="staged_remove_from_favorites">Remove from favorites</string>
+	<string name="staged_save_to_playlist">Save to playlist</string>
+	<string name="staged_new_playlist">New playlist</string>
+	<string name="staged_done">Done</string>
+	<string name="staged_add_to_this_playlist">Add to %1$s</string>
+	<string name="staged_remove_from_this_playlist">Remove from %1$s</string>
+	<string name="staged_no_playlists">No playlists yet</string>
 </resources>

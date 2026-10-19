@@ -94,7 +94,7 @@ fun QueueGeneratorLine(
 }
 
 @Composable
-private fun generatorText(generator: QueueGenerator?, catalogue: StationCatalogue): String? = when (generator) {
+internal fun generatorText(generator: QueueGenerator?, catalogue: StationCatalogue): String? = when (generator) {
 	null -> null
 	is QueueGenerator.Station -> {
 		val name = stationName(generator.name, generator.yourMix)

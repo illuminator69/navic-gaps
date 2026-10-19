@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.repositories.SavedQueueRepository
 import paige.navic.domain.repositories.SongRepository
@@ -20,7 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
 	private val songRepository: SongRepository,
-	private val savedQueueRepository: SavedQueueRepository
+	private val savedQueueRepository: SavedQueueRepository,
+	private val hubManager: HubManager
 ) : ViewModel(), KoinComponent {
 	val songIsStarred: StateFlow<Boolean>
 		field = MutableStateFlow(false)
@@ -40,8 +43,12 @@ class NowPlayingViewModel(
 
 	init {
 		viewModelScope.launch {
-			player.steadyState
-				.map { Triple(it.savedQueueId, it.savedQueueKind, it.savedQueueName) }
+			// While another device plays, the queue is the hub session's and its record id is the
+			// session's (the mirrored player state carries none).
+			combine(player.steadyState, hubManager.isRemoteActive, hubManager.remoteSession) { state, remote, session ->
+				if (remote) Triple(session.savedQueueId, SavedQueueSource.MANUAL, null)
+				else Triple(state.savedQueueId, state.savedQueueKind, state.savedQueueName)
+			}
 				.distinctUntilChanged()
 				.collect { (id, kind, bornName) ->
 					val record = id?.let { runCatching { savedQueueRepository.get(it) }.getOrNull() }

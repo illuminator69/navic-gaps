@@ -116,6 +116,7 @@ import paige.navic.domain.models.Mix
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.screens.queue.components.QueueGeneratorLine
+import paige.navic.ui.screens.queue.components.generatorText
 import paige.navic.ui.components.common.PageChips
 import paige.navic.domain.manager.AutoplayChip
 import paige.navic.domain.manager.StationCatalogue
@@ -868,9 +869,10 @@ internal fun QueueSaveControl(trigger: QueueSaveTrigger = DefaultQueueSaveTrigge
 
 /**
  * The queue as the staged layer draws it (P2, portrait phones): a header row ("Playing from", the
- * Autoplay switch, Save), the character chips (dimmed while autoplay is off, and still a tap that
- * turns it on with that character), the note that says what Off did, and at full only the
- * Up next / Related switch, the count with Clear and the generator line. The rows are grouped by
+ * Autoplay switch, Save; the left of it says what the queue plays from and what built it), the
+ * character chips (dimmed while autoplay is off, and still a tap that turns it on with that
+ * character), the note that says what Off did, and at full only the Up next / Related switch and
+ * the count with Clear. The rows are grouped by
  * who put them there ([queueListItems]); every row behaviour of the sheet is kept.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -917,6 +919,8 @@ private fun QueueLayerBody(
 			verticalAlignment = Alignment.CenterVertically
 		) {
 			Column(Modifier.weight(1f)) {
+				// A radio's line repeats its name ("X radio", "X radio · Balanced"): said once, by the line.
+				val generatorWords = generatorText(generator, catalogue)
 				playingFrom?.let { from ->
 					Text(
 						text = stringResource(Res.string.staged_playing_from),
@@ -924,7 +928,7 @@ private fun QueueLayerBody(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						maxLines = 1
 					)
-					Text(
+					if (generatorWords?.startsWith(from.name) != true) Text(
 						text = from.name,
 						style = MaterialTheme.typography.titleSmall,
 						fontWeight = FontWeight.SemiBold,
@@ -932,6 +936,9 @@ private fun QueueLayerBody(
 						overflow = TextOverflow.Ellipsis
 					)
 				}
+				// What built the queue (the station, Auto DJ, nothing left that fits), in the room
+				// beside the switch at every place, not only at full (you, 2026-10-19).
+				QueueGeneratorLine(generator = generator, busy = generatorBusy, catalogue = catalogue)
 			}
 			Text(
 				text = autoplayLabel,
@@ -1016,9 +1023,6 @@ private fun QueueLayerBody(
 					) {
 						Text(stringResource(Res.string.action_clear), maxLines = 1)
 					}
-				}
-				Box(Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 4.dp)) {
-					QueueGeneratorLine(generator = generator, busy = generatorBusy, catalogue = catalogue)
 				}
 			}
 		}

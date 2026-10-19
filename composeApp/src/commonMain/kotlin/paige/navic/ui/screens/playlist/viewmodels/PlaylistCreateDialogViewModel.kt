@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.playlist.viewmodels
 
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.channels.Channel
@@ -42,6 +43,9 @@ class PlaylistCreateDialogViewModel(
 					songIds = songs.map { it.id }
 				)
 				playlistDao.insertPlaylist(playlist.toEntity())
+				// The dialog's view model outlives one dialog where it is opened again from the same
+				// place (the player's playlist sheet): the next one starts empty.
+				name.clearText()
 				_events.send(
 					Event.Dismiss(
 						playlistDao.getPlaylistById(playlist.id)!!.toDomainModel()

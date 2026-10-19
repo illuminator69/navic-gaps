@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -40,6 +42,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,12 +69,14 @@ import navic.composeapp.generated.resources.action_navigate_back
 import navic.composeapp.generated.resources.action_pause
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_save
-import navic.composeapp.generated.resources.staged_casting_to
 import navic.composeapp.generated.resources.staged_nothing_up_next
 import navic.composeapp.generated.resources.staged_open_queue
 import navic.composeapp.generated.resources.staged_playing_from
 import navic.composeapp.generated.resources.staged_playing_from_album
 import navic.composeapp.generated.resources.staged_playing_from_playlist
+import navic.composeapp.generated.resources.staged_remove_from_favorites
+import navic.composeapp.generated.resources.staged_save_to_favorites
+import navic.composeapp.generated.resources.staged_save_to_playlist
 import navic.composeapp.generated.resources.staged_this_phone
 import navic.composeapp.generated.resources.staged_up_next
 import org.jetbrains.compose.resources.stringResource
@@ -84,9 +92,11 @@ import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.creditText
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Favorite
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Devices
+import paige.navic.icons.outlined.Favorite
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.icons.outlined.Lyrics
 import paige.navic.icons.outlined.PlaylistAdd
@@ -108,7 +118,7 @@ import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingTechnicalInfo
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 import paige.navic.ui.screens.queue.QueueContent
 import paige.navic.ui.screens.queue.QueueLayout
-import paige.navic.ui.screens.queue.QueueSaveControl
+import paige.navic.ui.components.sheets.AddToPlaylistSheet
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -126,9 +136,6 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /** Layer showing at peek above the navigation bar (the board's 110 dp with a 34 dp bar). */
 private val PeekHeight = 76.dp
-
-/** The same while the "Casting to" line stands above it (the board's 80 dp). */
-private val CastingPeekHeight = 46.dp
 
 /** Gap between the compact controls and the half line. */
 private val HalfGap = 26.dp
@@ -164,6 +171,7 @@ fun StagedNowPlaying() {
 	val activeDeviceId by hubManager.activeDeviceId.collectAsState()
 	val remoteName = devices.firstOrNull { it.id == activeDeviceId }?.name
 	var showDevicePicker by remember { mutableStateOf(false) }
+	var savingToPlaylist by remember { mutableStateOf<DomainSong?>(null) }
 
 	val sheetState = LocalSheetState.current
 	val closeScope = rememberCoroutineScope()
@@ -180,8 +188,8 @@ fun StagedNowPlaying() {
 	val density = LocalDensity.current
 	val statusTop = WindowInsets.statusBars.getTop(density)
 	val navBottom = WindowInsets.navigationBars.getBottom(density)
-	val casting = isRemoteActive
-	val peekPx = with(density) { (if (casting) CastingPeekHeight else PeekHeight).toPx() } + navBottom
+	// No "Casting to" line over the peek (you, 2026-10-19): the device pill says where it plays.
+	val peekPx = with(density) { PeekHeight.toPx() } + navBottom
 	val fullTopPx = with(density) { max(96.dp.toPx(), statusTop + 76.dp.toPx()) }
 	val gapPx = with(density) { HalfGap.toPx() }
 	val minHalfPx = with(density) { MinHalfList.toPx() }
@@ -197,6 +205,7 @@ fun StagedNowPlaying() {
 	val compactionNow: () -> Compaction = {
 		compaction(queueState.fraction, queueState.anchors?.halfFraction ?: NO_HALF_FRACTION)
 	}
+	// The mini header is clear up to here (miniHeaderAlpha), so composing it from here shows nothing new.
 	val miniHeaderActive by remember { derivedStateOf { compactionNow().toFull > 0.5f } }
 
 	val layerLayout = remember(backStack) {
@@ -251,7 +260,16 @@ fun StagedNowPlaying() {
 						songRating = songRating,
 						onSetSongRating = { viewModel.rateSong(it) },
 						showMoreButton = false,
-						showRemoteCue = false
+						showRemoteCue = false,
+						// The star is the rating now (you, 2026-10-19); favourites are the Save pill's heart.
+						trailing = {
+							ExpandingRating(
+								rating = songRating,
+								onRate = { viewModel.rateSong(it) },
+								songKey = song?.id,
+								enabled = song != null
+							)
+						}
 					)
 				}
 			},
@@ -267,24 +285,22 @@ fun StagedNowPlaying() {
 						modifier = Modifier.weight(1f)
 					)
 					Box(Modifier.weight(1f)) {
-						val saveLabel = stringResource(Res.string.action_save)
-						QueueSaveControl { enabled, label, onClick ->
-							ActionPill(
-								icon = Icons.Outlined.PlaylistAdd,
-								label = saveLabel,
-								contentDescription = label,
-								onClick = onClick,
-								enabled = enabled,
-								modifier = Modifier.fillMaxWidth()
-							)
-						}
+						SongSaveControl(
+							song = song,
+							favourite = songIsStarred,
+							onSetFavourite = { viewModel.starSong(it) },
+							onSaveToPlaylist = { savingToPlaylist = song }
+						)
 					}
+					// Another device playing: the pill is inverted (filled, its words cut out of it), so
+					// "not on this phone" reads at a glance.
 					ActionPill(
 						icon = if (isRemoteActive) Icons.Outlined.Devices else Icons.Outlined.Smartphone,
 						label = if (isRemoteActive && remoteName != null) remoteName
 						else stringResource(Res.string.staged_this_phone),
 						onClick = { showDevicePicker = true },
-						modifier = Modifier.weight(1f)
+						modifier = Modifier.weight(1f),
+						inverted = isRemoteActive
 					)
 				}
 			},
@@ -301,25 +317,15 @@ fun StagedNowPlaying() {
 				Box(pop.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
 					NowPlayingButtonsRow()
 				}
-			},
-			castingLine = {
-				if (casting) {
-					Text(
-						text = stringResource(Res.string.staged_casting_to, remoteName ?: "…"),
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.primary,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
-					)
-				}
 			}
 		)
 
-		MiniHeader(
+		// Composed only once it starts to show (it is fully clear until halfway from half to full): a
+		// disabled button still takes the touches behind it, and the invisible play button sat on the
+		// header's more button (seen on the AVD).
+		if (miniHeaderActive) MiniHeader(
 			song = song,
 			isPaused = playerState.isPaused,
-			active = miniHeaderActive,
 			topInsetPx = statusTop,
 			alpha = { miniHeaderAlpha(compactionNow()) },
 			onDevices = { showDevicePicker = true },
@@ -333,7 +339,6 @@ fun StagedNowPlaying() {
 			peek = {
 				PeekRow(
 					next = next,
-					compact = casting,
 					onClick = { queueState.anchors?.let { queueState.launchMove(handleTapTarget(queueState.targetDetent, it)) } }
 				)
 			}
@@ -345,16 +350,63 @@ fun StagedNowPlaying() {
 	if (showDevicePicker) {
 		DevicePickerSheet(onDismissRequest = { showDevicePicker = false })
 	}
+	savingToPlaylist?.let { saving ->
+		AddToPlaylistSheet(song = saving, onDismissRequest = { savingToPlaylist = null })
+	}
+}
+
+/**
+ * The Save pill (P2 notes, you, 2026-10-19): the playing song to favourites (a heart; the player's
+ * star is the rating now) or to playlists ([AddToPlaylistSheet]). Its heart is filled while the song
+ * is a favourite, the one place the player says so. Saving the QUEUE stays in the queue's header.
+ */
+@Composable
+private fun SongSaveControl(
+	song: DomainSong?,
+	favourite: Boolean,
+	onSetFavourite: (Boolean) -> Unit,
+	onSaveToPlaylist: () -> Unit
+) {
+	var menuOpen by remember { mutableStateOf(false) }
+	Box {
+		ActionPill(
+			icon = if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite,
+			label = stringResource(Res.string.action_save),
+			onClick = { menuOpen = true },
+			enabled = song != null,
+			modifier = Modifier.fillMaxWidth()
+		)
+		DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+			DropdownMenuItem(
+				text = {
+					Text(stringResource(if (favourite) Res.string.staged_remove_from_favorites else Res.string.staged_save_to_favorites))
+				},
+				leadingIcon = { Icon(if (favourite) Icons.Filled.Favorite else Icons.Outlined.Favorite, null) },
+				onClick = {
+					menuOpen = false
+					onSetFavourite(!favourite)
+				}
+			)
+			DropdownMenuItem(
+				text = { Text(stringResource(Res.string.staged_save_to_playlist)) },
+				leadingIcon = { Icon(Icons.Outlined.PlaylistAdd, null) },
+				onClick = {
+					menuOpen = false
+					onSaveToPlaylist()
+				}
+			)
+		}
+	}
 }
 
 /**
  * Places the player's pieces once at rest (header under the status bar, the cover as large as the
  * room allows up to the width less 16 dp, then title, actions, progress, durations, controls,
- * centred above the peek strip and the casting line) and moves each to its compact place by
+ * centred above the peek strip) and moves each to its compact place by
  * [compaction] in the placement layer: no re-measure while the layer moves. Reports where the
  * compact block ends ([onCompactBottom]) for the half line.
  *
- * Pieces that fade (actions, durations, casting line) are placed first, so a faded one never
+ * Pieces that fade (actions, durations) are placed first, so a faded one never
  * takes a tap from one that shows over it.
  */
 @Composable
@@ -369,11 +421,10 @@ private fun StagedPlayerLayout(
 	actions: @Composable () -> Unit,
 	progress: @Composable () -> Unit,
 	durations: @Composable () -> Unit,
-	controls: @Composable () -> Unit,
-	castingLine: @Composable () -> Unit
+	controls: @Composable () -> Unit
 ) {
 	Layout(
-		contents = listOf(header, cover, info, actions, progress, durations, controls, castingLine),
+		contents = listOf(header, cover, info, actions, progress, durations, controls),
 		modifier = Modifier.fillMaxSize()
 	) { measurables, constraints ->
 		val width = constraints.maxWidth
@@ -386,14 +437,12 @@ private fun StagedPlayerLayout(
 		val p = measure(4)
 		val d = measure(5)
 		val ct = measure(6)
-		val ca = measurables[7].firstOrNull()?.measure(Constraints(maxWidth = width))
 		val hH = h?.height ?: 0
 		val iH = i?.height ?: 0
 		val aH = a?.height ?: 0
 		val pH = p?.height ?: 0
 		val dH = d?.height ?: 0
 		val ctH = ct?.height ?: 0
-		val caH = ca?.height ?: 0
 
 		val gapAfterHeader = 8.dp.roundToPx()
 		val gapAfterCover = 16.dp.roundToPx()
@@ -403,7 +452,7 @@ private fun StagedPlayerLayout(
 		val gapAbovePeek = 12.dp.roundToPx()
 
 		val peekTop = (height - peekPx).roundToInt()
-		val restBottom = peekTop - caH - gapAbovePeek
+		val restBottom = peekTop - gapAbovePeek
 		val headerBottom = topInsetPx + hH
 		val belowCover = gapAfterCover + iH + gapInfoActions + aH + gapActionsProgress + pH + dH + gapBeforeControls + ctH
 		val room = restBottom - headerBottom - gapAfterHeader
@@ -439,7 +488,6 @@ private fun StagedPlayerLayout(
 				translationY = (compactProgressTop + pH - durationsTop) * k.toHalf
 				alpha = actionsAlpha(k)
 			}
-			ca?.placeWithLayer(0, peekTop - caH) { alpha = actionsAlpha(compaction()) }
 			h?.placeWithLayer(0, topInsetPx) { alpha = headerAlpha(compaction()) }
 			c?.placeWithLayer(0, coverTop) {
 				val k = compaction()
@@ -538,7 +586,11 @@ private fun StagedHeader(
 	}
 }
 
-/** One of the action row's pills (Lyrics, Save, the device). */
+/**
+ * One of the action row's pills (Lyrics, Save, the device). [inverted]: filled, with its icon and
+ * words cut out of the fill so what is behind shows through them (the device pill while another
+ * device plays).
+ */
 @Composable
 private fun ActionPill(
 	icon: ImageVector,
@@ -546,18 +598,32 @@ private fun ActionPill(
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier,
 	enabled: Boolean = true,
-	contentDescription: String? = null
+	contentDescription: String? = null,
+	inverted: Boolean = false
 ) {
+	val onSurface = MaterialTheme.colorScheme.onSurface
 	Surface(
 		onClick = onClick,
 		enabled = enabled,
 		shape = ContinuousCapsule,
-		color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-		contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+		color = if (inverted) Color.Transparent else onSurface.copy(alpha = 0.10f),
+		contentColor = onSurface.copy(alpha = if (enabled) 1f else 0.38f),
 		modifier = modifier.heightIn(min = 40.dp)
 	) {
 		Row(
-			modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+			modifier = Modifier
+				.then(
+					if (inverted) Modifier
+						// Its own layer, so the cut-out reaches only this pill's fill.
+						.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+						.drawWithContent {
+							drawRect(onSurface.copy(alpha = 0.78f))
+							drawContent()
+						}
+					else Modifier
+				)
+				.padding(horizontal = 12.dp, vertical = 8.dp)
+				.then(if (inverted) Modifier.graphicsLayer { blendMode = BlendMode.DstOut } else Modifier),
 			horizontalArrangement = Arrangement.Center,
 			verticalAlignment = Alignment.CenterVertically
 		) {
@@ -568,16 +634,11 @@ private fun ActionPill(
 	}
 }
 
-/**
- * What the player becomes at full: the cover small, title and artist, the device and play/pause.
- * Its buttons only take taps once it is more than half there ([active]); before that a tap goes to
- * the header under it.
- */
+/** What the player becomes at full: the cover small, title and artist, the device and play/pause. */
 @Composable
 private fun MiniHeader(
 	song: DomainSong?,
 	isPaused: Boolean,
-	active: Boolean,
 	topInsetPx: Int,
 	alpha: () -> Float,
 	onDevices: () -> Unit,
@@ -613,10 +674,10 @@ private fun MiniHeader(
 				overflow = TextOverflow.Ellipsis
 			)
 		}
-		IconButton(onClick = onDevices, enabled = active) {
+		IconButton(onClick = onDevices) {
 			Icon(Icons.Outlined.Devices, contentDescription = null)
 		}
-		FilledIconButton(onClick = onPlayPause, enabled = active && song != null) {
+		FilledIconButton(onClick = onPlayPause, enabled = song != null) {
 			Icon(
 				if (isPaused) Icons.Filled.Play else Icons.Filled.Pause,
 				contentDescription = stringResource(if (isPaused) Res.string.action_play else Res.string.action_pause)
@@ -626,18 +687,18 @@ private fun MiniHeader(
 }
 
 /**
- * The peek strip: "Up next" and the next song in play order ([peekRow]), "Nothing up next" at the
- * end. [compact] (while casting, when the strip is shorter) puts it on one line. A tap opens the
- * queue one place.
+ * The peek strip: "Up next", the next song in play order ([peekRow]) and its cover, "Nothing up
+ * next" at the end. The same whoever plays: it used to drop to one line without the cover while
+ * casting. A tap opens the queue one place.
  */
 @Composable
-private fun PeekRow(next: DomainSong?, compact: Boolean, onClick: () -> Unit) {
+private fun PeekRow(next: DomainSong?, onClick: () -> Unit) {
 	val upNext = stringResource(Res.string.staged_up_next)
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
 			.clickable(onClickLabel = stringResource(Res.string.staged_open_queue), role = Role.Button, onClick = onClick)
-			.padding(horizontal = 24.dp, vertical = if (compact) 2.dp else 4.dp),
+			.padding(horizontal = 24.dp, vertical = 4.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
 		if (next == null) {
@@ -648,17 +709,12 @@ private fun PeekRow(next: DomainSong?, compact: Boolean, onClick: () -> Unit) {
 			)
 			return@Row
 		}
-		if (!compact) {
-			CoverArt(coverArtId = next.coverArtId, modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp))
-			Spacer(Modifier.width(12.dp))
-		}
+		CoverArt(coverArtId = next.coverArtId, modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp))
+		Spacer(Modifier.width(12.dp))
 		Column(Modifier.weight(1f)) {
-			if (!compact) {
-				Text(upNext, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-			}
+			Text(upNext, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
 			Text(
 				text = buildString {
-					if (compact) append(upNext).append(" · ")
 					append(next.title)
 					append(" — ")
 					append(next.creditText)

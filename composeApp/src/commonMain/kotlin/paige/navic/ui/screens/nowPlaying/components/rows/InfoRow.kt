@@ -52,7 +52,12 @@ fun NowPlayingInfoRow(
 	onSetSongRating: (Int) -> Unit,
 	/** The staged player (P2) carries the more button in its header and says where it casts above the queue. */
 	showMoreButton: Boolean = true,
-	showRemoteCue: Boolean = true
+	showRemoteCue: Boolean = true,
+	/**
+	 * Replaces the star and more buttons at the end of the row (the staged player's rating). The
+	 * rating line under the artist goes with it: the control shows the rating itself.
+	 */
+	trailing: (@Composable () -> Unit)? = null
 ) {
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -155,14 +160,16 @@ fun NowPlayingInfoRow(
 					)
 				)
 			}
-			if (songRating != 0) {
+			if (songRating != 0 && trailing == null) {
 				SmallRatingRow(
 					rating = songRating,
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
 		}
-		Row(
+		if (trailing != null) {
+			trailing()
+		} else Row(
 			horizontalArrangement = Arrangement.spacedBy(10.dp)
 		) {
 			NowPlayingStarButton(
