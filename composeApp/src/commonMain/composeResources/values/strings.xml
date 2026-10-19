@@ -1227,4 +1227,5 @@
 	<string name="title_search_artists_external">Artists not in your library</string>
 	<string name="title_mood_search">Mood search</string>
 	<string name="info_mood_search_empty">No matches. Mood search may be unavailable, or your library may not be analysed yet.</string>
+	<string name="title_home">Home</string>
 </resources>

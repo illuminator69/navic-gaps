@@ -13,6 +13,14 @@ import paige.navic.ui.screens.downloads.DownloadsSection
 sealed interface Screen : NavKey {
 
 	// tabs
+	/**
+	 * Home (P1): where the app opens: resume, Recently added, Fresh. A root page of its own, not
+	 * the Library tab, which stays as the third button of the bar.
+	 */
+	@Immutable
+	@Serializable
+	data object Home : Screen
+
 	@Immutable
 	@Serializable
 	data class Library(

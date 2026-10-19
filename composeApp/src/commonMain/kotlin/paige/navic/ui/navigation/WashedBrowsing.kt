@@ -18,7 +18,7 @@ import kotlin.reflect.KClass
  * the home counts too. WashedBrowsingDriftTest (androidHostTest) fails if this and App.kt disagree.
  */
 internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
-	Screen.Library::class, Screen.Starred::class, Screen.AlbumList::class,
+	Screen.Home::class, Screen.Library::class, Screen.Starred::class, Screen.AlbumList::class,
 	Screen.PlaylistList::class, Screen.ArtistList::class, Screen.GenreList::class,
 	Screen.SongList::class, Screen.RadioList::class, Screen.Fresh::class, Screen.Discover::class,
 	Screen.MixList::class, Screen.Search::class, Screen.Statistics::class,

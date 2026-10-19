@@ -113,6 +113,7 @@ import paige.navic.ui.screens.fresh.FreshScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
+import paige.navic.ui.screens.home.HomeScreen
 import paige.navic.ui.screens.imageView.ImageViewScreen
 import paige.navic.ui.screens.library.LibraryScreen
 import paige.navic.ui.screens.login.LoginScreen
@@ -202,7 +203,7 @@ fun App() {
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val backStack = rememberNavBackStack(
 		config, if (isLoggedIn) {
-			Screen.Library()
+			Screen.Home
 		} else {
 			Screen.Login
 		}
@@ -503,6 +504,9 @@ private fun entryProvider(
 
 	return androidx.navigation3.runtime.entryProvider {
 		// tabs
+		entry<Screen.Home>(metadata = navtabMetadata) {
+			Washed { HomeScreen() }
+		}
 		entry<Screen.Library>(metadata = navtabMetadata) {
 			LibraryScreen()
 		}

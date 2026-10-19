@@ -24,7 +24,7 @@ class WashedBrowsingTest {
 	@Test
 	fun everyWashedBrowsingPageIsWashedIncludingTheLibraryWhichWrapsItself() {
 		val washed = listOf(
-			Screen.Library(), Screen.Starred(), Screen.AlbumList(), Screen.PlaylistList(),
+			Screen.Home, Screen.Library(), Screen.Starred(), Screen.AlbumList(), Screen.PlaylistList(),
 			Screen.ArtistList(), Screen.GenreList(), Screen.SongList(), Screen.RadioList(),
 			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics(),
 			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist), Screen.SavedQueues
