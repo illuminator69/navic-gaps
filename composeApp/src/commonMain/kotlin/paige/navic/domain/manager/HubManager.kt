@@ -987,7 +987,17 @@ class HubManager(
 		val positionMs = session.positionMs + elapsed
 		val progress =
 			if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-		mediaPlayer.setRemoteState(base.copy(isPaused = !session.isPlaying, progress = progress))
+		// Shuffle and repeat are read from every frame, not baked into the base: the base is rebuilt
+		// only when the tracks or the index change, so a shuffle or repeat tap on a remote session
+		// showed nothing until the next song (seen on the phone, 2026-10-19).
+		mediaPlayer.setRemoteState(
+			base.copy(
+				isPaused = !session.isPlaying,
+				progress = progress,
+				isShuffleEnabled = session.shuffle,
+				repeatMode = repeatToInt(session.repeat)
+			)
+		)
 	}
 
 	// ------------------------------------------------------------------ //
