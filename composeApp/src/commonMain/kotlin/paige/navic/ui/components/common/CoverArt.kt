@@ -47,6 +47,7 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Error
 import paige.navic.ui.theme.defaultFont
+import paige.navic.ui.util.CoverSeedPrefetcher
 import paige.navic.util.Logger
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import paige.navic.util.CoverPlaceholder
@@ -140,6 +141,10 @@ fun CoverArt(
 	if (coverArtId.isNullOrBlank() || CoverPlaceholder.isPlaceholder(coverArtId)) {
 		return Box(commonModifier)
 	}
+	// navi-connect I-043: a cover on screen is one the user may open next, so its colours are
+	// worked out now, at low priority, and the page it opens is coloured in its first frame.
+	val prefetcher = koinInject<CoverSeedPrefetcher>()
+	LaunchedEffect(coverArtId) { prefetcher.request(coverArtId) }
 	SubcomposeAsyncImage(
 		model = model,
 		imageLoader = imageLoader,

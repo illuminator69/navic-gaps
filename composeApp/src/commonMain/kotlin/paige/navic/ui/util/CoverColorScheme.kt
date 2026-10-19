@@ -96,7 +96,7 @@ private val schemeCache = object {
 }
 
 /** The pixel size the palette is extracted from. Quantisation sees no more than this anyway. */
-private const val PALETTE_PX = 128
+internal const val PALETTE_PX = 128
 
 /** How many times a palette fetch is attempted before the cover is left unresolved. */
 private const val PALETTE_ATTEMPTS = 3

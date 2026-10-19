@@ -25,6 +25,7 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.StationManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.ui.util.AmbientColorHolder
+import paige.navic.ui.util.CoverSeedPrefetcher
 import paige.navic.ui.util.CoverSeedStore
 
 val managerModule = module {
@@ -38,6 +39,8 @@ val managerModule = module {
 			scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 		)
 	}
+	// I-043: fills the store ahead of need (tiles on screen, the next songs).
+	single { CoverSeedPrefetcher(get(), get(), get()) }
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
 		SyncManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply {
