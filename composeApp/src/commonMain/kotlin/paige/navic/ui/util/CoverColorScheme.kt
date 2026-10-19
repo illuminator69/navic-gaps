@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.abs
@@ -456,10 +457,18 @@ fun Color.boostedAccent(): Color {
  * Shared by the sheets and the album/artist detail screens so every surface matches.
  */
 fun coverAmbientGradient(seed: Color, isDark: Boolean): Pair<Color, Color> {
+	val tuning = washTuning(isDark)
 	val target = if (isDark) Color.Black else Color.White
-	val top = lerp(seed, target, if (isDark) 0.22f else 0.34f)
-	val bottom = lerp(seed, target, if (isDark) 0.45f else 0.20f)
-	return top to bottom
+	val top = lerp(seed, target, tuning.topMix)
+	if (tuning.bottomDepth <= 0f) return top to lerp(seed, target, tuning.bottomMix)
+	// A fixed lightness step below the top, toward a deeper shade of the seed: `lerp` is in Oklab,
+	// so lightness moves linearly with the fraction, and every cover — a pale one included, whose
+	// own seed may sit within the step of the top — gets the same depth in the cover's own hue.
+	val deep = lerp(seed, Color.Black, 0.5f)
+	val topL = top.convert(ColorSpaces.Oklab).red
+	val deepL = deep.convert(ColorSpaces.Oklab).red
+	val fraction = if (topL - deepL <= tuning.bottomDepth) 1f else tuning.bottomDepth / (topL - deepL)
+	return top to lerp(top, deep, fraction)
 }
 
 /**

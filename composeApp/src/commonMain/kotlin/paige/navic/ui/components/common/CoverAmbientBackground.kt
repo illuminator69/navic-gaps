@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import paige.navic.di.ForceSystemBars
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
@@ -29,6 +31,7 @@ import paige.navic.ui.util.rememberAppIsDark
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import paige.navic.ui.util.rememberPlayerRestored
+import paige.navic.ui.util.washTuning
 import org.koin.compose.koinInject
 
 /**
@@ -58,20 +61,33 @@ fun CoverAmbientBackground(
 	seed: Color,
 	isDark: Boolean,
 	modifier: Modifier = Modifier,
-	/** Passed straight to [BlendBackground]; null keeps its default black-0.4 wash. */
+	/**
+	 * Dark pages only: passed straight to [BlendBackground] (null keeps the tuning's black 0.4). A
+	 * light page always lifts the artwork with its tuning's white scrim, because its thin gradient's
+	 * contrast depends on it (`WashTuningTest`).
+	 */
 	artworkScrim: Brush? = null
 ) {
 	val animatedSeed = animateColorAsState(seed, animationSpec = tween(450))
+	val tuning = washTuning(isDark)
+	val scrim = remember(isDark, artworkScrim) {
+		artworkScrim.takeIf { isDark } ?: SolidColor(tuning.artScrimColor.copy(alpha = tuning.artScrimAlpha))
+	}
 	BlendBackground(
 		coverArtId = coverArtId,
 		isPaused = true,
-		scrim = artworkScrim,
+		scrim = scrim,
 		modifier = modifier.drawWithCache {
 			val (top, bottom) = coverAmbientGradient(animatedSeed.value, isDark)
-			// Mostly opaque: what reaches the text stays essentially the ambient colour that
-			// `onAmbientColor` guarantees contrast against.
+			// Dark: mostly opaque, so what reaches the text stays essentially the ambient colour that
+			// `onAmbientColor` guarantees contrast against. Light: thin over the lifted artwork, and
+			// `WashTuningTest` checks the composite instead.
 			val wash = Brush.verticalGradient(
-				listOf(top.copy(alpha = 0.82f), bottom.copy(alpha = 0.92f))
+				listOfNotNull(
+					top.copy(alpha = tuning.topAlpha),
+					tuning.midAlpha?.let { lerp(top, bottom, 0.5f).copy(alpha = it) },
+					bottom.copy(alpha = tuning.bottomAlpha)
+				)
 			)
 			onDrawWithContent {
 				drawContent()
