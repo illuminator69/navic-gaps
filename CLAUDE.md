@@ -188,6 +188,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     | `LyricsScreen` | always, keyed on the song | upstream |
     | `FreshScreen`, `DiscoverScreen`, `MixListScreen` | when `!nested` | fork — their `init` loads over the network |
 | `HomeScreen` | always | fork (P1) — a root tab with no `nested` form; it reads on every visit (`revalidate`) |
+| `HomeScreen`'s `SavedQueuesViewModel` | always | fork (P1), as `LibraryScreen`'s |
     | `LibraryScreen`'s `SavedQueuesViewModel` | always | fork |
     | `LibraryScreen`'s `ListeningCardViewModel` | always | fork (Q-103) |
 

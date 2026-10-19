@@ -21,6 +21,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.ui.util.placeholderBrush
 
 /**
  * Cover art from a third-party host, for a release the library does not have.
@@ -48,7 +49,9 @@ fun RemoteCoverArt(
 	crossfadeMs: Int = 500,
 	shape: Shape? = null,
 	/** The card's own, so a press anywhere on the card ripples the cover (as `CoverArt`). */
-	interactionSource: MutableInteractionSource? = null
+	interactionSource: MutableInteractionSource? = null,
+	/** navi-connect P1: the box behind the image is this name's tinted gradient (as `CoverArt`'s). */
+	placeholderName: String? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val resolvedShape = shape ?: preferenceManager.coverArtShape.shape
@@ -65,10 +68,13 @@ fun RemoteCoverArt(
 			.build()
 	}
 
+	val tint = remember(placeholderName) { placeholderName?.let { placeholderBrush(it) } }
+	val boxColor = MaterialTheme.colorScheme.surfaceContainer
+
 	val commonModifier = modifier
 		.then(if (square) Modifier.aspectRatio(1f) else Modifier)
 		.clip(resolvedShape)
-		.background(MaterialTheme.colorScheme.surfaceContainer)
+		.then(if (tint != null) Modifier.background(tint) else Modifier.background(boxColor))
 		.then(
 			if (onClick != null)
 				Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)

@@ -61,6 +61,14 @@ fun freshShelf(feed: LbFreshFeed?, limit: Int = 12): List<FreshTile> {
 }
 
 /**
+ * The shelf after a read. An answer replaces it (even one with nothing for the library in it: lb-bot
+ * did answer). `null` is "nothing cached and nothing came back", which may only stand in for an empty
+ * shelf: a failed read never takes away the shelf that is on screen.
+ */
+fun freshShelfAfterRead(current: List<FreshTile>, feed: LbFreshFeed?, limit: Int = 12): List<FreshTile> =
+	if (feed != null || current.isEmpty()) freshShelf(feed, limit) else current
+
+/**
  * Where a tapped Fresh tile goes: the Fresh page's own rule (`freshAlbumTarget`), not a copy of it.
  * Null only for a tile [freshShelf] would never have made.
  */

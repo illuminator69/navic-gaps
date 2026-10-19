@@ -1244,4 +1244,18 @@
 	<string name="new_smart_playlist_hint">Fills itself from rules</string>
 	<string name="new_add_link">Add from a link</string>
 	<string name="new_add_link_hint">Paste a streaming link to find the album</string>
+	<string name="home_continue_listening">Continue listening</string>
+	<plurals name="home_saved_queues_count">
+		<item quantity="one">%1$d saved queue</item>
+		<item quantity="other">%1$d saved queues</item>
+	</plurals>
+	<string name="home_recently_added">Recently added</string>
+	<string name="home_fresh">Fresh</string>
+	<string name="home_fresh_new_releases">New releases</string>
+	<string name="home_owned">Owned</string>
+	<string name="home_not_owned">Not owned</string>
+	<string name="home_your_mix">Your mix</string>
+	<string name="home_your_mix_line">Made from what you play</string>
+	<string name="home_library_empty">Nothing in your library yet</string>
+	<string name="home_library_error">Couldn't read your library</string>
 </resources>

@@ -127,7 +127,11 @@ fun ArtGridItem(
 	/** navi-connect: makes the subtitle its own link (Fresh's artist name). */
 	onSubtitleClick: (() -> Unit)? = null,
 	/** navi-connect: a third line under the subtitle (Fresh's release date, "In library"). */
-	caption: String? = null
+	caption: String? = null,
+	/** navi-connect P1: the cover's box is this name's tinted gradient until the image fades in (Home). */
+	placeholderName: String? = null,
+	/** navi-connect P1: how long the real cover takes to fade in over its box. */
+	crossfadeMs: Int = 500
 ) {
 	val interactionSource = remember { MutableInteractionSource() }
 	with(LocalSharedTransitionScope.current) {
@@ -160,7 +164,9 @@ fun ArtGridItem(
 								boundsTransform = rememberCoverBoundsTransform(),
 								animatedVisibilityScope = LocalNavAnimatedContentScope.current
 							),
-						interactionSource = interactionSource
+						interactionSource = interactionSource,
+						placeholderName = placeholderName,
+						crossfadeMs = crossfadeMs
 					)
 				}
 				coverOverlay?.invoke(this)

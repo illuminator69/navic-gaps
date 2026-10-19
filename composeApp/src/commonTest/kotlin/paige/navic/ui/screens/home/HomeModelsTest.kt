@@ -111,6 +111,34 @@ class HomeModelsTest {
 		assertEquals("ar-a", shelf.single().artistMbid)
 	}
 
+	// --- What a read does to the shelf on screen ------------------------------------------------
+
+	@Test
+	fun aFeedReplacesTheShelf() {
+		val before = freshShelf(feed(release("old")))
+		val after = freshShelfAfterRead(before, feed(release("new1"), release("new2")))
+		assertEquals(listOf("new1", "new2"), after.map { it.rgid })
+	}
+
+	@Test
+	fun aFailedReadKeepsTheShelfOnScreen() {
+		// `null` is "nothing cached and nothing came back": it must never take a shelf away.
+		val before = freshShelf(feed(release("a"), release("b")))
+		assertEquals(before, freshShelfAfterRead(before, null))
+	}
+
+	@Test
+	fun aFailedReadOnAnEmptyShelfLeavesItEmpty() {
+		assertEquals(emptyList(), freshShelfAfterRead(emptyList(), null))
+	}
+
+	@Test
+	fun anAnswerOfNothingNewIsAnAnswer() {
+		// lb-bot DID answer, and the answer has no release by an artist the library holds.
+		val before = freshShelf(feed(release("a")))
+		assertEquals(emptyList(), freshShelfAfterRead(before, feed(release("x", artistOwned = false))))
+	}
+
 	// --- Where a Fresh tile goes -----------------------------------------------------------------
 
 	@Test

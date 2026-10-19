@@ -152,8 +152,7 @@ class HomeViewModel(
 			val policy = if (isOnline.value) LbCachePolicy.NORMAL else LbCachePolicy.CACHE_ONLY
 			try {
 				lbBotManager.freshReleases(preferenceManager.freshDays, policy = policy).collect { feed ->
-					// A null feed is "nothing cached and nothing came back": it may only stand in for an empty shelf.
-					if (feed != null || _fresh.value.isEmpty()) _fresh.value = freshShelf(feed)
+					_fresh.value = freshShelfAfterRead(_fresh.value, feed)
 				}
 			} catch (e: CancellationException) {
 				throw e
