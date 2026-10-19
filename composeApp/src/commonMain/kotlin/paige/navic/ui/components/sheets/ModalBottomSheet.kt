@@ -47,10 +47,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.util.CoverAmbient
-import paige.navic.ui.util.SheetHideMotionSpec
-import paige.navic.ui.util.SheetShowMotionSpec
+import paige.navic.ui.util.pageMotionOf
+import paige.navic.ui.util.sheetHideMotionSpec
+import paige.navic.ui.util.sheetShowMotionSpec
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -205,10 +208,14 @@ fun ModalBottomSheet(
 		},
 	)
 
+	// navi-connect I-042: the times follow the animation style; the one-motion opening above
+	// is untouched.
+	val animationStyle = koinInject<PreferenceManager>().animationStyle
 	@Suppress("INVISIBLE_REFERENCE")
-	LaunchedEffect(Unit) {
-		sheetState.showMotionSpec = SheetShowMotionSpec
-		sheetState.hideMotionSpec = SheetHideMotionSpec
+	LaunchedEffect(animationStyle) {
+		val motion = pageMotionOf(animationStyle)
+		sheetState.showMotionSpec = sheetShowMotionSpec(motion)
+		sheetState.hideMotionSpec = sheetHideMotionSpec(motion)
 	}
 }
 

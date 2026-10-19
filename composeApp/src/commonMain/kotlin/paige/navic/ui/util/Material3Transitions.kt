@@ -1,5 +1,6 @@
 package paige.navic.ui.util
 
+import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
@@ -9,9 +10,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
 
 private val pathForAnimation =
 	Path().apply {
@@ -28,69 +33,93 @@ val EmphasizedEasing = PathEasing(pathForAnimation)
 val EmphasizedAccelerateEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 val EmphasizedDecelerateEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 
-val SheetShowMotionSpec = tween<Float>(
-	durationMillis = 400,
+// navi-connect I-042: a sheet's opening and closing times follow the animation style
+// (PageMotion.kt); the vals are the Expressive/Standard timing, unchanged.
+fun sheetShowMotionSpec(motion: PageMotion) = tween<Float>(
+	durationMillis = motion.sheetShowMs,
 	easing = EmphasizedDecelerateEasing
 )
-val SheetHideMotionSpec = tween<Float>(
-	durationMillis = 600,
+fun sheetHideMotionSpec(motion: PageMotion) = tween<Float>(
+	durationMillis = motion.sheetHideMs,
 	easing = EmphasizedAccelerateEasing
 )
+val SheetShowMotionSpec = sheetShowMotionSpec(DefaultPageMotion)
+val SheetHideMotionSpec = sheetHideMotionSpec(DefaultPageMotion)
+
+/**
+ * navi-connect I-042: a cover's shared-element flight between a list and its page, timed by the
+ * animation style so it lands with the page (PageMotion.sharedBoundsMs).
+ */
+@Composable
+fun rememberCoverBoundsTransform(): BoundsTransform {
+	val durationMs = pageMotionOf(koinInject<PreferenceManager>().animationStyle).sharedBoundsMs
+	return remember(durationMs) {
+		BoundsTransform { _, _ ->
+			tween(
+				durationMillis = durationMs,
+				easing = EmphasizedDecelerateEasing
+			)
+		}
+	}
+}
 
 object Material3Transitions {
-	val SharedXAxisEnterTransition: (Density) -> EnterTransition = { _ ->
-		fadeIn(
-			animationSpec = tween(durationMillis = DurationLong1, easing = EmphasizedEasing)
+	// navi-connect I-042: the four specs are built from a PageMotion (PageMotion.kt), so the
+	// Quick style can shorten them. The vals are the Expressive/Standard timing, unchanged.
+	fun enter(motion: PageMotion): (Density) -> EnterTransition = { density ->
+		pageEnter(motion, density, sign = 1)
+	}
+
+	fun popEnter(motion: PageMotion): (Density) -> EnterTransition = { density ->
+		pageEnter(motion, density, sign = -1)
+	}
+
+	fun exit(motion: PageMotion): (Density) -> ExitTransition = { density ->
+		pageExit(motion, density, sign = -1)
+	}
+
+	fun popExit(motion: PageMotion): (Density) -> ExitTransition = { density ->
+		pageExit(motion, density, sign = 1)
+	}
+
+	val SharedXAxisEnterTransition: (Density) -> EnterTransition = enter(DefaultPageMotion)
+
+	val SharedXAxisPopEnterTransition: (Density) -> EnterTransition = popEnter(DefaultPageMotion)
+
+	val SharedXAxisExitTransition: (Density) -> ExitTransition = exit(DefaultPageMotion)
+
+	val SharedXAxisPopExitTransition: (Density) -> ExitTransition = popExit(DefaultPageMotion)
+
+	private fun pageEnter(motion: PageMotion, density: Density, sign: Int): EnterTransition {
+		val easing = when (motion.enterEasing) {
+			PageEasing.Emphasized -> EmphasizedEasing
+			PageEasing.EmphasizedDecelerate -> EmphasizedDecelerateEasing
+		}
+		return fadeIn(
+			animationSpec = tween(durationMillis = motion.enterFadeMs, easing = easing)
 		) +
 			slideInHorizontally(
-				animationSpec = tween(durationMillis = DurationLong2, easing = EmphasizedEasing)
+				animationSpec = tween(durationMillis = motion.enterSlideMs, easing = easing)
 			) {
-				it / 2
+				val travel = motion.enterSlideDp?.let { dp -> with(density) { dp.dp.roundToPx() } }
+					?: (it / 2)
+				sign * travel
 			}
 	}
 
-	val SharedXAxisPopEnterTransition: (Density) -> EnterTransition = { _ ->
-		fadeIn(
-			animationSpec = tween(durationMillis = DurationLong1, easing = EmphasizedEasing)
-		) +
-			slideInHorizontally(
-				animationSpec = tween(durationMillis = DurationLong2, easing = EmphasizedEasing)
-			) {
-				-it / 2
-			}
-	}
-
-	val SharedXAxisExitTransition: (Density) -> ExitTransition = { density ->
+	private fun pageExit(motion: PageMotion, density: Density, sign: Int): ExitTransition =
 		fadeOut(
 			animationSpec = tween(
-				durationMillis = DurationMedium1,
+				durationMillis = motion.exitFadeMs,
 				easing = EmphasizedAccelerateEasing
 			)
 		) +
 			slideOutHorizontally(
 				animationSpec = tween(
-					durationMillis = DurationMedium2,
+					durationMillis = motion.exitSlideMs,
 					easing = EmphasizedAccelerateEasing
 				)
 			) {
-				with(density) { -30.dp.roundToPx() }
+				sign * with(density) { motion.exitSlideDp.dp.roundToPx() }
 			}
-	}
-
-	val SharedXAxisPopExitTransition: (Density) -> ExitTransition = { density ->
-		fadeOut(
-			animationSpec = tween(
-				durationMillis = DurationMedium1,
-				easing = EmphasizedAccelerateEasing
-			)
-		) +
-			slideOutHorizontally(
-				animationSpec = tween(
-					durationMillis = DurationMedium2,
-					easing = EmphasizedAccelerateEasing
-				)
-			) {
-				with(density) { 30.dp.roundToPx() }
-			}
-	}
 }

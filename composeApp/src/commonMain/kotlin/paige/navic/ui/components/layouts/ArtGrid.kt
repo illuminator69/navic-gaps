@@ -1,7 +1,5 @@
 package paige.navic.ui.components.layouts
 
-import androidx.compose.animation.BoundsTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +48,7 @@ import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.core.UiState
-import paige.navic.ui.util.EmphasizedDecelerateEasing
+import paige.navic.ui.util.rememberCoverBoundsTransform
 import paige.navic.ui.util.shimmerLoading
 
 @Composable
@@ -159,12 +157,7 @@ fun ArtGridItem(
 							.fillMaxWidth()
 							.sharedElement(
 								sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
-								boundsTransform = BoundsTransform { _, _ ->
-									tween(
-										durationMillis = 500,
-										easing = EmphasizedDecelerateEasing
-									)
-								},
+								boundsTransform = rememberCoverBoundsTransform(),
 								animatedVisibilityScope = LocalNavAnimatedContentScope.current
 							),
 						interactionSource = interactionSource

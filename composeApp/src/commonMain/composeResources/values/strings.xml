@@ -180,6 +180,7 @@
 	<string name="option_animation_style">Animation style</string>
 	<string name="option_animation_style_expressive">Expressive</string>
 	<string name="option_animation_style_standard">Standard</string>
+	<string name="option_animation_style_quick">Quick</string>
 	<string name="option_quality_low">Low</string>
 	<string name="option_quality_medium">Medium</string>
 	<string name="option_quality_high">High</string>

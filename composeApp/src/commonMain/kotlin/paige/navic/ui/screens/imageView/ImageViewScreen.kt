@@ -1,8 +1,6 @@
 package paige.navic.ui.screens.imageView
 
-import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -47,7 +45,7 @@ import paige.navic.di.LocalSharedTransitionScope
 import paige.navic.domain.manager.SessionManager
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.screens.imageView.components.ImageViewScreenTopBar
-import paige.navic.ui.util.EmphasizedDecelerateEasing
+import paige.navic.ui.util.rememberCoverBoundsTransform
 import paige.navic.ui.util.toImageBitmap
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -149,12 +147,7 @@ fun ImageViewScreen(
 								sharedContentState = this@with.rememberSharedContentState(
 									sharedTransitionKey
 								),
-								boundsTransform = BoundsTransform { _, _ ->
-									tween(
-										durationMillis = 500,
-										easing = EmphasizedDecelerateEasing
-									)
-								},
+								boundsTransform = rememberCoverBoundsTransform(),
 								animatedVisibilityScope = LocalNavAnimatedContentScope.current
 							),
 						crossfadeMs = 0,

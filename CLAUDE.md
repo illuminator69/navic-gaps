@@ -1785,6 +1785,22 @@ true of invented *album art*, and not of an icon naming the kind.
     (Discover's compass, Journey's route).
   - **A fork page that duplicates an upstream page becomes part of it**: My Listening is Stats' tabs
     (§5), and upstream's own entry, the home's Stats card, follows the history (Q-103).
+- **Page, cover and sheet timing follow the animation style (I-042).** `AnimationStyle` has a
+  third entry, **Quick**, appended last: the enum is stored by ordinal
+  (`BasePreferenceManager.getEnum`), so it is append-only and never reordered (`PageMotionTest`
+  locks the order). Every duration is a field of `PageMotion` (`ui/util/PageMotion.kt`, no Compose
+  imports): `DefaultPageMotion` is what Expressive and Standard have always used and must not
+  move; `QuickPageMotion` is a starting proposal the user tunes on the phone, one number per edit.
+  Components keep `MotionScheme.expressive()` under Quick (`Theme.kt`; `standard()` is the
+  one-line alternative).
+  Page pushes and pops: `NavDisplay`'s `transitionSpec` / `popTransitionSpec` in `App.kt` read
+  the style inside the lambda and build `Material3Transitions.enter` / `exit` / `popEnter` /
+  `popExit(motion)`; the old `SharedXAxis*` vals are the same specs at the default timing.
+  The cover's shared-element flight: the three sites (`ArtGrid`, the collection heading, the
+  image viewer) take `rememberCoverBoundsTransform()`, so the cover lands with the page. A new
+  shared-element cover goes through it too, never a hard-coded `tween(500)`.
+  Sheets: the shared `ModalBottomSheet` wrapper takes its show / hide times from it (so the
+  player and queue scenes too); only the times, the one-motion opening is unchanged.
 - **The `Form` family is gone and is not to come back.** Upstream deleted `Form`, `FormRow`,
   `FormTitle`, `FormButton`, `Dropdown`, `SettingSelectionRow`, `SettingSwitch` and
   `SettingSwitchRow` in `81e72ffa`; the fork carried them on for nineteen screens until I-039

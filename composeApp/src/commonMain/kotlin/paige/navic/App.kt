@@ -156,6 +156,7 @@ import paige.navic.ui.components.snackbars.NavicSnackBar
 import paige.navic.ui.screens.song.SongDetailSheet
 import paige.navic.ui.ColourArrivalEffects
 import paige.navic.ui.util.Material3Transitions
+import paige.navic.ui.util.pageMotionOf
 import paige.navic.ui.util.rememberLibraryTabBackground
 import paige.navic.ui.components.common.BrowsingAmbient
 import paige.navic.ui.components.common.RailAmbient
@@ -427,17 +428,20 @@ fun App() {
 								}
 							},
 							entryProvider = entries,
+							// navi-connect I-042: page timing follows the animation style (PageMotion.kt).
 							transitionSpec = {
-								Material3Transitions.SharedXAxisEnterTransition(
+								val motion = pageMotionOf(preferenceManager.animationStyle)
+								Material3Transitions.enter(motion)(
 									density
-								) togetherWith Material3Transitions.SharedXAxisExitTransition(
+								) togetherWith Material3Transitions.exit(motion)(
 									density
 								)
 							},
 							popTransitionSpec = {
-								Material3Transitions.SharedXAxisPopEnterTransition(
+								val motion = pageMotionOf(preferenceManager.animationStyle)
+								Material3Transitions.popEnter(motion)(
 									density
-								) togetherWith Material3Transitions.SharedXAxisPopExitTransition(
+								) togetherWith Material3Transitions.popExit(motion)(
 									density
 								)
 							},
