@@ -30,13 +30,18 @@ class OverviewButtonCountTest {
 	}
 
 	@Test
-	fun theLongestHomeIsThreeRowsWithNoFiller() {
+	fun theLongestHomeIsFiveRowsAndOneFiller() {
 		// I-039: Downloads joined and My Listening left (it is Stats' now, reached by the home's
-		// own card): six primaries at most, three rows of two, Random still there.
-		assertEquals(6, OVERVIEW_PRIMARY_MAX)
-		assertEquals(6, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
-		// A seventh would add a row with one filler rather than push Random off.
-		assertEquals(8, overviewButtonCount(7))
+		// own card). P1: Albums, Playlists and Artists joined, because the bar no longer holds
+		// them and nothing the old bar reached may become unreachable. Nine primaries at most: the
+		// count rounds up to ten, so one filler (Recently added) closes the last row, and Random is
+		// still there.
+		assertEquals(9, OVERVIEW_PRIMARY_MAX)
+		assertEquals(10, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
+		// A tenth would fill the row exactly; an eleventh adds a row with one filler rather than
+		// push Random off.
+		assertEquals(10, overviewButtonCount(10))
+		assertEquals(12, overviewButtonCount(11))
 	}
 
 	@Test

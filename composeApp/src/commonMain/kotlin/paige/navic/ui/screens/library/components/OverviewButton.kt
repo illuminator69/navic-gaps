@@ -32,11 +32,14 @@ import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.option_sort_newest
 import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_starred
+import navic.composeapp.generated.resources.title_albums
+import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_discover
 import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_downloads
 import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_library_matches
+import navic.composeapp.generated.resources.title_playlists
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -50,6 +53,7 @@ import paige.navic.icons.outlined.Sparkle
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.outlined.Album
+import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
@@ -152,20 +156,26 @@ internal fun libraryMatchesOffered(lbConfigured: Boolean, overridesSupported: Bo
 	lbConfigured
 
 /**
- * The longest the primary list gets: Discover, Mixed for You, Fresh, Library Matches, Downloads
- * and Random. [overviewButtonCount] never shows fewer than there are, so the home page has at
- * most this rounded up to even: six. (My Listening was a seventh until I-039 made it Stats', which
- * the home reaches by its own card at the foot of the page.)
+ * The longest the primary list gets: Discover, Mixed for You, Fresh, Library Matches, Downloads,
+ * Random, and (P1) Albums, Playlists and Artists. [overviewButtonCount] never shows fewer than
+ * there are, so the home page has at most this rounded up to even: ten, one filler closing the
+ * last row. (My Listening was a seventh until I-039 made it Stats', which the home reaches by its
+ * own card at the foot of the page.)
+ *
+ * Albums, Playlists and Artists are here because the bottom bar no longer holds them (P1: it is
+ * Home, Search, Library, New). They were its default tabs, and nothing the old bar reached may
+ * become unreachable. Songs, Genres and Radios were hidden by default and are not added.
  */
-internal const val OVERVIEW_PRIMARY_MAX = 6
+internal const val OVERVIEW_PRIMARY_MAX = 9
 
 /**
- * The home page's four buttons, or six where more of the fork's pages are offered.
+ * The home page's buttons: at least four, and up to ten where more of the fork's pages are offered.
  *
  * Discover, Mixed for You and Fresh live here instead of on the bottom bar. They
- * are gated on exactly what `rememberVisibleNavigationTabs()` gates the matching
- * tabs on — lb-bot for Fresh, lb-bot **or** AudioMuse for Discover (it also carries
- * mood search and the rediscovery set), and a *configured* hub for Mixed for You.
+ * are gated on exactly what `rememberVisibleNavigationTabs()` gated the matching
+ * tabs on (it is unused since P1, but its rules are these) — lb-bot for Fresh, lb-bot **or**
+ * AudioMuse for Discover (it also carries mood search and the rediscovery set), and a
+ * *configured* hub for Mixed for You.
  * Configured, not connected: this runs on every mount of the home page, and gating
  * on a value that flips during a round trip is the bug that made the Fresh tab
  * blink out.
@@ -177,7 +187,8 @@ internal const val OVERVIEW_PRIMARY_MAX = 6
  * configured" with two buttons has lost something it used to do.
  *
  * Library Matches and Downloads make five and six ([overviewButtonCount]): a row more, never
- * Random pushed off.
+ * Random pushed off. Albums, Playlists and Artists (P1) are always there, after Random: the
+ * old bar's default tabs, now one tap from the Library tab.
  */
 @Composable
 fun rememberOverviewButtons(): List<OverviewButtonSpec> {
@@ -257,6 +268,29 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 					Screen.AlbumList(true, DomainAlbumListType.Random)
 				)
 			)
+			// The three lists the old bar held by default. `nested = true` for the same reason as
+			// Discover above: pushed onto the library's stack, with a back arrow.
+			add(
+				OverviewButtonSpec(
+					Icons.Outlined.Album,
+					Res.string.title_albums,
+					Screen.AlbumList(nested = true)
+				)
+			)
+			add(
+				OverviewButtonSpec(
+					Icons.Outlined.PlaylistPlay,
+					Res.string.title_playlists,
+					Screen.PlaylistList(nested = true)
+				)
+			)
+			add(
+				OverviewButtonSpec(
+					Icons.Outlined.Artist,
+					Res.string.title_artists,
+					Screen.ArtistList(nested = true)
+				)
+			)
 		}
 		val filler = listOf(
 			OverviewButtonSpec(
@@ -275,7 +309,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 2..6 long and `filler` is 3, so there is always enough to fill the count.
+		// `primary` is 5..9 long and `filler` is 3, so there is always enough to fill the count.
 		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }
