@@ -423,8 +423,10 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   (`playerReleaseTarget`: a flick stops at half), down brings it back while it is up and swallows the
   rest so the player is never taken; a downward drag that starts at peek is left alone and reaches the
   sheet's post-scroll, which closes the player as before. The Save menu is NOT a popup window (a window
-  cannot blur the player): it is drawn in the player's layout over a Haze blur of it (`SaveMenu`,
-  `hazeSource` on the player's area), whatever the Expressive blur setting.
+  cannot blur the player): the pill GROWS into it (`SaveMorph.kt`, 2026-10-20), a shape drawn in the
+  player's layout over a Haze blur of it (`hazeSource` on the player's area, whatever the Expressive
+  blur setting), driven by one progress on `rememberFoldMotion`; the real pill steps aside while the
+  shape is anything but closed, and the edge and sheen grow in with it so closed it IS the pill.
 - **The remote mirror's base is cached by tracks and index; everything else is read per frame.**
   `HubManager.refreshMirror` rebuilds the resolved queue only when the track ids or the index change,
   and `pushRemoteProgress` lays the frame's play state, progress, shuffle and repeat over it. Shuffle
