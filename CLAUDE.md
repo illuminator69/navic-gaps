@@ -48,6 +48,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt`, `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
+| Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -218,7 +219,7 @@ that before suspecting the merge.
 - **`App.kt`** — every nav entry, the `Washed` wrapper on the root tabs, the composition locals,
   the `NavDisplay` entry decorators (rule 14), and `AlbumMatchHost()` under the theme (§5,
   I-022: drop it and "Fix album match" opens nothing, with no error), and `ColourArrivalEffects()`
-  beside it (§6 rule 8: drop it and cold starts go neutral again, with no error). Take the fork's whole and
+  beside it (§6 rule 8: drop it and cold starts go neutral again, with no error). P1 added two more fork lines the same way: `AvatarMenuDrawer { … }` around the page and the rail, and `NewSheetHost()` beside `AlbumMatchHost()` (§7: drop either and the avatar or the New button opens nothing, with no error). Take the fork's whole and
   re-apply upstream's structural changes by hand.
 - **`PreferenceManager.kt`**, **`SessionManager.kt`**, **`DownloadManager.kt`**,
   **`DbRepository.kt`**, **`SongDao.kt`** — union merges where both sides append. Usually textual
@@ -1710,7 +1711,7 @@ true of invented *album art*, and not of an icon naming the kind.
   scene being left at the first frame, and the window's white surface flashed. A detail opening
   beside its list stays inside one scene and keeps the scaffold's own pane motion. Upstream's
   `App.kt` has the same metadata, so re-check this after a merge that touches either.
-- **The bars share one tab helper.** Upstream writes the `NavbarTab.Id → NavigationTab` mapping out
+- **(Superseded by P1, below: the bars are `ShellTab` now and nothing reads `NavigationTab`.)** **The bars share one tab helper.** Upstream writes the `NavbarTab.Id → NavigationTab` mapping out
   longhand in **both** `BottomBar` and `SideBar`; this fork routes both through
   `rememberVisibleNavigationTabs()` / `toNavigationTab()` in `ui/navigation/NavigationTab.kt`. The
   lb-bot gate that hides the Fresh tab when lb-bot is unreachable lives there, and is exactly the
@@ -1740,6 +1741,36 @@ true of invented *album art*, and not of an icon naming the kind.
   which is `OVERVIEW_PRIMARY_MAX`; a seventh would have to raise it and the count with it. My
   Listening was a button until I-039 made it Stats', which the home reaches by upstream's own
   card at its foot.
+- **The shell (P1): a fixed bar of four, one avatar menu, one New sheet.** The bar and the tablet's rail are
+  Home, Search, Library and New (`ShellTab`), and a tap is `onShellTabTapped` for both (the selected tab scrolls to
+  top, another tab clears the stack to its page, New opens a sheet and never touches the stack or the selection).
+  **The user-arranged tab list is gone from the UI**: `NavigationTab`, `NavbarConfig` (and its persisted key),
+  `NavtabsViewModel`, `NavtabsDialog` and `rememberVisibleNavigationTabs` stay in the tree, **unread**, so the diff
+  against upstream stays small; the Settings editor is removed. Albums, Playlists and Artists are three always-present
+  buttons on the library home (`rememberOverviewButtons`, `OVERVIEW_PRIMARY_MAX` 9): what the old bar held by default
+  must stay one tap from the Library tab. The bars no longer call `lbBot.ensureAvailability()` (the old tab helper did,
+  as a side effect); Home and the New sheet do.
+  The New sheet (`NewSheetHost()`) and the avatar menu (`AvatarMenuDrawer`) are composed ONCE in `App.kt` and opened
+  through `ShellController`: **fork lines whose loss is silent** (§2 rule 3's fourth kind: the avatar and New simply open
+  nothing). Two things the drawer needed that the plan did not say: `gesturesEnabled = open` (Material gates the scrim's
+  tap on it; closed, there is still no edge swipe, which belongs to the system back gesture) and its own
+  `NavigationBackHandler` while open (this drawer does not intercept Back: one press left the app). The avatar is the
+  `navigationIcon` of `RootTopBar` (so every root page has it; the Search page's own header places `AvatarButton` itself)
+  and one 48 dp node carries its click, role and label; an `IconButton` clipped its dot, and `minimumInteractiveComponentSize`
+  split the click from the label. `AccountSheet` is gone; the sleep timer it held is in the song sheet (Now Playing,
+  More). A new root page is behind `Washed`, in `WashedBrowsingScreens`, and has a rule-14 row (§2).
+  The dot counts the device's own ledger (`needsAttentionCount`: settled rows that failed or wait on a pick); the
+  menu's Autoplay switch goes through `RadioManager.setAutoplayOn` (the manager keeps its own flow: writing the
+  preference alone would not reach the driver).
+- **Arrival: `rememberArrivalGate()` per page visit, `Modifier.arrive(gate, key, index)` per tile (P1).** The gate is
+  saved with the entry (so Back does not replay it; a tab switch clears the stack and starts a new visit) and a tile is
+  its key, never its position. Rise 8 dp and fade over 240 ms, the first five 30 ms apart, the rest together at 150 ms;
+  the stagger is stretched by `animator_duration_scale` like the durations. **Reduced motion is the system animation
+  scale and needs no flag** (measured: at scale 0 no in-between frame and no blank frame; the tile reads the scale from
+  `rememberCoroutineScope()` in composition so it never starts invisible). `Fold` rolls a block's height out (300 ms,
+  450 tall); `CoverArt`/`RemoteCoverArt`/`ArtGridItem` take `placeholderName` for a tinted box the cover fades in over.
+  None of it follows `AnimationStyle`. A shelf calls `gate.claimAll` after its first frame so a tile scrolled in later
+  does not arrive on its own.
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way
