@@ -140,6 +140,7 @@ import paige.navic.ui.screens.queue.components.QueueScreenItem
 import paige.navic.ui.screens.queue.components.RelatedSongItem
 import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
 import paige.navic.ui.screens.queue.viewmodels.RelatedSongsViewModel
+import paige.navic.ui.screens.nowPlaying.staged.QueueDetent
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.draggableItemsIndexed
@@ -148,9 +149,29 @@ import paige.navic.ui.util.rememberDraggableListState
 /** A queue slot with a stable id so reorders animate (see [QueueScreen]). */
 private data class QueueEntry(val uid: Long, val song: DomainSong)
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * Who hosts the queue's content (P2). [Sheet]: the `Screen.Queue` bottom sheet, opened from the
+ * player's toolbar (landscape, wide windows). [Layer]: the staged queue inside the player on a
+ * portrait phone, which is not a back-stack entry; [detent] is where it rests and [onNavigateOut]
+ * leaves the player for a page.
+ */
+sealed interface QueueLayout {
+	data object Sheet : QueueLayout
+
+	data class Layer(
+		val detent: () -> QueueDetent,
+		val onNavigateOut: (Screen) -> Unit
+	) : QueueLayout
+}
+
 @Composable
 fun QueueScreen() {
+	QueueContent(QueueLayout.Sheet)
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun QueueContent(layout: QueueLayout) {
 	val viewModel = koinViewModel<QueueViewModel>()
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
@@ -170,29 +191,24 @@ fun QueueScreen() {
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 	var queueShareId by remember { mutableStateOf<String?>(null) }
 	var queuePlaylistSong by remember { mutableStateOf<DomainSong?>(null) }
-	// The whole queue as a new playlist (upstream's create dialog, given the songs). A preview
-	// (`ext:`) or an internet-radio entry is no Navidrome song, so it is left out.
-	var savingQueue by remember { mutableStateOf(false) }
-	// "Save what's playing as a mix": the autoplay settings in force are a recipe for the queue
-	// they fill (`RadioManager.currentRecipe`). Here, beside that queue, and nowhere else (you,
-	// 2026-10-16); the recipe is read when it is asked for.
-	var mixToSave by remember { mutableStateOf<Mix?>(null) }
-	val hubConnected by hubManager.connected.collectAsState()
-	val queueSongsToSave = remember(queue) {
-		queue.filterNot { PreviewManager.isPreviewId(it.id) || it.id.startsWith("radio_") }
-			.toImmutableList()
-	}
 
 	/**
 	 * Navigate out of the queue.
 	 *
-	 * The queue is a bottom sheet, and so is the player it is usually opened from — leaving either
-	 * on the stack would park it over the destination. Both are dropped before the push.
+	 * The queue sheet is a bottom sheet, and so is the player it is usually opened from — leaving
+	 * either on the stack would park it over the destination. Both are dropped before the push.
+	 * The layer is not an entry: the player it lives in leaves through the layout.
 	 */
 	fun leaveQueueFor(screen: Screen) {
-		backStack.remove(Screen.Queue)
-		backStack.remove(Screen.NowPlaying)
-		backStack.add(screen)
+		when (layout) {
+			QueueLayout.Sheet -> {
+				backStack.remove(Screen.Queue)
+				backStack.remove(Screen.NowPlaying)
+				backStack.add(screen)
+			}
+
+			is QueueLayout.Layer -> layout.onNavigateOut(screen)
+		}
 	}
 
 	// On-screen mirror of the queue, reordered SYNCHRONOUSLY during a drag for
@@ -475,19 +491,7 @@ fun QueueScreen() {
 									)
 								}
 								Row(verticalAlignment = Alignment.CenterVertically) {
-									// One save control: straight to the playlist dialog, or, while
-									// autoplay steers the queue and the hub that keeps mixes is
-									// connected, a menu of the two saves.
-									val mixOffered = hubConnected &&
-										radioManager.currentRecipe(playerState.currentSong) != null
-									QueueSaveButton(
-										playlistEnabled = queueSongsToSave.isNotEmpty(),
-										mixOffered = mixOffered,
-										onSaveAsPlaylist = { savingQueue = true },
-										onSaveAsMix = {
-											mixToSave = radioManager.currentRecipe(playerState.currentSong)
-										}
-									)
+									QueueSaveControl()
 									FilledTonalButton(
 										onClick = {
 											haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -666,6 +670,43 @@ fun QueueScreen() {
 		)
 	}
 
+}
+
+/**
+ * The queue's one save control with its dialogs: straight to the playlist dialog, or, while
+ * autoplay steers the queue and the hub that keeps mixes is connected, a menu of the two saves.
+ * Self-contained, so the staged player's action row and the queue's header both carry it (P2).
+ */
+@Composable
+internal fun QueueSaveControl() {
+	val player = koinInject<MediaPlayerViewModel>()
+	val hubManager = koinInject<HubManager>()
+	val radioManager = koinInject<RadioManager>()
+	val playerState by player.steadyState.collectAsStateWithLifecycle()
+	val hubConnected by hubManager.connected.collectAsState()
+	val queue = playerState.queue
+	// The whole queue as a new playlist (upstream's create dialog, given the songs). A preview
+	// (`ext:`) or an internet-radio entry is no Navidrome song, so it is left out.
+	var savingQueue by remember { mutableStateOf(false) }
+	// "Save what's playing as a mix": the autoplay settings in force are a recipe for the queue
+	// they fill (`RadioManager.currentRecipe`). Here, beside that queue, and nowhere else (you,
+	// 2026-10-16); the recipe is read when it is asked for.
+	var mixToSave by remember { mutableStateOf<Mix?>(null) }
+	val queueSongsToSave = remember(queue) {
+		queue.filterNot { PreviewManager.isPreviewId(it.id) || it.id.startsWith("radio_") }
+			.toImmutableList()
+	}
+	val mixOffered = hubConnected &&
+		radioManager.currentRecipe(playerState.currentSong) != null
+	QueueSaveButton(
+		playlistEnabled = queueSongsToSave.isNotEmpty(),
+		mixOffered = mixOffered,
+		onSaveAsPlaylist = { savingQueue = true },
+		onSaveAsMix = {
+			mixToSave = radioManager.currentRecipe(playerState.currentSong)
+		}
+	)
+
 	mixToSave?.let { recipe ->
 		MixNameDialog(
 			title = stringResource(Res.string.title_save_mix),
@@ -772,7 +813,7 @@ private const val DOWNLOAD_NEXT_COUNT = 10
  * beside it does.
  */
 @Composable
-private fun QueueSaveButton(
+internal fun QueueSaveButton(
 	playlistEnabled: Boolean,
 	mixOffered: Boolean,
 	onSaveAsPlaylist: () -> Unit,
