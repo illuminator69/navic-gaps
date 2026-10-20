@@ -146,6 +146,13 @@ fun LibraryScreen() {
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val recentsState = rememberLazyListState()
+	// A chip change shows the bars again: the bottom bar collapses on scroll, and a list too short
+	// to scroll (an empty chip) could never bring it back (seen on the AVD).
+	val scrollManager = LocalBottomBarScrollManager.current
+	LaunchedEffect(chip) {
+		scrollManager.isTriggered = false
+		scrollBehavior.state.heightOffset = 0f
+	}
 	val songsState = rememberLazyListState()
 	// The tab tapped while on it scrolls the list to the top (each body listens for that), and a
 	// second tap soon after clears the chip.
@@ -257,12 +264,13 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 		Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(start = 16.dp, end = 4.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
-		Icon(Icons.Outlined.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+		// The board's glyph for Recents' order; a chip has its own sort button at the end instead.
+		if (chip == null) Icon(Icons.Outlined.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
 		Text(
 			if (chip == null) stringResource(Res.string.library_recents) else stringResource(chip.label),
 			style = MaterialTheme.typography.titleSmall,
 			fontWeight = FontWeight.Bold,
-			modifier = Modifier.padding(start = 8.dp)
+			modifier = Modifier.padding(start = if (chip == null) 8.dp else 0.dp)
 		)
 		Spacer(Modifier.weight(1f))
 		when (chip) {
