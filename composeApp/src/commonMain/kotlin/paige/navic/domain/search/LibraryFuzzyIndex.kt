@@ -50,9 +50,16 @@ class LibraryFuzzyIndex(
 	suspend fun search(query: String): LibraryHits = withContext(Dispatchers.Default) {
 		if (query.isBlank()) return@withContext LibraryHits.None
 		val index = current()
+		val scoring = TimeSource.Monotonic.markNow()
 		val artistIds = index.artists.search(query, ARTIST_LIMIT)
 		val albumIds = index.albums.search(query, ALBUM_LIMIT)
 		val songIds = index.songs.search(query, SONG_LIMIT)
+		// The cost over every name, for the results note; never the query itself.
+		Logger.i(
+			"LibraryFuzzyIndex",
+			"scored ${index.artists.size + index.albums.size + index.songs.size} names in ${scoring.elapsedNow()}: " +
+				"${artistIds.size}/${albumIds.size}/${songIds.size}"
+		)
 		// Room answers IN (…) in its own order: put the hits back in score order.
 		val artists = if (artistIds.isEmpty()) emptyList() else {
 			val byId = artistDao.getArtistsByIds(artistIds).associateBy { it.artistId }

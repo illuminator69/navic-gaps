@@ -58,4 +58,15 @@ class MusicBrainzQueryTest {
 	fun collapsesWhitespace() {
 		assertEquals("pale~1 kiosk~1", mbFuzzyQuery("  pale   kiosk "))
 	}
+
+	@Test
+	fun albumsKeepTheTypedWordsBesideTheFuzzyOnes() {
+		assertEquals("(in rainbows) OR (in rainbows~1)", mbAlbumQuery("in rainbows"))
+		assertEquals("(AC\\/DC live) OR (AC\\/DC live~1)", mbAlbumQuery("AC/DC live"))
+		// nothing to fuzz: one form
+		assertEquals("abc", mbAlbumQuery("abc"))
+		assertEquals("米津玄師", mbAlbumQuery("米津玄師"))
+		assertEquals("", mbAlbumQuery("  "))
+		assertEquals("releasegroup:\"x\"", mbAlbumQuery("releasegroup:\"x\""))
+	}
 }

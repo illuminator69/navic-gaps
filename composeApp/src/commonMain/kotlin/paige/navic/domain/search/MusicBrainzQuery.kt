@@ -10,7 +10,23 @@ package paige.navic.domain.search
 
 private const val LUCENE_SPECIALS = "+-&|!(){}[]^\"~*?:\\/"
 
-fun mbFuzzyQuery(raw: String): String {
+fun mbFuzzyQuery(raw: String): String = luceneWords(raw, fuzzy = true)
+
+/**
+ * The album lookup's form: the words as typed OR their fuzzy form, one request still. Measured live on
+ * 2026-10-20 (RESULTS-find): fuzzy terms alone rescued typos ("in rainbos", "pablo honny") but pushed
+ * exact titles down ("in rainbows" #1 to #2, "blue weekend" #1 to #5, past the four album rows All
+ * shows); with the typed words beside them the exact title stays first and the typos are still found.
+ * Artists did not need it: the fuzzy form ranked the right artist first on every probe.
+ */
+fun mbAlbumQuery(raw: String): String {
+	val fuzzy = mbFuzzyQuery(raw)
+	if (raw.any { it == '"' || it == ':' || it == '~' }) return fuzzy
+	val exact = luceneWords(raw, fuzzy = false)
+	return if (exact == fuzzy) fuzzy else "($exact) OR ($fuzzy)"
+}
+
+private fun luceneWords(raw: String, fuzzy: Boolean): String {
 	if (raw.isBlank()) return ""
 	if (raw.any { it == '"' || it == ':' || it == '~' }) return raw
 	return raw.trim().split(Regex("\\s+")).joinToString(" ") { word ->
@@ -23,7 +39,7 @@ fun mbFuzzyQuery(raw: String): String {
 					append(c)
 				}
 			}
-			word.length >= 4 && word.all(::isLatinLetterOrDigit) -> "$word~1"
+			fuzzy && word.length >= 4 && word.all(::isLatinLetterOrDigit) -> "$word~1"
 			else -> word
 		}
 	}

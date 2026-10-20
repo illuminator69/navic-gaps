@@ -22,6 +22,7 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.search.mbAlbumQuery
 import paige.navic.domain.search.mbFuzzyQuery
 import paige.navic.ui.screens.search.LibraryHits
 import paige.navic.ui.screens.search.Lookup
@@ -128,7 +129,7 @@ class SearchViewModel(
 		}
 		if (ui.value.query != query) return
 		if (ui.value.albums is Lookup.Looking) {
-			val result = when (val r = lbBotManager.albumLookupResult(mbFuzzyQuery(query.trim()))) {
+			val result = when (val r = lbBotManager.albumLookupResult(mbAlbumQuery(query.trim()))) {
 				is LbBotManager.LbResult.Ok -> Lookup.Done(r.value)
 				is LbBotManager.LbResult.Failed -> Lookup.Failed
 			}
