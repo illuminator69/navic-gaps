@@ -396,10 +396,11 @@ fun DiscoverScreen(nested: Boolean = false) {
 					}
 				}
 				val libraryRowsShown = DISCOVER_ROWS.any { row ->
+					// A carousel still loading shimmers, so its heading is already due.
 					row.id in state.supported && when (row.id) {
-						DiscoverRowId.MIXES -> state.mixes.isNotEmpty()
-						DiscoverRowId.LISTENBRAINZ -> state.listenBrainz.isNotEmpty()
-						DiscoverRowId.REDISCOVERY -> state.rediscovery.isNotEmpty()
+						DiscoverRowId.MIXES -> state.mixes.isNotEmpty() || state.loading
+						DiscoverRowId.LISTENBRAINZ -> state.listenBrainz.isNotEmpty() || state.loading
+						DiscoverRowId.REDISCOVERY -> state.rediscovery.isNotEmpty() || state.loading
 						DiscoverRowId.MOOD -> true
 						else -> false
 					}

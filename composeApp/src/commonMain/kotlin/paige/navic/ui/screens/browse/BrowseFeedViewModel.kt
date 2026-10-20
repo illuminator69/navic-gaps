@@ -59,10 +59,19 @@ class BrowseFeedViewModel(
 
 	private var feedJob: Job? = null
 
+	private var genresJob: Job? = null
+
 	init {
-		viewModelScope.launch {
+		loadGenres()
+		load()
+	}
+
+	/** The chips. Asked again by Retry when the first read brought none (lb-bot's Deezer timed out). */
+	private fun loadGenres(policy: LbCachePolicy = LbCachePolicy.NORMAL) {
+		if (genresJob?.isActive == true) return
+		genresJob = viewModelScope.launch {
 			if (lbBotManager.supportsDeezerGenres) {
-				lbBotManager.deezerGenres().collect { answer ->
+				lbBotManager.deezerGenres(policy).collect { answer ->
 					val genres = answer?.genres.orEmpty()
 					if (genres.isEmpty()) return@collect
 					// A stored genre this hub's Deezer no longer lists would silently show the global
@@ -74,7 +83,6 @@ class BrowseFeedViewModel(
 				}
 			}
 		}
-		load()
 	}
 
 	fun setGenre(id: String) {
@@ -84,7 +92,10 @@ class BrowseFeedViewModel(
 		load()
 	}
 
-	fun retry() = load(LbCachePolicy.REFRESH)
+	fun retry() {
+		if (_state.value.genres.isEmpty()) loadGenres(LbCachePolicy.REFRESH)
+		load(LbCachePolicy.REFRESH)
+	}
 
 	private fun load(policy: LbCachePolicy = LbCachePolicy.NORMAL) {
 		val genre = _state.value.genre

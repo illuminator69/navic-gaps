@@ -273,11 +273,19 @@ fun ExternalArtistRow(
 		onClick = onClick,
 		shapes = segmentedShapes(index, count),
 		leadingContent = {
-			LbArtImage(
-				art = image?.let { LbArt.Remote(it) } ?: LbArt.Placeholder(isArtist = true),
-				modifier = Modifier.size(ArtSize),
-				shape = CircleShape
-			)
+			val url = image
+			if (url != null) {
+				LbArtImage(art = LbArt.Remote(url), modifier = Modifier.size(ArtSize), shape = CircleShape)
+			} else {
+				// No picture lb-bot holds: the name's tint, as every placeholder is (P1), not an empty box.
+				CoverArt(
+					coverArtId = null,
+					modifier = Modifier.size(ArtSize),
+					isArtist = true,
+					shape = CircleShape,
+					placeholderName = artist.candidate.name
+				)
+			}
 		},
 		supportingContent = {
 			Column {

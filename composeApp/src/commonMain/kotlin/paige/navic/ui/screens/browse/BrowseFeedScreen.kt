@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.browse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -113,6 +114,8 @@ fun BrowseFeedScreen(kind: BrowseKind) {
 		LazyVerticalGrid(
 			modifier = Modifier.fillMaxSize(),
 			columns = GridCells.Adaptive(150.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
+			verticalArrangement = Arrangement.spacedBy(16.dp),
 			contentPadding = PaddingValues(
 				start = 8.dp,
 				end = 8.dp,
