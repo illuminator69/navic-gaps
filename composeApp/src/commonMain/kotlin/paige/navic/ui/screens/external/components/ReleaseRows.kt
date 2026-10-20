@@ -129,7 +129,9 @@ private fun ReleaseRow(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = preferenceManager.coverArtShape.decreasedShape
-	val tracks = entry.album?.songCount?.takeIf { it > 0 } ?: entry.totalTracks?.takeIf { it > 0 }
+	// The release's own length where lb-bot knows it (a partly-owned album: "12 tracks", "11
+	// missing"), else the library album's; Room's count of a part-owned album is what it holds.
+	val tracks = entry.totalTracks?.takeIf { it > 0 } ?: entry.album?.songCount?.takeIf { it > 0 }
 	SegmentedListItem(
 		modifier = modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
 		onClick = onClick,

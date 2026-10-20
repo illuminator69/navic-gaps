@@ -713,6 +713,12 @@ private fun AlbumGapBanner(missing: Int, onOpen: () -> Unit) {
 		modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
 		onClick = onOpen,
 		shapes = segmentedShapes(0, 1),
+		// The page's tonal role, so the row sits in the washed page like its buttons do.
+		colors = paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedColors(
+			containerColor = MaterialTheme.colorScheme.secondaryContainer,
+			contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+			leadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+		),
 		leadingContent = {
 			Icon(Icons.Outlined.Incomplete, contentDescription = null)
 		},

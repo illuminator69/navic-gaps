@@ -32,6 +32,7 @@ import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.Pill
 import paige.navic.ui.components.common.PillTone
 import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.components.common.StatePill
 import paige.navic.ui.components.sheets.SourceFileList
@@ -67,6 +68,15 @@ fun SourceCards(
 				onClick = { onSelect(index) },
 				enabled = enabled,
 				shapes = segmentedShapes(index = index, count = sources.size),
+				// Cards a step lighter than the box; the chosen one in the selection colour, so it is
+				// told by more than its radio.
+				colors = SegmentedListItemDefaults.segmentedColors(
+					containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+					disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+					disabledContentColor = MaterialTheme.colorScheme.onSurface,
+					selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+					selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+				),
 				leadingContent = {
 					RadioButton(selected = isSelected, onClick = null, enabled = enabled)
 				}

@@ -103,6 +103,8 @@ import paige.navic.ui.screens.external.components.RequestBox
 import paige.navic.icons.outlined.Favorite
 import paige.navic.icons.filled.Favorite
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.external.viewmodels.ArtistTarget
 import paige.navic.ui.screens.external.Support
@@ -149,6 +151,7 @@ fun ExternalAlbumScreen(
 	val previewBusy by viewModel.previewBusy.collectAsStateWithLifecycle()
 	val previewMissing by viewModel.previewMissing.collectAsStateWithLifecycle()
 	val lbBot = koinInject<LbBotManager>()
+	val scope = rememberCoroutineScope()
 	// The fills this device knows of; the box reads its own row out of them by release-group.
 	val ledger by lbBot.ledger.collectAsState()
 
@@ -299,7 +302,16 @@ fun ExternalAlbumScreen(
 					onRequest = viewModel::request,
 					onQuality = viewModel::setQuality,
 					onAction = viewModel::fillAction,
-					onOpenAlbum = { albumId -> backStack.add(Screen.CollectionDetail(albumId, "artist")) }
+					onOpenAlbum = { albumId -> backStack.add(Screen.CollectionDetail(albumId, "artist")) },
+					// A stage of another height (a tall source list giving way to a short request)
+					// left the box above the view with the page on the tracklist (seen on the AVD).
+					// When the box's top is scrolled off, it is brought back as it changes.
+					onStageKindChanged = {
+						val first = listState.firstVisibleItemIndex
+						if (first > REQUEST_ITEM || (first == REQUEST_ITEM && listState.firstVisibleItemScrollOffset > 0)) {
+							scope.launch { listState.animateScrollToItem(REQUEST_ITEM) }
+						}
+					}
 				)
 			}
 			// lb-bot's About, the only one an unowned album can have. No answer is no row and
@@ -553,3 +565,6 @@ private fun ExternalTrackRow(
 		} else null
 	)
 }
+
+/** The request box's place in the page's list: after the heading and its buttons. */
+private const val REQUEST_ITEM = 2

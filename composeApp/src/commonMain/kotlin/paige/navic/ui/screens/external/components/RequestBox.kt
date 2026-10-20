@@ -94,6 +94,7 @@ import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.Pill
 import paige.navic.ui.components.common.PillTone
 import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.components.common.StatePill
 import paige.navic.ui.components.common.resolve
@@ -104,6 +105,7 @@ import paige.navic.ui.components.sheets.SheetLabel
 import paige.navic.ui.screens.external.RequestInput
 import paige.navic.ui.screens.external.RequestStage
 import paige.navic.ui.screens.external.RequestStep
+import paige.navic.ui.screens.external.SourceSearch
 import paige.navic.ui.screens.external.StepStatus
 import paige.navic.ui.screens.external.Support
 import paige.navic.ui.screens.external.requestActions
@@ -156,7 +158,9 @@ fun RequestBox(
 	onQuality: (String) -> Unit,
 	onAction: (FillButton) -> Unit,
 	onOpenAlbum: (String) -> Unit,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	/** The box moved to another kind of stage (a different height): the page keeps it in view. */
+	onStageKindChanged: () -> Unit = {}
 ) {
 	// A one-second clock for the countdowns and "last checked Ns ago", as the Downloads rows have,
 	// and only while there is a ledger row to count for. Read only here, so a tick recomposes the
@@ -183,6 +187,21 @@ fun RequestBox(
 		)
 	)
 	if (stage == RequestStage.Absent) return
+	// A request on its way keeps the cards it was made from on screen, disabled: swapping them
+	// for one line and back moved the page out from under the finger that tapped (seen on the
+	// AVD: the list jumped to the top on "Request this album").
+	val search = request.search
+	val shown = if (stage == RequestStage.Starting && search is SourceSearch.Found &&
+		search.editionMbid == request.editionMbid && search.sources.isNotEmpty()
+	) RequestStage.Choosing(search.sources, null) else stage
+	val kind = shown::class
+	var lastKind by remember { mutableStateOf(kind) }
+	LaunchedEffect(kind) {
+		if (kind != lastKind) {
+			lastKind = kind
+			onStageKindChanged()
+		}
+	}
 
 	val motion = rememberFoldMotion(tall = true)
 	Column(
@@ -198,7 +217,7 @@ fun RequestBox(
 	) {
 		// Keyed by the stage's KIND: a progress tick is the same stage and must not cross-fade.
 		AnimatedContent(
-			targetState = stage,
+			targetState = shown,
 			contentKey = { it::class },
 			transitionSpec = {
 				fadeIn(motion.effects()) togetherWith fadeOut(motion.effects()) using
@@ -279,6 +298,8 @@ private fun StageContent(
 				color = MaterialTheme.colorScheme.error
 			)
 			LbErrorLine(stage.error)
+			// Another pressing may be worth searching instead; the choice stays where it was.
+			EditionHeader(request, detail, onSelectEdition)
 			OutlinedButton(onClick = onFindSources, modifier = Modifier.fillMaxWidth()) {
 				Text(stringResource(Res.string.action_search_again))
 			}
@@ -311,12 +332,16 @@ private fun StageContent(
 			val chosen = request.selected?.let { stage.sources.getOrNull(it) }
 			// Disabled until a card is chosen: an unverified folder is never one tap away, because
 			// a tap is consent and a default is not.
-			Button(
-				onClick = { chosen?.let { onRequest(it, false) } },
-				enabled = chosen != null && !request.starting,
-				modifier = Modifier.fillMaxWidth()
-			) {
-				Text(stringResource(Res.string.request_this_album))
+			if (request.starting) {
+				BusyLine(stringResource(Res.string.request_starting))
+			} else {
+				Button(
+					onClick = { chosen?.let { onRequest(it, false) } },
+					enabled = chosen != null,
+					modifier = Modifier.fillMaxWidth()
+				) {
+					Text(stringResource(Res.string.request_this_album))
+				}
 			}
 		}
 
@@ -535,6 +560,11 @@ private fun RecoveryContent(
 					onClick = { onAction(button) },
 					enabled = !request.acting,
 					shapes = segmentedShapes(index = index, count = actions.size),
+					// A step lighter than the box, so the rows read as rows inside it.
+					colors = SegmentedListItemDefaults.segmentedColors(
+						containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+						disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+					),
 					supportingContent = if (button == FillButton.RETRY && peer.isNotBlank()) {
 						{ Text(stringResource(Res.string.request_retry_from, peer)) }
 					} else null

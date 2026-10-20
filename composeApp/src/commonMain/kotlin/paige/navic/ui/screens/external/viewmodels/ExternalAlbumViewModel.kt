@@ -379,7 +379,17 @@ class ExternalAlbumViewModel(
 	 */
 	fun selectEdition(variantIndex: Int, editionMbid: String) {
 		if (editionMbid.isBlank() || editionMbid == _state.value.request.editionMbid) return
-		updateRequest { it.copy(variantIndex = variantIndex, editionMbid = editionMbid, selected = null, error = null, refused = false) }
+		updateRequest {
+			val kept = it.search as? SourceSearch.Found
+			it.copy(
+				variantIndex = variantIndex,
+				editionMbid = editionMbid,
+				// Back on the edition the kept answer is for: its preselection with it.
+				selected = kept?.takeIf { found -> found.editionMbid == editionMbid }?.let { found -> preselectedSource(found.sources) },
+				error = null,
+				refused = false
+			)
+		}
 		viewModelScope.launch {
 			val tracks = followTracklist(editionMbid)
 			if (_state.value.request.editionMbid == editionMbid) {
