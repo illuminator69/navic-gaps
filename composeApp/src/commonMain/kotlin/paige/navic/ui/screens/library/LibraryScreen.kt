@@ -61,6 +61,7 @@ import paige.navic.di.LocalSnackBarState
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.ShellController
+import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -299,6 +300,7 @@ private fun RecentsBody(
 	val playlists = playlistListViewModel(false)
 	val scope = rememberCoroutineScope()
 
+	val syncState by koinInject<SyncManager>().syncState.collectAsStateWithLifecycle()
 	var sheet by remember { mutableStateOf<Any?>(null) }
 	var renaming by remember { mutableStateOf<Mix?>(null) }
 	var refreshing by remember { mutableStateOf(false) }
@@ -320,6 +322,7 @@ private fun RecentsBody(
 			contentPadding = contentPadding,
 			listState = listState,
 			busyKey = busyMix?.let { "mx:$it" },
+			syncFailed = syncState.lastSyncFailed && !syncState.isSyncing,
 			scrollConnection = connection,
 			onOpen = { entry ->
 				when (val source = entry.source) {

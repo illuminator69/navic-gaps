@@ -23,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.banner_sync_failed_cached
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.library_kind_album
 import navic.composeapp.generated.resources.library_kind_album_bare
@@ -36,6 +37,8 @@ import navic.composeapp.generated.resources.library_recents_empty_hint
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.data.database.entities.SavedQueueEntity
+import paige.navic.di.LocalNavStack
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.Mix
@@ -67,6 +70,8 @@ fun LibraryRecents(
 	contentPadding: PaddingValues,
 	listState: LazyListState,
 	busyKey: String?,
+	/** The last library sync failed: what is listed is the cached copy (as the old home said). */
+	syncFailed: Boolean,
 	onOpen: (LibraryEntry) -> Unit,
 	onMenu: (LibraryEntry) -> Unit,
 	modifier: Modifier = Modifier,
@@ -87,6 +92,20 @@ fun LibraryRecents(
 		verticalArrangement = if (rows.isEmpty()) Arrangement.Center
 		else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 	) {
+		if (syncFailed) {
+			item(key = "sync-failed") {
+				// An error row as Data & storage's danger zone draws them, leading to the sync's own
+				// status and its manual trigger there.
+				val backStack = LocalNavStack.current
+				SegmentedListItem(
+					onClick = { backStack.add(Screen.Settings.DataStorage) },
+					shapes = segmentedShapes(index = 0, count = 1),
+					colors = SegmentedListItemDefaults.segmentedErrorColors(),
+					modifier = Modifier.padding(bottom = 8.dp),
+					content = { Text(stringResource(Res.string.banner_sync_failed_cached)) }
+				)
+			}
+		}
 		if (rows.isEmpty() || rows.all { it.kind == EntryKind.Liked }) {
 			itemsIndexed(rows, key = { _, it -> it.key }) { index, entry ->
 				RecentRow(entry, segmentedShapes(index, rows.size), busy = false, onOpen, onMenu,

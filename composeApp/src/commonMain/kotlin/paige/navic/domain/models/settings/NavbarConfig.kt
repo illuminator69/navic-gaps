@@ -28,7 +28,7 @@ data class NavbarConfig(
 				NavbarTab(NavbarTab.Id.RADIOS, false),
 				NavbarTab(NavbarTab.Id.STATISTICS, false),
 				// All three hidden by default now: they are the library home's top
-				// buttons instead (`rememberOverviewButtons`), which is where they
+				// buttons instead (since P5, chips: `LibraryScreen`), which is where they
 				// stopped competing with Library/Albums/Playlists/Artists for a
 				// five-slot bar. The ids stay defined and stay listed in the reorder
 				// dialog, so any of them can be put back — removing them would make
