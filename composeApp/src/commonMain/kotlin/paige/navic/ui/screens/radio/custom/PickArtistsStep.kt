@@ -72,6 +72,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Search
 import paige.navic.domain.models.DomainArtist
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.LocalCoverAmbientBottom
 import paige.navic.ui.util.arrive
 import paige.navic.ui.util.rememberArrivalGate
 
@@ -179,9 +180,11 @@ internal fun PickArtistsStep(
 					.align(Alignment.BottomCenter)
 					.fillMaxWidth()
 					.background(
+						// The page's own bottom colour (the wash's, as the bottom bar's scrim uses), so the
+						// list passes under the button into the page rather than under a slab.
 						Brush.verticalGradient(
 							0f to Color.Transparent,
-							0.4f to MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+							0.3f to (LocalCoverAmbientBottom.current ?: MaterialTheme.colorScheme.surface)
 						)
 					)
 					.navigationBarsPadding()

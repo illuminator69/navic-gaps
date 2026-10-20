@@ -84,6 +84,7 @@ import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.LocalCoverAmbientBottom
 
 /**
  * Tune (boards RadioTune, RadioTuneUpdating, RadioEmpty): the picked artists with a "+" back to
@@ -178,9 +179,11 @@ internal fun TuneStep(
 					.align(Alignment.BottomCenter)
 					.fillMaxWidth()
 					.background(
+						// The page's own bottom colour (the wash's, as the bottom bar's scrim uses), so the
+						// list passes under the button into the page rather than under a slab.
 						Brush.verticalGradient(
 							0f to Color.Transparent,
-							0.4f to MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+							0.3f to (LocalCoverAmbientBottom.current ?: MaterialTheme.colorScheme.surface)
 						)
 					)
 					.navigationBarsPadding()
