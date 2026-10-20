@@ -1,224 +1,148 @@
 package paige.navic.ui.screens.starred
 
-import paige.navic.di.isLandscape
-import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kyant.capsule.ContinuousCapsule
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.title_starred
+import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_shuffle
+import navic.composeapp.generated.resources.count_songs
+import navic.composeapp.generated.resources.library_liked
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalPlatformContext
+import paige.navic.di.isLandscape
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.DomainAlbumListType
-import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainFilter
-import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.icons.Icons
+import paige.navic.icons.filled.Play
+import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.layouts.NestedTopBar
-import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
-import paige.navic.ui.core.UiState
-import paige.navic.ui.navigation.PersistentViewModelStoreOwner
-import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
-import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
-import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.screens.library.LikedArt
+import paige.navic.ui.screens.song.SongListBody
+import paige.navic.ui.screens.song.SongListSortAction
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
-import paige.navic.ui.screens.starred.components.StarredScreenContent
-import kotlin.time.Duration
+import paige.navic.ui.theme.defaultFont
 
+/**
+ * Liked (the Library's pinned row; P5 round 2, the owner's note): every liked song in one list, in
+ * the Library's rows, with Shuffle and Play above it. It was "Starred": a few songs behind a See
+ * all, then the starred albums and artists, in rows of another look. Starred albums and artists
+ * are the Albums and Artists chips' "starred" filter now. Liked is Subsonic's star underneath.
+ */
 @Composable
 fun StarredScreen() {
 	val platformContext = LocalPlatformContext.current
-	val persistentViewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>()
 	val preferenceManager = koinInject<PreferenceManager>()
-
-	val songsViewModel = koinViewModel<SongListViewModel>(
-		key = "starredSongs",
-		parameters = {
-			parametersOf(
-				DomainSongListType.FrequentlyPlayed,
-				setOf(DomainFilter.Starred)
-			)
-		},
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val songsState by songsViewModel.songsState.collectAsStateWithLifecycle()
-	val selectedSong by songsViewModel.selectedSong.collectAsStateWithLifecycle()
-	val selectedSongIsStarred by songsViewModel.starred.collectAsStateWithLifecycle()
-	val selectedSongRating by songsViewModel.selectedSongRating.collectAsStateWithLifecycle()
-	val allDownloads by songsViewModel.allDownloads.collectAsStateWithLifecycle()
-
-	val albumsViewModel = koinViewModel<AlbumListViewModel>(
-		key = "starredAlbums",
-		parameters = {
-			parametersOf(
-				DomainAlbumListType.AlphabeticalByArtist,
-				setOf(DomainFilter.Starred)
-			)
-		},
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val albumsState by albumsViewModel.albumsState.collectAsStateWithLifecycle()
-	val selectedAlbum by albumsViewModel.selectedAlbum.collectAsStateWithLifecycle()
-	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
-	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
-
-	val artistsViewModel = koinViewModel<ArtistListViewModel>(
-		key = "starredArtists",
-		parameters = {
-			parametersOf(
-				DomainArtistListType.AlphabeticalByName,
-				setOf(DomainFilter.Starred)
-			)
-		},
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val artistsState by artistsViewModel.artistsState.collectAsStateWithLifecycle()
-	val selectedArtist by artistsViewModel.selectedArtist.collectAsStateWithLifecycle()
-	val selectedArtistAlbums by artistsViewModel.selectedArtistAlbums.collectAsStateWithLifecycle()
-	val selectedArtistIsStarred by artistsViewModel.starred.collectAsStateWithLifecycle()
-
-	var shareId by rememberSaveable { mutableStateOf<String?>(null) }
-	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
-
 	val player = koinInject<MediaPlayerViewModel>()
 
-	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
-
-	val isOnline by songsViewModel.isOnline.collectAsStateWithLifecycle()
+	// The page's own, read on each opening: one kept in the persistent store (as "Starred" had it)
+	// went on showing the songs liked when it was first read (seen on the AVD: Liked "1 song", the
+	// page empty).
+	val viewModel = koinViewModel<SongListViewModel>(
+		key = "likedSongs",
+		parameters = { parametersOf(DomainSongListType.FrequentlyPlayed, setOf(DomainFilter.Starred)) }
+	)
 
 	Scaffold(
-		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_starred)) }) },
+		containerColor = Color.Transparent,
+		topBar = {
+			NestedTopBar(
+				title = { Text(stringResource(Res.string.library_liked)) },
+				actions = { SongListSortAction(viewModel, nested = true) }
+			)
+		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
-			val preferVisible =
-				preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
+			val preferVisible = preferenceManager.bottomBarVisibilityMode == BottomBarVisibilityMode.AllScreens
 			if (!platformContext.isLandscape() && preferVisible) {
 				RootBottomBar(scrolled = scrollManager.isTriggered)
 			}
 		}
-	) { innerPadding ->
-		val isAnythingLoading = albumsState is UiState.Loading ||
-			artistsState is UiState.Loading ||
-			songsState is UiState.Loading
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = !isAnythingLoading,
-			onRefresh = {
-				albumsViewModel.refreshAlbums(true)
-				artistsViewModel.refreshArtists(true)
-				songsViewModel.refreshSongs(true)
-			},
-			key = listOf(albumsState, artistsState, songsState)
-		) {
-			StarredScreenContent(
-				innerPadding = innerPadding,
-				onSetShareId = { shareId = it },
-				isOnline = isOnline,
-
-				songsState = songsState,
-				selectedSong = selectedSong,
-				allDownloads = allDownloads,
-				onPlaySong = { index ->
-					player.playNow(songsState.data.orEmpty(), index)
-				},
-				onSelectSong = {
-					songsViewModel.selectSong(it)
-				},
-				onClearSongSelection = { songsViewModel.clearSelection() },
-				selectedSongIsStarred = selectedSongIsStarred,
-				onAddSongStar = { songsViewModel.starSong(true) },
-				onRemoveSongStar = { songsViewModel.starSong(false) },
-				onDownloadSong = { songsViewModel.downloadSong(it) },
-				onCancelDownloadSong = { song ->
-					songsViewModel.cancelDownload(song.id)
-				},
-				onDeleteDownloadSong = { song ->
-					songsViewModel.deleteDownload(song.id)
-				},
-				onPlaySongNext = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
-						songToQueue = song
-					} else {
-						player.playNextSingle(song)
-					}
-				},
-				onAddSongToQueue = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
-						songToQueue = song
-					} else {
-						player.addToQueueSingle(song)
-					}
-				},
-				selectedSongRating = selectedSongRating,
-				onSetSongRating = { songsViewModel.rateSelectedSong(it) },
-
-				albumsState = albumsState,
-				selectedAlbum = selectedAlbum,
-				selectedAlbumIsStarred = selectedAlbumIsStarred,
-				selectedAlbumRating = selectedAlbumRating,
-				onSelectAlbum = { albumsViewModel.selectAlbum(it) },
-				onClearAlbumSelection = { albumsViewModel.clearSelection() },
-				onStarSelectedAlbum = { albumsViewModel.starAlbum(it) },
-				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
-				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
-				onRateSelectedAlbum = { albumsViewModel.setRating(it) },
-
-				artistsState = artistsState,
-				selectedArtist = selectedArtist,
-				selectedArtistAlbums = selectedArtistAlbums,
-				selectedArtistIsStarred = selectedArtistIsStarred,
-				onSelectArtist = { artistsViewModel.selectArtist(it) },
-				onClearArtistSelection = { artistsViewModel.clearSelection() },
-				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
-				onPlayArtistNext = {
-					if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(
-						player
+	) { inner ->
+		SongListBody(
+			viewModel = viewModel,
+			contentPadding = inner,
+			playFromList = true,
+			header = { songs ->
+				if (songs.isNotEmpty()) item(key = "liked-header") {
+					LikedHeader(
+						count = songs.size,
+						onShuffle = { player.playNow(songs.shuffled(), 0) },
+						onPlay = { player.playNow(songs, 0) }
 					)
-				},
-				onAddArtistToQueue = {
-					if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(
-						player
-					)
-				},
-			)
-		}
-	}
-
-	ShareDialog(
-		id = shareId,
-		onIdClear = { shareId = null },
-		expiry = shareExpiry,
-		onExpiryChange = { shareExpiry = it }
-	)
-
-	if (songToQueue != null) {
-		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
-			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
+				}
 			}
 		)
+	}
+}
+
+/** The heart, how many, and Shuffle and Play as a playlist page has them. */
+@Composable
+private fun LikedHeader(count: Int, onShuffle: () -> Unit, onPlay: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(10.dp)
+	) {
+		LikedArt(Modifier.size(44.dp), iconSize = 22.dp)
+		Text(
+			pluralStringResource(Res.plurals.count_songs, count, count),
+			style = MaterialTheme.typography.titleSmall,
+			modifier = Modifier.weight(1f)
+		)
+		OutlinedButton(
+			modifier = Modifier.size(width = 52.dp, height = 44.dp),
+			onClick = onShuffle,
+			shape = ContinuousCapsule,
+			colors = ButtonDefaults.outlinedButtonColors(
+				containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f)
+			),
+			contentPadding = PaddingValues(0.dp)
+		) {
+			Icon(Icons.Outlined.Shuffle, stringResource(Res.string.action_shuffle), Modifier.size(24.dp))
+		}
+		Button(
+			modifier = Modifier.height(44.dp),
+			onClick = onPlay,
+			shape = ContinuousCapsule
+		) {
+			Icon(Icons.Filled.Play, null, modifier = Modifier.size(25.dp).padding(end = 3.dp))
+			Text(
+				stringResource(Res.string.action_play),
+				maxLines = 1,
+				autoSize = TextAutoSize.StepBased(minFontSize = 1.sp, maxFontSize = 15.sp),
+				fontWeight = FontWeight.SemiBold,
+				fontFamily = defaultFont(round = 100f)
+			)
+		}
 	}
 }

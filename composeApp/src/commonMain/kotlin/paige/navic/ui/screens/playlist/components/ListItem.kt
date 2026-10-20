@@ -2,7 +2,6 @@ package paige.navic.ui.screens.playlist.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -11,7 +10,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.toPersistentList
@@ -30,8 +28,9 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.DomainPlaylist
-import paige.navic.ui.components.common.CoverArt
-import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.LibraryRow
+import paige.navic.ui.components.common.LibraryRowCover
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.NativeApiManager
 import paige.navic.domain.models.displayName
@@ -39,11 +38,13 @@ import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistDownloadDialog
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
-import paige.navic.ui.util.appendBulletPoint
 
 @Composable
 fun PlaylistListScreenListItem(
 	modifier: Modifier = Modifier,
+	/** Where the row sits in the list, for its rounded segment's corners. */
+	index: Int,
+	count: Int,
 	playlist: DomainPlaylist,
 	selected: Boolean,
 	onPlayNext: () -> Unit,
@@ -67,32 +68,15 @@ fun PlaylistListScreenListItem(
 		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 
 	Box(modifier) {
-		ListItem(
-			leadingContent = {
-				CoverArt(
-					coverArtId = playlist.coverArtId,
-					modifier = Modifier.size(50.dp),
-					shape = preferenceManager.coverArtShape.decreasedShape
-				)
-			},
-			content = { MarqueeText(playlist.name ?: "[unknown playlist]") },
-			supportingContent = {
-				MarqueeText(
-					text = buildAnnotatedString {
-						append(
-							pluralStringResource(
-								Res.plurals.count_songs,
-								playlist.songCount,
-								playlist.songCount
-							)
-						)
-						playlist.comment?.let {
-							appendBulletPoint()
-							append(it)
-						}
-					}
-				)
-			},
+		// The Library's row (P5 round 2): Recents' look, the cover, the name, its size and comment.
+		LibraryRow(
+			title = playlist.name ?: "[unknown playlist]",
+			line = listOfNotNull(
+				pluralStringResource(Res.plurals.count_songs, playlist.songCount, playlist.songCount),
+				playlist.comment?.ifBlank { null }
+			).joinToString(" • "),
+			shapes = segmentedShapes(index, count),
+			art = { LibraryRowCover(playlist.coverArtId, playlist.name) },
 			onClick = dropUnlessResumed {
 				scope.launch {
 					backStack.add(Screen.CollectionDetail(playlist.id, ""))
@@ -100,11 +84,12 @@ fun PlaylistListScreenListItem(
 			},
 			onLongClick = onSelect
 		)
-		// One probe per opened sheet, not per row. Fails soft: an unreachable native
-		// API hides the edit row rather than offering an edit that cannot load.
+		// One probe per opened sheet, not per row (it ran for every row on screen until P5 round 2).
+		// Fails soft: an unreachable native API hides the edit row rather than offering an edit
+		// that cannot load.
 		var hasRules by remember(playlist.id) { mutableStateOf(false) }
 		var autoDownloadShown by remember { mutableStateOf(false) }
-		LaunchedEffect(playlist.id) {
+		if (selected) LaunchedEffect(playlist.id) {
 			// An album-mode playlist is an ordinary playlist on the server, so
 			// Navidrome rightly answers that it has no rules — its recipe is stored
 			// locally. Checked first, and it costs no network call.

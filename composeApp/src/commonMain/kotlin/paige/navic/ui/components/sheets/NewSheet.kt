@@ -44,10 +44,7 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.new_add_link
 import navic.composeapp.generated.resources.action_undo
-import navic.composeapp.generated.resources.custom_radio_failed
-import navic.composeapp.generated.resources.custom_radio_start_failed
-import navic.composeapp.generated.resources.custom_radio_started
-import navic.composeapp.generated.resources.custom_radio_started_unsaved
+import navic.composeapp.generated.resources.custom_radio_saved
 import navic.composeapp.generated.resources.new_add_link_hint
 import navic.composeapp.generated.resources.new_custom_radio
 import navic.composeapp.generated.resources.new_custom_radio_hint
@@ -106,26 +103,17 @@ fun NewSheetHost() {
 	val open by shell.newSheetOpen.collectAsState()
 	// What the picked row shows after the sheet has gone: the dialog or the paste sheet.
 	var followUp by remember { mutableStateOf<NewSheetItem?>(null) }
-	// A custom radio's Done (P5): its page has gone, so it is said here. Undo deletes the saved mix
-	// and leaves the radio playing (starting it replaced the queue, which cannot be given back).
+	// A custom radio's Done (P5): its page has gone, so it is said here, over the mix's own page.
+	// Undo deletes the saved mix, and its page leaves with it.
 	val snackBarState = LocalSnackBarState.current
 	val hubManager = koinInject<HubManager>()
-	val startedWords = stringResource(Res.string.custom_radio_started)
-	val unsavedWords = stringResource(Res.string.custom_radio_started_unsaved)
-	val notStartedWords = stringResource(Res.string.custom_radio_start_failed)
-	val failedWords = stringResource(Res.string.custom_radio_failed)
+	val savedWords = stringResource(Res.string.custom_radio_saved)
 	val undoWords = stringResource(Res.string.action_undo)
 	LaunchedEffect(Unit) {
 		shell.customRadioDone.collect { done ->
-			val words = when {
-				done.saved && done.started -> startedWords
-				done.started -> unsavedWords
-				done.saved -> notStartedWords
-				else -> failedWords
-			}
 			val result = snackBarState.showSnackbar(
-				message = words,
-				actionLabel = if (done.saved && done.started) undoWords else null,
+				message = savedWords,
+				actionLabel = undoWords,
 				duration = SnackbarDuration.Long
 			)
 			if (result == SnackbarResult.ActionPerformed) hubManager.actDeleteMix(done.mixId)

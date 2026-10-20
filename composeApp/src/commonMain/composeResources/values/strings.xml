@@ -287,6 +287,14 @@
 		<item quantity="other">%1$d playlists</item>
 	</plurals>
 
+	<plurals name="count_mixes">
+		<item quantity="one">%1$d mix</item>
+		<item quantity="other">%1$d mixes</item>
+	</plurals>
+	<plurals name="count_radios">
+		<item quantity="one">%1$d radio</item>
+		<item quantity="other">%1$d radios</item>
+	</plurals>
 	<plurals name="count_artists">
 		<item quantity="one">%1$d artist</item>
 		<item quantity="other">%1$d artists</item>
@@ -353,6 +361,8 @@
 	<string name="action_view_statistics">View statistics</string>
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
+	<string name="action_like">Like</string>
+	<string name="action_unlike">Unlike</string>
 	<string name="action_download">Download</string>
 	<string name="action_delete_download">Delete download</string>
 	<string name="action_cancel_download">Cancel download</string>
@@ -411,6 +421,11 @@
 	<string name="notice_deleted_download">Download deleted.</string>
 	<string name="notice_removed_from_playlist">Removed from playlist.</string>
 	<string name="notice_created_radio">Radio %1$s added.</string>
+	<string name="notice_updated_radio">Radio %1$s saved.</string>
+	<string name="notice_deleted_radio">Radio %1$s deleted.</string>
+	<string name="title_edit_radio">Edit radio</string>
+	<string name="action_edit">Edit</string>
+	<string name="title_delete_radio">Delete this radio?</string>
 	<string name="notice_added_to_queue">Added to queue.</string>
 	<string name="notice_play_next">Playing next.</string>
 	<string name="notice_added_to_playlist">Added to %1$s.</string>
@@ -1035,9 +1050,6 @@
 	<string name="notice_refreshed_playlist">Rebuilt from the rules</string>
 	<string name="notice_refresh_failed_playlist">Couldn't rebuild that playlist</string>
 	<string name="mix_new">New mix</string>
-	<string name="mix_preview">Preview</string>
-	<string name="mix_preview_empty">This recipe produced nothing right now. It may need AudioMuse, or more of your library.</string>
-	<string name="mix_preview_regenerates">Built fresh just now — playing it builds it again, so this is a sample rather than a tracklist.</string>
 	<string name="mix_tracks_count">%1$d tracks</string>
 	<string name="title_new_mix">New mix</string>
 	<string name="mix_how_built">How it is built</string>
@@ -1268,10 +1280,12 @@
 	<string name="custom_radio_count_zero">0 songs match. Try a different setting.</string>
 	<string name="custom_radio_count_unknown">AudioMuse has not analysed these artists yet.</string>
 	<string name="custom_radio_done">Done</string>
-	<string name="custom_radio_started">Radio started. Saved under Mixes.</string>
-	<string name="custom_radio_started_unsaved">Radio started. It could not be saved under Mixes.</string>
-	<string name="custom_radio_start_failed">Saved under Mixes, but the radio could not start.</string>
-	<string name="custom_radio_failed">The radio could not start, and it was not saved.</string>
+	<string name="custom_radio_saved">Saved under Mixes.</string>
+	<string name="custom_radio_save_failed">It could not be saved: the hub did not answer. Try again.</string>
+	<string name="mix_page_building">Building this mix</string>
+	<string name="mix_page_empty">This mix came up empty just now. Pull to try again.</string>
+	<string name="mix_page_fresh">Built fresh each time you open it.</string>
+	<string name="mix_page_continues">When these end, the radio carries on.</string>
 	<string name="mix_custom_radio">Custom radio</string>
 	<!-- P5: the Library, one list under chips. -->
 	<string name="library_chip_mixes">Mixes</string>

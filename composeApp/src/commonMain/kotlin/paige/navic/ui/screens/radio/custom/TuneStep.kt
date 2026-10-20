@@ -85,6 +85,10 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.LocalCoverAmbientBottom
+import navic.composeapp.generated.resources.custom_radio_save_failed
+import paige.navic.di.LocalSnackBarState
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 /**
  * Tune (boards RadioTune, RadioTuneUpdating, RadioEmpty): the picked artists with a "+" back to
@@ -97,7 +101,7 @@ internal fun TuneStep(
 	viewModel: CustomRadioViewModel,
 	onAddArtists: () -> Unit,
 	onClose: () -> Unit,
-	onDone: () -> Unit
+	onDone: (String) -> Unit
 ) {
 	val picked by viewModel.picked.collectAsStateWithLifecycle()
 	val character by viewModel.character.collectAsStateWithLifecycle()
@@ -106,6 +110,9 @@ internal fun TuneStep(
 	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
 	val varietyOffered by viewModel.varietyOffered.collectAsStateWithLifecycle()
 	val finishing by viewModel.finishing.collectAsStateWithLifecycle()
+	val scope = rememberCoroutineScope()
+	val snackBarState = LocalSnackBarState.current
+	val saveFailedWords = stringResource(Res.string.custom_radio_save_failed)
 
 	Scaffold(
 		containerColor = Color.Transparent,
@@ -193,7 +200,11 @@ internal fun TuneStep(
 				CountLine(count)
 				Spacer(Modifier.height(10.dp))
 				Button(
-					onClick = { viewModel.finish(onDone) },
+					onClick = {
+						viewModel.finish(onSaved = onDone, onFailed = {
+							scope.launch { snackBarState.showSnackbar(saveFailedWords) }
+						})
+					},
 					enabled = !finishing && canFinish(picked.size, count),
 					modifier = Modifier.fillMaxWidth().height(52.dp),
 					shape = RoundedCornerShape(26.dp)

@@ -197,6 +197,14 @@ sealed interface Screen : NavKey {
 	data object CustomRadio : Screen
 
 	/**
+	 * A mix's page (P5 round 2): its songs, built on opening, as a playlist's page shows them.
+	 * [mixId] is a hub mix's id, or `YOUR_MIX_ID` for Your mix.
+	 */
+	@Immutable
+	@Serializable
+	data class MixDetail(val mixId: String) : Screen
+
+	/**
 	 * An owned artist's whole discography behind chips (P4 round 2): the artist page shows a few
 	 * releases and "See discography" opens this.
 	 */

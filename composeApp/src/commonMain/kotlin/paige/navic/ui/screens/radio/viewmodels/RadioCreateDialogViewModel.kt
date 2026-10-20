@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_created_radio
+import navic.composeapp.generated.resources.notice_updated_radio
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.ui.core.UiState
@@ -28,18 +31,44 @@ class RadioCreateDialogViewModel(
 	val streamUrl = TextFieldState()
 	val homepageUrl = TextFieldState()
 
+	/** The station being edited (P5 round 2: a radio could be added but never changed); null adds one. */
+	private var editingId: String? = null
+
+	/** Fill the form from [radio], once: the dialog reopened after a rotation keeps the edits. */
+	fun edit(radio: DomainRadio) {
+		if (editingId == radio.id) return
+		editingId = radio.id
+		name.setTextAndPlaceCursorAtEnd(radio.name)
+		streamUrl.setTextAndPlaceCursorAtEnd(radio.streamUrl)
+		homepageUrl.setTextAndPlaceCursorAtEnd(radio.homepageUrl.orEmpty())
+	}
+
 	fun create() {
 		viewModelScope.launch {
 			creationState.value = UiState.Loading()
 			try {
-				sessionManager.api.createInternetRadioStation(
-					name = name.text.toString(),
-					streamUrl = streamUrl.text.toString(),
-					homepageUrl = homepageUrl.text.toString().trim().takeIf { it.isNotBlank() }
-				)
+				val homepage = homepageUrl.text.toString().trim().takeIf { it.isNotBlank() }
+				val id = editingId
+				if (id == null) {
+					sessionManager.api.createInternetRadioStation(
+						name = name.text.toString(),
+						streamUrl = streamUrl.text.toString(),
+						homepageUrl = homepage
+					)
+				} else {
+					sessionManager.api.updateInternetRadioStation(
+						id = id,
+						streamUrl = streamUrl.text.toString(),
+						name = name.text.toString(),
+						homepageUrl = homepage
+					)
+				}
 				_events.send(Event.Dismiss)
 				creationState.value = UiState.Success(null)
-				snackBarManager.notify(Res.string.notice_created_radio, name.text.toString())
+				snackBarManager.notify(
+					if (id == null) Res.string.notice_created_radio else Res.string.notice_updated_radio,
+					name.text.toString()
+				)
 			} catch (e: Exception) {
 				creationState.value = UiState.Error(e)
 			}

@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -21,6 +21,7 @@ import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.LetterHeader
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
@@ -47,29 +48,11 @@ fun LazyGridScope.albumListScreenContent(
 				.toList()
 				.sortedBy { it.first }
 
-			val textPadding = PaddingValues(
-				horizontal = if (selectedViewMode == ListViewMode.List) 16.dp else 0.dp,
-				vertical = 8.dp
-			)
-
 			grouped.forEach { (letter, albums) ->
-				stickyHeader {
-					Row(
-						// `surfaceContainer`, not `surface`: a sticky header is a LIFTED element
-						// and the page behind it is the cover ambient now, so the page role
-						// would read as a mismatched slab sliding over the gradient.
-						modifier = Modifier
-							.background(MaterialTheme.colorScheme.surfaceContainer)
-							.padding(textPadding),
-						verticalAlignment = Alignment.CenterVertically
-					) {
-						Text(
-							text = letter.toString(),
-							color = MaterialTheme.colorScheme.onSurfaceVariant
-						)
-					}
-				}
-				items(albums, { it.id }) { album ->
+				// Sticky over a grid; in place over the rows (as the artists' list).
+				if (selectedViewMode == ListViewMode.Grid) stickyHeader { LetterHeader(letter.toString(), grid = true) }
+				else item(span = { GridItemSpan(maxLineSpan) }) { LetterHeader(letter.toString()) }
+				itemsIndexed(albums, { _, it -> it.id }) { index, album ->
 					if (selectedViewMode == ListViewMode.Grid) {
 						AlbumListScreenGridItem(
 							modifier = Modifier.animateItem(),
@@ -89,6 +72,8 @@ fun LazyGridScope.albumListScreenContent(
 					} else {
 						AlbumListScreenListItem(
 							modifier = Modifier.animateItem(),
+							index = index,
+							count = albums.size,
 							album = album,
 							selected = album == selectedAlbum,
 							starred = starred,
@@ -105,7 +90,7 @@ fun LazyGridScope.albumListScreenContent(
 				}
 			}
 		} else {
-			items(data, { it.id }) { album ->
+			itemsIndexed(data, { _, it -> it.id }) { index, album ->
 				if (selectedViewMode == ListViewMode.Grid) {
 					AlbumListScreenGridItem(
 						modifier = Modifier.animateItem(),
@@ -125,6 +110,8 @@ fun LazyGridScope.albumListScreenContent(
 				} else {
 					AlbumListScreenListItem(
 						modifier = Modifier.animateItem(),
+						index = index,
+						count = data.size,
 						album = album,
 						selected = album == selectedAlbum,
 						starred = starred,

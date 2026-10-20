@@ -23,13 +23,11 @@ import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_rename
-import navic.composeapp.generated.resources.mix_preview
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.Mix
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Badge
 import paige.navic.icons.outlined.Delete
-import paige.navic.icons.outlined.List
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.util.rememberCoverAmbient
@@ -39,16 +37,13 @@ import paige.navic.ui.util.rememberCoverAmbient
  * name over a divider, then the actions as rows. Opened by a long press on the row (or its "more"
  * button), as every library row's sheet is, rather than the dropdown the list used to carry.
  *
- * Preview comes first because it is the only action that answers "what is in this": a mix, unlike
- * every other list in the app, has no tracklist until its recipe has been run. A Mood Flow mix has
- * none to show: it is steered by its character as it plays, so [onPreview] is null for it.
+ * What is in a mix is its page's (P5 round 2: a tap opens it), so the sheet holds no preview.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MixSheet(
 	mix: Mix,
 	onDismissRequest: () -> Unit,
-	onPreview: (() -> Unit)?,
 	onRename: () -> Unit,
 	onDelete: () -> Unit
 ) {
@@ -81,18 +76,6 @@ fun MixSheet(
 		)
 		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 		Column(Modifier.padding(bottom = 8.dp)) {
-			onPreview?.let { preview ->
-				ListItem(
-					content = { Text(stringResource(Res.string.mix_preview)) },
-					leadingContent = { Icon(Icons.Outlined.List, null) },
-					onClick = {
-						onDismissRequest()
-						preview()
-					},
-					colors = colors,
-					contentPadding = contentPadding
-				)
-			}
 			ListItem(
 				content = { Text(stringResource(Res.string.action_rename)) },
 				leadingContent = { Icon(Icons.Outlined.Badge, null) },

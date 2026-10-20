@@ -58,6 +58,20 @@ import paige.navic.ui.components.snackbars.ErrorSnackBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.screens.radio.components.radioListScreenContent
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.plus
+import androidx.compose.runtime.remember
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_delete
+import navic.composeapp.generated.resources.title_delete_radio
+import paige.navic.domain.models.DomainRadio
+import paige.navic.domain.models.settings.ListViewMode
+import paige.navic.icons.outlined.Delete
+import paige.navic.ui.components.common.SegmentedListButton
+import paige.navic.ui.components.common.SegmentedListButtonDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults
+import paige.navic.ui.components.dialogs.FormDialog
+import paige.navic.ui.screens.radio.components.RadioSheet
 import paige.navic.ui.screens.radio.dialogs.RadioCreateDialog
 import paige.navic.ui.screens.radio.viewmodels.RadioListViewModel
 import paige.navic.ui.util.withoutTop
@@ -164,6 +178,9 @@ fun RadioListBody(
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
 	val radiosState by viewModel.radiosState.collectAsState()
+	var sheetTarget by remember { mutableStateOf<DomainRadio?>(null) }
+	var editing by remember { mutableStateOf<DomainRadio?>(null) }
+	var deleting by remember { mutableStateOf<DomainRadio?>(null) }
 
 	val rootViewModel = koinViewModel<RootViewModel>()
 	LaunchedEffect(Unit) {
@@ -181,23 +198,68 @@ fun RadioListBody(
 		onRefresh = { viewModel.refreshRadios(true) },
 		key = radiosState
 	) {
+		// The Library's rows (P5 round 2), one column, 3 dp apart, in place of the coloured cards.
 		ArtGrid(
 			modifier = if (scrollConnection != null)
 				Modifier.nestedScroll(scrollConnection)
 			else Modifier,
-			contentPadding = contentPadding.withoutTop(),
+			contentPadding = contentPadding.withoutTop() + PaddingValues(top = 4.dp, bottom = 24.dp),
 			state = viewModel.gridState,
 			verticalArrangement = if ((radiosState as? UiState.Success)?.data?.isEmpty() == true)
 				Arrangement.Center
-			else Arrangement.spacedBy(12.dp)
+			else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap),
+			selectedViewMode = ListViewMode.List
 		) {
 			radioListScreenContent(
 				state = radiosState,
 				onRadioClick = { radio ->
 					player.playRadio(radio)
-				}
+				},
+				onRadioMenu = { sheetTarget = it }
 			)
 		}
+	}
+
+	sheetTarget?.let { radio ->
+		RadioSheet(
+			radio = radio,
+			onDismissRequest = { sheetTarget = null },
+			onEdit = { editing = radio },
+			onDelete = { deleting = radio }
+		)
+	}
+
+	editing?.let { radio ->
+		RadioCreateDialog(
+			onDismissRequest = { editing = null },
+			onRefresh = { viewModel.refreshRadios(true) },
+			editing = radio
+		)
+	}
+
+	deleting?.let { radio ->
+		FormDialog(
+			onDismissRequest = { deleting = null },
+			icon = { Icon(Icons.Outlined.Delete, null) },
+			title = { Text(stringResource(Res.string.title_delete_radio)) },
+			buttons = {
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = {
+						viewModel.delete(radio)
+						deleting = null
+					},
+					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+					colors = SegmentedListButtonDefaults.errorColors()
+				) { Text(stringResource(Res.string.action_delete)) }
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = { deleting = null },
+					shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+				) { Text(stringResource(Res.string.action_cancel)) }
+			},
+			content = { Text(radio.name) }
+		)
 	}
 
 	ErrorSnackBar(

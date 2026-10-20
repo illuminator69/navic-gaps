@@ -135,7 +135,9 @@ fun ArtistListBody(
 	viewModel: ArtistListViewModel,
 	contentPadding: PaddingValues,
 	modifier: Modifier = Modifier,
-	scrollConnection: NestedScrollConnection? = null
+	scrollConnection: NestedScrollConnection? = null,
+	/** The "N artists" line over the list; the Library's sort row says it instead (P5 round 2). */
+	showCount: Boolean = true
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val selectedViewMode = preferenceManager.artistListViewMode
@@ -172,6 +174,7 @@ fun ArtistListBody(
 			gridState = viewModel.gridState,
 			scrollConnection = scrollConnection,
 			innerPadding = contentPadding,
+			showCount = showCount,
 			onUpdateSelection = { viewModel.selectArtist(it) },
 			onClearSelection = { viewModel.clearSelection() },
 			onSetStarred = { viewModel.starArtist(it) },

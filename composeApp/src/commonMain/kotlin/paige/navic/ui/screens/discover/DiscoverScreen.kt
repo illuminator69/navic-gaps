@@ -93,7 +93,6 @@ import navic.composeapp.generated.resources.title_discover_fresh
 import navic.composeapp.generated.resources.title_discover_charts
 import navic.composeapp.generated.resources.title_discover_editorial
 import navic.composeapp.generated.resources.title_discover_mixes
-import navic.composeapp.generated.resources.mix_regenerate_failed
 import navic.composeapp.generated.resources.mix_unknown_kind
 import navic.composeapp.generated.resources.title_discover_listenbrainz
 import navic.composeapp.generated.resources.title_discover_mood
@@ -203,7 +202,6 @@ fun DiscoverScreen(nested: Boolean = false) {
 		stringResource(Res.string.mood_prompt_5),
 		stringResource(Res.string.mood_prompt_6)
 	)
-	val regenerateFailed = stringResource(Res.string.mix_regenerate_failed)
 	val browseUnresolved = stringResource(Res.string.browse_unresolved)
 	val unknownKind = stringResource(Res.string.mix_unknown_kind)
 
@@ -260,20 +258,12 @@ fun DiscoverScreen(nested: Boolean = false) {
 		}
 	}
 
-	// Playing a mix is the one action on this screen that can visibly do nothing —
-	// the engine may answer no tracks, and the tap is otherwise silent. Hoisted out
-	// of the grid because a LazyGridScope builder lambda is not composable.
+	// A mix opens its page (P5 round 2), which builds it and plays from there. A recipe from a
+	// newer client is refused rather than approximated: regenerating the wrong kind would play
+	// something plausible and wrong, which is harder to notice than nothing happening.
 	val playMix: (Mix) -> Unit = { mix ->
-		scope.launch {
-			if (MixKind.fromWire(mix.kind) == null) {
-				// A recipe from a newer client. Refused rather than approximated:
-				// regenerating the wrong kind would play something plausible and
-				// wrong, which is harder to notice than nothing happening.
-				snackbarHostState.showSnackbar(unknownKind)
-			} else if (!radioManager.regenerate(mix)) {
-				snackbarHostState.showSnackbar(regenerateFailed)
-			}
-		}
+		if (MixKind.fromWire(mix.kind) == null) scope.launch { snackbarHostState.showSnackbar(unknownKind) }
+		else backStack.add(Screen.MixDetail(mix.id))
 	}
 	// A chip runs the search here rather than navigating to Search and making the
 	// user retype the prompt — the sheet is the same one `SearchScreen` opens, and

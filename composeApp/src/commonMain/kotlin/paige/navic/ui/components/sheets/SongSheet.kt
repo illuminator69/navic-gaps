@@ -43,11 +43,11 @@ import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.action_remove_from_playlist
-import navic.composeapp.generated.resources.action_remove_star
+import navic.composeapp.generated.resources.action_unlike
 import navic.composeapp.generated.resources.action_share
 import navic.composeapp.generated.resources.action_sleep_timer
 import navic.composeapp.generated.resources.action_sleep_timer_enabled
-import navic.composeapp.generated.resources.action_star
+import navic.composeapp.generated.resources.action_like
 import navic.composeapp.generated.resources.action_track_info
 import navic.composeapp.generated.resources.action_view_album
 import navic.composeapp.generated.resources.action_view_artist
@@ -70,6 +70,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Star
+import paige.navic.icons.filled.Favorite
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Bedtime
@@ -88,6 +89,7 @@ import paige.navic.icons.outlined.Route
 import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Speed
 import paige.navic.icons.outlined.Star
+import paige.navic.icons.outlined.Favorite
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RatingRow
@@ -242,10 +244,11 @@ fun SongSheet(
 			if (starred != null && onSetStarred != null) {
 				ListItem(
 					content = {
-						Text(stringResource(if (starred) Res.string.action_remove_star else Res.string.action_star))
+						// A song is liked (P5 round 2): the Library's Liked and the player's heart.
+						Text(stringResource(if (starred) Res.string.action_unlike else Res.string.action_like))
 					},
 					leadingContent = {
-						Icon(if (starred) Icons.Filled.Star else Icons.Outlined.Star, null)
+						Icon(if (starred) Icons.Filled.Favorite else Icons.Outlined.Favorite, null)
 					},
 					onClick = {
 						platformContext.clickSound()

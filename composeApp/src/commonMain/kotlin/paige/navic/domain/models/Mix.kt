@@ -121,6 +121,12 @@ object MixKind {
  * Feishin recipe whose `seedId` was the genre's Navidrome id. A genre is drawn by name.
  */
 /** Whether [mix] is a custom radio: an `artist` mix of more than one artist (P5). */
+/**
+ * Your mix's id where a mix's id is asked for (its row, its page): the seedless station, not a
+ * stored recipe. No hub id looks like it (`mx_…`).
+ */
+const val YOUR_MIX_ID = "your-mix"
+
 fun isCustomRadio(mix: Mix): Boolean = mix.kind == MixKind.ARTIST && mix.seedIds.size > 1
 
 /**

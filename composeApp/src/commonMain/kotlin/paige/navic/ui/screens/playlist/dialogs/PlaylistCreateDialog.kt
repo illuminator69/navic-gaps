@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,7 +46,9 @@ fun PlaylistCreateDialog(
 	navigateAfterwards: Boolean = true,
 	onSmartRequested: (() -> Unit)? = null,
 	/** navi-connect P2: the playlist just made, for a caller that shows it (the player's playlist sheet). */
-	onCreated: ((DomainPlaylist) -> Unit)? = null
+	onCreated: ((DomainPlaylist) -> Unit)? = null,
+	/** The name the field starts with (P5 round 2: a mix saved as a playlist is offered its own). */
+	initialName: String = ""
 ) {
 	val buttonCount = if (onSmartRequested != null) 3 else 2
 	val viewModel = koinViewModel<PlaylistCreateDialogViewModel>(
@@ -54,6 +57,9 @@ fun PlaylistCreateDialog(
 	)
 	val backStack = LocalNavStack.current
 	val state by viewModel.creationState.collectAsStateWithLifecycle()
+	LaunchedEffect(initialName) {
+		if (initialName.isNotBlank() && viewModel.name.text.isEmpty()) viewModel.name.setTextAndPlaceCursorAtEnd(initialName)
+	}
 
 	LaunchedEffect(Unit) {
 		viewModel.events.collect { event ->

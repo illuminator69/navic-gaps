@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +34,9 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Artist
 import paige.navic.ui.components.common.AlphabeticalScroller
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.LetterHeader
+import paige.navic.ui.components.common.LibraryRowDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.artist.ArtistListScreenGridItem
@@ -48,6 +51,7 @@ fun ArtistListScreenContent(
 	/** The page's top bar's, when it collapses on scroll; null in the Library (P5). */
 	scrollConnection: NestedScrollConnection?,
 	innerPadding: PaddingValues,
+	showCount: Boolean = true,
 	selectedArtist: DomainArtist?,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	selectedViewMode: ListViewMode,
@@ -66,19 +70,14 @@ fun ArtistListScreenContent(
 		.toList()
 		.sortedBy { it.first }
 
-	val headerIndices = remember(grouped) {
-		var currentIndex = 1
+	val headerIndices = remember(grouped, showCount) {
+		var currentIndex = if (showCount && totalArtistCount != 0) 1 else 0
 		grouped.map { (letter, artists) ->
 			val pos = currentIndex
 			currentIndex += artists.size + 1
 			letter.toString() to pos
 		}.toImmutableList()
 	}
-
-	val textPadding = PaddingValues(
-		horizontal = if (selectedViewMode == ListViewMode.List) 16.dp else 0.dp,
-		vertical = 8.dp
-	)
 
 	Box {
 		ArtGrid(
@@ -91,18 +90,24 @@ fun ArtistListScreenContent(
 			verticalArrangement = if (grouped.isEmpty()) {
 				Arrangement.Center
 			} else if (selectedViewMode == ListViewMode.List) {
-				Arrangement.spacedBy(0.dp)
+				// The Library's rows, 3 dp apart (P5 round 2).
+				Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 			} else {
 				Arrangement.spacedBy(12.dp)
 			},
 			selectedViewMode = selectedViewMode
 		) {
-			if (totalArtistCount != 0) {
+			if (showCount && totalArtistCount != 0) {
 				item(span = { GridItemSpan(maxLineSpan) }) {
 					Row(
-					// Transparent: these headers sit in the page's cover wash, and an opaque
-					// band read as a white bar cut across a coloured background.
-					modifier = Modifier.padding(bottom = 8.dp),
+						// Transparent: these headers sit in the page's cover wash, and an opaque
+						// band read as a white bar cut across a coloured background. In the rows'
+						// gutter (the owner's note: the text sat against the left edge).
+						modifier = Modifier.padding(
+							start = if (selectedViewMode == ListViewMode.List) LibraryRowDefaults.Gutter + 4.dp else 0.dp,
+							top = 4.dp,
+							bottom = 4.dp
+						),
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						Text(
@@ -118,20 +123,11 @@ fun ArtistListScreenContent(
 			}
 			if (selectedSorting == DomainArtistListType.AlphabeticalByName) {
 				grouped.forEach { (letter, artists) ->
-					stickyHeader {
-						Row(
-					// Transparent: these headers sit in the page's cover wash, and an opaque
-					// band read as a white bar cut across a coloured background.
-					modifier = Modifier.padding(bottom = 8.dp),
-							verticalAlignment = Alignment.CenterVertically
-						) {
-							Text(
-								text = letter.toString(),
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-					}
-					items(artists, { it.id }) { artist ->
+					// Sticky over a grid; in place over the rows, where a stuck pill covered the first row's
+					// picture (the scrollbar's bubble says the letter while dragging).
+					if (selectedViewMode == ListViewMode.Grid) stickyHeader { LetterHeader(letter.toString(), grid = true) }
+					else item(span = { GridItemSpan(maxLineSpan) }) { LetterHeader(letter.toString()) }
+					itemsIndexed(artists, { _, it -> it.id }) { index, artist ->
 						if (selectedViewMode == ListViewMode.Grid) {
 							ArtistListScreenGridItem(
 								modifier = Modifier.animateItem(),
@@ -149,6 +145,8 @@ fun ArtistListScreenContent(
 						} else {
 							ArtistListScreenListItem(
 								modifier = Modifier.animateItem(),
+								index = index,
+								count = artists.size,
 								artist = artist,
 								selected = artist == selectedArtist,
 								selectedArtistAlbums = selectedArtistAlbums,
@@ -163,7 +161,7 @@ fun ArtistListScreenContent(
 					}
 				}
 			} else {
-				items(data, { it.id }) { artist ->
+				itemsIndexed(data, { _, it -> it.id }) { index, artist ->
 					if (selectedViewMode == ListViewMode.Grid) {
 						ArtistListScreenGridItem(
 							modifier = Modifier.animateItem(),
@@ -181,6 +179,8 @@ fun ArtistListScreenContent(
 					} else {
 						ArtistListScreenListItem(
 							modifier = Modifier.animateItem(),
+							index = index,
+							count = data.size,
 							artist = artist,
 							selected = artist == selectedArtist,
 							selectedArtistAlbums = selectedArtistAlbums,
@@ -208,7 +208,8 @@ fun ArtistListScreenContent(
 			AlphabeticalScroller(
 				state = gridState,
 				headers = headerIndices,
-				modifier = Modifier.align(Alignment.TopEnd)
+				modifier = Modifier.align(Alignment.TopEnd),
+				bottomPadding = innerPadding.calculateBottomPadding()
 			)
 		}
 	}

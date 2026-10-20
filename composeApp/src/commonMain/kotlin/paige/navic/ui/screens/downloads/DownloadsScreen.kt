@@ -117,6 +117,7 @@ import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.common.LibraryRowCover
 import paige.navic.ui.components.common.describeFill
 import paige.navic.ui.components.common.resolve
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -323,7 +324,13 @@ fun DeviceDownloadsBody(
 	viewModel: DownloadCenterViewModel,
 	contentPadding: PaddingValues,
 	modifier: Modifier = Modifier,
-	scrollConnection: NestedScrollConnection? = null
+	scrollConnection: NestedScrollConnection? = null,
+	/**
+	 * The Library's Downloaded chip (P5 round 2, the owner's note: "Downloaded" three times): the
+	 * chip names the list and its sort row carries the size and Repair, so the finished downloads
+	 * have no header of their own unless another group (downloading, queued, failed) is above them.
+	 */
+	inLibrary: Boolean = false
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val constrained by viewModel.constrained.collectAsStateWithLifecycle()
@@ -341,7 +348,9 @@ fun DeviceDownloadsBody(
 			state = state,
 			constrained = constrained,
 			viewModel = viewModel,
-			onOpenSettings = { backStack.add(Screen.Settings.DataStorage) }
+			onOpenSettings = { backStack.add(Screen.Settings.DataStorage) },
+			completedHeader = !inLibrary ||
+				state.active.isNotEmpty() || state.queued.isNotEmpty() || state.failed.isNotEmpty()
 		)
 	}
 }
@@ -350,7 +359,8 @@ private fun LazyListScope.deviceSection(
 	state: DownloadCenterState,
 	constrained: Boolean,
 	viewModel: DownloadCenterViewModel,
-	onOpenSettings: () -> Unit
+	onOpenSettings: () -> Unit,
+	completedHeader: Boolean = true
 ) {
 	// Kept at the top so the "why is my queue stuck?" answer is right above the (possibly
 	// stalled) groups below, with the way to the settings that hold them.
@@ -452,6 +462,7 @@ private fun LazyListScope.deviceSection(
 		title = Res.string.section_downloads_completed,
 		items = state.completed,
 		subtitle = formatSize(state.totalSize),
+		header = completedHeader,
 		actions = {
 			// Re-verifies files still exist and re-fetches any that vanished.
 			TextButton(onClick = viewModel::repairMissing) {
@@ -484,11 +495,12 @@ private fun LazyListScope.downloadGroup(
 	title: StringResource,
 	items: List<DownloadCenterItem>,
 	subtitle: String? = null,
+	header: Boolean = true,
 	actions: @Composable RowScope.() -> Unit = {},
 	row: @Composable (DownloadCenterItem, ListItemShapes) -> Unit
 ) {
 	if (items.isEmpty()) return
-	item(key = "header-$key") {
+	if (header) item(key = "header-$key") {
 		GroupHeader(
 			title = stringResource(title),
 			count = items.size,
@@ -534,12 +546,7 @@ private fun DownloadRow(
 		verticalAlignment = Alignment.CenterVertically,
 		contentPadding = SongRowDefaults.ContentPadding,
 		leadingContent = {
-			CoverArt(
-				coverArtId = item.song?.coverArtId,
-				fallbackAlbumId = item.song?.albumId,
-				modifier = Modifier.size(50.dp),
-				shape = preferenceManager.coverArtShape.decreasedShape
-			)
+			LibraryRowCover(item.song?.coverArtId, item.song?.title, fallbackAlbumId = item.song?.albumId)
 		},
 		content = {
 			Text(
@@ -856,7 +863,7 @@ private fun sourceLabel(source: String): String = when (source) {
 }
 
 /** Bytes as MB/GB: the same rounding the storage settings row uses. */
-private fun formatSize(bytes: Long): String {
+internal fun formatSize(bytes: Long): String {
 	val mb = bytes.toDouble() / (1024 * 1024)
 	return if (mb > 1024) {
 		"${((mb / 1024) * 100).toInt() / 100.0} GB"

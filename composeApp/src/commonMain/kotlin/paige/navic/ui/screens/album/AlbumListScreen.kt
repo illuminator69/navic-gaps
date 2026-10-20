@@ -40,6 +40,7 @@ import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.ListViewMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AlphabeticalScroller
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -199,7 +200,8 @@ fun AlbumListBody(
 				verticalArrangement = if (albumsState.data?.isEmpty() == true) {
 					Arrangement.Center
 				} else if (selectedViewMode == ListViewMode.List) {
-					Arrangement.spacedBy(0.dp)
+					// The Library's rows, 3 dp apart (P5 round 2).
+					Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 				} else {
 					Arrangement.spacedBy(12.dp)
 				},
@@ -227,7 +229,8 @@ fun AlbumListBody(
 				AlphabeticalScroller(
 					state = viewModel.gridState,
 					headers = headerIndices,
-					modifier = Modifier.align(Alignment.TopEnd)
+					modifier = Modifier.align(Alignment.TopEnd),
+					bottomPadding = contentPadding.calculateBottomPadding()
 				)
 			}
 		}

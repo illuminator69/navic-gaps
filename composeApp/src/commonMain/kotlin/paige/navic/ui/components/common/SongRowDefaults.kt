@@ -25,7 +25,7 @@ import navic.composeapp.generated.resources.info_not_available_offline
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.Star
+import paige.navic.icons.filled.Favorite
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Offline
@@ -76,7 +76,7 @@ object SongRowDefaults {
 }
 
 /**
- * The trailing status cluster shared by every song row: starred, unavailable-offline,
+ * The trailing status cluster shared by every song row: liked, unavailable-offline,
  * download state, the playing waveform, and the duration — in that order, so the same
  * information sits in the same place whichever list you are looking at.
  *
@@ -101,9 +101,11 @@ fun SongRowStatus(
 		horizontalArrangement = Arrangement.spacedBy(SongRowDefaults.TrailingSpacing),
 		verticalAlignment = Alignment.CenterVertically
 	) {
+		// A heart (P5 round 2): the Library calls starred songs Liked, and the player's own button
+		// is a heart. The same flag (Subsonic's star) underneath.
 		if (isStarred) {
 			Icon(
-				Icons.Filled.Star,
+				Icons.Filled.Favorite,
 				contentDescription = null,
 				modifier = Modifier.size(SongRowDefaults.StatusIconSize)
 			)

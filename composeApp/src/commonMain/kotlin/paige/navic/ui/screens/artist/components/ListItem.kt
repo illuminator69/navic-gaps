@@ -2,7 +2,6 @@ package paige.navic.ui.screens.artist.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,8 +22,9 @@ import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
-import paige.navic.ui.components.common.CoverArt
-import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.LibraryRow
+import paige.navic.ui.components.common.LibraryRowCover
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
@@ -32,6 +32,9 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 @Composable
 fun ArtistListScreenListItem(
 	modifier: Modifier = Modifier,
+	/** Where the row sits in its run of rows, for its rounded segment's corners. */
+	index: Int,
+	count: Int,
 	artist: DomainArtist,
 	selected: Boolean,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
@@ -42,8 +45,6 @@ fun ArtistListScreenListItem(
 	onAddToQueue: () -> Unit,
 	onSetStarred: (starred: Boolean) -> Unit
 ) {
-	val preferenceManager = koinInject<PreferenceManager>()
-
 	val scope = rememberCoroutineScope()
 
 	val backStack = LocalNavStack.current
@@ -51,26 +52,12 @@ fun ArtistListScreenListItem(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	Box(modifier) {
-		ListItem(
-			leadingContent = {
-				CoverArt(
-					coverArtId = artist.coverArtId,
-					modifier = Modifier.size(50.dp),
-					shape = preferenceManager.coverArtShape.decreasedShape
-				)
-			},
-			content = { MarqueeText(artist.name) },
-			supportingContent = {
-				MarqueeText(
-					buildString {
-						append(pluralStringResource(
-							Res.plurals.count_albums,
-							artist.albumCount,
-							artist.albumCount
-						))
-					}
-				)
-			},
+		// The Library's row (P5 round 2): Recents' look, the picture round, the name, the albums.
+		LibraryRow(
+			title = artist.name,
+			line = pluralStringResource(Res.plurals.count_albums, artist.albumCount, artist.albumCount),
+			shapes = segmentedShapes(index, count),
+			art = { LibraryRowCover(artist.coverArtId, artist.name, artist = true) },
 			onClick = dropUnlessResumed {
 				scope.launch {
 					backStack.add(Screen.ArtistDetail(artist.id))

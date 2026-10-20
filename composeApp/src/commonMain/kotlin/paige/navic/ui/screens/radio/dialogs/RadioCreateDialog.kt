@@ -24,6 +24,8 @@ import navic.composeapp.generated.resources.option_radio_homepage_url
 import navic.composeapp.generated.resources.option_radio_name
 import navic.composeapp.generated.resources.option_radio_stream_url
 import navic.composeapp.generated.resources.title_create_radio
+import navic.composeapp.generated.resources.title_edit_radio
+import paige.navic.domain.models.DomainRadio
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.icons.Icons
@@ -37,10 +39,13 @@ import paige.navic.ui.screens.radio.viewmodels.RadioCreateDialogViewModel
 @Composable
 fun RadioCreateDialog(
 	onDismissRequest: () -> Unit,
-	onRefresh: () -> Unit
+	onRefresh: () -> Unit,
+	/** A station to change (P5 round 2) rather than one to add. */
+	editing: DomainRadio? = null
 ) {
-	val viewModel = koinViewModel<RadioCreateDialogViewModel>()
+	val viewModel = koinViewModel<RadioCreateDialogViewModel>(key = "radio-${editing?.id.orEmpty()}")
 	val state by viewModel.creationState.collectAsState()
+	LaunchedEffect(editing?.id) { editing?.let(viewModel::edit) }
 
 	LaunchedEffect(Unit) {
 		viewModel.events.collect { event ->
@@ -56,7 +61,7 @@ fun RadioCreateDialog(
 	FormDialog(
 		onDismissRequest = onDismissRequest,
 		icon = { Icon(Icons.Outlined.Radio, null) },
-		title = { Text(stringResource(Res.string.title_create_radio)) },
+		title = { Text(stringResource(if (editing == null) Res.string.title_create_radio else Res.string.title_edit_radio)) },
 		buttons = {
 			SegmentedListButton(
 				modifier = Modifier.fillMaxWidth(),

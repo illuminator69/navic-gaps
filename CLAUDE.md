@@ -44,8 +44,9 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/downloads/*` (`DownloadsScreen` with `WishlistSection` and `PasteLinkSheet`: one library-home page, chips for this device's downloads, lb-bot's fills and the wishlist; it was Settings' Download Center plus a Wishlist page, I-039). What holds downloads back (Wi-Fi only, charging only, how many at once) is in Settings › Data & storage |
-| Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
-| Custom radio (P5) | `ui/screens/radio/custom/*`: `CustomRadioScreen` (two steps, `PickArtistsStep` and `TuneStep`), `CustomRadioViewModel` (the picks, the character, the variety, the debounced count, Done), every rule pure in `CustomRadioModel.kt` (`radioTitle`, `CountState`, `CountKey`, `reduceCount`, `canFinish`, `customRadioRecipe`; `CustomRadioModelTest`); the seed rules and the hub's count answer in `StationModels.kt` (`seedsPerArtist`, `interleaveSeeds`, `customRadioPlan`, `parseStationCount`; `CustomRadioPlumbingTest`); `StationManager.count`; the started snackbar in `NewSheetHost` through `ShellController.customRadioDone` (§4) |
+| Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixDetailScreen`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
+| Custom radio (P5) | `ui/screens/radio/custom/*`: `CustomRadioScreen` (two steps, `PickArtistsStep` and `TuneStep`), `CustomRadioViewModel` (the picks, the character, the variety, the debounced count, Done), every rule pure in `CustomRadioModel.kt` (`radioTitle`, `CountState`, `CountKey`, `reduceCount`, `canFinish`, `customRadioRecipe`; `CustomRadioModelTest`); the seed rules and the hub's count answer in `StationModels.kt` (`seedsPerArtist`, `interleaveSeeds`, `customRadioPlan`, `parseStationCount`; `CustomRadioPlumbingTest`); `StationManager.count`; the saved snackbar in `NewSheetHost` through `ShellController.customRadioDone` (§4) |
+| Mix page (P5 round 2) | `ui/screens/mixes/MixDetailScreen.kt` over `MixDetailViewModel` (`MixPageState`); `RadioManager.buildMix` / `playMixBuild` with `MixBuild` (`domain/manager/MixBuild.kt`); `Screen.MixDetail(mixId)`, `YOUR_MIX_ID` for Your mix (§4) |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
@@ -190,7 +191,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     |---|---|---|
     | `AlbumListScreen`, `ArtistListScreen`, `GenreListScreen`, `PlaylistListScreen`, `RadioListScreen`, `SearchScreen` | when `!nested` | upstream |
     | `SongListScreen` | when `!nested` (on the fork's `artistId` key) | upstream |
-    | `StarredScreen` | always | upstream |
+    | `StarredScreen` (Liked) | never since P5 round 2: its list is read on each opening | fork |
     | `LibraryScreen`'s `LibraryViewModel`, and each chip's body's view model (`albumListViewModel(false, …)` and its siblings, `DownloadCenterViewModel`) | always | fork (P5): a chip switch keeps each list's scroll, sort and filters |
     | `LyricsScreen` | always, keyed on the song | upstream |
     | `FreshScreen`, `DiscoverScreen`, `MixListScreen` | when `!nested` | fork — their `init` loads over the network |
@@ -700,9 +701,11 @@ Rules, each with a reason:
   only then, and a hub without them shows no control and "Count unavailable". The count is per artist
   set and character (`CountKey`), asked 250 ms after a change, never for a variety tap, and an answer
   for any other key is dropped (`reduceCount`). Done is disabled only by `Known(0)` and `Unknown`
-  (`canFinish`). Done mints the id (the hub takes a client-minted one), saves, waits up to 6 s for the
-  `mixes` broadcast to hold it, then `regenerate`s it; the page has gone by the time it is said, so
-  `NewSheetHost` shows the snackbar, whose Undo deletes the mix and leaves the radio playing. Leaving the
+  (`canFinish`). Done mints the id (the hub takes a client-minted one), saves and waits up to 6 s for the
+  `mixes` broadcast to hold it; **it does not play** (P5 round 2, the owner's note: it was reached from
+  New, so starting it surprised): the stack becomes the Library on Mixes with the mix's page on top, and
+  `NewSheetHost` shows "Saved under Mixes", whose Undo deletes the mix (its page then leaves). A save the
+  hub never confirms stays on Tune with a snackbar, to try again. Leaving the
   flow saves nothing. **The words are Familiar / Blend / Discover** (`StationCharacter.label`, the
   bundled catalogue); a catalogue that still says Close / Balanced / Explore (an older hub, or one stored
   before) reads as the new words in `StationCatalogue.infoFor`; ids, legacy names and ordinals did not
@@ -1876,6 +1879,35 @@ true of invented *album art*, and not of an icon naming the kind.
   buttons are gone; every page they led to has a way in (chips, the Liked row, Search's Genres tile,
   the avatar menu). Its "sync failed, this is the cached copy" row heads Recents. Measured on the VM
   AVD's library (15,679 songs, 4,320 albums, 44 of them with a `lastPlayedAt`).
+- **A mix is opened, not started (P5 round 2).** Every mix tap (the Mixes chip and page, Recents,
+  Discover, Your mix's row) opens `Screen.MixDetail`: the playlist page's layout (the face over its own
+  wash, the name, `mixKindLabel`, Shuffle, Play, Save as playlist, the playlist's song rows). Its songs
+  are built afresh on each opening, as YouTube Music's mixes are (`RadioManager.buildMix`, one
+  `MixDetailViewModel` per page entry; a pull builds again). **A mix that plays as a station starts that
+  station when the page opens** and shows its seeds and first batch (`startStation`, the first half of
+  `playStation`); Play, Shuffle or a row then loads exactly those songs as that station's queue
+  (`playMixBuild` → `loadStation`), so what plays is what was shown and the station carries on after
+  it. Any other mix runs `generate`. Opening a page is not a play: `actTouchMix` waits for Play. The
+  hub holds 8 stations (LRU, the bound one kept), so pages opened and left are evicted, never the one
+  playing. "Save as playlist" is the set on screen as a Navidrome playlist (`PlaylistCreateDialog`,
+  named after the mix). The old preview sheet is gone (the page is the preview).
+- **Every Library list wears Recents' row (P5 round 2).** `LibraryRow` (`ui/components/common`): a
+  segment in a 16 dp gutter, 3 dp apart, on `SongRowDefaults.containerColor`, with 50 dp art
+  (`LibraryRowCover`, artists round), a title and one line. Recents, Mixes, the Albums / Artists /
+  Playlists list modes, Radios (rows now, with Edit and Delete in their sheet) and the downloads use it;
+  the Songs rows keep their swipe and status but take its tone and padding. A letter group's header is
+  `LetterHeader` (in the gutter, on a pill; stuck only over a grid: over rows it covered the first
+  row's picture). The alphabet column is a scrollbar now
+  (`AlphabeticalScroller`): a thumb that shows while the list moves and fades 1.2 s after, a drag
+  through the whole list with the letter in a bubble beside it; hidden, it takes no touches. A liked
+  song's status is a heart (`SongRowStatus`), and the song sheet says Like / Unlike. Liked
+  (`Screen.Starred`, the pinned row) is every liked song in one list with Shuffle and Play, a tap
+  playing the list from there; its view model is the entry's (one in the persistent store kept the
+  first read's songs); starred albums and artists are those chips' filter. **A chip's sort row says
+  how many it holds**, not the chip's name again ("2474 artists", "21 songs · 527 MB"; `chipSummary`,
+  from the bodies' own view models); Downloaded's holds Repair, so its list drops its own "Downloaded"
+  header unless another group is above it, and Artists' drops its "N artists" line. The Songs rows'
+  swipe backing is drawn only while a swipe is under way (at rest it tinted every translucent row).
 - **The shell (P1): a fixed bar of four, one avatar menu, one New sheet.** The bar and the tablet's rail are
   Home, Search, Library and New (`ShellTab`), and a tap is `onShellTabTapped` for both (the selected tab scrolls to
   top, another tab clears the stack to its page, New opens a sheet and never touches the stack or the selection).

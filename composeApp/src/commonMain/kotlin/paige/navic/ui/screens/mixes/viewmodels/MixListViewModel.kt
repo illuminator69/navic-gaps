@@ -12,23 +12,19 @@ import kotlinx.coroutines.launch
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
-import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
-import paige.navic.domain.models.MixKind
 import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.models.settings.StationCharacter
 
 /** What the list screen needs to say after an action that can fail silently. */
-enum class MixMessage { RegenerateFailed, UnknownKind, NotConnected }
+enum class MixMessage { NotConnected }
 
 /**
  * Mixed for You.
  *
  * Thin on purpose: the recipes live on the hub and the engine lives in
- * [RadioManager], so this owns neither. What it does own is the one piece of state
- * that is genuinely local — **which mix is currently being regenerated** — because
- * a regeneration is a round trip to AudioMuse or Navidrome and a row with no
- * feedback reads as a dead tap.
+ * [RadioManager], so this owns neither. A mix is played from its page (P5 round 2,
+ * `MixDetailViewModel`), which builds it; this list only opens, renames and deletes.
  *
  * Nothing here caches the list. It is a hub [StateFlow], and a local copy would go
  * stale the moment another client created a mix.
@@ -48,9 +44,6 @@ class MixListViewModel(
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
 	val connected: StateFlow<Boolean> = hubManager.connected
-
-	private val _busyId = MutableStateFlow<String?>(null)
-	val busyId: StateFlow<String?> = _busyId.asStateFlow()
 
 	private val _message = MutableStateFlow<MixMessage?>(null)
 	val message: StateFlow<MixMessage?> = _message.asStateFlow()
@@ -77,102 +70,10 @@ class MixListViewModel(
 
 	val catalogue: StateFlow<StationCatalogue> = radioManager.catalogue
 
-	/** Whether [mix] plays as a station right now, in which case it has no preview: it is built as it plays. */
-	fun stationBacked(mix: Mix): Boolean = radioManager.stationBacked(mix)
-
-	/**
-	 * Play Your mix, the seedless station that sits at the head of this list. Not a stored
-	 * recipe: there is one, it is always there, and saving it is the queue's "Save as a mix".
-	 */
-	fun playYourMix(name: String) {
-		if (_busyId.value != null) return
-		_busyId.value = YOUR_MIX_ID
-		viewModelScope.launch {
-			try {
-				if (!radioManager.playYourMix(name)) _message.value = MixMessage.RegenerateFailed
-			} finally {
-				_busyId.value = null
-			}
-		}
-	}
-
 	fun clearMessage() { _message.value = null }
 
 	fun clearHubMessage() { _hubMessage.value = null }
 
-
-	/**
-	 * A mix's tracks, built but not played.
-	 *
-	 * Its own state rather than a parameter on the sheet, because the build is a
-	 * round trip to AudioMuse or Navidrome and the sheet has to open immediately —
-	 * a tap that shows nothing for several seconds reads as a dead control, which
-	 * is the same reason `busyId` exists for the play path.
-	 */
-	private val _previewing = MutableStateFlow<Mix?>(null)
-	val previewing: StateFlow<Mix?> = _previewing.asStateFlow()
-
-	private val _previewSongs = MutableStateFlow<List<DomainSong>>(emptyList())
-	val previewSongs: StateFlow<List<DomainSong>> = _previewSongs.asStateFlow()
-
-	private val _previewLoading = MutableStateFlow(false)
-	val previewLoading: StateFlow<Boolean> = _previewLoading.asStateFlow()
-
-	fun preview(mix: Mix) {
-		if (MixKind.fromWire(mix.kind) == null) {
-			_message.value = MixMessage.UnknownKind
-			return
-		}
-		_previewing.value = mix
-		_previewSongs.value = emptyList()
-		_previewLoading.value = true
-		viewModelScope.launch {
-			try {
-				_previewSongs.value = radioManager.generate(mix)
-			} finally {
-				_previewLoading.value = false
-			}
-		}
-	}
-
-	fun dismissPreview() {
-		_previewing.value = null
-		_previewSongs.value = emptyList()
-		_previewLoading.value = false
-	}
-
-	/**
-	 * Play what the preview already built, rather than running the engine a second
-	 * time — which would produce a *different* tracklist from the one on screen and
-	 * make the preview a lie.
-	 */
-	fun playPreviewed() {
-		val mix = _previewing.value ?: return
-		radioManager.playGenerated(mix, _previewSongs.value)
-	}
-
-	fun enqueuePreviewed() {
-		radioManager.enqueueMoodMix(_previewSongs.value)
-	}
-
-	fun play(mix: Mix) {
-		if (_busyId.value != null) return
-		if (MixKind.fromWire(mix.kind) == null) {
-			_message.value = MixMessage.UnknownKind
-			return
-		}
-		_busyId.value = mix.id
-		viewModelScope.launch {
-			try {
-				if (!radioManager.regenerate(mix)) _message.value = MixMessage.RegenerateFailed
-			} finally {
-				// In a `finally` because cancelling the scope mid-regeneration (the
-				// user navigating away) would otherwise leave the row spinning
-				// forever the next time this screen is opened.
-				_busyId.value = null
-			}
-		}
-	}
 
 	/**
 	 * Create or update. Every write goes through the hub and comes back as a
@@ -204,10 +105,6 @@ class MixListViewModel(
 		hubManager.actDeleteMix(id)
 	}
 
-	companion object {
-		/** [busyId] while Your mix is starting. No hub id looks like it (`mx_…`). */
-		const val YOUR_MIX_ID = "your-mix"
-	}
 }
 
 /**

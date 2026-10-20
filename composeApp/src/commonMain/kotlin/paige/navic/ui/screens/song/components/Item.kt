@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
@@ -33,8 +31,6 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_play_next
-import navic.composeapp.generated.resources.info_download_failed
-import navic.composeapp.generated.resources.info_downloaded
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -46,13 +42,13 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.Star
-import paige.navic.icons.outlined.Check
-import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.LibraryRowCover
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SongRowStatus
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import paige.navic.ui.components.common.SmallRatingRow
 import paige.navic.ui.components.common.SwipeToDismissBox
 import paige.navic.ui.components.sheets.SongSheet
@@ -60,9 +56,6 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.util.InlineExplicitIcon
 import paige.navic.ui.util.buildSongInfoString
-
-/** This ListItem puts 12 dp after the cover and `SongRow`'s (the artist page's) 16 dp; the text lines up. */
-private val LeadingGapMatch = 4.dp
 
 @Composable
 fun SongListScreenItem(
@@ -95,10 +88,12 @@ fun SongListScreenItem(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
 
-	// The artist page's rows (P4 round 3, the owner's note): rounded segments in a 16 dp gutter,
-	// 2 dp apart, on the same frosted tone, instead of screen-wide slabs 12 dp apart. A row being
-	// swiped rounds all its corners, as the segmented lists elsewhere do.
+	// Rounded segments in a 16 dp gutter, 3 dp apart, as the Library's rows (P5 round 2), instead of
+	// screen-wide slabs. A row being swiped rounds all its corners, as the segmented lists elsewhere do.
 	val shape = segmentedShapes(index, count, dismissDirection = dismissState.dismissDirection).shape
+	// steadyState: one collector per visible row, none of which draws the playhead (as SongRow).
+	val playerState by playerItem.steadyState.collectAsStateWithLifecycle()
+	val isCurrentTrack = playerState.currentSong?.id == song.id
 	SwipeToDismissBox(
 		modifier = modifier.padding(horizontal = 16.dp).clip(shape),
 		state = dismissState,
@@ -112,7 +107,12 @@ fun SongListScreenItem(
 				modifier = Modifier
 					.fillMaxSize()
 					.clip(MaterialTheme.shapes.extraSmall)
-					.background(MaterialTheme.colorScheme.primaryContainer)
+					// Only while a swipe is under way: the row is translucent, and a backing drawn at
+					// rest tinted every row (the owner's note: the Songs cards were another colour).
+					.then(
+						if (dismissState.dismissDirection == SwipeToDismissBoxValue.Settled) Modifier
+						else Modifier.background(MaterialTheme.colorScheme.primaryContainer)
+					)
 					.padding(horizontal = 20.dp),
 				contentAlignment = Alignment.CenterEnd
 			) {
@@ -141,27 +141,33 @@ fun SongListScreenItem(
 		}
 	) {
 		Box {
-			ListItem(
-				colors = ListItemDefaults.colors(containerColor = SongRowDefaults.frostedContainerColor()),
+			// The Library's row (P5 round 2, the owner's note: the Songs chip's cards were another
+			// colour): Recents' tone, padding and 50 dp art, with the song rows' status at the end.
+			SegmentedListItem(
 				onClick = onClick,
 				onLongClick = onSelect,
+				shapes = segmentedShapes(index, count, dismissDirection = dismissState.dismissDirection),
+				colors = ListItemDefaults.colors(
+					containerColor = SongRowDefaults.containerColor(isCurrentTrack),
+					contentColor = SongRowDefaults.contentColor(isCurrentTrack),
+					supportingContentColor = SongRowDefaults.supportingContentColor(isCurrentTrack)
+				),
 				verticalAlignment = Alignment.CenterVertically,
+				contentPadding = SongRowDefaults.ContentPadding,
 				content = {
-					Box(Modifier.padding(start = LeadingGapMatch)) {
-						MarqueeText(
-							text = buildAnnotatedString {
-								append(song.title)
-								if (song.explicitStatus == DomainExplicitStatus.Explicit) {
-									append(" ")
-									appendInlineContent("InlineExplicitIcon")
-								}
-							},
-							inlineContent = InlineExplicitIcon,
-						)
-					}
+					MarqueeText(
+						text = buildAnnotatedString {
+							append(song.title)
+							if (song.explicitStatus == DomainExplicitStatus.Explicit) {
+								append(" ")
+								appendInlineContent("InlineExplicitIcon")
+							}
+						},
+						inlineContent = InlineExplicitIcon,
+					)
 				},
 				supportingContent = {
-					Column(Modifier.padding(start = LeadingGapMatch)) {
+					Column {
 						MarqueeText(
 							buildSongInfoString(
 								song = song,
@@ -174,52 +180,16 @@ fun SongListScreenItem(
 					}
 				},
 				leadingContent = {
-					CoverArt(
-						coverArtId = song.coverArtId,
-						fallbackAlbumId = song.albumId,
-						modifier = Modifier.size(50.dp),
-						shape = preferenceManager.coverArtShape.decreasedShape
-					)
+					LibraryRowCover(song.coverArtId, song.title, fallbackAlbumId = song.albumId)
 				},
 				trailingContent = {
-					if (starred) {
-						Icon(
-							Icons.Filled.Star,
-							null,
-							modifier = Modifier.size(16.dp)
-						)
-					}
-					if (download != null) {
-						when (download.status) {
-							DownloadStatus.DOWNLOADING -> {
-								CircularProgressIndicator(
-									progress = { download.progress },
-									modifier = Modifier.size(16.dp),
-									strokeWidth = 2.dp
-								)
-							}
-
-							DownloadStatus.DOWNLOADED -> {
-								Icon(
-									Icons.Outlined.Check,
-									contentDescription = stringResource(Res.string.info_downloaded),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.primary
-								)
-							}
-
-							DownloadStatus.FAILED -> {
-								Icon(
-									Icons.Outlined.DownloadOff,
-									contentDescription = stringResource(Res.string.info_download_failed),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.error
-								)
-							}
-
-							else -> {}
-						}
-					}
+					SongRowStatus(
+						isStarred = starred,
+						downloadStatus = download?.status,
+						downloadProgress = download?.progress ?: 0f,
+						isCurrentTrack = isCurrentTrack,
+						isPlaying = !playerState.isPaused
+					)
 				}
 			)
 			if (selected) {

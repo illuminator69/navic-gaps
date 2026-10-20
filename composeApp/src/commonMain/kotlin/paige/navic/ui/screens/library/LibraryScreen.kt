@@ -51,6 +51,14 @@ import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_radios
 import navic.composeapp.generated.resources.title_rename_mix
 import navic.composeapp.generated.resources.title_songs
+import navic.composeapp.generated.resources.action_repair_downloads
+import navic.composeapp.generated.resources.count_songs
+import navic.composeapp.generated.resources.count_albums
+import navic.composeapp.generated.resources.count_artists
+import navic.composeapp.generated.resources.count_mixes
+import navic.composeapp.generated.resources.count_playlists
+import navic.composeapp.generated.resources.count_radios
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -90,6 +98,7 @@ import paige.navic.ui.screens.artist.ArtistListBody
 import paige.navic.ui.screens.artist.ArtistListSortAction
 import paige.navic.ui.screens.artist.artistListViewModel
 import paige.navic.ui.screens.downloads.DeviceDownloadsBody
+import paige.navic.ui.screens.downloads.formatSize
 import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.screens.library.viewmodels.LibraryViewModel
 import paige.navic.ui.screens.mixes.MixListBody
@@ -216,14 +225,15 @@ fun LibraryScreen() {
 						albumListViewModel(false, LIBRARY_ALBUMS), inner, scrollConnection = connection
 					)
 					LibraryChip.Artists -> ArtistListBody(
-						artistListViewModel(false, LIBRARY_ARTISTS), inner, scrollConnection = connection
+						artistListViewModel(false, LIBRARY_ARTISTS), inner, scrollConnection = connection,
+						showCount = false
 					)
 					LibraryChip.Mixes -> MixListBody(
 						mixListViewModel(false), inner, LocalSnackBarState.current, scrollConnection = connection
 					)
 					LibraryChip.Downloaded -> DeviceDownloadsBody(
 						koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = persistent), inner,
-						scrollConnection = connection
+						scrollConnection = connection, inLibrary = true
 					)
 					LibraryChip.Songs -> SongListBody(
 						songListViewModel(false, LIBRARY_SONGS), inner, scrollConnection = connection,
@@ -267,7 +277,9 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 		// The board's glyph for Recents' order; a chip has its own sort button at the end instead.
 		if (chip == null) Icon(Icons.Outlined.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
 		Text(
-			if (chip == null) stringResource(Res.string.library_recents) else stringResource(chip.label),
+			// How many the chip holds, not its name again (the owner's note: "Downloaded" three
+			// times); the name until the list has been read.
+			if (chip == null) stringResource(Res.string.library_recents) else chipSummary(chip) ?: stringResource(chip.label),
 			style = MaterialTheme.typography.titleSmall,
 			fontWeight = FontWeight.Bold,
 			modifier = Modifier.padding(start = if (chip == null) 8.dp else 0.dp)
@@ -282,7 +294,55 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 				Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
 				Text(stringResource(Res.string.library_add_radio), modifier = Modifier.padding(start = 6.dp))
 			}
-			LibraryChip.Mixes, LibraryChip.Downloaded, null -> Unit
+			LibraryChip.Downloaded -> {
+				val downloads = koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())
+				// Re-verifies the files still exist and fetches any that vanished (the group header's,
+				// which this chip leaves out).
+				TextButton(onClick = downloads::repairMissing) {
+					Text(stringResource(Res.string.action_repair_downloads))
+				}
+			}
+			LibraryChip.Mixes, null -> Unit
+		}
+	}
+}
+
+/**
+ * What [chip] holds, as its sort row says it: "2,474 artists", "77 songs · 412 MB". The lists' own
+ * view models (the bodies'), so the number is the list's, filters included. Null before a read.
+ */
+@Composable
+private fun chipSummary(chip: LibraryChip): String? {
+	return when (chip) {
+		LibraryChip.Playlists -> {
+			val state by playlistListViewModel(false).playlistsState.collectAsStateWithLifecycle()
+			state.data?.size?.let { pluralStringResource(Res.plurals.count_playlists, it, it) }
+		}
+		LibraryChip.Albums -> {
+			val state by albumListViewModel(false, LIBRARY_ALBUMS).albumsState.collectAsStateWithLifecycle()
+			state.data?.size?.let { pluralStringResource(Res.plurals.count_albums, it, it) }
+		}
+		LibraryChip.Artists -> {
+			val state by artistListViewModel(false, LIBRARY_ARTISTS).artistsState.collectAsStateWithLifecycle()
+			state.data?.size?.let { pluralStringResource(Res.plurals.count_artists, it, it) }
+		}
+		LibraryChip.Songs -> {
+			val state by songListViewModel(false, LIBRARY_SONGS).songsState.collectAsStateWithLifecycle()
+			state.data?.size?.let { pluralStringResource(Res.plurals.count_songs, it, it) }
+		}
+		LibraryChip.Mixes -> {
+			val mixes by mixListViewModel(false).mixes.collectAsStateWithLifecycle()
+			pluralStringResource(Res.plurals.count_mixes, mixes.size, mixes.size)
+		}
+		LibraryChip.Radios -> {
+			val state by radioListViewModel(false).radiosState.collectAsStateWithLifecycle()
+			state.data?.size?.let { pluralStringResource(Res.plurals.count_radios, it, it) }
+		}
+		LibraryChip.Downloaded -> {
+			val downloads = koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())
+			val state by downloads.state.collectAsStateWithLifecycle()
+			val count = state.completed.size
+			pluralStringResource(Res.plurals.count_songs, count, count) + " · " + formatSize(state.totalSize)
 		}
 	}
 }
@@ -301,7 +361,6 @@ private fun RecentsBody(
 	val radioManager = koinInject<RadioManager>()
 	val persistent = koinInject<PersistentViewModelStoreOwner>()
 	val mixes = mixListViewModel(false)
-	val busyMix by mixes.busyId.collectAsStateWithLifecycle()
 	val savedQueues = koinViewModel<SavedQueuesViewModel>(viewModelStoreOwner = persistent)
 	val queueActions = rememberSavedQueueActions(savedQueues, player)
 	val albums = albumListViewModel(false, LIBRARY_ALBUMS)
@@ -329,13 +388,14 @@ private fun RecentsBody(
 			entries = recents,
 			contentPadding = contentPadding,
 			listState = listState,
-			busyKey = busyMix?.let { "mx:$it" },
+			busyKey = null,
 			syncFailed = syncState.lastSyncFailed && !syncState.isSyncing,
 			scrollConnection = connection,
 			onOpen = { entry ->
 				when (val source = entry.source) {
 					null -> backStack.add(Screen.Starred(nested = true))
-					is Mix -> mixes.play(source)
+					// Opened, not started (P5 round 2): its page builds it and plays from there.
+					is Mix -> backStack.add(Screen.MixDetail(source.id))
 					is SavedQueueEntity -> queueActions.resume(source)
 					is DomainPlaylist -> backStack.add(Screen.CollectionDetail(source.id, ""))
 					is DomainAlbum -> if (entry.kind == EntryKind.Artist) {
@@ -365,7 +425,6 @@ private fun RecentsBody(
 		is Mix -> MixSheet(
 			mix = target,
 			onDismissRequest = { sheet = null },
-			onPreview = null,
 			onRename = { renaming = target },
 			onDelete = { mixes.delete(target.id) }
 		)

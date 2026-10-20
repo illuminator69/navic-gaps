@@ -2,7 +2,7 @@ package paige.navic.ui.screens.playlist.components
 
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.ui.Modifier
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_playlists_short
@@ -29,7 +29,7 @@ fun LazyGridScope.playlistListScreenContent(
 ) {
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
-		items(data, { it.id }) { playlist ->
+		itemsIndexed(data, { _, it -> it.id }) { index, playlist ->
 			if (selectedViewMode == ListViewMode.Grid) {
 				PlaylistListScreenGridItem(
 					modifier = Modifier.animateItem(),
@@ -46,6 +46,8 @@ fun LazyGridScope.playlistListScreenContent(
 			} else {
 				PlaylistListScreenListItem(
 					modifier = Modifier.animateItem(),
+					index = index,
+					count = data.size,
 					playlist = playlist,
 					selected = playlist == selectedPlaylist,
 					onSelect = { onUpdateSelection(playlist) },

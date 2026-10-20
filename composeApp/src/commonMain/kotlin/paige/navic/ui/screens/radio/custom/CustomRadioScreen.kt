@@ -33,8 +33,8 @@ import org.koin.compose.koinInject
  *   RadioTune          TuneStep: the avatars and "+", the title, Artist variety, Song selection
  *   RadioTuneUpdating  TuneStep's footer while CountState.Counting: the last number dimmed, a spinner
  *   RadioEmpty         the footer for Known(0) and Unknown: the warn line, Done disabled
- *   RadioStarted       the Library on its Mixes chip, and the snackbar, said by NewSheetHost through
- *                      ShellController once this page left
+ *   RadioStarted       the mix's page over the Library's Mixes chip (P5 round 2: opened, not played),
+ *                      and the snackbar, said by NewSheetHost through ShellController once this page left
  *   (Filters)          not drawn: the hub advertises none (`filters: []`); the slot is the probe's
  */
 
@@ -80,12 +80,14 @@ fun CustomRadioScreen() {
 				viewModel,
 				onAddArtists = { step = 0 },
 				onClose = { close() },
-				onDone = {
-					// The board lands on the Library's Mixes chip, where the radio now is: the Library
-					// tab as a tab tap opens it (the stack cleared to it), on that chip.
+				onDone = { mixId ->
+					// The radio opens as its own page (P5 round 2), over the Library's Mixes chip where it
+					// is kept: the Library tab as a tab tap opens it (the stack cleared to it), on that chip,
+					// and the mix's page on top. It is built there, not played.
 					shell.showLibraryChip(LibraryChip.Mixes.name)
 					backStack.clear()
 					backStack.add(Screen.Library())
+					backStack.add(Screen.MixDetail(mixId))
 				}
 			)
 		}

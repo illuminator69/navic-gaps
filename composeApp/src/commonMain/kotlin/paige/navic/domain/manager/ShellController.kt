@@ -59,9 +59,9 @@ class ShellController {
 	}
 
 	/**
-	 * A custom radio's Done (P5) came to this: the flow's page has gone by the time it is said, so
+	 * A custom radio's Done (P5) saved a mix: the flow's page has gone by the time it is said, so
 	 * the New sheet's host, which is always there, shows the snackbar (with Undo, which deletes the
-	 * saved mix and leaves the radio playing).
+	 * saved mix; its page then leaves).
 	 */
 	private val _customRadioDone = MutableSharedFlow<CustomRadioDone>(extraBufferCapacity = 1)
 	val customRadioDone: SharedFlow<CustomRadioDone> = _customRadioDone.asSharedFlow()
@@ -87,5 +87,5 @@ class ShellController {
 	}
 }
 
-/** What a custom radio's Done did: [saved] under Mixes as [mixId], and whether it [started]. */
-data class CustomRadioDone(val mixId: String, val saved: Boolean, val started: Boolean)
+/** A custom radio's Done saved it under Mixes as [mixId]. */
+data class CustomRadioDone(val mixId: String)

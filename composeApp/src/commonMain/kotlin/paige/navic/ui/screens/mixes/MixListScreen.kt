@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,10 +31,8 @@ import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.Add
 import paige.navic.ui.components.common.SegmentedListButton
 import paige.navic.ui.components.common.SegmentedListButtonDefaults
-import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
-import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.util.withoutTop
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
@@ -46,7 +43,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,7 +59,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -75,8 +70,6 @@ import navic.composeapp.generated.resources.info_no_mixes
 import navic.composeapp.generated.resources.info_no_mixes_hint
 import navic.composeapp.generated.resources.mix_new
 import navic.composeapp.generated.resources.mix_not_connected
-import navic.composeapp.generated.resources.mix_regenerate_failed
-import navic.composeapp.generated.resources.mix_unknown_kind
 import navic.composeapp.generated.resources.mix_your_mix_line
 import navic.composeapp.generated.resources.queue_station_line
 import navic.composeapp.generated.resources.queue_your_mix
@@ -91,12 +84,14 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.YOUR_MIX_ID
 import paige.navic.domain.models.isCustomRadio
+import paige.navic.ui.components.common.LibraryRow
+import paige.navic.ui.components.common.LibraryRowDefaults
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.MoreVert
-import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -227,8 +222,8 @@ fun MixListBody(
 	modifier: Modifier = Modifier,
 	scrollConnection: NestedScrollConnection? = null
 ) {
+	val backStack = LocalNavStack.current
 	val mixes by viewModel.mixes.collectAsStateWithLifecycle()
-	val busyId by viewModel.busyId.collectAsStateWithLifecycle()
 	val message by viewModel.message.collectAsStateWithLifecycle()
 	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
 	val stationsAvailable by viewModel.stationsAvailable.collectAsStateWithLifecycle()
@@ -237,13 +232,9 @@ fun MixListBody(
 	var renameTarget by remember { mutableStateOf<Mix?>(null) }
 	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
 
-	val failedMsg = stringResource(Res.string.mix_regenerate_failed)
-	val unknownMsg = stringResource(Res.string.mix_unknown_kind)
 	val offlineMsg = stringResource(Res.string.mix_not_connected)
 	LaunchedEffect(message) {
 		when (message) {
-			MixMessage.RegenerateFailed -> snackbarHostState.showSnackbar(failedMsg)
-			MixMessage.UnknownKind -> snackbarHostState.showSnackbar(unknownMsg)
 			MixMessage.NotConnected -> snackbarHostState.showSnackbar(offlineMsg)
 			null -> {}
 		}
@@ -284,8 +275,8 @@ fun MixListBody(
 						stringResource(Res.string.mix_your_mix_line),
 						catalogue.infoFor(character).label.ifBlank { character.label }
 					),
-					busy = busyId == MixListViewModel.YOUR_MIX_ID,
-					onClick = dropUnlessResumed { viewModel.playYourMix(yourMixName) },
+					// Opened, not started (P5 round 2): its page builds it and plays from there.
+					onClick = dropUnlessResumed { backStack.add(Screen.MixDetail(YOUR_MIX_ID)) },
 					modifier = Modifier.animateItem()
 				)
 			}
@@ -304,11 +295,7 @@ fun MixListBody(
 			MixRow(
 				mix = mix,
 				shapes = segmentedShapes(index = index, count = mixes.size),
-				busy = busyId == mix.id,
-				// `dropUnlessResumed` because regenerating navigates nowhere but does
-				// start playback, and a double tap during the transition would run the
-				// recipe twice.
-				onClick = dropUnlessResumed { viewModel.play(mix) },
+				onClick = dropUnlessResumed { backStack.add(Screen.MixDetail(mix.id)) },
 				onMenu = { sheetTarget = mix },
 				modifier = Modifier.animateItem()
 			)
@@ -319,29 +306,8 @@ fun MixListBody(
 		MixSheet(
 			mix = target,
 			onDismissRequest = { sheetTarget = null },
-			// No preview for a mix built as it plays: a station's (when the engine is there) or
-			// the old adaptive one. A sample of its first songs would not be the mix.
-			onPreview = { viewModel.preview(target) }.takeIf {
-				target.kind != MixKind.ADAPTIVE && !viewModel.stationBacked(target)
-			},
 			onRename = { renameTarget = target },
 			onDelete = { deleteTarget = target }
-		)
-	}
-
-	val previewing by viewModel.previewing.collectAsStateWithLifecycle()
-	previewing?.let { target ->
-		val previewSongs by viewModel.previewSongs.collectAsStateWithLifecycle()
-		val previewLoading by viewModel.previewLoading.collectAsStateWithLifecycle()
-		MixPreviewSheet(
-			mix = target,
-			songs = previewSongs,
-			loading = previewLoading,
-			// Plays what is ON SCREEN rather than re-running the recipe, which
-			// would give a different tracklist and make the preview a lie.
-			onPlay = { viewModel.playPreviewed() },
-			onAddToQueue = { viewModel.enqueuePreviewed() },
-			onDismissRequest = { viewModel.dismissPreview() }
 		)
 	}
 
@@ -384,50 +350,31 @@ fun MixListBody(
 }
 
 /**
- * One recipe, as a segmented library row: its face, its name, and what kind of recipe it is. It
- * deliberately says nothing a saved-queue row says (how many tracks, where it left off), because a
- * mix holds no tracks until it is played; that absence is the feature. A tap plays it; a long
- * press, or the "more" button, opens its sheet.
+ * One recipe, as the Library's row ([LibraryRow]): its face, its name, and what kind of recipe it
+ * is. It deliberately says nothing a saved-queue row says (how many tracks, where it left off),
+ * because a mix holds no tracks until it is built. A tap opens its page; a long press, or the
+ * "more" button, its sheet.
  */
 @Composable
 private fun MixRow(
 	mix: Mix,
 	shapes: ListItemShapes,
-	busy: Boolean,
 	onClick: () -> Unit,
 	onMenu: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	SegmentedListItem(
+	LibraryRow(
+		title = mix.name,
+		line = mixKindLabel(mix),
 		onClick = onClick,
 		onLongClick = onMenu,
-		enabled = !busy,
 		shapes = shapes,
 		modifier = modifier,
-		colors = ListItemDefaults.colors(
-			containerColor = SongRowDefaults.containerColor(false),
-			supportingContentColor = SongRowDefaults.supportingContentColor(false),
-			disabledContainerColor = SongRowDefaults.containerColor(false)
-		),
-		verticalAlignment = Alignment.CenterVertically,
-		contentPadding = SongRowDefaults.ContentPadding,
-		leadingContent = {
-			Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
-				if (busy) {
-					// Regenerating is a round trip to AudioMuse or Navidrome, and without this
-					// the tap looks like it did nothing for as long as it takes.
-					CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-				} else {
-					MixArtwork(mix = mix, modifier = Modifier.size(50.dp))
-				}
-			}
-		},
+		gutter = false,
 		// A custom radio's name is its artists, so it may take two lines (P5).
-		content = { Text(mix.name, maxLines = if (isCustomRadio(mix)) 2 else 1, overflow = TextOverflow.Ellipsis) },
-		supportingContent = {
-			Text(mixKindLabel(mix), maxLines = 1, overflow = TextOverflow.Ellipsis)
-		},
-		trailingContent = {
+		titleLines = if (isCustomRadio(mix)) 2 else 1,
+		art = { MixArtwork(mix = mix, modifier = Modifier.size(LibraryRowDefaults.ArtSize)) },
+		trailing = {
 			IconButton(onClick = onMenu) {
 				Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(Res.string.action_more))
 			}
@@ -440,36 +387,22 @@ private fun MixRow(
 private fun YourMixRow(
 	name: String,
 	line: String,
-	busy: Boolean,
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	SegmentedListItem(
+	LibraryRow(
+		title = name,
+		line = line,
 		onClick = onClick,
-		enabled = !busy,
 		shapes = segmentedShapes(index = 0, count = 1),
 		modifier = modifier,
-		colors = ListItemDefaults.colors(
-			containerColor = SongRowDefaults.containerColor(false),
-			supportingContentColor = SongRowDefaults.supportingContentColor(false),
-			disabledContainerColor = SongRowDefaults.containerColor(false)
-		),
-		verticalAlignment = Alignment.CenterVertically,
-		contentPadding = SongRowDefaults.ContentPadding,
-		leadingContent = {
-			Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
-				if (busy) {
-					CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-				} else {
-					MixArtwork(
-						mix = Mix(id = MixListViewModel.YOUR_MIX_ID, name = name, kind = MixKind.STATION),
-						modifier = Modifier.size(50.dp)
-					)
-				}
-			}
-		},
-		content = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-		supportingContent = { Text(line, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+		gutter = false,
+		art = {
+			MixArtwork(
+				mix = Mix(id = YOUR_MIX_ID, name = name, kind = MixKind.STATION),
+				modifier = Modifier.size(LibraryRowDefaults.ArtSize)
+			)
+		}
 	)
 }
 

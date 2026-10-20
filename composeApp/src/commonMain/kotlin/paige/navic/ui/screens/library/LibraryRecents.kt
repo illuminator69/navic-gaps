@@ -10,17 +10,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.banner_sync_failed_cached
@@ -46,11 +44,12 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Favorite
 import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.LibraryRow
+import paige.navic.ui.components.common.LibraryRowCover
+import paige.navic.ui.components.common.LibraryRowDefaults
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
-import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.screens.mixes.MixArtwork
 import paige.navic.ui.screens.mixes.mixKindLabel
 import paige.navic.ui.screens.savedqueues.savedQueueTitle
@@ -61,7 +60,7 @@ import paige.navic.ui.util.withoutTop
 
 /**
  * Recents (board Library): Liked pinned, then what was used last, one row each in the app's
- * segmented rows with 50 dp art (artists round). A tap opens the thing; a long press its sheet.
+ * segmented rows with 50 dp art (artists round): [LibraryRow], which every Library list shares. A tap opens the thing; a long press its sheet.
  * [entries] null: not read yet, so nothing is drawn (no "empty" before the first read).
  */
 @Composable
@@ -143,65 +142,43 @@ private fun RecentRow(
 	onMenu: (LibraryEntry) -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	SegmentedListItem(
+	LibraryRow(
+		title = entryTitle(entry),
+		line = entryLine(entry),
 		onClick = { onOpen(entry) },
 		onLongClick = { onMenu(entry) }.takeIf { entry.kind != EntryKind.Liked },
-		enabled = !busy,
+		busy = busy,
 		shapes = shapes,
 		modifier = modifier,
-		colors = ListItemDefaults.colors(
-			containerColor = SongRowDefaults.containerColor(false),
-			supportingContentColor = SongRowDefaults.supportingContentColor(false),
-			disabledContainerColor = SongRowDefaults.containerColor(false)
-		),
-		verticalAlignment = Alignment.CenterVertically,
-		contentPadding = SongRowDefaults.ContentPadding,
-		leadingContent = {
-			Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
-				when {
-					busy -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-					entry.kind == EntryKind.Liked -> Box(
-						Modifier.size(50.dp),
-						contentAlignment = Alignment.Center
-					) {
-						androidx.compose.material3.Surface(
-							modifier = Modifier.size(50.dp),
-							shape = MaterialTheme.shapes.medium,
-							color = MaterialTheme.colorScheme.primaryContainer
-						) {
-							Box(contentAlignment = Alignment.Center) {
-								androidx.compose.material3.Icon(
-									Icons.Outlined.Favorite,
-									contentDescription = null,
-									tint = MaterialTheme.colorScheme.onPrimaryContainer,
-									modifier = Modifier.size(24.dp)
-								)
-							}
-						}
-					}
-					entry.source is Mix -> MixArtwork(mix = entry.source, modifier = Modifier.size(50.dp))
-					else -> CoverArt(
-						modifier = Modifier.size(50.dp),
-						coverArtId = entry.coverArtId,
-						contentDescription = null,
-						shape = if (entry.kind == EntryKind.Artist) CircleShape else null,
-						isArtist = entry.kind == EntryKind.Artist,
-						placeholderName = entry.title
-					)
-				}
+		gutter = false,
+		titleLines = if (entry.kind == EntryKind.CustomRadio) 2 else 1,
+		art = {
+			when {
+				entry.kind == EntryKind.Liked -> LikedArt()
+				entry.source is Mix -> MixArtwork(mix = entry.source, modifier = Modifier.size(LibraryRowDefaults.ArtSize))
+				else -> LibraryRowCover(entry.coverArtId, entry.title, artist = entry.kind == EntryKind.Artist)
 			}
-		},
-		content = {
-			Text(
-				entryTitle(entry),
-				maxLines = if (entry.kind == EntryKind.CustomRadio) 2 else 1,
-				overflow = TextOverflow.Ellipsis
-			)
-		},
-		supportingContent = {
-			Text(entryLine(entry), maxLines = 1, overflow = TextOverflow.Ellipsis)
 		}
 	)
+}
+
+/** Liked's face: the heart on the primary container, as the Library's pinned row draws it. */
+@Composable
+fun LikedArt(modifier: Modifier = Modifier.size(LibraryRowDefaults.ArtSize), iconSize: androidx.compose.ui.unit.Dp = 24.dp) {
+	Surface(
+		modifier = modifier,
+		shape = MaterialTheme.shapes.medium,
+		color = MaterialTheme.colorScheme.primaryContainer
+	) {
+		Box(contentAlignment = Alignment.Center) {
+			Icon(
+				Icons.Outlined.Favorite,
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.onPrimaryContainer,
+				modifier = Modifier.size(iconSize)
+			)
+		}
+	}
 }
 
 @Composable

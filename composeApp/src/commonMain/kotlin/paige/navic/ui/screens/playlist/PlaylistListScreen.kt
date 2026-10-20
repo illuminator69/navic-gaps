@@ -62,6 +62,7 @@ import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.common.AlphabeticalScroller
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.alphabeticalHeaders
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.ArtGrid
@@ -252,7 +253,8 @@ fun PlaylistListBody(
 			verticalArrangement = if (playlistsState.data?.isEmpty() == true) {
 				Arrangement.Center
 			} else if (selectedViewMode == ListViewMode.List) {
-				Arrangement.spacedBy(0.dp)
+				// The Library's rows, 3 dp apart (P5 round 2).
+				Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 			} else {
 				Arrangement.spacedBy(12.dp)
 			},
@@ -290,7 +292,8 @@ fun PlaylistListBody(
 			AlphabeticalScroller(
 				state = viewModel.gridState,
 				headers = alphaHeaders,
-				modifier = Modifier.align(Alignment.TopEnd)
+				modifier = Modifier.align(Alignment.TopEnd),
+				bottomPadding = contentPadding.calculateBottomPadding()
 			)
 		}
 		}

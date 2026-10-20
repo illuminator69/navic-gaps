@@ -23,6 +23,7 @@ import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.home.HomeViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
 import paige.navic.ui.screens.radio.custom.CustomRadioViewModel
+import paige.navic.ui.screens.mixes.viewmodels.MixDetailViewModel
 import paige.navic.ui.screens.library.viewmodels.LibraryViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningCardViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
@@ -63,6 +64,15 @@ val viewModelModule = module {
 	viewModel { (kind: BrowseKind) -> BrowseFeedViewModel(kind, get(), get(), get()) }
 	viewModelOf(::MixListViewModel)
 	viewModelOf(::CustomRadioViewModel)
+	viewModel { params ->
+		MixDetailViewModel(
+			mixId = params.get(),
+			hubManager = get(),
+			radioManager = get(),
+			songRepository = get(),
+			downloadManager = get()
+		)
+	}
 	viewModelOf(::LibraryViewModel)
 	viewModelOf(::WishlistViewModel)
 	viewModelOf(::ListeningViewModel)

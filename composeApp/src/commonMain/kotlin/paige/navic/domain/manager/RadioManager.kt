@@ -27,6 +27,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.YOUR_MIX_ID
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.genreSeedNames
 import paige.navic.domain.models.mixArtistIds
@@ -458,6 +459,13 @@ class RadioManager(
 
 	private enum class StationPlay { Played, Empty, Unavailable }
 
+	/** A started station's first songs, not yet loaded: what [playStation] plays, and a mix's page shows. */
+	private sealed interface StationStart {
+		class Ok(val built: BuiltStation) : StationStart
+		data object Empty : StationStart
+		data object Unavailable : StationStart
+	}
+
 	/**
 	 * Start a station from [seed] (origin `radio`: it keeps going whether or not autoplay is on)
 	 * and play [seedSongs] followed by its first batch. [Unavailable] when no station could be had,
@@ -472,8 +480,25 @@ class RadioManager(
 		fallbackName: String,
 		count: Int = RADIO_START_COUNT,
 		variety: String = ""
-	): StationPlay {
-		if (!stationManager.available.value) return StationPlay.Unavailable
+	): StationPlay = when (val start = startStation(seed, seedSongs, character, fallbackName, count, variety)) {
+		is StationStart.Ok -> {
+			loadStation(start.built, start.built.queue, 0)
+			StationPlay.Played
+		}
+		StationStart.Empty -> StationPlay.Empty
+		StationStart.Unavailable -> StationPlay.Unavailable
+	}
+
+	/** [playStation]'s first half: the station started and its songs resolved, nothing loaded. */
+	private suspend fun startStation(
+		seed: StationSeed,
+		seedSongs: List<DomainSong>,
+		character: StationCharacter,
+		fallbackName: String,
+		count: Int,
+		variety: String
+	): StationStart {
+		if (!stationManager.available.value) return StationStart.Unavailable
 		stationManager.setBusy(true)
 		try {
 			val result = stationManager.start(
@@ -482,57 +507,67 @@ class RadioManager(
 			)
 			val answer = (result as? StationResult.Ok)?.answer ?: run {
 				Logger.i("RadioManager", "station start: $result, using the fallback")
-				return StationPlay.Unavailable
+				return StationStart.Unavailable
 			}
 			val seedIds = seedSongs.mapTo(HashSet()) { it.id }
 			val tracks = resolveIds(answer.tracks.map { it.id }).filter { it.id !in seedIds }
 			val queue = (seedSongs + tracks).distinctBy { it.id }
 			if (queue.isEmpty()) {
 				Logger.i("RadioManager", "station ${answer.stationId}: nothing to play (exhausted=${answer.exhausted})")
-				return StationPlay.Empty
+				return StationStart.Empty
 			}
-			val name = fallbackName.ifBlank { answer.name }
-			generated.value = null
-			val queueId = mediaPlayer.newQueueSessionId()
-			// Recorded BEFORE the queue is loaded, so this device's first publish of it already
-			// carries the station id (PROTOCOL §18.2) rather than unbinding the session.
-			stationManager.record(
-				StationProvenance(
-					queueId = queueId,
-					stationId = answer.stationId,
-					name = name,
-					character = answer.character.ifBlank { character.wireId },
-					engine = answer.engine,
-					seed = answer.seed ?: seed,
-					seq = answer.seq,
-					rev = answer.rev,
-					exhausted = answer.exhausted,
-					// This device's entry point started it: a radio, also for a hub that echoes nothing.
-					origin = stationOrigin(answer.origin, ORIGIN_RADIO),
-					stopped = answer.stopped,
-					served = tracks.map { it.id }
-				)
+			return StationStart.Ok(
+				BuiltStation(answer, seed, character, fallbackName.ifBlank { answer.name }, queue, tracks.map { it.id })
 			)
-			if (hubManager.isRemoteActive.value) {
-				// Played where playback is; the playing device continues the station, by its id.
-				hubManager.loadSessionQueue(
-					queue,
-					savedQueueId = queueId,
-					sourceKind = SavedQueueSource.RADIO,
-					sourceName = name,
-					stationId = answer.stationId
-				)
-			} else {
-				mediaPlayer.loadRemoteQueue(
-					queue, 0, 0L, true,
-					savedQueueId = queueId,
-					savedQueueKind = SavedQueueSource.RADIO,
-					savedQueueName = name
-				)
-			}
-			return StationPlay.Played
 		} finally {
 			stationManager.setBusy(false)
+		}
+	}
+
+	/**
+	 * [playStation]'s second half: [queue] (the station's songs, in the order to play them) loaded
+	 * from [startIndex] as that station's queue, here or where playback is.
+	 */
+	private fun loadStation(built: BuiltStation, queue: List<DomainSong>, startIndex: Int) {
+		val answer = built.answer
+		generated.value = null
+		val queueId = mediaPlayer.newQueueSessionId()
+		// Recorded BEFORE the queue is loaded, so this device's first publish of it already
+		// carries the station id (PROTOCOL §18.2) rather than unbinding the session.
+		stationManager.record(
+			StationProvenance(
+				queueId = queueId,
+				stationId = answer.stationId,
+				name = built.name,
+				character = answer.character.ifBlank { built.character.wireId },
+				engine = answer.engine,
+				seed = answer.seed ?: built.seed,
+				seq = answer.seq,
+				rev = answer.rev,
+				exhausted = answer.exhausted,
+				// This device's entry point started it: a radio, also for a hub that echoes nothing.
+				origin = stationOrigin(answer.origin, ORIGIN_RADIO),
+				stopped = answer.stopped,
+				served = built.served
+			)
+		)
+		if (hubManager.isRemoteActive.value) {
+			// Played where playback is; the playing device continues the station, by its id.
+			hubManager.loadSessionQueue(
+				queue,
+				startIndex = startIndex,
+				savedQueueId = queueId,
+				sourceKind = SavedQueueSource.RADIO,
+				sourceName = built.name,
+				stationId = answer.stationId
+			)
+		} else {
+			mediaPlayer.loadRemoteQueue(
+				queue, startIndex, 0L, true,
+				savedQueueId = queueId,
+				savedQueueKind = SavedQueueSource.RADIO,
+				savedQueueName = built.name
+			)
 		}
 	}
 
@@ -742,6 +777,53 @@ class RadioManager(
 		return songs
 	}
 
+	/**
+	 * [mix]'s songs for its page (P5 round 2, the owner's note: a mix opens as a playlist and
+	 * plays from there), built afresh on each opening as YouTube Music's mixes are. A mix that
+	 * plays as a station starts that station now and shows its first batch, so what plays is what
+	 * the page showed and the station carries on after it; any other mix runs its recipe
+	 * ([generate]). Null when nothing could be built. Not a play: `lastPlayedAt` is untouched.
+	 */
+	suspend fun buildMix(mix: Mix, yourMixName: String): MixBuild? {
+		val yourMix = mix.id == YOUR_MIX_ID
+		if (yourMix || stationBacked(mix)) {
+			val recipe = if (yourMix) StationRecipe(StationSeed.YourMix, emptyList(), _character.value)
+			else stationRecipe(mix)
+			if (recipe != null) {
+				val name = if (yourMix) yourMixName
+				else mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO).orEmpty() }
+				val count = if (yourMix) MIX_PAGE_COUNT else mix.count.coerceIn(5, 50)
+				val variety = if (yourMix) "" else mix.variety
+				when (val start = startStation(recipe.seed, recipe.seedSongs, recipe.character, name, count, variety)) {
+					is StationStart.Ok -> return MixBuild(mix, start.built.queue, start.built)
+					StationStart.Empty -> return null
+					StationStart.Unavailable -> {}
+				}
+			}
+		}
+		val songs = if (yourMix) {
+			resolveIds(runCatching { audioMuseManager.fetchSonicFingerprintIds(RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList()))
+		} else generate(mix)
+		return songs.takeIf { it.isNotEmpty() }?.let { MixBuild(mix, it, null) }
+	}
+
+	/**
+	 * Play what [build] holds from [startIndex], or shuffled: a station's songs as that station's
+	 * queue (it continues), anything else as the mix's generated queue. Counts as playing the mix.
+	 */
+	fun playMixBuild(build: MixBuild, startIndex: Int, shuffle: Boolean) {
+		if (build.songs.isEmpty()) return
+		radioStarted()
+		val queue = if (shuffle) build.songs.shuffled() else build.songs
+		val start = if (shuffle) 0 else startIndex.coerceIn(0, queue.lastIndex)
+		val station = build.station
+		if (station != null) loadStation(station, queue, start)
+		else if (build.mix.id == YOUR_MIX_ID) {
+			playMix(queue, SavedQueueSource.RADIO, GeneratedQueue(build.mix.name, audioMuse = true), start)
+		} else playMix(queue, SavedQueueSource.RADIO, GeneratedQueue.ofMix(build.mix), start)
+		if (build.mix.id != YOUR_MIX_ID) hubManager.actTouchMix(build.mix.id)
+	}
+
 	/** Play a tracklist a preview already built, without running the engine twice. */
 	fun playGenerated(mix: Mix, songs: List<DomainSong>) {
 		if (songs.isEmpty()) return
@@ -944,7 +1026,8 @@ class RadioManager(
 	private fun playMix(
 		songs: List<DomainSong>,
 		kind: String,
-		what: GeneratedQueue
+		what: GeneratedQueue,
+		startIndex: Int = 0
 	) {
 		generated.value = songs.joinToString(",") { it.id } to what
 		val name = what.name.ifBlank { defaultMixName(kind) }
@@ -953,6 +1036,7 @@ class RadioManager(
 			// hub recorded remote-started mixes as anonymous "manual" queues.
 			hubManager.loadSessionQueue(
 				songs,
+				startIndex = startIndex,
 				sourceKind = kind,
 				sourceName = name
 			)
@@ -961,7 +1045,7 @@ class RadioManager(
 			// all, so without it every locally started radio / search / journey was saved as an
 			// unnamed row and the history read "No name".
 			mediaPlayer.loadRemoteQueue(
-				songs, 0, 0L, true,
+				songs, startIndex, 0L, true,
 				savedQueueId = mediaPlayer.newQueueSessionId(songs),
 				savedQueueKind = kind,
 				savedQueueName = name
@@ -1435,6 +1519,7 @@ class RadioManager(
 		const val RETRY_MS = 15_000L
 		// How many queue tracks to seed the "Related" tab from (see fetchQueueRelatedSongs).
 		const val RELATED_SEEDS = 5
-
+		/** Your mix's songs on its page (a stored mix shows its own count). */
+		const val MIX_PAGE_COUNT = 50
 	}
 }

@@ -23,7 +23,6 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.CustomRadioDone
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.manager.StationCountAnswer
@@ -45,7 +44,6 @@ class CustomRadioViewModel(
 	private val artistDao: ArtistDao,
 	private val songDao: SongDao,
 	private val stationManager: StationManager,
-	private val radioManager: RadioManager,
 	private val hubManager: HubManager,
 	private val shell: ShellController,
 	preferenceManager: PreferenceManager
@@ -132,29 +130,28 @@ class CustomRadioViewModel(
 	}
 
 	/**
-	 * Done: save the recipe, wait for the hub to have it, then start it; then say what happened
-	 * (through [ShellController], since this page is gone by then) and call [onDone]. A save that
-	 * fails still starts the radio; a start that fails leaves the saved mix.
+	 * Done: save the recipe and wait for the hub to have it, then call [onSaved] with its id (the
+	 * page opens the mix, which is built there and not played: P5 round 2, the owner's note) and
+	 * say so through [ShellController], since this page is gone by then. A save the hub never
+	 * confirms calls [onFailed] and leaves the choices as they are, to try again.
 	 */
-	fun finish(onDone: () -> Unit) {
+	fun finish(onSaved: (String) -> Unit, onFailed: () -> Unit) {
 		val artists = _picked.value
 		if (_finishing.value || !canFinish(artists.size, _count.value)) return
 		_finishing.value = true
 		viewModelScope.launch {
-			val done = withContext(NonCancellable) {
-				val recipe = customRadioRecipe(
-					id = mintMixId(), name = radioTitle(artists), artists = artists,
-					character = _character.value,
-					// Medium is what an absent value means, so it is not written.
-					variety = _variety.value
-				).let { if (it.variety == Variety.Medium.wire) it.copy(variety = "") else it }
-				val saved = save(recipe)
-				val started = runCatching { radioManager.regenerate(recipe) }.getOrDefault(false)
-				CustomRadioDone(recipe.id, saved, started)
-			}
-			shell.announceCustomRadio(done)
+			val recipe = customRadioRecipe(
+				id = mintMixId(), name = radioTitle(artists), artists = artists,
+				character = _character.value,
+				// Medium is what an absent value means, so it is not written.
+				variety = _variety.value
+			).let { if (it.variety == Variety.Medium.wire) it.copy(variety = "") else it }
+			val saved = withContext(NonCancellable) { save(recipe) }
 			_finishing.value = false
-			onDone()
+			if (saved) {
+				shell.announceCustomRadio(CustomRadioDone(recipe.id))
+				onSaved(recipe.id)
+			} else onFailed()
 		}
 	}
 

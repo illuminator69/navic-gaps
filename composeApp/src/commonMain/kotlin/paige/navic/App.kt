@@ -149,6 +149,7 @@ import paige.navic.ui.screens.settings.SettingsScreen
 import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
 import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.radio.custom.CustomRadioScreen
+import paige.navic.ui.screens.mixes.MixDetailScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
 import paige.navic.ui.screens.matches.LibraryMatchesScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
@@ -642,6 +643,10 @@ private fun entryProvider(
 		// P5: the custom radio's two steps, washed like the pages it is opened over.
 		entry<Screen.CustomRadio> {
 			Washed { CustomRadioScreen() }
+		}
+		// P5 round 2: a mix's page wears its own cover, as a playlist's does.
+		entry<Screen.MixDetail>(metadata = detailPane("root")) { key ->
+			MixDetailScreen(key.mixId)
 		}
 
 		// P4 round 2: the whole discography behind chips; washed like the artist's Songs page.

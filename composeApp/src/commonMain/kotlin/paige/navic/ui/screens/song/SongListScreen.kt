@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
+import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -153,7 +155,11 @@ fun SongListBody(
 	contentPadding: PaddingValues,
 	modifier: Modifier = Modifier,
 	scrollConnection: NestedScrollConnection? = null,
-	listState: LazyListState = rememberLazyListState()
+	listState: LazyListState = rememberLazyListState(),
+	/** A tap plays the list from that song (Liked) rather than the song alone (Songs). */
+	playFromList: Boolean = false,
+	/** Rows above the songs (Liked's Shuffle and Play), given the songs shown. */
+	header: (LazyListScope.(List<DomainSong>) -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -190,10 +196,11 @@ fun SongListBody(
 			contentPadding = contentPadding.withoutTop(),
 			verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
 				Arrangement.Center
-			// The artist page's rows are 2 dp apart (each row is a rounded segment, Item.kt).
-			else Arrangement.spacedBy(2.dp),
+			// The Library's rows, 3 dp apart (each row is a rounded segment, Item.kt).
+			else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap),
 			state = listState
 		) {
+			header?.invoke(this, songsState.data.orEmpty())
 			songListScreenContent(
 				state = songsState,
 				selectedSongIsStarred = starred,
@@ -220,7 +227,9 @@ fun SongListBody(
 					}
 				},
 				onPlaySong = { song ->
-					player.playNow(song)
+					val songs = songsState.data.orEmpty()
+					if (playFromList) player.playNow(songs, songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0))
+					else player.playNow(song)
 				},
 				onSetRating = { viewModel.rateSelectedSong(it) },
 				onDownload = { viewModel.downloadSong(it) },
