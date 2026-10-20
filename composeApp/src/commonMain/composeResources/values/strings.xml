@@ -1324,4 +1324,7 @@
 	<string name="discover_reason_picked">Picked by Deezer's editors</string>
 	<string name="discover_from_library">From your library</string>
 	<string name="label_not_in_library_short">Not in library</string>
+	<string name="action_paste_from_clipboard">Paste from clipboard</string>
+	<string name="link_looking">Looking it up</string>
+	<string name="link_looking_help">Matching the link to an album. This takes a few seconds.</string>
 </resources>

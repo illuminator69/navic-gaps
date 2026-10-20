@@ -2,15 +2,18 @@ package paige.navic.ui.screens.downloads
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,22 +23,38 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_open_link
+import navic.composeapp.generated.resources.action_paste_from_clipboard
 import navic.composeapp.generated.resources.info_link_unresolved
 import navic.composeapp.generated.resources.info_paste_link
+import navic.composeapp.generated.resources.link_looking
+import navic.composeapp.generated.resources.link_looking_help
 import navic.composeapp.generated.resources.option_paste_link
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbLinkResolution
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Copy
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.components.sheets.SheetHeader
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.search.components.GhostRow
+import paige.navic.ui.screens.search.components.SearchPill
+
+/** Where the paste sheet is (P3, the boards' three states in one place). */
+private sealed interface LinkStep {
+	data object Paste : LinkStep
+	data object Looking : LinkStep
+	data class Failed(val reason: String) : LinkStep
+}
 
 /**
  * Paste a link from somewhere else and get it here.
@@ -48,9 +67,15 @@ import paige.navic.ui.navigation.Screen
  * straight on the last of those would start downloading the wrong record often
  * enough to matter.
  *
+ * Three states (P3): **paste** (the field, "Paste from clipboard", which reads the clipboard once when
+ * tapped, and the one-line help), **looking** (the link kept in the field, a ghost row where the
+ * answer will be and a "Looking it up" pill), **failed** (lb-bot's reason, or the generic line, under
+ * a field that can be edited and sent again).
+ *
  * Android's share sheet is the other, better entry point (`MainActivity`'s
- * `ACTION_SEND` filter). This one is the Downloads page's top-bar action, so the
- * feature is discoverable without already knowing it is there.
+ * `ACTION_SEND` filter). This one is the New sheet's "Add from a link", Search's "Nothing for …"
+ * and the Downloads page's top-bar action, so the feature is discoverable without already knowing
+ * it is there.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,13 +85,46 @@ internal fun PasteLinkSheet(
 	onResolved: (NavKey) -> Unit
 ) {
 	val scope = rememberCoroutineScope()
+	val clipboard = LocalClipboardManager.current
 	val urlState = rememberTextFieldState()
 	val focus = remember { FocusRequester() }
 	val genericFailure = stringResource(Res.string.info_link_unresolved)
-	var busy by remember { mutableStateOf(false) }
-	var unresolved by remember { mutableStateOf<String?>(null) }
+	var step by remember { mutableStateOf<LinkStep>(LinkStep.Paste) }
+	val looking = step == LinkStep.Looking
 
 	LaunchedEffect(Unit) { focus.requestFocus() }
+
+	val lookUp: () -> Unit = {
+		val link = urlState.text.toString().trim()
+		if (link.isNotEmpty() && step != LinkStep.Looking) {
+			step = LinkStep.Looking
+			scope.launch {
+				val answer = resolve(link)
+				if (answer == null || !answer.resolved) {
+					// lb-bot names the provider and what it could not read when it
+					// can; the generic line covers a null answer and an lb-bot
+					// predating the field.
+					step = LinkStep.Failed(answer?.reason?.ifBlank { null } ?: genericFailure)
+					return@launch
+				}
+				step = LinkStep.Paste
+				// A track resolves to the release it is on, because a track is not a
+				// thing this stack can acquire on its own: the whole acquisition
+				// pipeline is release-shaped.
+				onResolved(
+					if (answer.rgid.isNotBlank()) {
+						Screen.ExternalAlbum(
+							rgid = answer.rgid,
+							artistName = answer.artist,
+							title = answer.title
+						)
+					} else {
+						Screen.ExternalArtist(answer.mbid, answer.artist)
+					}
+				)
+			}
+		}
+	}
 
 	ModalBottomSheet(onDismissRequest = onDismissRequest) {
 		SheetHeader(stringResource(Res.string.option_paste_link))
@@ -78,60 +136,49 @@ internal fun PasteLinkSheet(
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
 			Text(
-				stringResource(Res.string.info_paste_link),
+				stringResource(if (looking) Res.string.link_looking_help else Res.string.info_paste_link),
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 			OutlinedTextField(
 				state = urlState,
 				lineLimits = TextFieldLineLimits.SingleLine,
-				isError = unresolved != null,
-				supportingText = unresolved?.let { why -> { Text(why) } },
+				readOnly = looking,
+				isError = step is LinkStep.Failed,
+				supportingText = (step as? LinkStep.Failed)?.let { failed -> { Text(failed.reason) } },
+				onKeyboardAction = { lookUp() },
 				modifier = Modifier
 					.fillMaxWidth()
 					.focusRequester(focus)
 			)
-			Button(
-				enabled = !busy && urlState.text.isNotBlank(),
-				onClick = {
-					busy = true
-					unresolved = null
-					scope.launch {
-						val answer = resolve(urlState.text.toString().trim())
-						busy = false
-						if (answer == null || !answer.resolved) {
-							// lb-bot names the provider and what it could not read when it
-							// can; the generic line covers a null answer and an lb-bot
-							// predating the field.
-							unresolved = answer?.reason?.ifBlank { null } ?: genericFailure
-							return@launch
-						}
-						// A track resolves to the release it is on, because a track is not a
-						// thing this stack can acquire on its own: the whole acquisition
-						// pipeline is release-shaped.
-						onResolved(
-							if (answer.rgid.isNotBlank()) {
-								Screen.ExternalAlbum(
-									rgid = answer.rgid,
-									artistName = answer.artist,
-									title = answer.title
-								)
-							} else {
-								Screen.ExternalArtist(answer.mbid, answer.artist)
+			if (looking) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					SearchPill(stringResource(Res.string.link_looking), busy = true)
+				}
+				GhostRow(index = 0, count = 1, seed = urlState.text.toString())
+			} else {
+				Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+					OutlinedButton(
+						onClick = {
+							// Read once, on the tap: nothing is read from the clipboard unasked.
+							val pasted = clipboard.getText()?.text?.trim().orEmpty()
+							if (pasted.isNotEmpty()) {
+								urlState.setTextAndPlaceCursorAtEnd(pasted)
+								lookUp()
 							}
-						)
+						},
+						modifier = Modifier.weight(1f)
+					) {
+						Icon(Icons.Outlined.Copy, contentDescription = null, modifier = Modifier.size(18.dp))
+						Text(stringResource(Res.string.action_paste_from_clipboard), modifier = Modifier.padding(start = 8.dp))
 					}
-				},
-				modifier = Modifier.fillMaxWidth()
-			) {
-				if (busy) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(18.dp),
-						strokeWidth = 2.dp,
-						color = MaterialTheme.colorScheme.onPrimary
-					)
-				} else {
-					Text(stringResource(Res.string.action_open_link))
+					Button(
+						enabled = urlState.text.isNotBlank(),
+						onClick = lookUp,
+						modifier = Modifier.weight(1f)
+					) {
+						Text(stringResource(Res.string.action_open_link))
+					}
 				}
 			}
 		}
