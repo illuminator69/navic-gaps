@@ -38,7 +38,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Chromecast | `androidMain/.../domain/manager/cast/*` — `CastDiscovery` (`NsdManager`), a hand-rolled castv2 client (`CastChannel`/`CastProtocol`/`CastPayloads`), `CastDeviceBridge`, `CastBridgeManager` (reconnect safety net: `BridgeLiveness.kt`, §4). No Cast SDK, no Play Services. Scrobbling in `domain/manager/CastScrobbler.kt` |
 | Radio and autoplay (stations, I-040) | `domain/manager/RadioManager.kt` (entry points, the autoplay driver, likes, mixes), `domain/manager/StationManager.kt` (the hub's `/sonic/station/...`, availability, the persisted record of what built the queue), `domain/manager/StationModels.kt` (wire shapes and every rule the driver and the queue sheet apply, `StationDriverTest`), `domain/manager/AutoDj.kt` (the no-hub fallback, a port of upstream Feishin's, `AutoDjPlannerTest`), `domain/manager/AutoplayChips.kt` (the queue's autoplay chips, `AutoplayChipsTest`), `domain/models/settings/StationCharacter.kt`, the chip row and `ui/screens/queue/components/QueueGeneratorLine.kt` in the queue sheet (§4) |
 | AudioMuse-AI | `domain/manager/AudioMuseManager.kt` (CLAP mood search; the fingerprint and alchemy lists the old mix kinds play from without the station engine) |
-| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{MissingAlbumSheet,GapFillSheet,LbBotCommon}.kt`, `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
+| lb-bot | `domain/manager/LbBotManager.kt` (the whole surface plus the persisted watch map; `applyAlbumStatus` / `applyGapSummary` are the ONE writer each, fed by the `/lb/fills` poll and the hub's `fill` frame alike), `ui/components/common/FillVocabulary.kt` (the acquisition vocabulary, PROTOCOL §15.2 — mirrored in Feishin's `fill-vocabulary.ts`), `ui/components/sheets/{GapFillSheet,LbBotCommon}.kt`, `domain/manager/FillActions.kt` (what a fill's buttons do, shared by Downloads and the request box), `domain/manager/AlbumDownloadAll.kt` (the album picker's "more files in this folder" and "Download all", §5), `domain/manager/ArtistMbidOverride.kt` + `ui/components/sheets/MbidMatchSheet.kt` (which MusicBrainz artist a library artist is, §5), `domain/manager/AlbumOverride.kt` + `ui/components/sheets/AlbumMatchSheet.kt` ("Fix album match": which MusicBrainz release an owned album is; the sheet is composed by `AlbumMatchHost()` in `App.kt`, §5), `domain/manager/ArtistMerge.kt` + `ui/components/sheets/ArtistMergeBlock.kt` ("Merge into one name": two spellings of one artist, a block of `MbidMatchSheet`, §5), `domain/manager/LbJobPoll.kt` (the one poll rule both background jobs are followed by), `ui/screens/artist/components/DiscographyShelf.kt`, `ui/screens/fresh/*`, `ui/screens/external/*` |
 | Listening history (Stats' tabs) | `domain/manager/Listening.kt` (the wire shapes and every rule the screen applies — `ListeningTest`), `ui/screens/listening/*` (`ListeningStats`, hosted by upstream's `StatisticsScreen`), the `listening*` calls in `LbBotManager`; the Fresh scope "Artists you play" is `freshScoped` in `FreshViewModel.kt` (§5) |
 | Library Matches, pending actions | `ui/screens/matches/*` (`LibraryMatchesScreen` + its view model: the page that was the "lb-bot data" settings section, §5), `domain/manager/LibraryMatches.kt` (its sections and what a row draws — `LibraryMatchesTest`), `ui/components/common/LbArtImage.kt`, `domain/manager/LbBotData.kt` (every sentence these surfaces say, as tested functions — `LbBotDataTest`, and `OverrideListsTest` for the album-override and name-merge lists), `ui/screens/settings/PendingActionsScreen.kt` + its view model, `LbIndexSync.lastRun`, `LbBotManager.refreshArtistMeta` / `refreshAlbumMeta` (§5) |
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
@@ -51,6 +51,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
 | Player and its queue (P2) | `ui/screens/nowPlaying/NowPlayingScreen.kt` chooses: a portrait phone (under 600 dp, taller than wide; `stagedPlayerFits`) gets `ui/screens/nowPlaying/staged/StagedNowPlaying.kt`, the player with the queue as a layer inside it (`StagedQueueLayer.kt`); landscape and wider windows keep the old player with its toolbar and the `Screen.Queue` sheet. The rules are pure: `QueueDetents.kt` (peek / half / full, anchors, release, handle, Back, the compaction curves; `QueueDetentsTest`), `QueueGrouping.kt` (rows by who added them, the peek row, Playing from; `QueueGroupingTest`), `SheetScroll.kt` (`SheetScrollTest`). The queue's content is written once, `QueueContent(QueueLayout)` in `ui/screens/queue/QueueScreen.kt`, hosted by the sheet (`QueueScreen`) and by the layer. The autoplay switch is `autoplayToggleChip` over the chip rules (`AutoplayChips.kt`, `RadioManager.onAutoplayToggle`). Settings has no "Toolbar position" row any more; `nowPlayingToolbarPosition` stays and the landscape player and the lyrics sheet still read it (§4) |
 | Search (P3, "Find") | `ui/screens/search/SearchScreen.kt` draws; every decision is pure: `SearchModel.kt` (`LibraryHits`, `mergeHits`, `capped`, `Lookup`, `searchPhase`, `offlineHits`, `browseTiles`, `externalRows`, `ownedArtistJoinsLibrary`; `SearchModelTest`) and `SearchState.kt` (`SearchUi`, `reduce`, which drops an answer for any query but the current one; `SearchViewModelReducerTest`). The rows: `search/components/{SearchRows,ExternalSection,BrowseTiles}.kt`. Typo tolerance: `domain/search/FuzzyMatch.kt` (`FuzzyMatchTest`), `LibraryFuzzyIndex.kt` (over Room), `MusicBrainzQuery.kt` (`mbFuzzyQuery`, `mbAlbumQuery`; `MusicBrainzQueryTest`); ownership by MBID: `domain/search/ArtistOwnership.kt` + `LbBotManager.ownedArtistIdsByMbid` (`ArtistOwnershipTest`). The browse cards' Deezer pages: `ui/screens/browse/*` (`Screen.Charts`, `Screen.EditorsPicks`), a tile's target from `domain/manager/BrowseResolver.kt` (shared with Discover). Discover's reasoned stack: `ui/screens/discover/DiscoverStack.kt` (`DiscoverStackTest`). The paste sheet's three states: `ui/screens/downloads/PasteLinkSheet.kt`, opened straight from Search through `ShellController.openAddFromLink` (§5, §7) |
+| Artist and requests (P4) | The album page's request box, `ui/screens/external/components/RequestBox.kt` (which replaced the missing-album sheet; its sheet-to-stage table is at its top) with `SourceCards.kt`; which stage it shows is pure, `ui/screens/external/RequestStage.kt` (`requestStage`, `requestSteps`, `preselectedSource`, `requestActions`; `RequestStageTest`), and its state (edition, search, tap in flight, the echo of "Download all") lives in `ExternalAlbumViewModel` (`RequestUi`). The unowned artist page: `ArtistPageState.kt` (`ArtistPageStateTest`), `components/ArtistHero.kt`, the scan on arrival in `ExternalArtistViewModel`. The discography as rows: `components/ReleaseRows.kt`, each row's pill from `ui/screens/artist/ReleaseState.kt` (`ReleaseStateTest`). Pills: `ui/components/common/StatePills.kt` (tones, `StatePillsTest`) and `StatePill.kt`. Fill gaps on the owned album page: `AlbumGap` in `CollectionDetailViewModel` (§7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -1260,26 +1261,26 @@ Rules, each with a reason:
   never re-sorted. Both live in `FillVocabulary.kt` (`GapPositionLabelTest`) and are Feishin's
   rule too, mirrored by hand. `GapTracks` in `GapFillSheet.kt` is the only place a gap row's
   number is printed; its column is 44 dp instead of 28 when discs show ("10-12" measures 27 dp
-  in the bundled font). The canonical tracklists of `MissingAlbumSheet` and
-  `ExternalAlbumScreen` are another shape (`LbTrack`, no `disc`) and print the bare position.
+  in the bundled font). The canonical tracklist of `ExternalAlbumScreen` is another shape
+  (`LbTrack`, no `disc`) and prints the bare position.
 - **A whole-album download asks a folder for the release's tracks; "Download all M files" is
   the explicit other (B-084).** lb-bot says, on each source row of `GET /lb/album/sources`, how
   many of the folder's seen audio files a plain download would leave out (`extraFiles`).
   **Absent is not 0**: an unknown tracklist, an older lb-bot and every gap-fill row send none,
-  and the row is then exactly what it was. With a count, `AlbumSources` (in
-  `MissingAlbumSheet.kt`) adds one quiet line and a second, muted text button beside "Download
-  this" (`sourceExtras`, `AlbumDownloadAll.kt`, `AlbumDownloadAllTest`); nothing is worked out
+  and the row is then exactly what it was. With a count, `SourceCards` (the album page's request
+  box, P4) adds one quiet line and a second, muted text button to the CHOSEN card ("Request this
+  album" is the box's own button under the cards) (`sourceExtras`, `AlbumDownloadAll.kt`, `AlbumDownloadAllTest`); nothing is worked out
   on the device from `files` or `fileCount` but M in that button's label. The second action is
   the same request plus `allFiles: true` — sent only when asked and only with a picked peer
   (`albumDownloadRequest`; lb-bot answers 400 without one). **The answer's echo decides what
   is said, never the tap** (`allFilesNote`): an older hub drops the key without a word, so an
   echo that is false or absent reads "the album's tracks only", an answer that started nothing
-  says nothing, and `existing` keeps the sheet's "Already downloading" alone. The line sits
-  with the download's progress, not at the sheet's foot, which a short screen cuts off. Retry,
+  says nothing, and `existing` keeps the box's "Already downloading" alone. The line sits
+  with the request's progress in the box (its Active and Done stages). Retry,
   "Try another source" and the one-tap acquire never send `allFiles`: it is consent for one
   folder, once. The fill view's `leftOut` (files of the current source's folder that were not
   asked for) is said where a status line already existed and nowhere new — the Download
-  Center's row and the sheet's progress block, while the album downloads and once it is in
+  Center's row and the request box (`describeFill`'s sublines), while the album downloads and once it is in
   (`leftOutPart`, `fillDetailLine`, `FillLeftOutTest`); it rides the persisted watch, so a
   finished row keeps it. **On the fill view, absent is "this view does not say", not 0**
   (`LbFillStatus.leftOut` is nullable): the hub's `fill` frame is rebuilt field by field from
@@ -1736,8 +1737,8 @@ true of invented *album art*, and not of an icon naming the kind.
   Material's default also enables a half-way place, which the opening heads for and which
   exists only while the sheet is taller than half the screen: a fork sheet that reads after it
   opens started short, showed whole, and when its content passed half the screen dropped to
-  the half-way place with its last control cut off ("Find sources" on the missing-album sheet,
-  seen on the phone). Content taller than the screen scrolls inside the sheet, so every sheet
+  the half-way place with its last control cut off ("Find sources" on the missing-album sheet, retired
+  since P4, seen on the phone). Content taller than the screen scrolls inside the sheet, so every sheet
   on the default keeps ONE scrolling column. A caller that wants the half-way stop passes its
   own state (`LyricProvidersSheet`, upstream's, does, to stay as upstream has it).
 - **A sheet's content height is eased in the shared wrapper** (`ModalBottomSheet`'s
@@ -1961,6 +1962,35 @@ true of invented *album art*, and not of an icon naming the kind.
   something backs), above "From your library" (Mixed for You, ListenBrainz, Rediscover, Mood search).
   `DiscoverRows.kt`'s ids did not change (Feishin's twin). "Add from a link" (New sheet, Search's "Nothing for …")
   is paste / looking / failed in one sheet; "Paste from clipboard" reads the clipboard once, on the tap.
+
+- **An unowned album is requested from its own page, in one box (P4).** The missing-album sheet is gone; every way
+  to a release the library lacks (a discography row on either artist page, Fresh, Discover, Search, a pasted link,
+  Downloads' Open album) opens `Screen.ExternalAlbum`, whose request box walks Idle, Searching, Choosing, Starting,
+  Active (five steps), then Done, Failed or Attention (`requestStage`, pure). The rules, each with its reason:
+  - **The source search does not start by itself** (`SOURCES_AUTO_START = false`): it is a 30 to 90 s slskd fan-out
+    holding one of the hub's four proxy slots, and browsing five albums would hold five. One search per tap; an
+    answer for an edition no longer on screen is dropped, and sources found for another edition are not selectable.
+  - **A source is selected for the user only when lb-bot recommends it AND verified the artist AND reads the folder
+    as this album** (`preselectedSource`); otherwise "Request this album" waits for a tap, which is consent.
+  - **A running fill is the truth whatever else is set** (started here, on another device, before a restart): the
+    box shows it, and `request()` refuses a second POST in the tap, as `starting` is taken in the tap.
+  - **The box keeps its place.** A request on its way keeps its cards on screen, disabled; when the box changes kind
+    of stage with its top scrolled off, the page brings it back (`onStageKindChanged`). Measured on the AVD: without
+    either, the page jumped to the top on the tap, then sat on the tracklist with the box out of sight. Known on the
+    debug AVD: one frame of the tracklist before the scroll back begins (check on the phone's release build).
+  - **Recovery says only what is backed**: Retry's "From <peer>" is `LbFillEntry.retryPeer`, the peer a plain retry
+    really re-sends; lb-bot's `reason` verbatim; no "N left", no "files kept". Allow MP3 only in recovery, where
+    `mp3WouldHelp` is the evidence. The buttons go through `FillActions`, the Downloads page's handlers.
+  - **The album About** is `/lb/meta/album`, under the box; nothing from lb-bot is no row and no gap.
+  - **An unowned artist is scanned on arrival, once per visit** (a flag in `ExternalArtistViewModel`, never retried
+    by itself; "Try again" scans once), and the page says which of scanning, scan failed, no releases or releases it
+    is (`artistPageState`). It wears the playing song's colours (`Washed`, `WashedBrowsingScreens`); no portrait.
+    On the VM's scratch hub the rows took ~61 s after a 1 s scan: the hub caches the pre-scan discography read for
+    60 s and gets none of lb-bot's push frames, whose `artistScanned` clears that cache in production.
+  - **The discography is rows with a pill** on both artist pages (`ReleaseRows`, `releaseState`); the corner one-tap
+    acquire left this shelf (Discover keeps it). A partly-owned row draws lb-bot's present/total and "N missing".
+  - **The owned album page offers Fill gaps** when the index mirror holds an `incomplete` release for it (`AlbumGap`,
+    re-read with the album, so a fill that completes it takes the row away).
 
 ---
 
