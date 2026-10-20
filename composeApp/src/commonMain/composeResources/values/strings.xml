@@ -1332,4 +1332,11 @@
 	<string name="release_owned">Owned</string>
 	<string name="release_partly_owned">Partly owned</string>
 	<string name="release_missing">Missing</string>
+	<string name="request_step_finding">Finding a source</string>
+	<string name="request_step_source_chosen">Source chosen</string>
+	<string name="request_step_queued">Queued</string>
+	<string name="request_step_downloading">Downloading</string>
+	<string name="request_step_placing">Placing in your library</string>
+	<string name="request_step_in_library">In your library</string>
+	<string name="request_step_count">%1$d of %2$d</string>
 </resources>
