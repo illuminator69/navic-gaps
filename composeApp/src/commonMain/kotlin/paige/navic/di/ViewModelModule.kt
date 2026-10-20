@@ -73,17 +73,20 @@ val viewModelModule = module {
 			lbIndexSync = get()
 		)
 	}
-	viewModel { (rgid: String, artistMbid: String, artistName: String, artistId: String) ->
+	viewModel { (rgid: String, artistMbid: String, artistName: String, artistId: String, title: String) ->
 		ExternalAlbumViewModel(
 			rgid = rgid,
 			artistMbid = artistMbid,
 			artistName = artistName,
 			artistId = artistId,
+			title = title,
 			artistDao = get(),
 			lbBotManager = get(),
 			lbIndexSync = get(),
 			previewManager = get(),
-			mediaPlayer = get()
+			mediaPlayer = get(),
+			fillActions = get(),
+			connectivityManager = get()
 		)
 	}
 

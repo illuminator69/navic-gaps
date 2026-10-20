@@ -12,6 +12,7 @@ import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.EqualiserManager
 import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LoginManager
@@ -70,6 +71,9 @@ val managerModule = module {
 	// The lb-bot index mirror's sync worker. Constructed by HubManager and SyncManager (both
 	// createdAtStart), which own its three triggers: welcome, the `index` frame, the 15-min cycle.
 	singleOf(::LbIndexSync)
+	// The buttons of a fill (retry, cancel, allow MP3, wishlist, dismiss), shared by the Downloads
+	// page and the album page's request box (P4).
+	singleOf(::FillActions)
 	// The last two get()s are fork-only bindings each platform module registers:
 	// HubSocketClientFactory and HubLocalDevice.
 	single(createdAtStart = true) {

@@ -126,7 +126,7 @@ fun ExternalAlbumScreen(
 ) {
 	val viewModel = koinViewModel<ExternalAlbumViewModel>(
 		key = rgid,
-		parameters = { parametersOf(rgid, artistMbid, artistName, artistId) }
+		parameters = { parametersOf(rgid, artistMbid, artistName, artistId, title) }
 	)
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()

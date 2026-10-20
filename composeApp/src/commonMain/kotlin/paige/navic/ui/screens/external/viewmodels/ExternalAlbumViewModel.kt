@@ -8,8 +8,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.domain.manager.AllFilesNote
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbCachePolicy
+import paige.navic.domain.manager.LbGapSource
+import paige.navic.domain.manager.LbMeta
+import paige.navic.domain.manager.LbOk
+import paige.navic.domain.manager.LbResolvedEdition
+import paige.navic.domain.manager.allFilesNote
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbMirroredRelease
 import paige.navic.domain.manager.LbRelease
@@ -19,8 +31,47 @@ import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.toDomainSong
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.shared.MediaPlayerViewModel
-import kotlinx.coroutines.flow.firstOrNull
+import paige.navic.ui.components.common.FillButton
+import paige.navic.ui.screens.external.SourceSearch
+import paige.navic.ui.screens.external.preselectedSource
 import paige.navic.util.Logger
+
+/**
+ * Whether opening an album page starts its source search by itself (P4, call 1: it does not). A
+ * search is a live slskd fan-out of 30 to 90 s holding one of the hub's four proxy slots, and
+ * browsing five albums would hold five; so it is one tap in the request box. True reverses it.
+ */
+const val SOURCES_AUTO_START = false
+
+/**
+ * The request box's own state (P4): what used to live in `MissingAlbumSheet`'s `remember`s, moved
+ * here so the box on the album page carries it and the page's tracklist and the box agree on the
+ * edition. Which stage the box shows is `requestStage`'s, from this and the fill ledger.
+ */
+data class RequestUi(
+	val search: SourceSearch = SourceSearch.Idle,
+	/** The source card the user (or the preselection) chose. */
+	val selected: Int? = null,
+	/** A request tap whose answer has not come back. Taken in the tap itself. */
+	val starting: Boolean = false,
+	/** lb-bot answered `existing`: this album was already being fetched (another device, maybe). */
+	val alreadyRunning: Boolean = false,
+	/** What lb-bot's answer said of a "Download all" (B-084); nothing until one is asked for. */
+	val allFilesNote: AllFilesNote = AllFilesNote.None,
+	/** Why the last request or fill action failed. */
+	val error: LbBotManager.LbError? = null,
+	/** lb-bot took the action's request but did not act on it, and said nothing. */
+	val refused: Boolean = false,
+	/** A fill action (retry, cancel, allow MP3, wishlist) in flight. */
+	val acting: Boolean = false,
+	/** The sticky quality preference ("" = lb-bot's default). */
+	val quality: String = "",
+	/** The version (a different tracklist) and the edition (the same tracklist on other media). */
+	val variantIndex: Int = 0,
+	val editionMbid: String = "",
+	/** Whether this release-group is on lb-bot's wishlist; null when unknown or unsupported. */
+	val wishlisted: Boolean? = null
+)
 
 data class ExternalAlbumUi(
 	val loading: Boolean = true,
@@ -43,7 +94,11 @@ data class ExternalAlbumUi(
 	 * only an id. [detail] supersedes both once `/lb/album/releases` answers.
 	 */
 	val mirrorTitle: String = "",
-	val mirrorArtist: String = ""
+	val mirrorArtist: String = "",
+	val request: RequestUi = RequestUi(),
+	/** lb-bot's About for the release-group (`/lb/meta/album`); null when it has none. */
+	val meta: LbMeta? = null,
+	val aboutOpen: Boolean = false
 )
 
 /**
@@ -82,14 +137,22 @@ class ExternalAlbumViewModel(
 	private val artistMbid: String,
 	private val artistName: String,
 	private val artistId: String,
+	/** The title the route carried: the last fallback for the release's name. */
+	private val title: String,
 	private val artistDao: ArtistDao,
 	private val lbBotManager: LbBotManager,
 	private val lbIndexSync: LbIndexSync,
 	private val previewManager: PreviewManager,
-	private val mediaPlayer: MediaPlayerViewModel
+	private val mediaPlayer: MediaPlayerViewModel,
+	private val fillActions: FillActions,
+	private val connectivityManager: ConnectivityManager
 ) : ViewModel() {
-	private val _state = MutableStateFlow(ExternalAlbumUi())
+	private val _state = MutableStateFlow(ExternalAlbumUi(request = RequestUi(quality = lbBotManager.preferredQuality)))
 	val state = _state.asStateFlow()
+
+	private fun updateRequest(change: (RequestUi) -> RequestUi) {
+		_state.value = _state.value.copy(request = change(_state.value.request))
+	}
 
 	/** Fired at most once per instance, success or failure: this runs on a page the
 	 *  user is looking at, and an older hub 404ing would otherwise retry forever. */
@@ -99,6 +162,9 @@ class ExternalAlbumViewModel(
 	// afterwards and null out the job load() had just stored.
 	private var loadJob: Job? = null
 	private var tracklistJob: Job? = null
+	private var metaJob: Job? = null
+	/** The edition the shown tracklist belongs to: its size is that edition's track count only. */
+	private var tracklistFor: String = ""
 
 	init { load() }
 
@@ -194,28 +260,71 @@ class ExternalAlbumViewModel(
 			// arrives only if the revalidation changed something.
 			var resolved = false
 			lbBotManager.albumReleases(rgid).collect { detail ->
-				// The tracklist follows the default variant. `presenceKnown` comes back
-				// false with no Navidrome album ids supplied, which is the normal case
-				// here: every track is missing, and that is not an error and must not
-				// render as "0/12".
-				val releaseMbid = detail?.releases?.firstOrNull()?.releaseMbid.orEmpty()
-				val tracks = if (releaseMbid.isBlank()) null else followTracklist(releaseMbid)
+				followEdition(detail)
+				// The tracklist follows the edition the request box is on. `presenceKnown` comes
+				// back false with no Navidrome album ids supplied, which is the normal case here:
+				// every track is missing, and that is not an error and must not render as "0/12".
+				val edition = _state.value.request.editionMbid
+				val tracks = when {
+					edition.isBlank() -> null
+					edition != tracklistFor -> followTracklist(edition)
+					else -> _state.value.tracklist
+				}
 				_state.value = _state.value.copy(loading = false, detail = detail, tracklist = tracks)
 				// Once: both only need the artist and the rgid, which a revalidated detail
 				// does not change — and the index-row add must not be pressed twice.
 				if (!resolved) {
 					resolved = true
+					loadMeta(detail?.releases?.firstOrNull()?.releaseMbid)
+					loadWishlisted()
 					resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
 					refreshIndexRow()
+					if (SOURCES_AUTO_START && lbBotManager.supportsSourcePicker) findSources()
 				}
 			}
 		}
 	}
 
 	/**
+	 * The edition the box and the tracklist are on, kept across a revalidated answer.
+	 *
+	 * Moved verbatim from the missing-album sheet, with the reasons it paid for: only the first
+	 * answer picks the edition, and after that the variant follows the edition by MBID, never by
+	 * position.
+	 */
+	private fun followEdition(detail: LbReleaseDetail?) {
+		val variants = detail?.releases.orEmpty()
+		val editionMbid = _state.value.request.editionMbid
+		// Only the first answer picks the edition: a revalidation must not move a pick
+		// the user has already made (or that the tracklist below is already following).
+		if (editionMbid.isBlank()) {
+			updateRequest { it.copy(variantIndex = 0, editionMbid = variants.firstOrNull()?.releaseMbid.orEmpty()) }
+			return
+		}
+		// But the variant is held by *position*, and a revalidated list need not be in the
+		// same order, or the same length. Left alone, `chosenEdition()` paired the kept
+		// edition with whatever variant now sat at the old index — the wrong title and track
+		// count sent to `albumSources` and `download`, silently. So the index follows the
+		// edition. An edition the new answer no longer lists at all is a pick that no longer
+		// exists: fall back to the first variant, as the first answer did, rather than send
+		// an edition next to a variant it does not belong to.
+		val found = variants.indexOfFirst { variant ->
+			variant.releaseMbid == editionMbid ||
+				variant.editions.any { it.releaseMbid == editionMbid }
+		}
+		if (found >= 0) {
+			updateRequest { it.copy(variantIndex = found) }
+		} else {
+			updateRequest { it.copy(variantIndex = 0, editionMbid = variants.firstOrNull()?.releaseMbid.orEmpty()) }
+		}
+	}
+
+	/**
 	 * The tracklist's first answer (the cached one, when there is one), returned so the page
 	 * paints detail and tracks together as it always has; any revalidated answer after it is
-	 * applied on its own. One follower at a time — a new default release replaces the last.
+	 * applied on its own. One follower at a time — a new edition replaces the last. The tracklist
+	 * is per *edition*: two pressings of one release-group can differ, which is the whole reason
+	 * the picker exists.
 	 */
 	private suspend fun followTracklist(releaseMbid: String): LbTracklist? {
 		tracklistJob?.cancel()
@@ -228,7 +337,253 @@ class ExternalAlbumViewModel(
 			}
 			first.complete(null)
 		}
-		return first.await()
+		val tracks = first.await()
+		tracklistFor = releaseMbid
+		return tracks
+	}
+
+	// ---- the request box ------------------------------------------------------ //
+
+	/** The release's name as lb-bot's index, then its detail, then the mirror, then the route have it. */
+	private fun releaseTitle(): String {
+		val ui = _state.value
+		return ui.indexed?.title?.ifBlank { null }
+			?: ui.detail?.title?.ifBlank { null }
+			?: ui.mirrorTitle.ifBlank { null }
+			?: title
+	}
+
+	// The pressing the pickers have already settled on. Sending it stops lb-bot re-resolving
+	// the release-group to "official, earliest" — which both ignored the user's choice silently and
+	// dragged the five-minute MusicBrainz failure cooldown into a button press.
+	private fun chosenEdition(): LbResolvedEdition? {
+		val request = _state.value.request
+		val mbid = request.editionMbid.ifBlank { return null }
+		val detail = _state.value.detail
+		val variant = detail?.releases?.getOrNull(request.variantIndex)
+		val tracklist = _state.value.tracklist.takeIf { tracklistFor == mbid }
+		return LbResolvedEdition(
+			releaseMbid = mbid,
+			artist = detail?.artist.orEmpty(),
+			title = variant?.title?.ifBlank { null } ?: releaseTitle(),
+			// The loaded tracklist is for this exact edition; the variant's count is for the
+			// variant, so it is the fallback rather than the source of truth.
+			totalTracks = tracklist?.tracks?.size?.takeIf { it > 0 } ?: variant?.trackCount ?: 0
+		)
+	}
+
+	/**
+	 * Pick a version or an edition. The page's tracklist follows it, and sources found for the
+	 * previous edition stop being selectable (`requestStage` reads a search for another edition as
+	 * idle); what is shown stays until the new tracklist lands.
+	 */
+	fun selectEdition(variantIndex: Int, editionMbid: String) {
+		if (editionMbid.isBlank() || editionMbid == _state.value.request.editionMbid) return
+		updateRequest { it.copy(variantIndex = variantIndex, editionMbid = editionMbid, selected = null, error = null, refused = false) }
+		viewModelScope.launch {
+			val tracks = followTracklist(editionMbid)
+			if (_state.value.request.editionMbid == editionMbid) {
+				_state.value = _state.value.copy(tracklist = tracks)
+			}
+		}
+	}
+
+	/**
+	 * Search Soulseek for this edition, once per tap. A live slskd fan-out, tens of seconds; the
+	 * hub caches it briefly, so asking again soon is cheap. An answer that comes back for an
+	 * edition no longer on screen is dropped: its sources are for the other pressing.
+	 */
+	fun findSources() {
+		val request = _state.value.request
+		val edition = request.editionMbid
+		val search = request.search
+		if (search is SourceSearch.Searching && search.editionMbid == edition) return
+		val asked = chosenEdition()
+		updateRequest { it.copy(search = SourceSearch.Searching(edition), selected = null, error = null, refused = false) }
+		viewModelScope.launch {
+			val result = lbBotManager.albumSources(rgid, asked)
+			if (_state.value.request.editionMbid != edition) {
+				updateRequest { if (it.search == SourceSearch.Searching(edition)) it.copy(search = SourceSearch.Idle) else it }
+				return@launch
+			}
+			when (result) {
+				is LbBotManager.LbResult.Ok -> {
+					val sources = result.value.sources
+					updateRequest { it.copy(search = SourceSearch.Found(edition, sources), selected = preselectedSource(sources)) }
+				}
+				is LbBotManager.LbResult.Failed -> updateRequest { it.copy(search = SourceSearch.Failed(result.error)) }
+			}
+		}
+	}
+
+	fun selectSource(index: Int) {
+		updateRequest { it.copy(selected = index) }
+	}
+
+	/** The quality preference. Sticky: someone who wants CD-quality FLAC wants it every time,
+	 *  and re-picking per album is a chore nobody does twice. */
+	fun setQuality(quality: String) {
+		lbBotManager.preferredQuality = quality
+		updateRequest { it.copy(quality = quality) }
+	}
+
+	/**
+	 * Ask lb-bot for this album from [source]. [allFiles] is the selected card's second action
+	 * (B-084): the same request, plus "every audio file in this folder". What comes of it is read
+	 * off lb-bot's echo, never off the tap.
+	 */
+	fun request(source: LbGapSource?, allFiles: Boolean = false) {
+		// Taken in the tap itself, not inside the coroutine: a card's two actions both stay
+		// live until the next frame, and a second tap in that time must start nothing.
+		if (_state.value.request.starting) return
+		// A request that is already running (from here, another device, before a restart) is
+		// the box's Active stage; a POST now would be a second request for it.
+		if (lbBotManager.ledger.value.any { it.key == rgid && !it.settled }) return
+		updateRequest { it.copy(starting = true, error = null, refused = false, allFilesNote = AllFilesNote.None) }
+		val quality = _state.value.request.quality
+		val edition = chosenEdition()
+		val artist = _state.value.detail?.artist.orEmpty()
+		val album = releaseTitle()
+		viewModelScope.launch {
+			// Not fast even with a source chosen: lb-bot resolves the release-group
+			// against MusicBrainz before answering.
+			when (val result = lbBotManager.download(rgid, quality, source, edition, allFiles = allFiles)) {
+				is LbBotManager.LbResult.Failed -> updateRequest { it.copy(error = result.error) }
+				is LbBotManager.LbResult.Ok -> {
+					updateRequest {
+						it.copy(
+							alreadyRunning = result.value.existing,
+							allFilesNote = allFilesNote(
+								asked = allFiles,
+								ok = result.value.ok,
+								existing = result.value.existing,
+								echo = result.value.allFiles,
+								peer = source?.peer.orEmpty(),
+								fileCount = source?.fileCount ?: 0
+							)
+						)
+					}
+					if (result.value.ok && result.value.releaseMbid.isNotBlank()) {
+						// Artist and title are carried into the watch, not looked up
+						// later: the downloads view may be opened days afterwards, on a
+						// screen with no artist page behind it, and by then lb-bot's own
+						// (in-memory, capped) ledger may have forgotten the fill entirely.
+						lbBotManager.startAlbumFill(
+							rgid = rgid,
+							releaseMbid = result.value.releaseMbid,
+							quality = quality,
+							artist = artist,
+							album = album,
+							// Completes the edition snapshot the watch keeps, so Retry can
+							// re-request THIS pressing instead of letting lb-bot re-resolve.
+							totalTracks = edition?.totalTracks ?: 0,
+							source = source
+						)
+					}
+				}
+			}
+			updateRequest { it.copy(starting = false) }
+		}
+	}
+
+	/**
+	 * One of the box's recovery rows, through the same [FillActions] the Downloads page uses. Run
+	 * to completion whether or not the page is still there: the request is the user's decision,
+	 * not the page's (the Downloads page learned it with a Cancel tapped just before backing out).
+	 */
+	fun fillAction(button: FillButton) {
+		val entry = lbBotManager.ledger.value.firstOrNull { it.key == rgid } ?: return
+		if (_state.value.request.acting) return
+		updateRequest { it.copy(acting = true, error = null, refused = false) }
+		viewModelScope.launch {
+			withContext(NonCancellable) {
+				var error: LbBotManager.LbError? = null
+				var refused = false
+				fun read(result: LbBotManager.LbResult<LbOk>?) {
+					when (result) {
+						null -> refused = true
+						is LbBotManager.LbResult.Failed -> error = result.error
+						is LbBotManager.LbResult.Ok -> when {
+							result.value.error.isNotBlank() -> error = LbBotManager.LbError.Rejected(200, result.value.error)
+							!result.value.ok -> refused = true
+						}
+					}
+				}
+				when (button) {
+					FillButton.RETRY -> read(fillActions.retry(entry.key))
+					FillButton.TRY_ANOTHER -> read(fillActions.retryAnotherSource(entry.key))
+					FillButton.CANCEL -> read(fillActions.cancel(entry.key))
+					FillButton.ALLOW_MP3 -> read(fillActions.allowMp3AndRetry(entry))
+					FillButton.WISHLIST -> {
+						if (fillActions.addToWishlist(entry)) updateRequest { it.copy(wishlisted = true) }
+						else refused = true
+					}
+					FillButton.DISMISS -> fillActions.dismiss(entry.key)
+					FillButton.OPEN_ALBUM -> Unit
+				}
+				updateRequest { it.copy(acting = false, error = error, refused = refused) }
+			}
+		}
+	}
+
+	/** Whether this release-group is on the wishlist: one read when the page opens, if the hub carries it. */
+	private fun loadWishlisted() {
+		if (!lbBotManager.isConfigured || !lbBotManager.supportsWishlist) return
+		viewModelScope.launch {
+			val listed = lbBotManager.wishlist().any { it.rgid == rgid }
+			updateRequest { it.copy(wishlisted = listed) }
+		}
+	}
+
+	private var wishlistBusy = false
+
+	/** Add to or take off lb-bot's wishlist (per release-group; there is no artist wishlist). */
+	fun toggleWishlist() {
+		val listed = _state.value.request.wishlisted ?: return
+		if (wishlistBusy) return
+		wishlistBusy = true
+		val artist = _state.value.detail?.artist.orEmpty().ifBlank { _state.value.mirrorArtist.ifBlank { artistName } }
+		val album = releaseTitle()
+		viewModelScope.launch {
+			withContext(NonCancellable) {
+				val list = if (listed) lbBotManager.wishlistRemove(rgid) else lbBotManager.wishlistAdd(rgid, artist, album)
+				// Null is a write that failed: the button stays as it was.
+				if (list != null) updateRequest { it.copy(wishlisted = list.any { item -> item.rgid == rgid }) }
+				wishlistBusy = false
+			}
+		}
+	}
+
+	// ---- the About ------------------------------------------------------------- //
+
+	/**
+	 * lb-bot's About for the release-group, the one an unowned album can have (the owner asked for
+	 * it, 2026-10-20). The cached article first, then, once online, `albumMeta`; [releaseMbid] (the
+	 * first answer's first release) saves lb-bot two MusicBrainz seconds on a cold call. An answer
+	 * replaces what is shown only if it has something, or nothing is shown: a failure never
+	 * blanks a good article.
+	 */
+	private fun loadMeta(releaseMbid: String?) {
+		metaJob?.cancel()
+		metaJob = viewModelScope.launch {
+			if (!lbBotManager.isConfigured) return@launch
+			lbBotManager.albumMeta(rgid, releaseMbid, LbCachePolicy.CACHE_ONLY)
+				.collect { cached -> if (cached != null) _state.value = _state.value.copy(meta = cached) }
+			val online = connectivityManager.isOnline
+			if (!online.value) online.first { it }
+			if (!lbBotManager.ensureAvailability()) return@launch
+			lbBotManager.albumMeta(rgid, releaseMbid).collect { meta ->
+				if (meta != null || _state.value.meta == null) _state.value = _state.value.copy(meta = meta)
+			}
+		}
+	}
+
+	fun openAbout() {
+		_state.value = _state.value.copy(aboutOpen = true)
+	}
+
+	fun dismissAbout() {
+		_state.value = _state.value.copy(aboutOpen = false)
 	}
 
 	/**

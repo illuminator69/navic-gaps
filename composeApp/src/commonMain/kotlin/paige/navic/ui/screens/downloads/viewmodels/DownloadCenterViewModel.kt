@@ -18,6 +18,7 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.DomainSong
 
@@ -43,7 +44,8 @@ data class DownloadCenterState(
 class DownloadCenterViewModel(
 	private val downloadManager: DownloadManager,
 	private val songDao: SongDao,
-	private val lbBotManager: LbBotManager
+	private val lbBotManager: LbBotManager,
+	private val fillActions: FillActions
 ) : ViewModel() {
 
 	/**
@@ -93,74 +95,42 @@ class DownloadCenterViewModel(
 		viewModelScope.launch { withContext(NonCancellable) { block() } }
 	}
 
-	/**
-	 * Re-issue a fill. Never automatic — lb-bot walks its whole ranked source list before
-	 * reporting failure, so an unattended retry re-runs the identical search; the user
-	 * asking again is the new information.
-	 */
+	/** Re-issue a fill ([FillActions.retry]). */
 	fun retryFill(key: String) {
-		launchToCompletion { announce(lbBotManager.retry(key)) }
+		launchToCompletion { announce(fillActions.retry(key)) }
 	}
 
 	/** Retry with the peer that failed or crawled ruled out. */
 	fun retryAnotherSource(key: String) {
-		launchToCompletion { announce(lbBotManager.retryAnotherSource(key)) }
+		launchToCompletion { announce(fillActions.retryAnotherSource(key)) }
 	}
 
 	fun cancelFill(key: String) {
-		launchToCompletion { announce(lbBotManager.cancelFill(key)) }
+		launchToCompletion { announce(fillActions.cancel(key)) }
 	}
 
-	/**
-	 * Widen this one album's search to include mp3, then try again. Offered when lb-bot
-	 * said the search rejected mp3s and would otherwise have found something.
-	 *
-	 * With a review group the opt-in is set on the group and the retry follows — only
-	 * if the opt-in took; it used to retry regardless, under the very format policy that
-	 * had just rejected everything. Without one, the retry itself carries `allowMp3`.
-	 */
+	/** [FillActions.allowMp3AndRetry]: a refused opt-in is said, and nothing is retried. */
 	fun allowMp3AndRetry(entry: paige.navic.domain.manager.LbFillEntry) {
 		launchToCompletion {
-			if (entry.groupId.isNotBlank()) {
-				val allowed = lbBotManager.allowMp3(entry.groupId, allow = true)
-				if (allowed !is LbBotManager.LbResult.Ok || !allowed.value.ok) {
-					_actionMessages.emit(REFUSED)
-					return@launchToCompletion
-				}
-				announce(lbBotManager.retry(entry.key))
-			} else {
-				announce(lbBotManager.retryAllowMp3(entry.key))
-			}
+			val result = fillActions.allowMp3AndRetry(entry)
+			if (result == null) _actionMessages.emit(REFUSED) else announce(result)
 		}
 	}
 
-	fun dismissFill(key: String) = lbBotManager.dismiss(key)
+	fun dismissFill(key: String) = fillActions.dismiss(key)
 
 	private companion object {
 		const val REFUSED = "lb-bot would not take that request."
 	}
 
-	/**
-	 * Keep wanting a release nobody was sharing.
-	 *
-	 * The ONLY action offered on a `no_source` failure, and the reason the row is
-	 * not simply a dead end: a plain retry re-runs an identical ranked search against
-	 * identical peers and fails identically, which is exactly why lb-bot marks it
-	 * `retryable: false`. The retry that can work is a slow periodic one, and the
-	 * wishlist is where it is registered.
-	 *
-	 * Dismisses the ledger row on success, because leaving both would show one
-	 * release in two lists saying opposite things about whether it is still wanted.
-	 */
+	/** [FillActions.addToWishlist], which dismisses the row once the add took. */
 	fun addToWishlist(entry: paige.navic.domain.manager.LbFillEntry) {
 		launchToCompletion {
 			// Marked before the call, so a second tap during the round trip cannot
 			// send a second add; cleared again if the add did not take, so the
 			// button comes back rather than leaving the row with no affordance.
 			_wishlisted.value = _wishlisted.value + entry.key
-			if (lbBotManager.wishlistAdd(entry.rgid, entry.artist, entry.album) != null) {
-				lbBotManager.dismiss(entry.key)
-			} else {
+			if (!fillActions.addToWishlist(entry)) {
 				_wishlisted.value = _wishlisted.value - entry.key
 			}
 		}
