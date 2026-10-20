@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -29,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -61,35 +63,29 @@ import paige.navic.ui.screens.radio.viewmodels.RadioListViewModel
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 
+/** The internet-radio list's view model, by the store-owner rule (see `albumListViewModel`). */
 @Composable
-fun RadioListScreen(
-	nested: Boolean
-) {
-	val platformContext = LocalPlatformContext.current
-	val scrollManager = LocalBottomBarScrollManager.current
-	val viewModel = koinViewModel<RadioListViewModel>(
+fun radioListViewModel(nested: Boolean): RadioListViewModel =
+	koinViewModel(
 		viewModelStoreOwner = if (nested) {
 			LocalViewModelStoreOwner.current!!
 		} else {
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
-	val player = koinInject<MediaPlayerViewModel>()
-	val radiosState by viewModel.radiosState.collectAsState()
+
+@Composable
+fun RadioListScreen(
+	nested: Boolean
+) {
+	val platformContext = LocalPlatformContext.current
+	val scrollManager = LocalBottomBarScrollManager.current
+	val viewModel = radioListViewModel(nested)
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
 	val scaleInSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
-
-	val rootViewModel = koinViewModel<RootViewModel>()
-	LaunchedEffect(Unit) {
-		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				viewModel.gridState.animateScrollToItem(0)
-			}
-		}
-	}
 
 	Scaffold(
 		topBar = {
@@ -142,30 +138,65 @@ fun RadioListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = radiosState !is UiState.Loading,
-			onRefresh = { viewModel.refreshRadios(true) },
-			key = radiosState
-		) {
-			ArtGrid(
-				modifier = if (!nested)
-					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier,
-				contentPadding = innerPadding.withoutTop(),
-				state = viewModel.gridState,
-				verticalArrangement = if ((radiosState as? UiState.Success)?.data?.isEmpty() == true)
-					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
-			) {
-				radioListScreenContent(
-					state = radiosState,
-					onRadioClick = { radio ->
-						player.playRadio(radio)
-					}
-				)
+		RadioListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null,
+			createDialogShown = createDialogShown,
+			onCreateDialogDismissed = { createDialogShown = false }
+		)
+	}
+}
+
+/**
+ * The internet-radio list itself (P5): hosted by [RadioListScreen] and by the Library's Radios
+ * chip. The add dialog is here, opened by the host ([createDialogShown]): the page's button, the
+ * Library's "Add" in the sort row.
+ */
+@Composable
+fun RadioListBody(
+	viewModel: RadioListViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null,
+	createDialogShown: Boolean = false,
+	onCreateDialogDismissed: () -> Unit = {}
+) {
+	val player = koinInject<MediaPlayerViewModel>()
+	val radiosState by viewModel.radiosState.collectAsState()
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				viewModel.gridState.animateScrollToItem(0)
 			}
+		}
+	}
+
+	PullToRefreshBox(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding()),
+		finished = radiosState !is UiState.Loading,
+		onRefresh = { viewModel.refreshRadios(true) },
+		key = radiosState
+	) {
+		ArtGrid(
+			modifier = if (scrollConnection != null)
+				Modifier.nestedScroll(scrollConnection)
+			else Modifier,
+			contentPadding = contentPadding.withoutTop(),
+			state = viewModel.gridState,
+			verticalArrangement = if ((radiosState as? UiState.Success)?.data?.isEmpty() == true)
+				Arrangement.Center
+			else Arrangement.spacedBy(12.dp)
+		) {
+			radioListScreenContent(
+				state = radiosState,
+				onRadioClick = { radio ->
+					player.playRadio(radio)
+				}
+			)
 		}
 	}
 
@@ -176,7 +207,7 @@ fun RadioListScreen(
 
 	if (createDialogShown) {
 		RadioCreateDialog(
-			onDismissRequest = { createDialogShown = false },
+			onDismissRequest = onCreateDialogDismissed,
 			onRefresh = { viewModel.refreshRadios(true) }
 		)
 	}

@@ -3,6 +3,7 @@ package paige.navic.ui.screens.album
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,16 +56,14 @@ import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
+/**
+ * The album list's view model, by the store-owner rule (CLAUDE.md §2 rule 14): pushed (`nested`) it
+ * dies with its entry; otherwise (the Library's Albums chip, P5) it lives in the persistent store,
+ * so switching chips keeps its scroll and its sort.
+ */
 @Composable
-fun AlbumListScreen(
-	nested: Boolean = false,
-	listType: DomainAlbumListType
-) {
-	val platformContext = LocalPlatformContext.current
-	val preferenceManager = koinInject<PreferenceManager>()
-	val selectedViewMode = preferenceManager.albumListViewMode
-
-	val viewModel = koinViewModel<AlbumListViewModel>(
+fun albumListViewModel(nested: Boolean, listType: DomainAlbumListType): AlbumListViewModel =
+	koinViewModel(
 		key = listType.toString(),
 		parameters = { parametersOf(listType) },
 		viewModelStoreOwner = if (nested) {
@@ -72,39 +72,19 @@ fun AlbumListScreen(
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
-	val player = koinInject<MediaPlayerViewModel>()
-	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
-	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
-	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
-	val albumsState by viewModel.albumsState.collectAsStateWithLifecycle()
-	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
-	val starred by viewModel.starred.collectAsStateWithLifecycle()
-	val rating by viewModel.rating.collectAsStateWithLifecycle()
-	var shareId by remember { mutableStateOf<String?>(null) }
-	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
+
+@Composable
+fun AlbumListScreen(
+	nested: Boolean = false,
+	listType: DomainAlbumListType
+) {
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val viewModel = albumListViewModel(nested, listType)
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	val actions: @Composable RowScope.() -> Unit = {
-		AlbumListScreenSortButton(
-			nested = nested,
-			selectedSorting = selectedSorting,
-			onSetSorting = { viewModel.setListType(it) },
-			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) },
-			selectedViewMode = selectedViewMode,
-			onSetViewMode = { preferenceManager.albumListViewMode = it },
-			selectedFilters = selectedFilters,
-			onToggleFilter = { viewModel.toggleFilter(it) }
-		)
-	}
-
-	val rootViewModel = koinViewModel<RootViewModel>()
-	LaunchedEffect(Unit) {
-		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				viewModel.gridState.animateScrollToItem(0)
-			}
-		}
+		AlbumListSortAction(viewModel, nested)
 	}
 
 	Scaffold(
@@ -127,69 +107,128 @@ fun AlbumListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = albumsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshAlbums(true) },
-			key = albumsState
-		) {
-			val grouped = remember(albumsState.data) {
-				albumsState.data.orEmpty().groupBy { it.name?.firstOrNull()?.uppercaseChar() ?: '#' }
-					.toList()
-					.sortedBy { it.first }
-			}
+		AlbumListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null
+		)
+	}
+}
 
-			val headerIndices = remember(grouped) {
-				var currentIndex = 0
-				grouped.map { (letter, albums) ->
-					val pos = currentIndex
-					currentIndex += albums.size + 1
-					letter.toString() to pos
-				}.toImmutableList()
-			}
+/** The album list's sort menu (with its filters and the list / grid setting). */
+@Composable
+fun AlbumListSortAction(viewModel: AlbumListViewModel, nested: Boolean) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
+	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
+	AlbumListScreenSortButton(
+		nested = nested,
+		selectedSorting = selectedSorting,
+		onSetSorting = { viewModel.setListType(it) },
+		selectedReversed = selectedReversed,
+		onSetReversed = { viewModel.setReversed(it) },
+		selectedViewMode = preferenceManager.albumListViewMode,
+		onSetViewMode = { preferenceManager.albumListViewMode = it },
+		selectedFilters = selectedFilters,
+		onToggleFilter = { viewModel.toggleFilter(it) }
+	)
+}
 
-			Box {
-				ArtGrid(
-					modifier = if (!nested)
-						Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-					else Modifier,
-					state = viewModel.gridState,
-					contentPadding = innerPadding.withoutTop(),
-					verticalArrangement = if (albumsState.data?.isEmpty() == true) {
-						Arrangement.Center
-					} else if (selectedViewMode == ListViewMode.List) {
-						Arrangement.spacedBy(0.dp)
-					} else {
-						Arrangement.spacedBy(12.dp)
+/**
+ * The album list itself (P5): pull to refresh, the grid or list, the alphabetical scroller, the
+ * long-press sheet, the share dialog and the error. Hosted by [AlbumListScreen] and by the Library's
+ * Albums chip; [contentPadding]'s top is applied above it and the rest inside the grid.
+ */
+@Composable
+fun AlbumListBody(
+	viewModel: AlbumListViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.albumListViewMode
+	val player = koinInject<MediaPlayerViewModel>()
+	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
+	val albumsState by viewModel.albumsState.collectAsStateWithLifecycle()
+	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
+	val starred by viewModel.starred.collectAsStateWithLifecycle()
+	val rating by viewModel.rating.collectAsStateWithLifecycle()
+	var shareId by remember { mutableStateOf<String?>(null) }
+	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				viewModel.gridState.animateScrollToItem(0)
+			}
+		}
+	}
+
+	PullToRefreshBox(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding()),
+		finished = albumsState !is UiState.Loading,
+		onRefresh = { viewModel.refreshAlbums(true) },
+		key = albumsState
+	) {
+		val grouped = remember(albumsState.data) {
+			albumsState.data.orEmpty().groupBy { it.name?.firstOrNull()?.uppercaseChar() ?: '#' }
+				.toList()
+				.sortedBy { it.first }
+		}
+
+		val headerIndices = remember(grouped) {
+			var currentIndex = 0
+			grouped.map { (letter, albums) ->
+				val pos = currentIndex
+				currentIndex += albums.size + 1
+				letter.toString() to pos
+			}.toImmutableList()
+		}
+
+		Box {
+			ArtGrid(
+				modifier = if (scrollConnection != null)
+					Modifier.nestedScroll(scrollConnection)
+				else Modifier,
+				state = viewModel.gridState,
+				contentPadding = contentPadding.withoutTop(),
+				verticalArrangement = if (albumsState.data?.isEmpty() == true) {
+					Arrangement.Center
+				} else if (selectedViewMode == ListViewMode.List) {
+					Arrangement.spacedBy(0.dp)
+				} else {
+					Arrangement.spacedBy(12.dp)
+				},
+				selectedViewMode = selectedViewMode
+			) {
+				albumListScreenContent(
+					state = albumsState,
+					starred = starred,
+					selectedSorting = selectedSorting,
+					selectedAlbum = selectedAlbum,
+					selectedAlbumRating = rating,
+					selectedViewMode = selectedViewMode,
+					onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
+					onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
+					onUpdateSelection = { viewModel.selectAlbum(it) },
+					onClearSelection = { viewModel.clearSelection() },
+					onSetShareId = { newShareId ->
+						shareId = newShareId
 					},
-					selectedViewMode = selectedViewMode
-				) {
-					albumListScreenContent(
-						state = albumsState,
-						starred = starred,
-						selectedSorting = selectedSorting,
-						selectedAlbum = selectedAlbum,
-						selectedAlbumRating = rating,
-						selectedViewMode = selectedViewMode,
-						onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
-						onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
-						onUpdateSelection = { viewModel.selectAlbum(it) },
-						onClearSelection = { viewModel.clearSelection() },
-						onSetShareId = { newShareId ->
-							shareId = newShareId
-						},
-						onSetStarred = { viewModel.starAlbum(it) },
-						onRateSelectedAlbum = { viewModel.setRating(it) }
-					)
-				}
-				if (selectedSorting == DomainAlbumListType.AlphabeticalByName) {
-					AlphabeticalScroller(
-						state = viewModel.gridState,
-						headers = headerIndices,
-						modifier = Modifier.align(Alignment.TopEnd)
-					)
-				}
+					onSetStarred = { viewModel.starAlbum(it) },
+					onRateSelectedAlbum = { viewModel.setRating(it) }
+				)
+			}
+			if (selectedSorting == DomainAlbumListType.AlphabeticalByName) {
+				AlphabeticalScroller(
+					state = viewModel.gridState,
+					headers = headerIndices,
+					modifier = Modifier.align(Alignment.TopEnd)
+				)
 			}
 		}
 	}

@@ -41,6 +41,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -312,6 +314,38 @@ internal fun downloadsRowColors() = ListItemDefaults.colors(
  * accepted but waiting on a permit, failed (with the reason, and a retry that reuses the original
  * quality/format), and completed.
  */
+/**
+ * This device's downloads alone (P5): the Library's Downloaded chip. The Downloads page itself keeps
+ * all three sections (this one, lb-bot's fills and the wishlist).
+ */
+@Composable
+fun DeviceDownloadsBody(
+	viewModel: DownloadCenterViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null
+) {
+	val state by viewModel.state.collectAsStateWithLifecycle()
+	val constrained by viewModel.constrained.collectAsStateWithLifecycle()
+	val backStack = LocalNavStack.current
+	LazyColumn(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding())
+			.fillMaxSize()
+			.then(if (scrollConnection != null) Modifier.nestedScroll(scrollConnection) else Modifier)
+			.padding(horizontal = 16.dp),
+		contentPadding = contentPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 24.dp),
+		verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
+	) {
+		deviceSection(
+			state = state,
+			constrained = constrained,
+			viewModel = viewModel,
+			onOpenSettings = { backStack.add(Screen.Settings.DataStorage) }
+		)
+	}
+}
+
 private fun LazyListScope.deviceSection(
 	state: DownloadCenterState,
 	constrained: Boolean,

@@ -4,10 +4,12 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -22,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,17 +57,18 @@ import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
+/** The song list's view model, by the store-owner rule (see `albumListViewModel`), keyed on the artist. */
 @Composable
-fun SongListScreen(
+fun songListViewModel(
 	nested: Boolean,
+	listType: DomainSongListType,
 	artistId: String? = null,
-	artistName: String? = null,
-	listType: DomainSongListType
-) {
+	artistName: String? = null
+): SongListViewModel =
 	// Upstream's opt-out (alpha59), on the fork's key: as a root tab the list survives a tab
 	// switch (which clears the back stack); nested — an artist's "see all", a genre — it dies
 	// with its entry.
-	val viewModel = koinViewModel<SongListViewModel>(
+	koinViewModel(
 		key = artistId,
 		parameters = {
 			val artist = artistId?.ifBlank { null }?.let { SongListArtist(it, artistName.orEmpty()) }
@@ -76,42 +80,20 @@ fun SongListScreen(
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
-	val preferenceManager = koinInject<PreferenceManager>()
-	val player = koinInject<MediaPlayerViewModel>()
-	val songsState by viewModel.songsState.collectAsStateWithLifecycle()
-	val selectedSong by viewModel.selectedSong.collectAsStateWithLifecycle()
-	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
-	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
-	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
-	val starred by viewModel.starred.collectAsStateWithLifecycle()
-	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
-	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 
-	var shareId by remember { mutableStateOf<String?>(null) }
-	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
-	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+@Composable
+fun SongListScreen(
+	nested: Boolean,
+	artistId: String? = null,
+	artistName: String? = null,
+	listType: DomainSongListType
+) {
+	val viewModel = songListViewModel(nested, listType, artistId, artistName)
+	val preferenceManager = koinInject<PreferenceManager>()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	val actions: @Composable RowScope.() -> Unit = {
-		SongListScreenSortButton(
-			nested = nested,
-			selectedSorting = selectedSorting,
-			onSetSorting = { viewModel.setSorting(it) },
-			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) },
-			selectedFilters = selectedFilters,
-			onToggleFilter = { viewModel.toggleFilter(it) }
-		)
-	}
-
-	val rootViewModel = koinViewModel<RootViewModel>()
-	val listState = rememberLazyListState()
-	LaunchedEffect(Unit) {
-		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				listState.animateScrollToItem(0)
-			}
-		}
+		SongListSortAction(viewModel, nested)
 	}
 
 	Scaffold(
@@ -136,59 +118,116 @@ fun SongListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = songsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshSongs(true) },
-			key = songsState
-		) {
-			LazyColumn(
-				modifier = if (!nested)
-					Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier.fillMaxSize(),
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
-					Arrangement.Center
-				// The artist page's rows are 2 dp apart (each row is a rounded segment, Item.kt).
-				else Arrangement.spacedBy(2.dp),
-				state = listState
-			) {
-				songListScreenContent(
-					state = songsState,
-					selectedSongIsStarred = starred,
-					selectedSongRating = selectedSongRating,
-					selectedSong = selectedSong,
-					onUpdateSelection = { viewModel.selectSong(it) },
-					onClearSelection = { viewModel.clearSelection() },
-					onSetShareId = { newShareId ->
-						shareId = newShareId
-					},
-					onSetStarred = { viewModel.starSong(it) },
-					onPlayNext = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
-							songToQueue = song
-						} else {
-							player.playNextSingle(song)
-						}
-					},
-					onAddToQueue = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
-							songToQueue = song
-						} else {
-							player.addToQueueSingle(song)
-						}
-					},
-					onPlaySong = { song ->
-						player.playNow(song)
-					},
-					onSetRating = { viewModel.rateSelectedSong(it) },
-					onDownload = { viewModel.downloadSong(it) },
-					allDownloads = allDownloads,
-					onCancelDownload = { viewModel.cancelDownload(it.id) },
-					onDeleteDownload = { viewModel.deleteDownload(it.id) }
-				)
+		SongListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null
+		)
+	}
+}
+
+/** The song list's sort menu (with its filters). */
+@Composable
+fun SongListSortAction(viewModel: SongListViewModel, nested: Boolean) {
+	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
+	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
+	SongListScreenSortButton(
+		nested = nested,
+		selectedSorting = selectedSorting,
+		onSetSorting = { viewModel.setSorting(it) },
+		selectedReversed = selectedReversed,
+		onSetReversed = { viewModel.setReversed(it) },
+		selectedFilters = selectedFilters,
+		onToggleFilter = { viewModel.toggleFilter(it) }
+	)
+}
+
+/**
+ * The song list itself (P5): hosted by [SongListScreen] and by the Library's Songs chip, which
+ * passes a [listState] it keeps so a chip switch keeps the place.
+ */
+@Composable
+fun SongListBody(
+	viewModel: SongListViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null,
+	listState: LazyListState = rememberLazyListState()
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val player = koinInject<MediaPlayerViewModel>()
+	val songsState by viewModel.songsState.collectAsStateWithLifecycle()
+	val selectedSong by viewModel.selectedSong.collectAsStateWithLifecycle()
+	val starred by viewModel.starred.collectAsStateWithLifecycle()
+	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
+	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+
+	var shareId by remember { mutableStateOf<String?>(null) }
+	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
+	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				listState.animateScrollToItem(0)
 			}
+		}
+	}
+
+	PullToRefreshBox(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding()),
+		finished = songsState !is UiState.Loading,
+		onRefresh = { viewModel.refreshSongs(true) },
+		key = songsState
+	) {
+		LazyColumn(
+			modifier = if (scrollConnection != null)
+				Modifier.fillMaxSize().nestedScroll(scrollConnection)
+			else Modifier.fillMaxSize(),
+			contentPadding = contentPadding.withoutTop(),
+			verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
+				Arrangement.Center
+			// The artist page's rows are 2 dp apart (each row is a rounded segment, Item.kt).
+			else Arrangement.spacedBy(2.dp),
+			state = listState
+		) {
+			songListScreenContent(
+				state = songsState,
+				selectedSongIsStarred = starred,
+				selectedSongRating = selectedSongRating,
+				selectedSong = selectedSong,
+				onUpdateSelection = { viewModel.selectSong(it) },
+				onClearSelection = { viewModel.clearSelection() },
+				onSetShareId = { newShareId ->
+					shareId = newShareId
+				},
+				onSetStarred = { viewModel.starSong(it) },
+				onPlayNext = { song ->
+					if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
+						songToQueue = song
+					} else {
+						player.playNextSingle(song)
+					}
+				},
+				onAddToQueue = { song ->
+					if (player.uiState.value.queue.any { it.id == song.id } && !preferenceManager.shushQueueDuplicateDialog) {
+						songToQueue = song
+					} else {
+						player.addToQueueSingle(song)
+					}
+				},
+				onPlaySong = { song ->
+					player.playNow(song)
+				},
+				onSetRating = { viewModel.rateSelectedSong(it) },
+				onDownload = { viewModel.downloadSong(it) },
+				allDownloads = allDownloads,
+				onCancelDownload = { viewModel.cancelDownload(it.id) },
+				onDeleteDownload = { viewModel.deleteDownload(it.id) }
+			)
 		}
 	}
 

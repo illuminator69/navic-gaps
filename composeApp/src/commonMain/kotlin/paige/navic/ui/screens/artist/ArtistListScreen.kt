@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import kotlinx.collections.immutable.ImmutableList
@@ -55,16 +57,10 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 
+/** The artist list's view model, by the store-owner rule (see `albumListViewModel`). */
 @Composable
-fun ArtistListScreen(
-	nested: Boolean = false,
-	listType: DomainArtistListType
-) {
-	val platformContext = LocalPlatformContext.current
-	val preferenceManager = koinInject<PreferenceManager>()
-	val selectedViewMode = preferenceManager.artistListViewMode
-
-	val viewModel = koinViewModel<ArtistListViewModel>(
+fun artistListViewModel(nested: Boolean, listType: DomainArtistListType): ArtistListViewModel =
+	koinViewModel(
 		key = listType.toString(),
 		parameters = { parametersOf(listType) },
 		viewModelStoreOwner = if (nested) {
@@ -73,35 +69,19 @@ fun ArtistListScreen(
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
-	val artistsState by viewModel.artistsState.collectAsState()
-	val selectedArtist by viewModel.selectedArtist.collectAsState()
-	val selectedArtistAlbums by viewModel.selectedArtistAlbums.collectAsState()
-	val selectedSorting by viewModel.listType.collectAsState()
-	val selectedFilters by viewModel.selectedFilters.collectAsState()
-	val starred by viewModel.starred.collectAsState()
+
+@Composable
+fun ArtistListScreen(
+	nested: Boolean = false,
+	listType: DomainArtistListType
+) {
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val viewModel = artistListViewModel(nested, listType)
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-	val player = koinInject<MediaPlayerViewModel>()
-
 	val actions: @Composable RowScope.() -> Unit = {
-		ArtistListScreenSortButton(
-			nested = nested,
-			selectedSorting = selectedSorting,
-			onSetSorting = { viewModel.setListType(it) },
-			selectedViewMode = selectedViewMode,
-			onSetViewMode = { preferenceManager.artistListViewMode = it },
-			selectedFilters = selectedFilters,
-			onToggleFilter = { viewModel.toggleFilter(it) }
-		)
-	}
-
-	val rootViewModel = koinViewModel<RootViewModel>()
-	LaunchedEffect(Unit) {
-		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				viewModel.gridState.animateScrollToItem(0)
-			}
-		}
+		ArtistListSortAction(viewModel, nested)
 	}
 
 	Scaffold(
@@ -124,31 +104,80 @@ fun ArtistListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = artistsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshArtists(true) },
-			key = artistsState
-		) {
-			ArtistListScreenContent(
-				state = artistsState,
-				starred = starred,
-				selectedSorting = selectedSorting,
-				selectedArtist = selectedArtist,
-				selectedArtistAlbums = selectedArtistAlbums,
-				selectedViewMode = selectedViewMode,
-				gridState = viewModel.gridState,
-				scrollBehavior = scrollBehavior,
-				innerPadding = innerPadding,
-				nested = nested,
-				onUpdateSelection = { viewModel.selectArtist(it) },
-				onClearSelection = { viewModel.clearSelection() },
-				onSetStarred = { viewModel.starArtist(it) },
-				onPlayNext = { viewModel.playArtistAlbumsNext(player) },
-				onAddToQueue = { viewModel.addArtistAlbumsToQueue(player) }
-			)
+		ArtistListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null
+		)
+	}
+}
+
+/** The artist list's sort menu (with its filters and the list / grid setting). */
+@Composable
+fun ArtistListSortAction(viewModel: ArtistListViewModel, nested: Boolean) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedSorting by viewModel.listType.collectAsState()
+	val selectedFilters by viewModel.selectedFilters.collectAsState()
+	ArtistListScreenSortButton(
+		nested = nested,
+		selectedSorting = selectedSorting,
+		onSetSorting = { viewModel.setListType(it) },
+		selectedViewMode = preferenceManager.artistListViewMode,
+		onSetViewMode = { preferenceManager.artistListViewMode = it },
+		selectedFilters = selectedFilters,
+		onToggleFilter = { viewModel.toggleFilter(it) }
+	)
+}
+
+/** The artist list itself (P5): hosted by [ArtistListScreen] and by the Library's Artists chip. */
+@Composable
+fun ArtistListBody(
+	viewModel: ArtistListViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.artistListViewMode
+	val artistsState by viewModel.artistsState.collectAsState()
+	val selectedArtist by viewModel.selectedArtist.collectAsState()
+	val selectedArtistAlbums by viewModel.selectedArtistAlbums.collectAsState()
+	val selectedSorting by viewModel.listType.collectAsState()
+	val starred by viewModel.starred.collectAsState()
+	val player = koinInject<MediaPlayerViewModel>()
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				viewModel.gridState.animateScrollToItem(0)
+			}
 		}
+	}
+
+	PullToRefreshBox(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding()),
+		finished = artistsState !is UiState.Loading,
+		onRefresh = { viewModel.refreshArtists(true) },
+		key = artistsState
+	) {
+		ArtistListScreenContent(
+			state = artistsState,
+			starred = starred,
+			selectedSorting = selectedSorting,
+			selectedArtist = selectedArtist,
+			selectedArtistAlbums = selectedArtistAlbums,
+			selectedViewMode = selectedViewMode,
+			gridState = viewModel.gridState,
+			scrollConnection = scrollConnection,
+			innerPadding = contentPadding,
+			onUpdateSelection = { viewModel.selectArtist(it) },
+			onClearSelection = { viewModel.clearSelection() },
+			onSetStarred = { viewModel.starArtist(it) },
+			onPlayNext = { viewModel.playArtistAlbumsNext(player) },
+			onAddToQueue = { viewModel.addArtistAlbumsToQueue(player) }
+		)
 	}
 
 	ErrorSnackBar(

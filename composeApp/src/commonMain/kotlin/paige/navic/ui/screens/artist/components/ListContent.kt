@@ -12,11 +12,11 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
@@ -45,9 +45,9 @@ fun ArtistListScreenContent(
 	starred: Boolean,
 	selectedSorting: DomainArtistListType,
 	gridState: LazyGridState,
-	scrollBehavior: TopAppBarScrollBehavior,
+	/** The page's top bar's, when it collapses on scroll; null in the Library (P5). */
+	scrollConnection: NestedScrollConnection?,
 	innerPadding: PaddingValues,
-	nested: Boolean,
 	selectedArtist: DomainArtist?,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	selectedViewMode: ListViewMode,
@@ -82,9 +82,9 @@ fun ArtistListScreenContent(
 
 	Box {
 		ArtGrid(
-			modifier = if (!nested)
+			modifier = if (scrollConnection != null)
 				Modifier.fillMaxSize()
-					.nestedScroll(scrollBehavior.nestedScrollConnection)
+					.nestedScroll(scrollConnection)
 			else Modifier.fillMaxSize(),
 			state = gridState,
 			contentPadding = innerPadding.withoutTop(),

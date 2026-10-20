@@ -19,6 +19,7 @@ import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import navic.composeapp.generated.resources.action_more
@@ -120,56 +121,29 @@ import paige.navic.ui.screens.mixes.viewmodels.MixMessage
  * mode the saved-queue screen has an entire tombstone mechanism to avoid, and which
  * a mix avoids by simply refusing.
  */
+/** The Mixes list's view model, by the store-owner rule (see `albumListViewModel`). */
 @Composable
-fun MixListScreen(nested: Boolean = false) {
+fun mixListViewModel(nested: Boolean): MixListViewModel =
 	// A root tab keeps its ViewModel across tab switches, which clear the back stack — the
 	// lifetime it had before the ViewModel-store decorator was restored (CLAUDE.md §2 rule 14).
 	// Its `init` loads over the network, so without this every visit to the tab re-fetched.
 	// Nested (a home-page button, Discover's "See all") it dies with its entry, like
 	// upstream's list screens.
-	val viewModel = koinViewModel<MixListViewModel>(
+	koinViewModel(
 		viewModelStoreOwner = if (nested) {
 			LocalViewModelStoreOwner.current!!
 		} else {
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
+
+@Composable
+fun MixListScreen(nested: Boolean = false) {
+	val viewModel = mixListViewModel(nested)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-	val mixes by viewModel.mixes.collectAsStateWithLifecycle()
-	val busyId by viewModel.busyId.collectAsStateWithLifecycle()
 	val connected by viewModel.connected.collectAsStateWithLifecycle()
-	val message by viewModel.message.collectAsStateWithLifecycle()
-	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
-	val stationsAvailable by viewModel.stationsAvailable.collectAsStateWithLifecycle()
-	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
-
-	var renameTarget by remember { mutableStateOf<Mix?>(null) }
-	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
-
 	val snackbarHostState = remember { SnackbarHostState() }
-	val failedMsg = stringResource(Res.string.mix_regenerate_failed)
-	val unknownMsg = stringResource(Res.string.mix_unknown_kind)
-	val offlineMsg = stringResource(Res.string.mix_not_connected)
-	LaunchedEffect(message) {
-		when (message) {
-			MixMessage.RegenerateFailed -> snackbarHostState.showSnackbar(failedMsg)
-			MixMessage.UnknownKind -> snackbarHostState.showSnackbar(unknownMsg)
-			MixMessage.NotConnected -> snackbarHostState.showSnackbar(offlineMsg)
-			null -> {}
-		}
-		if (message != null) viewModel.clearMessage()
-	}
-	// The hub's sentence verbatim — it names what was wrong with the recipe, which
-	// nothing on this side can reconstruct.
-	LaunchedEffect(hubMessage) {
-		hubMessage?.let {
-			snackbarHostState.showSnackbar(it)
-			viewModel.clearHubMessage()
-		}
-	}
-
-	var sheetTarget by remember { mutableStateOf<Mix?>(null) }
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val scrollManager = LocalBottomBarScrollManager.current
@@ -231,59 +205,113 @@ fun MixListScreen(nested: Boolean = false) {
 			}
 		}
 	) { innerPadding ->
-		LazyColumn(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.fillMaxSize()
-				.then(if (!nested) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
-				.padding(horizontal = 16.dp),
-			contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 88.dp),
-			verticalArrangement = if (mixes.isEmpty() && !stationsAvailable) Arrangement.Center
-			else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
-		) {
-			// Your mix heads the list wherever the hub's station engine is there (I-040): the
-			// seedless station, from what you play most, on the character autoplay uses. Not a
-			// stored recipe, so it has no sheet; saving one is the queue's "Save as a mix".
-			if (stationsAvailable) {
-				item(key = "your-mix") {
-					val yourMixName = stringResource(Res.string.queue_your_mix)
-					val character = viewModel.defaultCharacter
-					YourMixRow(
-						name = yourMixName,
-						line = stringResource(
-							Res.string.queue_station_line,
-							stringResource(Res.string.mix_your_mix_line),
-							catalogue.infoFor(character).label.ifBlank { character.label }
-						),
-						busy = busyId == MixListViewModel.YOUR_MIX_ID,
-						onClick = dropUnlessResumed { viewModel.playYourMix(yourMixName) },
-						modifier = Modifier.animateItem()
-					)
-				}
-			}
-			if (mixes.isEmpty()) {
-				item(key = "empty") {
-					ContentUnavailable(
-						modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
-						icon = Icons.Outlined.Equalizer,
-						label = stringResource(Res.string.info_no_mixes),
-						description = stringResource(Res.string.info_no_mixes_hint)
-					)
-				}
-			}
-			itemsIndexed(mixes, key = { _, mix -> mix.id }) { index, mix ->
-				MixRow(
-					mix = mix,
-					shapes = segmentedShapes(index = index, count = mixes.size),
-					busy = busyId == mix.id,
-					// `dropUnlessResumed` because regenerating navigates nowhere but does
-					// start playback, and a double tap during the transition would run the
-					// recipe twice.
-					onClick = dropUnlessResumed { viewModel.play(mix) },
-					onMenu = { sheetTarget = mix },
+		MixListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			snackbarHostState = snackbarHostState,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null
+		)
+	}
+}
+
+/**
+ * The Mixes list itself (P5): Your mix first while the engine is there, then the saved recipes
+ * (custom radios among them), with their sheet, rename and delete. Hosted by [MixListScreen] and by
+ * the Library's Mixes chip; its messages go to [snackbarHostState].
+ */
+@Composable
+fun MixListBody(
+	viewModel: MixListViewModel,
+	contentPadding: PaddingValues,
+	snackbarHostState: SnackbarHostState,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null
+) {
+	val mixes by viewModel.mixes.collectAsStateWithLifecycle()
+	val busyId by viewModel.busyId.collectAsStateWithLifecycle()
+	val message by viewModel.message.collectAsStateWithLifecycle()
+	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
+	val stationsAvailable by viewModel.stationsAvailable.collectAsStateWithLifecycle()
+	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
+
+	var renameTarget by remember { mutableStateOf<Mix?>(null) }
+	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
+
+	val failedMsg = stringResource(Res.string.mix_regenerate_failed)
+	val unknownMsg = stringResource(Res.string.mix_unknown_kind)
+	val offlineMsg = stringResource(Res.string.mix_not_connected)
+	LaunchedEffect(message) {
+		when (message) {
+			MixMessage.RegenerateFailed -> snackbarHostState.showSnackbar(failedMsg)
+			MixMessage.UnknownKind -> snackbarHostState.showSnackbar(unknownMsg)
+			MixMessage.NotConnected -> snackbarHostState.showSnackbar(offlineMsg)
+			null -> {}
+		}
+		if (message != null) viewModel.clearMessage()
+	}
+	// The hub's sentence verbatim — it names what was wrong with the recipe, which
+	// nothing on this side can reconstruct.
+	LaunchedEffect(hubMessage) {
+		hubMessage?.let {
+			snackbarHostState.showSnackbar(it)
+			viewModel.clearHubMessage()
+		}
+	}
+
+	var sheetTarget by remember { mutableStateOf<Mix?>(null) }
+
+	LazyColumn(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding())
+			.fillMaxSize()
+			.then(if (scrollConnection != null) Modifier.nestedScroll(scrollConnection) else Modifier)
+			.padding(horizontal = 16.dp),
+		contentPadding = contentPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 88.dp),
+		verticalArrangement = if (mixes.isEmpty() && !stationsAvailable) Arrangement.Center
+		else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
+	) {
+		// Your mix heads the list wherever the hub's station engine is there (I-040): the
+		// seedless station, from what you play most, on the character autoplay uses. Not a
+		// stored recipe, so it has no sheet; saving one is the queue's "Save as a mix".
+		if (stationsAvailable) {
+			item(key = "your-mix") {
+				val yourMixName = stringResource(Res.string.queue_your_mix)
+				val character = viewModel.defaultCharacter
+				YourMixRow(
+					name = yourMixName,
+					line = stringResource(
+						Res.string.queue_station_line,
+						stringResource(Res.string.mix_your_mix_line),
+						catalogue.infoFor(character).label.ifBlank { character.label }
+					),
+					busy = busyId == MixListViewModel.YOUR_MIX_ID,
+					onClick = dropUnlessResumed { viewModel.playYourMix(yourMixName) },
 					modifier = Modifier.animateItem()
 				)
 			}
+		}
+		if (mixes.isEmpty()) {
+			item(key = "empty") {
+				ContentUnavailable(
+					modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+					icon = Icons.Outlined.Equalizer,
+					label = stringResource(Res.string.info_no_mixes),
+					description = stringResource(Res.string.info_no_mixes_hint)
+				)
+			}
+		}
+		itemsIndexed(mixes, key = { _, mix -> mix.id }) { index, mix ->
+			MixRow(
+				mix = mix,
+				shapes = segmentedShapes(index = index, count = mixes.size),
+				busy = busyId == mix.id,
+				// `dropUnlessResumed` because regenerating navigates nowhere but does
+				// start playback, and a double tap during the transition would run the
+				// recipe twice.
+				onClick = dropUnlessResumed { viewModel.play(mix) },
+				onMenu = { sheetTarget = mix },
+				modifier = Modifier.animateItem()
+			)
 		}
 	}
 

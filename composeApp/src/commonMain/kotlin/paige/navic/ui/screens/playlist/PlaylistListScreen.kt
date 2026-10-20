@@ -13,6 +13,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -80,33 +82,25 @@ import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
 import kotlin.time.Duration
 
+/** The playlist list's view model, by the store-owner rule (see `albumListViewModel`). */
 @Composable
-fun PlaylistListScreen(
-	nested: Boolean = false
-) {
-	val platformContext = LocalPlatformContext.current
-	val preferenceManager = koinInject<PreferenceManager>()
-	val selectedViewMode = preferenceManager.playlistListViewMode
-
-	val viewModel = koinViewModel<PlaylistListViewModel>(
+fun playlistListViewModel(nested: Boolean): PlaylistListViewModel =
+	koinViewModel(
 		viewModelStoreOwner = if (nested) {
 			LocalViewModelStoreOwner.current!!
 		} else {
 			koinInject<PersistentViewModelStoreOwner>()
 		}
 	)
-	val player = koinInject<MediaPlayerViewModel>()
-	val playlistsState by viewModel.playlistsState.collectAsState()
-	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
-	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
-	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
-	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
 
+@Composable
+fun PlaylistListScreen(
+	nested: Boolean = false
+) {
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val viewModel = playlistListViewModel(nested)
 	val scrollManager = LocalBottomBarScrollManager.current
-
-	var shareId by remember { mutableStateOf<String?>(null) }
-	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
-	var deletionId by remember { mutableStateOf<String?>(null) }
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
@@ -115,29 +109,8 @@ fun PlaylistListScreen(
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 
-	val gridState = rememberLazyGridState()
-
 	val actions: @Composable RowScope.() -> Unit = {
-		PlaylistListScreenSortButton(
-			nested = nested,
-			selectedSorting = selectedSorting,
-			onSetSorting = { viewModel.setSorting(it) },
-			selectedReversed = selectedReversed,
-			onSetReversed = { viewModel.setReversed(it) },
-			selectedViewMode = selectedViewMode,
-			onSetViewMode = { preferenceManager.playlistListViewMode = it },
-			selectedFilters = selectedFilters,
-			onToggleFilter = { viewModel.toggleFilter(it) }
-		)
-	}
-
-	val rootViewModel = koinViewModel<RootViewModel>()
-	LaunchedEffect(Unit) {
-		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				viewModel.gridState.animateScrollToItem(0)
-			}
-		}
+		PlaylistListSortAction(viewModel, nested)
 	}
 
 	Scaffold(
@@ -195,65 +168,131 @@ fun PlaylistListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = playlistsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshPlaylists(true) },
-			key = playlistsState
-		) {
-			Box {
-			ArtGrid(
-				modifier = if (!nested)
-					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier,
-				state = gridState,
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if (playlistsState.data?.isEmpty() == true) {
-					Arrangement.Center
-				} else if (selectedViewMode == ListViewMode.List) {
-					Arrangement.spacedBy(0.dp)
-				} else {
-					Arrangement.spacedBy(12.dp)
-				},
-				selectedViewMode = selectedViewMode
-			) {
-				playlistListScreenContent(
-					state = playlistsState,
-					selectedPlaylist = selectedPlaylist,
-					selectedViewMode = selectedViewMode,
-					onUpdateSelection = { viewModel.selectPlaylist(it) },
-					onClearSelection = { viewModel.clearSelection() },
-					onSetShareId = { newShareId ->
-						shareId = newShareId
-					},
-					onSetDeletionId = { newDeletionId ->
-						deletionId = newDeletionId
-					},
-					onPlayNext = { if (selectedPlaylist != null) player.playNext(selectedPlaylist as DomainSongCollection) },
-					onAddToQueue = {
-						if (selectedPlaylist != null) player.addToQueue(
-							selectedPlaylist as DomainSongCollection
-						)
-					}
-				)
-			}
+		PlaylistListBody(
+			viewModel = viewModel,
+			contentPadding = innerPadding,
+			scrollConnection = if (!nested) scrollBehavior.nestedScrollConnection else null
+		)
+	}
 
-			// Alphabetical jump rail — only in name-sorted mode (items have no leading cells).
-			val alphaHeaders = remember(playlistsState, selectedSorting) {
-				val data = playlistsState.data.orEmpty()
-				if (selectedSorting == DomainPlaylistListType.Name)
-					alphabeticalHeaders(data) { it.name?.firstOrNull()?.uppercaseChar() ?: '#' }
-				else persistentListOf<Pair<String, Int>>()
+	if (createDialogShown) {
+		PlaylistCreateDialog(
+			onDismissRequest = { createDialogShown = false },
+			onRefresh = { viewModel.refreshPlaylists(true) },
+			onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor()) }
+		)
+	}
+}
+
+/** The playlist list's sort menu (with its filters and the list / grid setting). */
+@Composable
+fun PlaylistListSortAction(viewModel: PlaylistListViewModel, nested: Boolean) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
+	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val selectedFilters by viewModel.selectedFilters.collectAsStateWithLifecycle()
+	PlaylistListScreenSortButton(
+		nested = nested,
+		selectedSorting = selectedSorting,
+		onSetSorting = { viewModel.setSorting(it) },
+		selectedReversed = selectedReversed,
+		onSetReversed = { viewModel.setReversed(it) },
+		selectedViewMode = preferenceManager.playlistListViewMode,
+		onSetViewMode = { preferenceManager.playlistListViewMode = it },
+		selectedFilters = selectedFilters,
+		onToggleFilter = { viewModel.toggleFilter(it) }
+	)
+}
+
+/**
+ * The playlist list itself (P5): hosted by [PlaylistListScreen] and by the Library's Playlists chip.
+ * The grid scrolls by the view model's state (it was a `remember`ed one, which the scroll-to-top
+ * request never reached, and which a chip switch would lose).
+ */
+@Composable
+fun PlaylistListBody(
+	viewModel: PlaylistListViewModel,
+	contentPadding: PaddingValues,
+	modifier: Modifier = Modifier,
+	scrollConnection: NestedScrollConnection? = null
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val selectedViewMode = preferenceManager.playlistListViewMode
+	val player = koinInject<MediaPlayerViewModel>()
+	val playlistsState by viewModel.playlistsState.collectAsState()
+	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
+	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
+	var shareId by remember { mutableStateOf<String?>(null) }
+	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
+	var deletionId by remember { mutableStateOf<String?>(null) }
+
+	val rootViewModel = koinViewModel<RootViewModel>()
+	LaunchedEffect(Unit) {
+		rootViewModel.events.collect { event ->
+			if (event is RootViewModel.Event.ScrollToTop) {
+				viewModel.gridState.animateScrollToItem(0)
 			}
-			if (alphaHeaders.isNotEmpty()) {
-				AlphabeticalScroller(
-					state = gridState,
-					headers = alphaHeaders,
-					modifier = Modifier.align(Alignment.TopEnd)
-				)
-			}
-			}
+		}
+	}
+
+	PullToRefreshBox(
+		modifier = modifier
+			.padding(top = contentPadding.calculateTopPadding()),
+		finished = playlistsState !is UiState.Loading,
+		onRefresh = { viewModel.refreshPlaylists(true) },
+		key = playlistsState
+	) {
+		Box {
+		ArtGrid(
+			modifier = if (scrollConnection != null)
+				Modifier.nestedScroll(scrollConnection)
+			else Modifier,
+			state = viewModel.gridState,
+			contentPadding = contentPadding.withoutTop(),
+			verticalArrangement = if (playlistsState.data?.isEmpty() == true) {
+				Arrangement.Center
+			} else if (selectedViewMode == ListViewMode.List) {
+				Arrangement.spacedBy(0.dp)
+			} else {
+				Arrangement.spacedBy(12.dp)
+			},
+			selectedViewMode = selectedViewMode
+		) {
+			playlistListScreenContent(
+				state = playlistsState,
+				selectedPlaylist = selectedPlaylist,
+				selectedViewMode = selectedViewMode,
+				onUpdateSelection = { viewModel.selectPlaylist(it) },
+				onClearSelection = { viewModel.clearSelection() },
+				onSetShareId = { newShareId ->
+					shareId = newShareId
+				},
+				onSetDeletionId = { newDeletionId ->
+					deletionId = newDeletionId
+				},
+				onPlayNext = { if (selectedPlaylist != null) player.playNext(selectedPlaylist as DomainSongCollection) },
+				onAddToQueue = {
+					if (selectedPlaylist != null) player.addToQueue(
+						selectedPlaylist as DomainSongCollection
+					)
+				}
+			)
+		}
+
+		// Alphabetical jump rail — only in name-sorted mode (items have no leading cells).
+		val alphaHeaders = remember(playlistsState, selectedSorting) {
+			val data = playlistsState.data.orEmpty()
+			if (selectedSorting == DomainPlaylistListType.Name)
+				alphabeticalHeaders(data) { it.name?.firstOrNull()?.uppercaseChar() ?: '#' }
+			else persistentListOf<Pair<String, Int>>()
+		}
+		if (alphaHeaders.isNotEmpty()) {
+			AlphabeticalScroller(
+				state = viewModel.gridState,
+				headers = alphaHeaders,
+				modifier = Modifier.align(Alignment.TopEnd)
+			)
+		}
 		}
 	}
 
@@ -275,12 +314,4 @@ fun PlaylistListScreen(
 		onIdClear = { deletionId = null },
 		onRefresh = { viewModel.refreshPlaylists(true) }
 	)
-
-	if (createDialogShown) {
-		PlaylistCreateDialog(
-			onDismissRequest = { createDialogShown = false },
-			onRefresh = { viewModel.refreshPlaylists(true) },
-			onSmartRequested = { backStack.add(Screen.SmartPlaylistEditor()) }
-		)
-	}
 }
