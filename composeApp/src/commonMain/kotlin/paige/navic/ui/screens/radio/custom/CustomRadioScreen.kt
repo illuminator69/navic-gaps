@@ -16,6 +16,8 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.ShellController
+import paige.navic.ui.screens.library.LibraryChip
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.pageMotionOf
@@ -31,7 +33,8 @@ import org.koin.compose.koinInject
  *   RadioTune          TuneStep: the avatars and "+", the title, Artist variety, Song selection
  *   RadioTuneUpdating  TuneStep's footer while CountState.Counting: the last number dimmed, a spinner
  *   RadioEmpty         the footer for Known(0) and Unknown: the warn line, Done disabled
- *   RadioStarted       the snackbar, said by NewSheetHost through ShellController once this page left
+ *   RadioStarted       the Library on its Mixes chip, and the snackbar, said by NewSheetHost through
+ *                      ShellController once this page left
  *   (Filters)          not drawn: the hub advertises none (`filters: []`); the slot is the probe's
  */
 
@@ -39,6 +42,7 @@ import org.koin.compose.koinInject
 fun CustomRadioScreen() {
 	val viewModel = koinViewModel<CustomRadioViewModel>()
 	val backStack = LocalNavStack.current
+	val shell = koinInject<ShellController>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	// 0 = Pick, 1 = Tune. Saved with the entry; the choice itself lives in the view model, so a
 	// Tune with nothing picked (the process was killed) goes back to Pick.
@@ -77,9 +81,11 @@ fun CustomRadioScreen() {
 				onAddArtists = { step = 0 },
 				onClose = { close() },
 				onDone = {
-					// The board lands on Mixes, where the radio now is.
-					val index = backStack.indexOfLast { it == Screen.CustomRadio }
-					if (index >= 0) backStack[index] = Screen.MixList(nested = true)
+					// The board lands on the Library's Mixes chip, where the radio now is: the Library
+					// tab as a tab tap opens it (the stack cleared to it), on that chip.
+					shell.showLibraryChip(LibraryChip.Mixes.name)
+					backStack.clear()
+					backStack.add(Screen.Library())
 				}
 			)
 		}

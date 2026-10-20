@@ -1,396 +1,398 @@
 package paige.navic.ui.screens.library
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.title_search
+import navic.composeapp.generated.resources.library_add_radio
+import navic.composeapp.generated.resources.library_chip_downloaded
+import navic.composeapp.generated.resources.library_chip_mixes
+import navic.composeapp.generated.resources.library_recents
+import navic.composeapp.generated.resources.title_albums
+import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_library
+import navic.composeapp.generated.resources.title_new
+import navic.composeapp.generated.resources.title_playlists
+import navic.composeapp.generated.resources.title_radios
+import navic.composeapp.generated.resources.title_rename_mix
+import navic.composeapp.generated.resources.title_songs
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalBottomBarScrollManager
+import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalSnackBarState
+import paige.navic.data.database.entities.SavedQueueEntity
+import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.manager.ShellController
 import paige.navic.domain.models.DomainAlbum
-import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
-import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.Mix
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Add
+import paige.navic.icons.outlined.Search
+import paige.navic.icons.outlined.Sort
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.dialogs.DeletionDialog
-import paige.navic.ui.components.dialogs.DeletionEndpoint
+import paige.navic.ui.components.common.PageChips
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
-import paige.navic.ui.components.snackbars.ErrorSnackBar
-import paige.navic.ui.core.LoginUiState
-import paige.navic.ui.core.UiState
+import paige.navic.ui.components.sheets.ArtistSheet
+import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
-import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
-import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
-import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
-import paige.navic.ui.screens.library.components.LibraryScreenContent
-import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
-import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
-import paige.navic.ui.screens.share.dialogs.ShareDialog
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
-import paige.navic.data.database.entities.SavedQueueEntity
-import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.domain.repositories.SavedQueueRepository
-import paige.navic.ui.screens.savedqueues.components.SavedQueuePreviewSheet
-import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
-import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
-import paige.navic.ui.util.rememberAppIsDark
-import paige.navic.ui.util.rememberCoverColorScheme
-import paige.navic.ui.components.common.BrowsingAmbient
-import paige.navic.ui.util.rememberNowPlayingCoverArtId
-import paige.navic.ui.screens.listening.viewmodels.ListeningCardViewModel
-import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
-import paige.navic.ui.viewmodel.RootViewModel
-import kotlin.time.Duration
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.album.AlbumListBody
+import paige.navic.ui.screens.album.AlbumListSortAction
+import paige.navic.ui.screens.album.albumListViewModel
+import paige.navic.ui.screens.artist.ArtistListBody
+import paige.navic.ui.screens.artist.ArtistListSortAction
+import paige.navic.ui.screens.artist.artistListViewModel
+import paige.navic.ui.screens.downloads.DeviceDownloadsBody
+import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
+import paige.navic.ui.screens.library.viewmodels.LibraryViewModel
+import paige.navic.ui.screens.mixes.MixListBody
+import paige.navic.ui.screens.mixes.MixNameDialog
+import paige.navic.ui.screens.mixes.MixSheet
+import paige.navic.ui.screens.mixes.mixListViewModel
+import paige.navic.ui.screens.playlist.PlaylistListBody
+import paige.navic.ui.screens.playlist.PlaylistListSortAction
+import paige.navic.ui.screens.playlist.playlistListViewModel
+import paige.navic.ui.screens.radio.RadioListBody
+import paige.navic.ui.screens.radio.radioListViewModel
 import paige.navic.ui.screens.savedqueues.components.SavedQueueSheet
+import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
 import paige.navic.ui.screens.savedqueues.savedQueueSubtitle
+import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
+import paige.navic.ui.screens.song.SongListBody
+import paige.navic.ui.screens.song.SongListSortAction
+import paige.navic.ui.screens.song.songListViewModel
+import paige.navic.ui.components.common.BrowsingAmbient
+import paige.navic.ui.viewmodel.RootViewModel
+import kotlin.time.Clock
+
+/*
+ * The Library (P5, board Library): the avatar, "Library", Search and New; one row of chips
+ * (Playlists, Albums, Artists, Mixes, Downloaded, Songs, Radios); a sort row; and one list. With no
+ * chip it is Recents, Liked pinned above it; each chip is that list's own body (the pushed pages'
+ * bodies, so sort, filters, view mode, sheets and the scroller are theirs), under its sort menu.
+ * Tapping the chosen chip clears it. The old home's carousels, statistics card and buttons are gone:
+ * each has a home of its own (CLAUDE.md §1).
+ */
+
+/** How long the bodies cross-fade on a chip change. */
+private const val CHIP_FADE_MS = 220
+
+/** A second tap of the Library tab within this long of the first clears the chip. */
+private const val SECOND_TAP_MS = 2_500L
 
 @Composable
 fun LibraryScreen() {
-	val persistentViewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>()
+	val persistent = koinInject<PersistentViewModelStoreOwner>()
+	val shell = koinInject<ShellController>()
+	val backStack = LocalNavStack.current
+	val viewModel = koinViewModel<LibraryViewModel>(viewModelStoreOwner = persistent)
+	val recents by viewModel.recents.collectAsStateWithLifecycle()
 
-	val albumsViewModel = koinViewModel<AlbumListViewModel>(
-		key = "libraryAlbums",
-		parameters = { parametersOf(DomainAlbumListType.Recent) },
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val albumsState by albumsViewModel.albumsState.collectAsStateWithLifecycle()
-
-	// Lightweight top-20 loads (full AlbumListViewModels here would read the
-	// ENTIRE library with songs three times in parallel — jank + crashes).
-	val albumRepository = koinInject<AlbumRepository>()
-	var frequentAlbumsState by remember {
-		mutableStateOf<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading(persistentListOf()))
+	var chip by rememberSaveable { mutableStateOf<LibraryChip?>(null) }
+	val requested by shell.libraryChip.collectAsStateWithLifecycle()
+	LaunchedEffect(requested) {
+		requested?.let { name ->
+			chip = LibraryChip.entries.firstOrNull { it.name == name }
+			shell.libraryChipShown()
+		}
 	}
-	var newestAlbumsState by remember {
-		mutableStateOf<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading(persistentListOf()))
-	}
-	val selectedAlbum by albumsViewModel.selectedAlbum.collectAsStateWithLifecycle()
-	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
-	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
-
-	val playlistsViewModel = koinViewModel<PlaylistListViewModel>(
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val playlistsState by playlistsViewModel.playlistsState.collectAsStateWithLifecycle()
-	val selectedPlaylist by playlistsViewModel.selectedPlaylist.collectAsStateWithLifecycle()
-
-	val artistsViewModel = koinViewModel<ArtistListViewModel>(
-		key = "libraryArtists",
-		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) },
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val artistsState by artistsViewModel.artistsState.collectAsStateWithLifecycle()
-	val selectedArtist by artistsViewModel.selectedArtist.collectAsStateWithLifecycle()
-	val selectedArtistAlbums by artistsViewModel.selectedArtistAlbums.collectAsStateWithLifecycle()
-	val selectedArtistIsStarred by artistsViewModel.starred.collectAsStateWithLifecycle()
-
-	val genresViewModel = koinViewModel<GenreListViewModel>(
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val genresState by genresViewModel.genresState.collectAsStateWithLifecycle()
-
-	val statsViewModel = koinViewModel<StatisticsViewModel>(
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val statsState by statsViewModel.state.collectAsStateWithLifecycle()
-	// navi-connect (Q-103): the Stats card follows lb-bot's listening history when there is one.
-	val listeningCardViewModel = koinViewModel<ListeningCardViewModel>(
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val listeningCard by listeningCardViewModel.card.collectAsStateWithLifecycle()
-
-	val loginManager = koinInject<LoginManager>()
-	val loginState by loginManager.loginState.collectAsStateWithLifecycle()
-
-	var shareId by rememberSaveable { mutableStateOf<String?>(null) }
-	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
-	var playlistDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
-	var playlistCreateDialogShown by rememberSaveable { mutableStateOf(false) }
-
-	val player = koinInject<MediaPlayerViewModel>()
-	val preferenceManager = koinInject<PreferenceManager>()
-
-	// Continue listening: the most-recent saved queues, minus the one already playing (no point
-	// offering to resume what's live). Capped so the home row stays short.
-	val savedQueueRepository = koinInject<SavedQueueRepository>()
-	val allSavedQueues by savedQueueRepository.observeAll()
-		.collectAsStateWithLifecycle(initialValue = emptyList())
-	// What's playing may be on ANOTHER device, in which case only the hub session knows the
-	// queue's identity — keying this on local state alone left a remotely-playing queue
-	// listed as "continue listening" (and unmarked as current). Same rule as SavedQueuesScreen.
-	val hubManager = koinInject<paige.navic.domain.manager.HubManager>()
-	val hubConnected by hubManager.connected.collectAsStateWithLifecycle()
-	// Only the two ids, each as its own narrow flow: the whole local state is re-stamped five
-	// times a second while playing and the remote session on every progress frame, and reading
-	// them whole recomposed this page (and everything under the player and queue sheets above it)
-	// at that rate for the whole of playback (I-041).
-	val localQueueId by remember(player) {
-		player.localUiState.map { it.savedQueueId }.distinctUntilChanged()
-	}.collectAsStateWithLifecycle(player.localUiState.value.savedQueueId)
-	val hubQueueId by remember(hubManager) {
-		hubManager.remoteSession.map { it.savedQueueId }.distinctUntilChanged()
-	}.collectAsStateWithLifecycle(hubManager.remoteSession.value.savedQueueId)
-	val playingQueueId = (if (hubConnected) hubQueueId else null) ?: localQueueId
-	// The queue that's playing is pinned FIRST and marked, rather than hidden: this is one shared
-	// history rendered on two clients, and Feishin's carousel puts it first — a row that silently
-	// omitted whatever you were listening to disagreed with the desktop about what the list even is.
-	val continueListening = remember(allSavedQueues, playingQueueId) {
-		allSavedQueues
-			.sortedByDescending { it.id == playingQueueId }
-			.take(10)
-	}
-
-	// Stale-library signal: when a full sync last failed at the top level (server unreachable), tell
-	// the user the grid below is the cached copy instead of implying it's empty/broken.
-	// Same hub-routed edits the Saved Queues screen uses, so the card menu here can't drift from it.
-	val savedQueuesViewModel = koinViewModel<SavedQueuesViewModel>(
-		// Fork-only, on the home tab: kept for the process like the upstream ViewModels above,
-		// as it was before the ViewModel-store decorator was restored.
-		viewModelStoreOwner = persistentViewModelStoreOwner
-	)
-	val savedQueueActions = rememberSavedQueueActions(savedQueuesViewModel, player)
-	var previewQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
-	var menuQueue by remember { mutableStateOf<SavedQueueEntity?>(null) }
-
-	val syncManager = koinInject<paige.navic.domain.manager.SyncManager>()
-	val syncState by syncManager.syncState.collectAsStateWithLifecycle()
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-	val homeScope = rememberCoroutineScope()
-
-
-	LaunchedEffect(loginState is LoginUiState.Success) {
-		albumsViewModel.refreshAlbums(false)
-		frequentAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20) }
-		newestAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20) }
-		playlistsViewModel.refreshPlaylists(false)
-		artistsViewModel.refreshArtists(false)
-		genresViewModel.refreshGenres(false)
-	}
-
-	// The home gets the album page's pipeline: the now-playing sleeve's scheme at the ARTWORK's
-	// brightness, over the blurred cover and its gradient. Same helper as every other browsing
-	// screen (App.kt's `Washed`), so the home and the tabs beside it cannot drift apart.
-	BrowsingAmbient {
-	// upstream's "scroll up when tapping tabs" (alpha55)
-	val gridState = rememberLazyGridState()
+	val recentsState = rememberLazyListState()
+	val songsState = rememberLazyListState()
+	// The tab tapped while on it scrolls the list to the top (each body listens for that), and a
+	// second tap soon after clears the chip.
 	val rootViewModel = koinViewModel<RootViewModel>()
 	LaunchedEffect(Unit) {
+		var lastTap = 0L
 		rootViewModel.events.collect { event ->
-			if (event is RootViewModel.Event.ScrollToTop) {
-				gridState.animateScrollToItem(0)
+			if (event !is RootViewModel.Event.ScrollToTop) return@collect
+			val now = Clock.System.now().toEpochMilliseconds()
+			if (chip != null && now - lastTap < SECOND_TAP_MS) chip = null
+			else recentsState.animateScrollToItem(0)
+			lastTap = now
+		}
+	}
+
+	// Each chip's body keeps its own view model in the persistent store, so switching chips keeps
+	// each list's scroll, sort and filters.
+	var radioAdd by rememberSaveable { mutableStateOf(false) }
+
+	BrowsingAmbient {
+		Scaffold(
+			containerColor = Color.Transparent,
+			topBar = {
+				Column {
+					RootTopBar(
+						{ Text(stringResource(Res.string.title_library)) },
+						scrollBehavior,
+						actions = {
+							IconButton(onClick = { backStack.add(Screen.Search()) }) {
+								Icon(Icons.Outlined.Search, contentDescription = stringResource(Res.string.title_search))
+							}
+							IconButton(onClick = { shell.openNew() }) {
+								Icon(Icons.Outlined.Add, contentDescription = stringResource(Res.string.title_new))
+							}
+						}
+					)
+					PageChips(
+						options = LibraryChip.entries,
+						selected = chip,
+						label = { option -> option?.let { stringResource(it.label) }.orEmpty() },
+						onSelect = { chip = if (it == chip) null else it }
+					)
+					SortRow(chip, onAddRadio = { radioAdd = true })
+				}
+			},
+			bottomBar = {
+				val scrollManager = LocalBottomBarScrollManager.current
+				RootBottomBar(scrolled = scrollManager.isTriggered)
+			}
+		) { inner ->
+			val connection = scrollBehavior.nestedScrollConnection
+			AnimatedContent(
+				targetState = chip,
+				transitionSpec = { fadeIn(tween(CHIP_FADE_MS)) togetherWith fadeOut(tween(CHIP_FADE_MS)) },
+				label = "libraryChip"
+			) { shown ->
+				when (shown) {
+					null -> RecentsBody(viewModel, recents, inner, recentsState, connection)
+					LibraryChip.Playlists -> PlaylistListBody(playlistListViewModel(false), inner, scrollConnection = connection)
+					LibraryChip.Albums -> AlbumListBody(
+						albumListViewModel(false, LIBRARY_ALBUMS), inner, scrollConnection = connection
+					)
+					LibraryChip.Artists -> ArtistListBody(
+						artistListViewModel(false, LIBRARY_ARTISTS), inner, scrollConnection = connection
+					)
+					LibraryChip.Mixes -> MixListBody(
+						mixListViewModel(false), inner, LocalSnackBarState.current, scrollConnection = connection
+					)
+					LibraryChip.Downloaded -> DeviceDownloadsBody(
+						koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = persistent), inner,
+						scrollConnection = connection
+					)
+					LibraryChip.Songs -> SongListBody(
+						songListViewModel(false, LIBRARY_SONGS), inner, scrollConnection = connection,
+						listState = songsState
+					)
+					LibraryChip.Radios -> RadioListBody(
+						radioListViewModel(false), inner, scrollConnection = connection,
+						createDialogShown = radioAdd, onCreateDialogDismissed = { radioAdd = false }
+					)
+				}
 			}
 		}
 	}
+}
 
-	Scaffold(
-		topBar = {
-			// No special content colour: the page's `surface` IS the wash (see
-			// [rememberLibraryWashedScheme]), so the bar's default `onSurface` reads over it — and
-			// the title, the action icons beside it and the greeting under it are all the same
-			// colour without anyone having to coordinate.
-			RootTopBar(
-				{ Text(stringResource(Res.string.title_library)) },
-				scrollBehavior
-			)
-		},
-		bottomBar = {
-			val scrollManager = LocalBottomBarScrollManager.current
-			RootBottomBar(scrolled = scrollManager.isTriggered)
-		}
-	) { innerPadding ->
-		Box(modifier = Modifier.fillMaxSize()) {
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding()),
-			finished = albumsState !is UiState.Loading &&
-				playlistsState !is UiState.Loading &&
-				artistsState !is UiState.Loading &&
-				genresState !is UiState.Loading,
-			onRefresh = {
-				albumsViewModel.refreshAlbums(true)
-				playlistsViewModel.refreshPlaylists(true)
-				artistsViewModel.refreshArtists(true)
-				genresViewModel.refreshGenres(true)
-				// The two light rows reload with the rest: they used to load once, and a failure
-				// then left them shimmering until the app restarted.
-				homeScope.launch {
-					frequentAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Frequent, 20) }
-					newestAlbumsState = homeRow { albumRepository.getAlbumsLimited(DomainAlbumListType.Newest, 20) }
-				}
-			},
-			key = listOf(albumsState, playlistsState, artistsState, genresState)
-		) {
-			LibraryScreenContent(
-				state = gridState,
-				scrollBehavior = scrollBehavior,
-				innerPadding = innerPadding,
-				onSetShareId = { shareId = it },
+private val LIBRARY_ALBUMS = DomainAlbumListType.AlphabeticalByArtist
+private val LIBRARY_ARTISTS = DomainArtistListType.AlphabeticalByName
+private val LIBRARY_SONGS = DomainSongListType.FrequentlyPlayed
 
-				continueListening = continueListening,
-				activeQueueId = playingQueueId,
-				onResumeQueue = { savedQueueActions.resume(it) },
-				onQueueMenu = { menuQueue = it },
-				syncFailed = syncState.lastSyncFailed && !syncState.isSyncing,
-
-				albumsState = albumsState,
-				frequentAlbumsState = frequentAlbumsState,
-				newestAlbumsState = newestAlbumsState,
-				selectedAlbum = selectedAlbum,
-				selectedAlbumIsStarred = selectedAlbumIsStarred,
-				selectedAlbumRating = selectedAlbumRating,
-				onSelectAlbum = { albumsViewModel.selectAlbum(it) },
-				onClearAlbumSelection = { albumsViewModel.clearSelection() },
-				onStarSelectedAlbum = { albumsViewModel.starAlbum(it) },
-				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
-				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
-				onRateSelectedAlbum = { albumsViewModel.setRating(it) },
-
-				artistsState = artistsState,
-				selectedArtist = selectedArtist,
-				selectedArtistAlbums = selectedArtistAlbums,
-				selectedArtistIsStarred = selectedArtistIsStarred,
-				onSelectArtist = { artistsViewModel.selectArtist(it) },
-				onClearArtistSelection = { artistsViewModel.clearSelection() },
-				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
-				onPlayArtistNext = {
-					if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(
-						player
-					)
-				},
-				onAddArtistToQueue = {
-					if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(
-						player
-					)
-				},
-
-				playlistsState = playlistsState,
-				selectedPlaylist = selectedPlaylist,
-				onSelectPlaylist = { playlistsViewModel.selectPlaylist(it) },
-				onClearPlaylistSelection = { playlistsViewModel.clearSelection() },
-				onDeletePlaylist = { playlistDeletionId = it },
-				onPlayPlaylistNext = {
-					if (selectedPlaylist != null) player.playNext(
-						selectedPlaylist as DomainSongCollection
-					)
-				},
-				onAddPlaylistToQueue = {
-					if (selectedPlaylist != null) player.addToQueue(
-						selectedPlaylist as DomainSongCollection
-					)
-				},
-
-				genresState = genresState,
-				statsState = statsState,
-				listeningCard = listeningCard
-			)
-		}
-		}
-	}
+private val LibraryChip.label: StringResource
+	get() = when (this) {
+		LibraryChip.Playlists -> Res.string.title_playlists
+		LibraryChip.Albums -> Res.string.title_albums
+		LibraryChip.Artists -> Res.string.title_artists
+		LibraryChip.Mixes -> Res.string.library_chip_mixes
+		LibraryChip.Downloaded -> Res.string.library_chip_downloaded
+		LibraryChip.Songs -> Res.string.title_songs
+		LibraryChip.Radios -> Res.string.title_radios
 	}
 
-	val flattenedErrors = listOf(
-		(albumsState as? UiState.Error)?.error,
-		(playlistsState as? UiState.Error)?.error,
-		(artistsState as? UiState.Error)?.error,
-		(genresState as? UiState.Error)?.error
-	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
-
-	menuQueue?.let { target ->
-		SavedQueueSheet(
-			queue = target,
-			subtitle = savedQueueSubtitle(target, target.id == playingQueueId),
-			onDismissRequest = { menuQueue = null },
-			onRestore = { savedQueueActions.restore(target) },
-			onResume = { savedQueueActions.resume(target) },
-			onPreview = { previewQueue = target },
-			onDelete = { savedQueueActions.delete(target) }
+/**
+ * The row under the chips: "Recents" with no chip; the chip's own sort menu (with its filters and
+ * the list / grid setting) where it has one; Radios' "Add".
+ */
+@Composable
+private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
+	Row(
+		Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(start = 16.dp, end = 4.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Icon(Icons.Outlined.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+		Text(
+			if (chip == null) stringResource(Res.string.library_recents) else stringResource(chip.label),
+			style = MaterialTheme.typography.titleSmall,
+			fontWeight = FontWeight.Bold,
+			modifier = Modifier.padding(start = 8.dp)
 		)
-	}
-
-	previewQueue?.let { target ->
-		SavedQueuePreviewSheet(
-			queue = target,
-			onResume = {
-				previewQueue = null
-				savedQueueActions.resume(target)
-			},
-			onDismissRequest = { previewQueue = null }
-		)
-	}
-
-	ErrorSnackBar(
-		error = flattenedErrors?.let { Error(it) },
-		onClearError = {
-			albumsViewModel.clearError()
-			playlistsViewModel.clearError()
-			artistsViewModel.clearError()
-			genresViewModel.clearError()
+		Spacer(Modifier.weight(1f))
+		when (chip) {
+			LibraryChip.Playlists -> PlaylistListSortAction(playlistListViewModel(false), nested = true)
+			LibraryChip.Albums -> AlbumListSortAction(albumListViewModel(false, LIBRARY_ALBUMS), nested = true)
+			LibraryChip.Artists -> ArtistListSortAction(artistListViewModel(false, LIBRARY_ARTISTS), nested = true)
+			LibraryChip.Songs -> SongListSortAction(songListViewModel(false, LIBRARY_SONGS), nested = true)
+			LibraryChip.Radios -> TextButton(onClick = onAddRadio) {
+				Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+				Text(stringResource(Res.string.library_add_radio), modifier = Modifier.padding(start = 6.dp))
+			}
+			LibraryChip.Mixes, LibraryChip.Downloaded, null -> Unit
 		}
-	)
-
-	ShareDialog(
-		id = shareId,
-		onIdClear = { shareId = null },
-		expiry = shareExpiry,
-		onExpiryChange = { shareExpiry = it }
-	)
-
-	DeletionDialog(
-		endpoint = DeletionEndpoint.PLAYLIST,
-		id = playlistDeletionId,
-		onIdClear = { playlistDeletionId = null },
-		onRefresh = { playlistsViewModel.refreshPlaylists(false) }
-	)
-
-	if (playlistCreateDialogShown) {
-		PlaylistCreateDialog(
-			onDismissRequest = { playlistCreateDialogShown = false },
-			onRefresh = { playlistsViewModel.refreshPlaylists(true) }
-		)
 	}
 }
 
-/**
- * One of the home's light top-20 rows, as a state that can end: an error is `Error` (and the row,
- * having nothing, hides) rather than the `Loading` it used to stay in for the session.
- */
-private suspend fun homeRow(
-	load: suspend () -> ImmutableList<DomainAlbum>
-): UiState<ImmutableList<DomainAlbum>> = try {
-	UiState.Success(load())
-} catch (e: CancellationException) {
-	throw e
-} catch (e: Exception) {
-	UiState.Error(e, persistentListOf())
+/** Recents with its taps, its sheets and a pull that refreshes its sources. */
+@Composable
+private fun RecentsBody(
+	viewModel: LibraryViewModel,
+	recents: List<LibraryEntry>?,
+	contentPadding: PaddingValues,
+	listState: androidx.compose.foundation.lazy.LazyListState,
+	connection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+) {
+	val backStack = LocalNavStack.current
+	val player = koinInject<MediaPlayerViewModel>()
+	val radioManager = koinInject<RadioManager>()
+	val persistent = koinInject<PersistentViewModelStoreOwner>()
+	val mixes = mixListViewModel(false)
+	val busyMix by mixes.busyId.collectAsStateWithLifecycle()
+	val savedQueues = koinViewModel<SavedQueuesViewModel>(viewModelStoreOwner = persistent)
+	val queueActions = rememberSavedQueueActions(savedQueues, player)
+	val albums = albumListViewModel(false, LIBRARY_ALBUMS)
+	val playlists = playlistListViewModel(false)
+	val scope = rememberCoroutineScope()
+
+	var sheet by remember { mutableStateOf<Any?>(null) }
+	var renaming by remember { mutableStateOf<Mix?>(null) }
+	var refreshing by remember { mutableStateOf(false) }
+
+	PullToRefreshBox(
+		isRefreshing = refreshing,
+		onRefresh = {
+			// The sources Recents reads: the albums' and the playlists' rows in Room. Mixes and
+			// saved queues are the hub's and arrive on their own.
+			refreshing = true
+			albums.refreshAlbums(true)
+			playlists.refreshPlaylists(true)
+			refreshing = false
+		},
+		modifier = Modifier.fillMaxSize()
+	) {
+		LibraryRecents(
+			entries = recents,
+			contentPadding = contentPadding,
+			listState = listState,
+			busyKey = busyMix?.let { "mx:$it" },
+			scrollConnection = connection,
+			onOpen = { entry ->
+				when (val source = entry.source) {
+					null -> backStack.add(Screen.Starred(nested = true))
+					is Mix -> mixes.play(source)
+					is SavedQueueEntity -> queueActions.resume(source)
+					is DomainPlaylist -> backStack.add(Screen.CollectionDetail(source.id, ""))
+					is DomainAlbum -> if (entry.kind == EntryKind.Artist) {
+						backStack.add(Screen.ArtistDetail(source.artistId))
+					} else {
+						backStack.add(Screen.CollectionDetail(source.id, ""))
+					}
+				}
+			},
+			onMenu = { entry ->
+				// The whole item for its sheet: Recents holds rows, not their songs. One Room no
+				// longer holds opens nothing.
+				scope.launch {
+					sheet = when (val source = entry.source) {
+						is Mix, is SavedQueueEntity -> source
+						is DomainPlaylist -> viewModel.playlist(source.id)
+						is DomainAlbum -> if (entry.kind == EntryKind.Artist) viewModel.artist(source.artistId)
+						else viewModel.album(source.id)
+						else -> null
+					}
+				}
+			}
+		)
+	}
+
+	when (val target = sheet) {
+		is Mix -> MixSheet(
+			mix = target,
+			onDismissRequest = { sheet = null },
+			onPreview = null,
+			onRename = { renaming = target },
+			onDelete = { mixes.delete(target.id) }
+		)
+		is SavedQueueEntity -> SavedQueueSheet(
+			queue = target,
+			subtitle = savedQueueSubtitle(target, target.id == queueActions.activeId),
+			onDismissRequest = { sheet = null },
+			onRestore = { queueActions.restore(target) },
+			onResume = { queueActions.resume(target) },
+			onPreview = { queueActions.resume(target) },
+			onDelete = { queueActions.delete(target) }
+		)
+		is DomainSongCollection -> CollectionSheet(
+			onDismissRequest = { sheet = null },
+			collection = target,
+			onPlayNext = { player.playNext(target) },
+			onAddToQueue = { player.addToQueue(target) },
+			onViewArtist = (target as? DomainAlbum)?.let { album ->
+				{ backStack.add(Screen.ArtistDetail(album.artistId)) }
+			}
+		)
+		is DomainArtist -> ArtistSheet(
+			onDismissRequest = { sheet = null },
+			artist = target,
+			onStartRadio = { radioManager.startArtistRadio(target.id, target.name) }
+		)
+		else -> Unit
+	}
+
+	renaming?.let { target ->
+		MixNameDialog(
+			title = stringResource(Res.string.title_rename_mix),
+			initial = target.name,
+			onConfirm = { name ->
+				mixes.rename(target.id, name)
+				renaming = null
+			},
+			onDismissRequest = { renaming = null }
+		)
+	}
 }

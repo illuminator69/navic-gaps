@@ -89,6 +89,10 @@ interface SongDao {
 	@Query("SELECT COUNT(*) FROM SongEntity")
 	suspend fun count(): Int
 
+	/** How many songs are starred: the Library's pinned Liked row (P5). */
+	@Query("SELECT COUNT(*) FROM SongEntity WHERE starredAt IS NOT NULL")
+	fun countStarred(): Flow<Int>
+
 	// Offline-radio fallback (AudioMuse / similar-songs agents unavailable): a local mix.
 	@Query("SELECT * FROM SongEntity WHERE genre = :genre ORDER BY RANDOM() LIMIT :limit")
 	suspend fun getRandomSongsByGenre(genre: String, limit: Int): List<SongEntity>

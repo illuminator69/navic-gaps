@@ -62,6 +62,10 @@ interface PlaylistDao {
 		insertPlaylistSongCrossRefs(crossRefs)
 	}
 
+	/** Every playlist, without its songs (P5, the Library's Recents: a playlist's clock is its row). */
+	@Query("SELECT * FROM PlaylistEntity")
+	fun getPlaylistRows(): Flow<List<PlaylistEntity>>
+
 	@Query("SELECT COUNT(*) FROM PlaylistEntity")
 	suspend fun getPlaylistCount(): Int
 

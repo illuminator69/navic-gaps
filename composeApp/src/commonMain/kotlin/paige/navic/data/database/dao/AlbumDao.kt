@@ -126,6 +126,14 @@ interface AlbumDao {
 	@Query("SELECT albumId, songCount, coverArtId FROM AlbumEntity")
 	suspend fun getAlbumFingerprints(): List<AlbumFingerprint>
 
+	/**
+	 * The [limit] most recently played albums, without their songs (P5, the Library's Recents): a
+	 * row needs the album, not its tracks, and 2,000+ albums with songs is the read the old home
+	 * warned about.
+	 */
+	@Query("SELECT * FROM AlbumEntity WHERE lastPlayedAt IS NOT NULL ORDER BY lastPlayedAt DESC LIMIT :limit")
+	fun getRecentlyPlayedAlbumRows(limit: Int): Flow<List<AlbumEntity>>
+
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE albumId IN (:ids)")
 	suspend fun getAlbumsByIds(ids: List<String>): List<AlbumWithSongs>

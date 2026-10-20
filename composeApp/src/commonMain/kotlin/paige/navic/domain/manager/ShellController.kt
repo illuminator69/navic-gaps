@@ -69,6 +69,22 @@ class ShellController {
 	fun announceCustomRadio(done: CustomRadioDone) {
 		_customRadioDone.tryEmit(done)
 	}
+
+	/**
+	 * A Library chip to show next (P5), by its name: the custom radio's Done lands on Mixes. The
+	 * Library applies it and calls [libraryChipShown]. Not in `Screen.Library`, whose equality is
+	 * what selects the Library tab.
+	 */
+	private val _libraryChip = MutableStateFlow<String?>(null)
+	val libraryChip: StateFlow<String?> = _libraryChip.asStateFlow()
+
+	fun showLibraryChip(chip: String) {
+		_libraryChip.value = chip
+	}
+
+	fun libraryChipShown() {
+		_libraryChip.value = null
+	}
 }
 
 /** What a custom radio's Done did: [saved] under Mixes as [mixId], and whether it [started]. */

@@ -1273,6 +1273,20 @@
 	<string name="custom_radio_start_failed">Saved under Mixes, but the radio could not start.</string>
 	<string name="custom_radio_failed">The radio could not start, and it was not saved.</string>
 	<string name="mix_custom_radio">Custom radio</string>
+	<!-- P5: the Library, one list under chips. -->
+	<string name="library_chip_mixes">Mixes</string>
+	<string name="library_chip_downloaded">Downloaded</string>
+	<string name="library_recents">Recents</string>
+	<string name="library_liked">Liked</string>
+	<string name="library_pinned">Pinned · %1$s</string>
+	<string name="library_kind_artist">Artist</string>
+	<string name="library_kind_album">Album · %1$s</string>
+	<string name="library_kind_album_bare">Album</string>
+	<string name="library_kind_playlist">Playlist · %1$s</string>
+	<string name="library_kind_saved_queue">Saved queue · %1$s</string>
+	<string name="library_recents_empty">Nothing here yet</string>
+	<string name="library_recents_empty_hint">What you play, and the playlists and mixes you change, show up here. The chips above hold everything.</string>
+	<string name="library_add_radio">Add</string>
 	<string name="home_continue_listening">Continue listening</string>
 	<plurals name="home_saved_queues_count">
 		<item quantity="one">%1$d saved queue</item>
