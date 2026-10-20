@@ -69,6 +69,7 @@ import navic.composeapp.generated.resources.title_popular_releases
 import androidx.compose.ui.draw.clip
 import paige.navic.ui.screens.artist.components.DiscographyScanAction
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.screens.artist.viewmodels.DiscographySection
 import paige.navic.ui.screens.external.components.ReleaseRows
 import org.jetbrains.compose.resources.pluralStringResource
@@ -473,7 +474,7 @@ fun ArtistDetailScreen(
 											rating = selectedSongRating,
 											onSetRating = { viewModel.rateSelectedSong(it) },
 											// Translucent so the page gradient shows through (frosted).
-											containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+											containerColor = SongRowDefaults.frostedContainerColor()
 										)
 									}
 								}

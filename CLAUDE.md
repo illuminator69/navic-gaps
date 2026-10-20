@@ -2017,7 +2017,8 @@ true of invented *album art*, and not of an icon naming the kind.
     and every 5 s for 3 minutes, pulls the named album into Room if the landing sync has not (CollectionDetail reads
     Room), and replaces its own back-stack entry with the album's. The artist Songs list ("See more") is scoped to
     the artist again (`SongListArtist`): upstream's paging revert (d6671510) had dropped the artist id, so it opened
-    the whole library.
+    the whole library. The Songs lists (the artist's and the library's, `SongListScreenItem`) draw the artist page's
+    rows: rounded segments in a 16 dp gutter, 2 dp apart, on `SongRowDefaults.frostedContainerColor()`.
 
 ---
 

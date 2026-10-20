@@ -150,7 +150,8 @@ fun SongListScreen(
 				contentPadding = innerPadding.withoutTop(),
 				verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
 					Arrangement.Center
-				else Arrangement.spacedBy(12.dp),
+				// The artist page's rows are 2 dp apart (each row is a rounded segment, Item.kt).
+				else Arrangement.spacedBy(2.dp),
 				state = listState
 			) {
 				songListScreenContent(

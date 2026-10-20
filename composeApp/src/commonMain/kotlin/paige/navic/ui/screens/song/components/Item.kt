@@ -12,6 +12,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import paige.navic.ui.components.common.SongRowDefaults
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -60,9 +61,15 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.util.InlineExplicitIcon
 import paige.navic.ui.util.buildSongInfoString
 
+/** This ListItem puts 12 dp after the cover and `SongRow`'s (the artist page's) 16 dp; the text lines up. */
+private val LeadingGapMatch = 4.dp
+
 @Composable
 fun SongListScreenItem(
 	modifier: Modifier,
+	/** Where the row sits in the list, for its rounded segment's corners. */
+	index: Int,
+	count: Int,
 	song: DomainSong,
 	selected: Boolean,
 	starred: Boolean,
@@ -88,8 +95,12 @@ fun SongListScreenItem(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
 
+	// The artist page's rows (P4 round 3, the owner's note): rounded segments in a 16 dp gutter,
+	// 2 dp apart, on the same frosted tone, instead of screen-wide slabs 12 dp apart. A row being
+	// swiped rounds all its corners, as the segmented lists elsewhere do.
+	val shape = segmentedShapes(index, count, dismissDirection = dismissState.dismissDirection).shape
 	SwipeToDismissBox(
-		modifier = modifier,
+		modifier = modifier.padding(horizontal = 16.dp).clip(shape),
 		state = dismissState,
 		onDismiss = {
 			if (it == SwipeToDismissBoxValue.StartToEnd) onAddToQueue()
@@ -131,24 +142,26 @@ fun SongListScreenItem(
 	) {
 		Box {
 			ListItem(
-				colors = ListItemDefaults.colors(containerColor = SongRowDefaults.containerColor(false)),
+				colors = ListItemDefaults.colors(containerColor = SongRowDefaults.frostedContainerColor()),
 				onClick = onClick,
 				onLongClick = onSelect,
 				verticalAlignment = Alignment.CenterVertically,
 				content = {
-					MarqueeText(
-						text = buildAnnotatedString {
-							append(song.title)
-							if (song.explicitStatus == DomainExplicitStatus.Explicit) {
-								append(" ")
-								appendInlineContent("InlineExplicitIcon")
-							}
-						},
-						inlineContent = InlineExplicitIcon,
-					)
+					Box(Modifier.padding(start = LeadingGapMatch)) {
+						MarqueeText(
+							text = buildAnnotatedString {
+								append(song.title)
+								if (song.explicitStatus == DomainExplicitStatus.Explicit) {
+									append(" ")
+									appendInlineContent("InlineExplicitIcon")
+								}
+							},
+							inlineContent = InlineExplicitIcon,
+						)
+					}
 				},
 				supportingContent = {
-					Column {
+					Column(Modifier.padding(start = LeadingGapMatch)) {
 						MarqueeText(
 							buildSongInfoString(
 								song = song,

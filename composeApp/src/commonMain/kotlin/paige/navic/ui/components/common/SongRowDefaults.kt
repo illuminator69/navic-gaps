@@ -60,6 +60,10 @@ object SongRowDefaults {
 		if (isCurrentTrack) MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = ContainerAlpha)
 		else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = ContainerAlpha)
 
+	/** The artist page's Frequently played rows and the Songs lists (P4 round 3): one tone for both. */
+	@Composable
+	fun frostedContainerColor(): Color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = ContainerAlpha)
+
 	@Composable
 	fun contentColor(isCurrentTrack: Boolean): Color =
 		if (isCurrentTrack) MaterialTheme.colorScheme.primary
