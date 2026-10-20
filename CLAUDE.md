@@ -50,6 +50,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
 | Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
 | Player and its queue (P2) | `ui/screens/nowPlaying/NowPlayingScreen.kt` chooses: a portrait phone (under 600 dp, taller than wide; `stagedPlayerFits`) gets `ui/screens/nowPlaying/staged/StagedNowPlaying.kt`, the player with the queue as a layer inside it (`StagedQueueLayer.kt`); landscape and wider windows keep the old player with its toolbar and the `Screen.Queue` sheet. The rules are pure: `QueueDetents.kt` (peek / half / full, anchors, release, handle, Back, the compaction curves; `QueueDetentsTest`), `QueueGrouping.kt` (rows by who added them, the peek row, Playing from; `QueueGroupingTest`), `SheetScroll.kt` (`SheetScrollTest`). The queue's content is written once, `QueueContent(QueueLayout)` in `ui/screens/queue/QueueScreen.kt`, hosted by the sheet (`QueueScreen`) and by the layer. The autoplay switch is `autoplayToggleChip` over the chip rules (`AutoplayChips.kt`, `RadioManager.onAutoplayToggle`). Settings has no "Toolbar position" row any more; `nowPlayingToolbarPosition` stays and the landscape player and the lyrics sheet still read it (§4) |
+| Search (P3, "Find") | `ui/screens/search/SearchScreen.kt` draws; every decision is pure: `SearchModel.kt` (`LibraryHits`, `mergeHits`, `capped`, `Lookup`, `searchPhase`, `offlineHits`, `browseTiles`, `externalRows`, `ownedArtistJoinsLibrary`; `SearchModelTest`) and `SearchState.kt` (`SearchUi`, `reduce`, which drops an answer for any query but the current one; `SearchViewModelReducerTest`). The rows: `search/components/{SearchRows,ExternalSection,BrowseTiles}.kt`. Typo tolerance: `domain/search/FuzzyMatch.kt` (`FuzzyMatchTest`), `LibraryFuzzyIndex.kt` (over Room), `MusicBrainzQuery.kt` (`mbFuzzyQuery`, `mbAlbumQuery`; `MusicBrainzQueryTest`); ownership by MBID: `domain/search/ArtistOwnership.kt` + `LbBotManager.ownedArtistIdsByMbid` (`ArtistOwnershipTest`). The browse cards' Deezer pages: `ui/screens/browse/*` (`Screen.Charts`, `Screen.EditorsPicks`), a tile's target from `domain/manager/BrowseResolver.kt` (shared with Discover). Discover's reasoned stack: `ui/screens/discover/DiscoverStack.kt` (`DiscoverStackTest`). The paste sheet's three states: `ui/screens/downloads/PasteLinkSheet.kt`, opened straight from Search through `ShellController.openAddFromLink` (§5, §7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -1298,6 +1299,30 @@ Rules, each with a reason:
   base config applied them to every HTTPS destination the app touches). Plain-HTTP LAN servers are
   unaffected; a self-signed HTTPS server needs its certificate in the system store.
 
+- **Search finds through typos on both halves, and ownership is by MBID (P3).** Navidrome's `search3` matches
+  whole words and prefixes and Room's fallback is a `LIKE`, so "radioheed" found nothing. `LibraryFuzzyIndex`
+  scores every artist, album and song name in Room locally (`FuzzyMatch.kt`: token-based, Damerau; tokens of one
+  to three letters match exactly, four to six allow one edit, seven or more two, two edits rank below one; the
+  last word may be unfinished; non-Latin words match as substrings only). Albums and songs are indexed as "name
+  artist", so an artist's name finds their records as `search3` does. Built lazily on the first search and
+  rebuilt when (artist, album, song counts, `lastFullSyncTime`) moves. `SearchRepository.search` runs it beside
+  `search3` and merges exact first (`mergeHits`), keeping `search3`'s own order (Room's `IN (…)` does not).
+  Measured 2026-10-20 on the owner's library through the VM AVD (debug): 22,427 names, built in 0.6–0.7 s,
+  30–115 ms a search (256 ms cold); on the JVM 11 MB and 7 ms. **Offline it searches downloaded songs only**
+  (`offlineHits`), never the cached library, and says so. Android Auto's search keeps the old flat
+  `search(query): List<Any>` (upstream's caller).
+  The unowned half is lb-bot's MusicBrainz lookups with MusicBrainz's own fuzzy terms, still ONE artist and ONE
+  album request per settled query, one after the other: `mbFuzzyQuery` puts `~1` on words of four or more Latin
+  letters (never `~`: "boy~ genuis~" put Bob Dylan first). **Albums send `(typed) OR (fuzzy)`** (`mbAlbumQuery`):
+  measured live, fuzzy terms alone pushed exact titles down ("in rainbows" #1→#2, "blue weekend" #1→#5) while
+  rescuing typos; with the typed words beside them the exact title stays first. A MusicBrainz artist the library
+  holds is told **by MBID** (override, then tag, then the index mirror's row; `ownedArtistsByMbid`), never by
+  name, and is drawn in the library section only when its NAME matches what was typed (`ownedArtistJoinsLibrary`):
+  MusicBrainz answers a multi-word query with whoever shares a word, and "hail to the theif" put Various Artists
+  and The Beatles at the top of "In your library". Cost: an artist found only by an alias is not promoted.
+  A lookup is `Lookup` (Idle, Looking, Done, Failed) and `searchPhase` never reads Looking or Failed as "nothing":
+  "No results" waits for every source; a failure is the "Couldn't reach lb-bot" pill, which retries once.
+
 ---
 
 ## 6. The colour engine
@@ -1798,7 +1823,7 @@ true of invented *album art*, and not of an icon naming the kind.
   (`rememberOverviewButtons` in `ui/screens/library/components/OverviewButton.kt`) and had to come
   off the bar on installs that already had them, so `NavbarConfig.withHomeButtonTabsHidden` runs
   **once**, guarded by its own `navbarHomeButtonTabsMigrated` preference in `NavtabsViewModel`.
-  Order untouched, every other tab untouched, and a user who puts one back is not overruled on the
+  (P3: Discover and Fresh have since left the home for Search's browse cards.) Order untouched, every other tab untouched, and a user who puts one back is not overruled on the
   next launch. The ids stay in `NavbarTab.Id` and in `NavbarConfig.default.tabs` — deleting them
   would make `merged()`'s live filter strip them from every stored config permanently.
 - **The home page's top buttons are gated exactly like the tabs.** They are pushed onto the
@@ -1919,6 +1944,23 @@ true of invented *album art*, and not of an icon naming the kind.
   `DropdownMenu` or, on a row, a sheet on a long press; a dialog's buttons are
   `SegmentedListButton`s; a one-of choice on a page is `PageChips`. A merge that brings any of the
   eight back is a merge to redo.
+
+- **Search is where finding starts (P3).** With the field empty: recent searches (in memory, up to ten), then
+  Browse, the cards in this order and with these gates (`browseTiles`): Genres (always), Charts and Editors'
+  picks (`isConfigured && advertisesRoute` of the Deezer routes: the empty advert reads as capable), Fresh
+  (`lbBot.available`), Discover (lb-bot available or AudioMuse configured, full width); an odd last half card
+  spans both columns. **Discover and Fresh are no longer library-home buttons**; Genres is both a card and a
+  Library shelf. The library home gained **Songs** and **Radios** (`OVERVIEW_PRIMARY_MAX` 9): both pages were
+  hidden tabs, and with the tab editor gone (P1) Radios had no way in at all and Songs only filtered "See all"s.
+  The grid has ONE item that is always first (`key = "top"`): the grid keeps its first visible key in place, and
+  with the unowned header first while the library was out, the library rows landed above the view and the page
+  opened scrolled down. Charts and Editors' picks are `BrowseFeedScreen` (fifty albums, Deezer's genre chips
+  sharing `deezerGenre` with Discover, a chip change keeping the tiles until the new ones land, Retry asking for
+  the chips again). Discover's four unowned carousels became one stack with a reason per row
+  (`discoverStack`: up to 3 Fresh, 3 similar artists, 2 chart, 2 editorial, dealt round-robin; only reasons
+  something backs), above "From your library" (Mixed for You, ListenBrainz, Rediscover, Mood search).
+  `DiscoverRows.kt`'s ids did not change (Feishin's twin). "Add from a link" (New sheet, Search's "Nothing for …")
+  is paste / looking / failed in one sheet; "Paste from clipboard" reads the clipboard once, on the tap.
 
 ---
 
