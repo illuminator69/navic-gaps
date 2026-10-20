@@ -79,7 +79,10 @@ fun SongRow(
 	 * default. Resolved below, because it depends on `isCurrentTrack`.
 	 */
 	containerColor: Color? = null,
-	width: Dp = 400.dp
+	width: Dp = 400.dp,
+	/** A short row (the artist page's Frequently played, P4 round 2): the status column sizes to its
+	 *  content instead of holding the tall grid row's height. */
+	compact: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -150,7 +153,7 @@ fun SongRow(
 			// No duration here: this row already spends its supporting line on
 			// album • artist • year, and the lists it serves are browsing surfaces.
 			SongRowStatus(
-				modifier = Modifier.height(83.dp),
+				modifier = if (compact) Modifier else Modifier.height(83.dp),
 				isStarred = starredState,
 				canPlay = canPlay,
 				downloadStatus = download?.status,

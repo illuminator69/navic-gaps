@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Check
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +39,10 @@ fun StatePill(pill: Pill, modifier: Modifier = Modifier) {
 		if (pill.tone == PillTone.RUN) {
 			CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp, color = content)
 		}
+		// The mockups' Owned: a filled accent pill with a check, the one a column of them reads by.
+		if (pill.tone == PillTone.OK) {
+			Icon(Icons.Outlined.Check, contentDescription = null, tint = content, modifier = Modifier.size(13.dp))
+		}
 		Text(
 			pill.label.resolve(),
 			style = MaterialTheme.typography.labelMedium,
@@ -51,11 +58,16 @@ private fun pillColors(tone: PillTone): Pair<Color, Color> {
 	val scheme = MaterialTheme.colorScheme
 	return when (tone) {
 		PillTone.RUN -> scheme.secondaryContainer to scheme.onSecondaryContainer
-		PillTone.OK -> scheme.primaryContainer to scheme.onPrimaryContainer
+		// Round 2, from the AVD: on a dark washed page the container roles sit a step off the row's
+		// own surface and the pills read faint. The mockups fill Owned with the accent and draw a
+		// warning as its own colour on a tint of it, which holds on light and dark schemes alike.
+		PillTone.OK -> scheme.primary to scheme.onPrimary
 		PillTone.GOOD -> scheme.primary to scheme.onPrimary
-		PillTone.WARN -> scheme.tertiaryContainer to scheme.onTertiaryContainer
+		PillTone.WARN -> scheme.tertiary.copy(alpha = 0.18f) to scheme.tertiary
 		PillTone.BAD -> scheme.errorContainer to scheme.onErrorContainer
 		PillTone.MUTE -> scheme.surfaceContainerHighest to scheme.onSurfaceVariant
-		PillTone.NEUTRAL -> scheme.surfaceContainerHigh to scheme.onSurface
+		// A tint of the text, not a surface role: a format pill sits on a source card, which is itself
+		// surfaceContainerHigh, and a pill of the same role vanished into it (seen on the AVD).
+		PillTone.NEUTRAL -> scheme.onSurface.copy(alpha = 0.10f) to scheme.onSurface
 	}
 }

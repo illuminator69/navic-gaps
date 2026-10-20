@@ -103,6 +103,12 @@ fun gapStage(input: GapInput): GapStage {
 	if (gap.status == "complete" || (missing.isEmpty() && gap.total > 0)) return GapStage.Absent
 	val searching = input.searchAsked || gap.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
 	if (gap.stalledPlacement || gap.awaitingMatch(searching)) return GapStage.Attention(gapReason(gap))
+	// A fill that failed keeps the box open, saying why, until it is dismissed or tried again: also
+	// over the sources it was requested from (seen on the AVD: the sources view, with no rows left
+	// and no search running, read as searching for good). A new search tap is the way out.
+	if (fill != null && fill.settled && fill.outcome == LbBotManager.OUTCOME_FAILED && !input.searchAsked) {
+		return GapStage.Failed(gapReason(gap).ifBlank { fill.reason }, gap.mp3WouldHelp || fill.mp3WouldHelp)
+	}
 	if (input.view == GapView.SOURCES) {
 		return when {
 			searching -> GapStage.Searching
@@ -112,10 +118,6 @@ fun gapStage(input: GapInput): GapStage {
 			// Nothing asked yet: the box asks as it opens on the sources.
 			else -> GapStage.Searching
 		}
-	}
-	// A fill that failed keeps the box open, saying why, until it is dismissed or tried again.
-	if (fill != null && fill.settled && fill.outcome == LbBotManager.OUTCOME_FAILED) {
-		return GapStage.Failed(gapReason(gap).ifBlank { fill.reason }, gap.mp3WouldHelp || fill.mp3WouldHelp)
 	}
 	return when (input.view) {
 		GapView.TRACKS -> GapStage.Tracks(missing, gap.total)

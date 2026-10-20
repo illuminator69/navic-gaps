@@ -1,6 +1,10 @@
 package paige.navic.ui.screens.artist.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -286,23 +290,22 @@ private fun SortChip(current: DiscographySort, playsKnown: Boolean, onPick: (Dis
 	}
 }
 
-/** Rescan this artist: an icon chip, a spinner while the walk runs. */
+/** Rescan this artist: an icon in a chip-high capsule, a spinner while the walk runs. */
 @Composable
 private fun RescanChip(rescanning: Boolean, onRescan: () -> Unit) {
-	PageChip(
-		selected = false,
-		label = "",
-		onClick = { if (!rescanning) onRescan() },
-		leadingIcon = {
-			if (rescanning) {
-				CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-			} else {
-				Icon(
-					Icons.Outlined.Refresh,
-					contentDescription = stringResource(Res.string.action_rescan_discography),
-					modifier = Modifier.size(18.dp)
-				)
-			}
+	val label = stringResource(Res.string.action_rescan_discography)
+	Box(
+		Modifier
+			.size(width = 48.dp, height = 32.dp)
+			.clip(ContinuousCapsule)
+			.background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f))
+			.clickable(enabled = !rescanning, onClickLabel = label, role = Role.Button, onClick = onRescan),
+		contentAlignment = Alignment.Center
+	) {
+		if (rescanning) {
+			CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+		} else {
+			Icon(Icons.Outlined.Refresh, contentDescription = label, modifier = Modifier.size(18.dp))
 		}
-	)
+	}
 }

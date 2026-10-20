@@ -348,7 +348,7 @@ private fun MissingTracks(tracks: List<LbGapTrack>) {
 				)
 				Text(
 					track.title,
-					style = MaterialTheme.typography.bodyLarge,
+					style = MaterialTheme.typography.bodyMedium,
 					fontWeight = FontWeight.Medium,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,

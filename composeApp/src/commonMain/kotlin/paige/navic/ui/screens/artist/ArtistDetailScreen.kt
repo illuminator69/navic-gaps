@@ -68,6 +68,7 @@ import navic.composeapp.generated.resources.action_see_discography
 import navic.composeapp.generated.resources.title_popular_releases
 import androidx.compose.ui.draw.clip
 import paige.navic.ui.screens.artist.components.DiscographyScanAction
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
 import paige.navic.ui.screens.artist.viewmodels.DiscographySection
 import paige.navic.ui.screens.external.components.ReleaseRows
 import org.jetbrains.compose.resources.pluralStringResource
@@ -440,8 +441,13 @@ fun ArtistDetailScreen(
 								Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 									songs.forEachIndexed { index, song ->
 										val download = allDownloads.find { it.songId == song.id }
+										// Rounded segments in the page's gutter, as the release rows
+										// under them are (the mockup's list, not the grid's slabs).
+										val shape = segmentedShapes(index, songs.size).shape
 										SongRow(
-											width = rowWidth,
+											modifier = Modifier.padding(horizontal = 16.dp).clip(shape),
+											compact = true,
+											width = rowWidth - 32.dp,
 											song = song,
 											selected = selection == song,
 											onClick = {

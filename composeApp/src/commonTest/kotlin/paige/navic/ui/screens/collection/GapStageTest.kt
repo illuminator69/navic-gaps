@@ -158,6 +158,17 @@ class GapStageTest {
 	}
 
 	@Test
+	fun aFailedFillShowsOverTheSourcesItWasRequestedFrom() {
+		// The poll's summary drops the source rows, and nothing is searching: without this the box
+		// sat on "Searching" after the fill failed.
+		val failed = gap(status = "failed", failDetail = "The peer went offline")
+		assertEquals(
+			GapStage.Failed("The peer went offline", false),
+			gapStage(input(gap = failed, fill = fill("failed"), view = GapView.SOURCES))
+		)
+	}
+
+	@Test
 	fun aCancelledFillIsJustTheFold() {
 		assertEquals(GapStage.Folded(2), gapStage(input(fill = fill("cancelled"))))
 	}

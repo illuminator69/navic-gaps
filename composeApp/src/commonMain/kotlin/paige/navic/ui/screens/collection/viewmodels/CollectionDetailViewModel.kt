@@ -247,7 +247,8 @@ class CollectionDetailViewModel(
 			when (val result = lbBotManager.gapFetch(groupId, source.id)) {
 				is LbBotManager.LbResult.Failed -> _gapBox.update { it.copy(working = false, error = result.error) }
 				is LbBotManager.LbResult.Ok -> {
-					_gapBox.update { it.copy(working = false, committed = true, fetched = source) }
+					// The sources are done with: when the fill ends the box answers from its line.
+					_gapBox.update { it.copy(working = false, committed = true, fetched = source, view = GapView.TRACKS) }
 					withTimeoutOrNull(GAP_COMMIT_RELEASE_MS) {
 						lbBotManager.gaps.first { it[groupId]?.status == "downloading" }
 					}
@@ -265,7 +266,7 @@ class CollectionDetailViewModel(
 			val result = lbBotManager.gapAuto(groupId)
 			_gapBox.update {
 				if (result is LbBotManager.LbResult.Failed) it.copy(working = false, error = result.error)
-				else it.copy(working = false, committed = true)
+				else it.copy(working = false, committed = true, view = GapView.TRACKS)
 			}
 			if (result is LbBotManager.LbResult.Ok) {
 				withTimeoutOrNull(GAP_COMMIT_RELEASE_MS) {
