@@ -2200,6 +2200,30 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override fun playSongsLocal(songs: List<DomainSong>, startIndex: Int) {
+		viewModelScope.launch {
+			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+			val start = startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
+			controller?.let { player ->
+				player.setMediaItems(items, start, 0L)
+				player.prepare()
+				player.play()
+			}
+			// What clearQueue used to set, with the new queue in it: not a collection's session.
+			_uiState.update { state ->
+				state.copy(
+					queue = songs,
+					currentIndex = if (songs.isEmpty()) -1 else start,
+					currentSong = songs.getOrNull(start),
+					currentCollection = null,
+					savedQueueId = null,
+					savedQueueKind = "manual",
+					savedQueueName = null
+				)
+			}
+		}
+	}
+
 	override fun playCollectionLocal(collection: DomainSongCollection, startSong: DomainSong) {
 		viewModelScope.launch {
 			val (items, newCollection) = withContext(Dispatchers.Default) {

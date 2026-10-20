@@ -220,6 +220,23 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
+	override fun playSongsLocal(songs: List<DomainSong>, startIndex: Int) {
+		val start = startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
+		_uiState.update { state ->
+			state.copy(
+				queue = songs,
+				currentIndex = if (songs.isEmpty()) -1 else start,
+				currentSong = songs.getOrNull(start),
+				currentCollection = null,
+				isLoading = songs.isNotEmpty(),
+				savedQueueId = null,
+				savedQueueKind = "manual",
+				savedQueueName = null
+			)
+		}
+		if (songs.isNotEmpty()) playAt(start)
+	}
+
 	override fun playCollectionLocal(collection: DomainSongCollection, startSong: DomainSong) {
 		val newCollection = if (collection is DomainAlbum) {
 			collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))

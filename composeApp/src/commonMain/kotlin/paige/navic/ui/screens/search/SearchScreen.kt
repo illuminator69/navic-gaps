@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -256,6 +257,8 @@ fun SearchScreen(
 	val topBarScrim = animateFloatAsState(
 		if (viewModel.gridState.canScrollBackward) 1f else 0f
 	)
+	// Nothing shows through the bar once rows are under it (your note on P3: a translucent bar
+	// over results read as part of them, and a tap there started the song behind it).
 	val topBarScrimColor = MaterialTheme.colorScheme.surface
 
 	val shown = capped(ui.hits, selectedCategory)
@@ -278,8 +281,16 @@ fun SearchScreen(
 				modifier = Modifier
 					.expressiveBlurEffect(LocalExpressiveBlur.current)
 					.drawBehind {
-						// Capped at 0.7 like the album page's, so the wash still shows through.
-						drawRect(topBarScrimColor.copy(alpha = topBarScrim.value * 0.7f))
+						drawRect(topBarScrimColor.copy(alpha = topBarScrim.value))
+					}
+					// The bar is a pointer target over its whole area, the gaps between its controls
+					// too, so a touch there never reaches the grid scrolling under it (a tap between
+					// the chips started the row behind). Hit testing stops at the first sibling hit;
+					// nothing is consumed, so the bar's own controls behave as before.
+					.pointerInput(Unit) {
+						awaitPointerEventScope {
+							while (true) awaitPointerEvent()
+						}
 					}
 					.padding(TopAppBarDefaults.windowInsets.asPaddingValues())
 			) {

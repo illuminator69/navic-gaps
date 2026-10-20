@@ -15,6 +15,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -53,12 +56,43 @@ fun SearchScreenTopBar(
 		focusRequester.requestFocus()
 	}
 
+	// System Back on an active root search clears it first, as the arrow does; only an empty
+	// Search lets Back leave the page.
+	NavigationBackHandler(
+		state = rememberNavigationEventState(NavigationEventInfo.None),
+		isBackEnabled = !nested && query.text.isNotEmpty(),
+		onBackCompleted = {
+			focusManager.clearFocus(true)
+			query.clearText()
+		}
+	)
+
 	Row(
 		verticalAlignment = Alignment.CenterVertically
 	) {
 		// Leading slot: a nested Search has a back arrow; the root Search page leads with the avatar
 		// like every other root page (P1). Its header is its own bar, so it places the avatar itself.
-		if (!nested) {
+		// While a search is active (anything typed) the avatar steps aside for a back arrow that
+		// clears the search, back to Browse (your note on P3: no avatar on an active search).
+		if (!nested && query.text.isNotEmpty()) {
+			Box(
+				modifier = Modifier.size(56.dp),
+				contentAlignment = Alignment.Center
+			) {
+				IconButton(
+					onClick = {
+						focusManager.clearFocus(true)
+						query.clearText()
+					}
+				) {
+					Icon(
+						Icons.Outlined.ArrowBack,
+						contentDescription = stringResource(Res.string.action_clear_search),
+						tint = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+		} else if (!nested) {
 			Box(
 				modifier = Modifier.size(56.dp),
 				contentAlignment = Alignment.Center

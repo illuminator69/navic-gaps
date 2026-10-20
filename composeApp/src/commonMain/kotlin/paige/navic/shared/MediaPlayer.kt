@@ -444,6 +444,13 @@ abstract class MediaPlayerViewModel(
 		collection: DomainSongCollection,
 		startSong: DomainSong
 	)
+	/**
+	 * Replace the queue with [songs] and play from [startIndex], in ONE step (P3). [playNow] used to
+	 * be clearQueue + addToQueueSingleLocal + playAt, three coroutines of their own; the add builds its
+	 * media item off the main thread, so the play ran before the song was in and found nothing: a song
+	 * tapped in Search sat paused at 0:00 (seen on the AVD, 2026-10-20: "it immediately ends").
+	 */
+	protected abstract fun playSongsLocal(songs: List<DomainSong>, startIndex: Int)
 	/** [andPlay]: skip straight to [song] once it is in, rather than announcing it as "next". */
 	protected abstract fun playNextSingleLocal(song: DomainSong, andPlay: Boolean = false)
 	protected abstract fun playNextLocal(collection: DomainSongCollection)
@@ -511,9 +518,7 @@ abstract class MediaPlayerViewModel(
 		if (router != null) {
 			router.setQueue(listOf(song), 0, sourceName = song.title)
 		} else {
-			clearQueue()
-			addToQueueSingleLocal(song)
-			playAt(0)
+			playSongsLocal(listOf(song), 0)
 			checkAndAutoFillQueue()
 		}
 	}
@@ -556,9 +561,7 @@ abstract class MediaPlayerViewModel(
 		if (router != null) {
 			router.setQueue(songs, startIndex)
 		} else {
-			clearQueue()
-			songs.forEach { addToQueueSingleLocal(it) }
-			playAt(startIndex)
+			playSongsLocal(songs, startIndex)
 			checkAndAutoFillQueue()
 		}
 	}
