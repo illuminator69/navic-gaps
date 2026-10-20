@@ -53,6 +53,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Player and its queue (P2) | `ui/screens/nowPlaying/NowPlayingScreen.kt` chooses: a portrait phone (under 600 dp, taller than wide; `stagedPlayerFits`) gets `ui/screens/nowPlaying/staged/StagedNowPlaying.kt`, the player with the queue as a layer inside it (`StagedQueueLayer.kt`); landscape and wider windows keep the old player with its toolbar and the `Screen.Queue` sheet. The rules are pure: `QueueDetents.kt` (peek / half / full, anchors, release, handle, Back, the compaction curves; `QueueDetentsTest`), `QueueGrouping.kt` (rows by who added them, the peek row, Playing from; `QueueGroupingTest`), `SheetScroll.kt` (`SheetScrollTest`). The queue's content is written once, `QueueContent(QueueLayout)` in `ui/screens/queue/QueueScreen.kt`, hosted by the sheet (`QueueScreen`) and by the layer. The autoplay switch is `autoplayToggleChip` over the chip rules (`AutoplayChips.kt`, `RadioManager.onAutoplayToggle`). Settings has no "Toolbar position" row any more; `nowPlayingToolbarPosition` stays and the landscape player and the lyrics sheet still read it (§4) |
 | Search (P3, "Find") | `ui/screens/search/SearchScreen.kt` draws; every decision is pure: `SearchModel.kt` (`LibraryHits`, `mergeHits`, `capped`, `Lookup`, `searchPhase`, `offlineHits`, `browseTiles`, `externalRows`, `ownedArtistJoinsLibrary`; `SearchModelTest`) and `SearchState.kt` (`SearchUi`, `reduce`, which drops an answer for any query but the current one; `SearchViewModelReducerTest`). The rows: `search/components/{SearchRows,ExternalSection,BrowseTiles}.kt`. Typo tolerance: `domain/search/FuzzyMatch.kt` (`FuzzyMatchTest`), `LibraryFuzzyIndex.kt` (over Room), `MusicBrainzQuery.kt` (`mbFuzzyQuery`, `mbAlbumQuery`; `MusicBrainzQueryTest`); ownership by MBID: `domain/search/ArtistOwnership.kt` + `LbBotManager.ownedArtistIdsByMbid` (`ArtistOwnershipTest`). The browse cards' Deezer pages: `ui/screens/browse/*` (`Screen.Charts`, `Screen.EditorsPicks`), a tile's target from `domain/manager/BrowseResolver.kt` (shared with Discover). Discover's reasoned stack: `ui/screens/discover/DiscoverStack.kt` (`DiscoverStackTest`). The paste sheet's three states: `ui/screens/downloads/PasteLinkSheet.kt`, opened straight from Search through `ShellController.openAddFromLink` (§5, §7) |
 | Artist and requests (P4) | The album page's request box, `ui/screens/external/components/RequestBox.kt` (which replaced the missing-album sheet; its sheet-to-stage table is at its top) with `SourceCards.kt`; which stage it shows is pure, `ui/screens/external/RequestStage.kt` (`requestStage`, `requestSteps`, `preselectedSource`, `requestActions`; `RequestStageTest`), and its state (edition, search, tap in flight, the echo of "Download all") lives in `ExternalAlbumViewModel` (`RequestUi`). The unowned artist page: `ArtistPageState.kt` (`ArtistPageStateTest`), `components/ArtistHero.kt`, the scan on arrival in `ExternalArtistViewModel`. The discography as rows: `components/ReleaseRows.kt`, each row's pill from `ui/screens/artist/ReleaseState.kt` (`ReleaseStateTest`). Pills: `ui/components/common/StatePills.kt` (tones, `StatePillsTest`) and `StatePill.kt`. Fill gaps on the owned album page: the gaps box, `ui/screens/collection/components/GapBox.kt` (its sheet-to-box table at the top), stage from `ui/screens/collection/GapStage.kt` (`gapStage`, `GapStageTest`), state `GapBoxUi` and `AlbumGap` in `CollectionDetailViewModel` (§7). Round 2 (the owner's mockups): the owned artist page's Popular releases and the discography page behind chips, `ui/screens/artist/{ArtistDiscographyScreen,DiscographyFilter,DiscographyOpen}.kt` (`DiscographyFilterTest`) and `components/DiscographyBrowser.kt`, which the unowned artist page draws inline |
+| Library (P5) | `ui/screens/library/LibraryScreen.kt` (the header, the chips, the sort row, one body under a 220 ms cross-fade), Recents in `LibraryRecents.kt` over `LibraryViewModel` (light Room reads: `AlbumDao.getRecentlyPlayedAlbumRows`, `PlaylistDao.getPlaylistRows`, `SongDao.countStarred`; the hub's mixes; saved queues), its order pure in `LibraryModel.kt` (`recentsEntries`, `artistRecentAt`, `LibraryChip`; `LibraryModelTest`). The chips host the list pages' bodies: `AlbumListBody`, `ArtistListBody`, `PlaylistListBody`, `SongListBody`, `RadioListBody`, `MixListBody`, `DeviceDownloadsBody`, each beside its page with `xListViewModel` and `XSortAction` (§7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
 Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
@@ -189,13 +190,13 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     |---|---|---|
     | `AlbumListScreen`, `ArtistListScreen`, `GenreListScreen`, `PlaylistListScreen`, `RadioListScreen`, `SearchScreen` | when `!nested` | upstream |
     | `SongListScreen` | when `!nested` (on the fork's `artistId` key) | upstream |
-    | `StarredScreen`, `LibraryScreen` (its upstream ViewModels) | always | upstream |
+    | `StarredScreen` | always | upstream |
+    | `LibraryScreen`'s `LibraryViewModel`, and each chip's body's view model (`albumListViewModel(false, …)` and its siblings, `DownloadCenterViewModel`) | always | fork (P5): a chip switch keeps each list's scroll, sort and filters |
     | `LyricsScreen` | always, keyed on the song | upstream |
     | `FreshScreen`, `DiscoverScreen`, `MixListScreen` | when `!nested` | fork — their `init` loads over the network |
 | `HomeScreen` | always | fork (P1) — a root tab with no `nested` form; it reads on every visit (`revalidate`) |
 | `HomeScreen`'s `SavedQueuesViewModel` | always | fork (P1), as `LibraryScreen`'s |
     | `LibraryScreen`'s `SavedQueuesViewModel` | always | fork |
-    | `LibraryScreen`'s `ListeningCardViewModel` | always | fork (Q-103) |
 
     Grep `PersistentViewModelStoreOwner` against both parents after a merge; a fork-only root tab
     added later needs its own row here. Anything else that must outlive its screen belongs in a
@@ -1850,7 +1851,7 @@ true of invented *album art*, and not of an icon naming the kind.
   (P3: Discover and Fresh have since left the home for Search's browse cards.) Order untouched, every other tab untouched, and a user who puts one back is not overruled on the
   next launch. The ids stay in `NavbarTab.Id` and in `NavbarConfig.default.tabs` — deleting them
   would make `merged()`'s live filter strip them from every stored config permanently.
-- **The home page's top buttons are gated exactly like the tabs.** They are pushed onto the
+- **(Superseded by P5: the Library is chips now, below; the buttons are gone.)** **The home page's top buttons are gated exactly like the tabs.** They are pushed onto the
   library's own stack, so each destination carries `nested = true` or it renders `RootTopBar` with
   no back arrow. The list is padded back out of Recently added / Starred / Frequently played until
   it is four long, because an odd count leaves a hole in the two-column grid and a home page with
@@ -1860,6 +1861,21 @@ true of invented *album art*, and not of an icon naming the kind.
   which is `OVERVIEW_PRIMARY_MAX`; a seventh would have to raise it and the count with it. My
   Listening was a button until I-039 made it Stats', which the home reaches by upstream's own
   card at its foot.
+- **The Library is one list under chips (P5).** No chip is Recents: Liked pinned (the starred
+  songs' count), then the 100 newest of every mix, saved queue, playlist, album and artist with a
+  clock: last played for albums, artists (their newest played album) and mixes (a mix never played:
+  when it last changed), last changed for playlists and saved queues; nothing without a clock
+  (`recentsEntries`). A tap opens the thing, a long press its sheet, read whole when it opens (a
+  Recents row holds no songs). Each chip is that list page's body, so its sort menu, filters, view
+  mode, sheets, scroller and scroll-to-top are the page's; its view model lives in the persistent
+  store, so a chip switch keeps its place (Songs' list state is the Library's). Tapping the chosen
+  chip clears it; a second Library-tab tap within 2.5 s clears it too. **A chip change shows the bars
+  again**: the bottom bar collapses on scroll, and an empty chip could never bring it back. The chip
+  is not in `Screen.Library` (whose equality selects the tab): the custom radio's Done asks for the
+  Mixes chip through `ShellController.showLibraryChip`. The old home's carousels, statistics card and
+  buttons are gone; every page they led to has a way in (chips, the Liked row, Search's Genres tile,
+  the avatar menu). Its "sync failed, this is the cached copy" row heads Recents. Measured on the VM
+  AVD's library (15,679 songs, 4,320 albums, 44 of them with a `lastPlayedAt`).
 - **The shell (P1): a fixed bar of four, one avatar menu, one New sheet.** The bar and the tablet's rail are
   Home, Search, Library and New (`ShellTab`), and a tap is `onShellTabTapped` for both (the selected tab scrolls to
   top, another tab clears the stack to its page, New opens a sheet and never touches the stack or the selection).
