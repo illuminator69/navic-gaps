@@ -13,7 +13,10 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbCachePolicy
+import paige.navic.domain.manager.LbMeta
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbRescanStart
@@ -36,12 +39,19 @@ import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
  * understands: it short-circuits the library match and classifies everything
  * `missing`. So every entry here is absent, and the shelf renders that honestly
  * rather than pretending to know about ownership it never looked up.
+ *
+ * **An artist lb-bot has never walked is scanned on arrival, once per visit (P4, call 7).** The
+ * user chose this artist; a "Scan" button would be a tap with no information in it. Once means a
+ * flag, not a check of what is shown: a mirror emission or a recreated composition must not
+ * start a second walk of MusicBrainz's one request a second. A failure is never retried by
+ * itself; the page's "Try again" calls [indexArtist].
  */
 class ExternalArtistViewModel(
 	private val artistMbid: String,
 	private val artistName: String,
 	private val lbBotManager: LbBotManager,
-	private val lbIndexSync: LbIndexSync
+	private val lbIndexSync: LbIndexSync,
+	private val connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	private val _discography = MutableStateFlow(DiscographyUi())
 	val discography = _discography.asStateFlow()
@@ -60,7 +70,21 @@ class ExternalArtistViewModel(
 	/** The discography last painted, from either source — the rescan's "before". */
 	private var shown: LbDiscography? = null
 
-	init { load() }
+	/** The scan on arrival has been started (or decided against); never twice in one visit. */
+	private var autoScanned = false
+
+	private val _meta = MutableStateFlow<LbMeta?>(null)
+
+	/** lb-bot's About for this artist (`/lb/meta/artist`); null when it has none. */
+	val meta = _meta.asStateFlow()
+
+	private val _aboutOpen = MutableStateFlow(false)
+	val aboutOpen = _aboutOpen.asStateFlow()
+
+	init {
+		load()
+		loadMeta()
+	}
 
 	/**
 	 * The mirror first, the network only when the mirror does not hold this artist.
@@ -106,6 +130,15 @@ class ExternalArtistViewModel(
 		}
 	}
 
+	/** Start the scan this visit owes an artist lb-bot has never walked: once, and only then. */
+	private fun scanOnArrival() {
+		if (autoScanned) return
+		val ui = _discography.value
+		if (!ui.available || ui.indexed || ui.indexing) return
+		autoScanned = true
+		indexArtist()
+	}
+
 	/** Paint [data], keeping any scan in flight. */
 	private fun show(data: LbDiscography) {
 		_loading.value = false
@@ -125,6 +158,7 @@ class ExternalArtistViewModel(
 			stale = data.stale,
 			sections = sections(data.releases)
 		)
+		scanOnArrival()
 	}
 
 	/** Kick the MusicBrainz walk, then wait for the index to fill — the same
@@ -134,6 +168,8 @@ class ExternalArtistViewModel(
 	 *  that can report a failed scan (see `ArtistDetailViewModel.indexArtist`). */
 	fun indexArtist() {
 		if (artistMbid.isBlank()) return
+		// A scan this visit already owes: an explicit tap counts as the one on arrival too.
+		autoScanned = true
 		viewModelScope.launch {
 			_discography.value =
 				_discography.value.copy(indexing = true, scanError = "", scanShared = false)
@@ -194,6 +230,34 @@ class ExternalArtistViewModel(
 				LbScanOutcome.TimedOut -> _discography.value = _discography.value.copy(indexing = false)
 			}
 		}
+	}
+
+	/**
+	 * The About an unowned artist can have: lb-bot's, the cached article first (no network,
+	 * offline too), then, once online, revalidated as the owned artist page does. An answer
+	 * replaces what is shown only if it has something or nothing is shown.
+	 */
+	private fun loadMeta() {
+		if (artistMbid.isBlank()) return
+		viewModelScope.launch {
+			if (!lbBotManager.isConfigured) return@launch
+			lbBotManager.artistMeta(artistMbid, _name.value, LbCachePolicy.CACHE_ONLY)
+				.collect { cached -> if (cached != null) _meta.value = cached }
+			val online = connectivityManager.isOnline
+			if (!online.value) online.first { it }
+			if (!lbBotManager.ensureAvailability()) return@launch
+			lbBotManager.artistMeta(artistMbid, _name.value).collect { meta ->
+				if (meta != null || _meta.value == null) _meta.value = meta
+			}
+		}
+	}
+
+	fun openAbout() {
+		_aboutOpen.value = true
+	}
+
+	fun dismissAbout() {
+		_aboutOpen.value = false
 	}
 
 	/** Group by release type, in lb-bot's own order — the same shape the owned

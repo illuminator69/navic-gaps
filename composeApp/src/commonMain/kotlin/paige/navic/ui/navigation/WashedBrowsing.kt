@@ -27,6 +27,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	Screen.SavedQueues::class,
 	// P3: Search's two Deezer pages.
 	Screen.Charts::class, Screen.EditorsPicks::class,
+	// P4: an unowned artist has no cover of its own, so it wears the playing song's.
+	Screen.ExternalArtist::class,
 	// P1 round 2: every surface wears the playing song's colours but the artist and album pages, so
 	// Settings and its pages, the smart playlist form, shares and a genre's albums are washed too.
 	Screen.Settings.Root::class, Screen.Settings.Appearance::class, Screen.Settings.BottomAppBar::class,

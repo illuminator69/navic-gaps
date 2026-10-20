@@ -645,7 +645,8 @@ private fun entryProvider(
 		// Room, and keeping them strict is what makes their not-in-the-DB error
 		// path correct. An lb-bot artist or release-group has no Navidrome row.
 		entry<Screen.ExternalArtist> { key ->
-			ExternalArtistScreen(key.artistMbid, key.name)
+			// P4: an unowned artist has no cover of its own, so it wears the playing song's.
+			Washed { ExternalArtistScreen(key.artistMbid, key.name) }
 		}
 
 		entry<Screen.ExternalAlbum> { key ->

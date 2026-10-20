@@ -70,7 +70,8 @@ val viewModelModule = module {
 			artistMbid = artistMbid,
 			artistName = name,
 			lbBotManager = get(),
-			lbIndexSync = get()
+			lbIndexSync = get(),
+			connectivityManager = get()
 		)
 	}
 	viewModel { (rgid: String, artistMbid: String, artistName: String, artistId: String, title: String) ->

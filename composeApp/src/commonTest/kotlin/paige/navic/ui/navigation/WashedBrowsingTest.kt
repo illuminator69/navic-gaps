@@ -27,7 +27,9 @@ class WashedBrowsingTest {
 			Screen.Home, Screen.Library(), Screen.Starred(), Screen.AlbumList(), Screen.PlaylistList(),
 			Screen.ArtistList(), Screen.GenreList(), Screen.SongList(), Screen.RadioList(),
 			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics(),
-			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist), Screen.SavedQueues
+			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist), Screen.SavedQueues,
+			// P4: an unowned artist has no cover of its own and wears the playing song's.
+			Screen.ExternalArtist("mb-1")
 		)
 		washed.forEach { assertTrue(it.isWashedBrowsing(), "$it should be washed") }
 	}
@@ -43,11 +45,11 @@ class WashedBrowsingTest {
 
 	@Test
 	fun detailArtistAndOtherPagesAreNotWashed() {
-		// An album, an artist and a song are themed by their own cover; the viewer and the login have
-		// no playing song to wear.
+		// An album, an artist and a song are themed by their own cover (an unowned album by its Cover
+		// Art Archive front); the viewer and the login have no playing song to wear.
 		val base = listOf(
 			Screen.CollectionDetail("al-1", "albums"), Screen.ArtistDetail("ar-1"),
-			Screen.SongDetailScreen("s-1"), Screen.ExternalAlbum("rg-1"), Screen.ExternalArtist("mb-1"),
+			Screen.SongDetailScreen("s-1"), Screen.ExternalAlbum("rg-1"),
 			Screen.ImageView("c-1", "t", "k"), Screen.Login
 		)
 		base.forEach { assertFalse(it.isWashedBrowsing(), "$it should keep the base scheme") }
