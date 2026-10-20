@@ -49,7 +49,13 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.artist.components.DiscographyShelf
+import paige.navic.ui.screens.artist.DiscographyFilter
+import paige.navic.ui.screens.artist.DiscographySort
+import paige.navic.ui.screens.artist.FilterSaver
+import paige.navic.ui.screens.artist.components.DiscographyBrowser
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
 
 import androidx.compose.foundation.clickable
@@ -81,7 +87,7 @@ import paige.navic.ui.util.teaserText
  * An artist the library does not have (P4).
  *
  * A heading tinted from the name (no portrait), lb-bot's About when it has one, then the
- * discography through the *same* [DiscographyShelf] the owned artist page uses. An artist lb-bot
+ * discography behind the *same* chips the owned artist's discography page uses ([DiscographyBrowser]). An artist lb-bot
  * has never walked is scanned on arrival (the view model's, once per visit), and the page says what
  * it is doing: scanning (a pill, ghost rows that fold away as the real ones arrive), a scan that
  * failed (lb-bot's sentence and "Try again"), no releases, or the releases. Wears the playing
@@ -108,6 +114,9 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 		derivedStateOf { with(density) { scrollState.value.toDp() } >= 200.dp }
 	}
 	val page = artistPageState(discography, loading)
+	var filter by rememberSaveable(stateSaver = FilterSaver) {
+		mutableStateOf(DiscographyFilter(sort = DiscographySort.NEWEST))
+	}
 
 	Scaffold(
 		topBar = {
@@ -185,11 +194,12 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 				if (page == ArtistPageState.Releases || page == ArtistPageState.NoReleases ||
 					(page == ArtistPageState.Scanning && discography.sections.isNotEmpty())
 				) {
-					DiscographyShelf(
-						ui = discography,
-						// There is always an MBID here — it is the route key.
-						canIndex = artistMbid.isNotBlank(),
-						onIndex = { viewModel.indexArtist() },
+					// The discography behind chips (P4 round 2), the same browser the owned artist's
+					// discography page uses; newest first, since there are no plays to sort by.
+					DiscographyBrowser(
+						sections = discography.sections,
+						filter = filter,
+						onFilter = { filter = it },
 						onOpenEntry = { entry ->
 							entry.release?.let { release ->
 								// A row that names a Navidrome album is not a download any
@@ -213,9 +223,25 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 							}
 						},
 						// Nothing owned here, so there is no long-press album menu to offer.
-						onSelectEntry = null,
-						tapHint = true
+						onLongClick = null,
+						// There is always an MBID here — it is the route key.
+						onRescan = if (artistMbid.isNotBlank()) {
+							{ viewModel.indexArtist() }
+						} else null,
+						rescanning = discography.indexing,
+						pills = true,
+						tapHint = true,
+						playsKnown = false
 					)
+					// A rescan that failed keeps the rows it had; lb-bot's sentence says why.
+					if (discography.scanError.isNotBlank() && discography.sections.isNotEmpty()) {
+						Text(
+							discography.scanError,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+							modifier = Modifier.padding(horizontal = 20.dp)
+						)
+					}
 				}
 			}
 		}

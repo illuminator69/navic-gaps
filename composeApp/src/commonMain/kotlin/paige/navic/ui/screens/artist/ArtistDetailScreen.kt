@@ -10,7 +10,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,10 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -56,21 +51,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_see_all
 import navic.composeapp.generated.resources.count_albums
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
 import navic.composeapp.generated.resources.option_sort_frequent
-import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_appears_on
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_similar_artists
+import navic.composeapp.generated.resources.action_see_more
+import navic.composeapp.generated.resources.action_see_discography
+import navic.composeapp.generated.resources.title_popular_releases
+import androidx.compose.ui.draw.clip
+import paige.navic.ui.screens.artist.components.DiscographyScanAction
+import paige.navic.ui.screens.artist.viewmodels.DiscographySection
+import paige.navic.ui.screens.external.components.ReleaseRows
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -105,9 +104,7 @@ import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.sheets.CollectionSheet
-import paige.navic.ui.components.sheets.GapFillSheet
 import paige.navic.ui.components.sheets.MbidMatchSheet
-import paige.navic.ui.screens.artist.components.DiscographyShelf
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
@@ -160,7 +157,6 @@ fun ArtistDetailScreen(
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 	val discography by viewModel.discography.collectAsStateWithLifecycle()
-	val selectedGap by viewModel.selectedGap.collectAsStateWithLifecycle()
 	// Which MusicBrainz artist lb-bot is asked about, and the picker that changes it (I-019).
 	val artistMbid by viewModel.artistMbid.collectAsStateWithLifecycle()
 	val mbidMatch by viewModel.mbidMatch.collectAsStateWithLifecycle()
@@ -180,8 +176,6 @@ fun ArtistDetailScreen(
 		}
 	}
 
-	val gridState = rememberLazyGridState()
-
 	var showDownloadDialog by remember { mutableStateOf(false) }
 
 	var shareId by remember { mutableStateOf<String?>(null) }
@@ -194,19 +188,8 @@ fun ArtistDetailScreen(
 	val lbBot = koinInject<LbBotManager>()
 	val radioManager = koinInject<paige.navic.domain.manager.RadioManager>()
 
-	// A release the library does not hold (or holds only in lb-bot's index so far) opens its own
-	// page, where the request box finds, chooses and requests it (P4). Its artist is this one.
-	val openRelease: (paige.navic.domain.manager.LbRelease) -> Unit = { release ->
-		backStack.add(
-			Screen.ExternalAlbum(
-				rgid = release.rgid,
-				artistMbid = artistMbid.effective,
-				artistName = artistState.data?.artist?.name.orEmpty(),
-				title = release.title,
-				artistId = artistId
-			)
-		)
-	}
+	// A row's tap: the album, a just-landed one, or a missing release's own page (P4).
+	val openEntry = rememberDiscographyOpener(viewModel, artistId)
 
 	// "Merge into one name" (I-023). A merge that lands rewrites one spelling's files to the
 	// other's name, and Navidrome keys artists by name: the rewritten spelling's id is dead.
@@ -397,6 +380,7 @@ fun ArtistDetailScreen(
 						}
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },
+							onShuffle = { viewModel.shuffleArtist(player) },
 							onDownload = {
 								showDownloadDialog = true
 							},
@@ -431,127 +415,102 @@ fun ArtistDetailScreen(
 							verticalArrangement = Arrangement.spacedBy(12.dp),
 							horizontalAlignment = Alignment.CenterHorizontally
 						) {
+							// P4 round 2, as the owner's mockups lay the page out: a few of each, and a
+							// link to the whole. Frequently played as five rows (they were a sideways
+							// grid of three), then Popular releases with "See discography".
 							BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-							val gridRowWidth = maxWidth
-							// BoxWithConstraints is a Box (stacks children) — wrap in a
-							// Column so the header + grid stay vertical, not overlapping.
+							val rowWidth = maxWidth
 							Column(modifier = Modifier.fillMaxWidth()) {
-							state.topSongs.takeIf { state.topSongs.isNotEmpty() }
-								?.let { songs ->
-									Row(
-										modifier = Modifier
-											.heightIn(min = 32.dp)
-											.padding(top = 8.dp)
-											.padding(horizontal = 16.dp)
-											.fillMaxWidth(),
-										verticalAlignment = Alignment.CenterVertically,
-										horizontalArrangement = Arrangement.SpaceBetween
-									) {
-										Text(
-											stringResource(Res.string.option_sort_frequent),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600),
-											color = MaterialTheme.colorScheme.primary
-										)
-										Text(
-											stringResource(Res.string.action_see_all),
-											style = MaterialTheme.typography.labelLarge,
-											color = MaterialTheme.colorScheme.primary,
-											modifier = Modifier.clickable(onClick = dropUnlessResumed {
-												platformContext.clickSound()
-												backStack.add(
-													Screen.SongList(
-														nested = true,
-														artistId = state.artist.id,
-														artistName = state.artist.name
-													)
-												)
-											})
+							state.topSongs.takeIf { it.isNotEmpty() }?.let { allSongs ->
+								val songs = allSongs.take(FREQUENT_ROWS)
+								PageSectionHeading(
+									title = stringResource(Res.string.option_sort_frequent),
+									action = stringResource(Res.string.action_see_more),
+									onAction = dropUnlessResumed {
+										platformContext.clickSound()
+										backStack.add(
+											Screen.SongList(
+												nested = true,
+												artistId = state.artist.id,
+												artistName = state.artist.name
+											)
 										)
 									}
-									// Shrink to the song count so artists with only 1–2 frequent
-									// tracks don't leave a cut-off, half-empty 3-row grid.
-									val rowCount = songs.size.coerceIn(1, 3)
-									LazyHorizontalGrid(
-										rows = GridCells.Fixed(rowCount),
-										state = gridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = gridState),
-										modifier = Modifier.fillMaxWidth().height((rowCount * 100).dp)
-									) {
-										itemsIndexed(songs) { index, song ->
-											val download =
-												allDownloads.find { it.songId == song.id }
-											SongRow(
-												width = gridRowWidth,
-												song = song,
-												selected = selection == song,
-												onClick = {
-													if (playerState.currentSong?.id != song.id) {
-														player.playNow(songs, index)
-													} else {
-														player.togglePlay()
-													}
-												},
-												onLongClick = {
-													viewModel.selectSong(song)
-												},
-												onDismissRequest = { viewModel.clearSelection() },
-												starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
-												onAddStar = { viewModel.starSelectedSong() },
-												onRemoveStar = { viewModel.unstarSelectedSong() },
-												download = download,
-												onDownload = { viewModel.downloadSong(song) },
-												onCancelDownload = { viewModel.cancelDownload(song.id) },
-												onDeleteDownload = { viewModel.deleteDownload(song.id) },
-												onPlayNext = { player.playNextSingle(song) },
-												onAddToQueue = { player.addToQueueSingle(song) },
-												onShare = { shareId = song.id },
-												isOnline = isOnline,
-												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) },
-												// Cover accent (under NavicTheme), translucent so the
-												// page gradient shows through (frosted) — instead of
-												// the near-white default surface that clashed.
-												containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-											)
-										}
+								)
+								Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+									songs.forEachIndexed { index, song ->
+										val download = allDownloads.find { it.songId == song.id }
+										SongRow(
+											width = rowWidth,
+											song = song,
+											selected = selection == song,
+											onClick = {
+												if (playerState.currentSong?.id != song.id) {
+													player.playNow(songs, index)
+												} else {
+													player.togglePlay()
+												}
+											},
+											onLongClick = { viewModel.selectSong(song) },
+											onDismissRequest = { viewModel.clearSelection() },
+											starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
+											onAddStar = { viewModel.starSelectedSong() },
+											onRemoveStar = { viewModel.unstarSelectedSong() },
+											download = download,
+											onDownload = { viewModel.downloadSong(song) },
+											onCancelDownload = { viewModel.cancelDownload(song.id) },
+											onDeleteDownload = { viewModel.deleteDownload(song.id) },
+											onPlayNext = { player.playNextSingle(song) },
+											onAddToQueue = { player.addToQueueSingle(song) },
+											onShare = { shareId = song.id },
+											isOnline = isOnline,
+											rating = selectedSongRating,
+											onSetRating = { viewModel.rateSelectedSong(it) },
+											// Translucent so the page gradient shows through (frosted).
+											containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+										)
 									}
 								}
 							}
 							}
-							// The legacy play-count carousel, shown only when the
-							// discography shelf below is NOT rendering. Two album rows
-							// on one page is just confusing, and the discography is the
-							// better of the two — but without lb-bot the page has to
-							// look exactly as it always has.
-							val hasDiscography = discography.available && discography.indexed
-							val carouselAlbums = remember(state.albums, hasDiscography) {
-								if (hasDiscography) persistentListOf()
-								else state.albums.sortedByDescending { album -> album.playCount }
-									.toImmutableList()
 							}
-							ArtCarousel(
-								stringResource(Res.string.title_albums),
-								carouselAlbums
-							) { album ->
-								// (There was a `getCollectionDownloadStatus` collect here whose
-								// result nothing read. Each visible tile was building a fresh flow
-								// over the whole downloads table, re-filtering it on every
-								// recomposition, and throwing the answer away.)
-								ArtCarouselItem(
-									coverArtId = album.coverArtId,
-									title = album.displayName,
-									contentDescription = null,
-									onSelect = { viewModel.selectAlbum(album) },
-									onClick = dropUnlessResumed {
-										backStack.add(Screen.CollectionDetail(album.id, "artist"))
-									}
-								)
+							// The releases: lb-bot's discography when it has scanned the artist, else
+							// the library's own albums (no pills then: each would say "Owned"). The
+							// carousel of albums by play count this replaces was the no-lb-bot page.
+							val fromIndex = discography.available && discography.indexed &&
+								discography.sections.isNotEmpty()
+							val releaseSections = remember(fromIndex, discography.sections, state.albums) {
+								if (fromIndex) discography.sections else ownedSections(state.albums)
 							}
-							// NOTE: this must stay above the similar-artists guard below,
-							// which is an early `return@Column` — anything after it is
-							// skipped entirely for an artist with no similar artists.
-							DiscographyShelf(
+							val popular = remember(releaseSections) { popularReleases(releaseSections) }
+							val types = remember(releaseSections) { entryTypes(releaseSections) }
+							if (popular.isNotEmpty()) {
+								Column(modifier = Modifier.fillMaxWidth()) {
+									PageSectionHeading(
+										title = stringResource(Res.string.title_popular_releases),
+										action = stringResource(Res.string.action_see_discography),
+										onAction = dropUnlessResumed {
+											platformContext.clickSound()
+											backStack.add(Screen.ArtistDiscography(artistId))
+										}
+									)
+									ReleaseRows(
+										sections = listOf(DiscographySection("", popular)),
+										sectionTitle = { "" },
+										onOpenEntry = openEntry,
+										// An owned release's own sheet (play next, download, Fill gaps).
+										onLongClick = { entry -> entry.album?.let { viewModel.selectAlbum(it) } },
+										headings = false,
+										typeOf = { types[it.key] ?: "album" },
+										pills = fromIndex
+									)
+								}
+							}
+							// "Scan discography" for an artist lb-bot has not walked (or walked to
+							// nothing), a spinner while it walks, and why a walk failed. Nothing once
+							// there is an index: the rescan is a chip on the discography page.
+							// NOTE: above the similar-artists guard below, an early `return@Column`.
+							DiscographyScanAction(
 								ui = discography,
 								// The override when the user has set one, else Navidrome's tag.
 								canIndex = artistMbid.effective.isNotBlank(),
@@ -560,43 +519,6 @@ fun ArtistDetailScreen(
 									{ viewModel.openMbidMatch() }
 								} else {
 									null
-								},
-								onOpenEntry = { entry ->
-									when {
-										// Tapping an album you own opens it — including
-										// a partly-owned one. Filling its gaps is the
-										// exception, and lives in the long-press sheet
-										// below; making it the tap action put a chore in
-										// front of the thing the user actually wanted.
-										entry.album != null -> backStack.add(
-											Screen.CollectionDetail(entry.album.id, "artist")
-										)
-										// lb-bot has placed the files and Navidrome hasn't
-										// indexed them yet. Open the album if Room has
-										// caught up, else say what is happening — a
-										// tile you can see and can't touch reads as
-										// broken, which is what this used to be.
-										// lb-bot has placed the files and Navidrome hasn't
-										// indexed them yet: open the album if Room has
-										// caught up, else the release's page, whose box
-										// says what is happening.
-										entry.pendingSync -> {
-											val albumId = viewModel.openPendingSync(entry)
-											if (albumId != null) {
-												backStack.add(
-													Screen.CollectionDetail(albumId, "artist")
-												)
-											} else {
-												entry.release?.let { openRelease(it) }
-											}
-										}
-										// Nothing to open in the library: the release's own
-										// page, where it is found, chosen and requested (P4).
-										entry.release != null -> openRelease(entry.release)
-									}
-								},
-								onSelectEntry = { entry ->
-									entry.album?.let { viewModel.selectAlbum(it) }
 								}
 							)
 							// Guest / featured credits. Above the similar-artists guard for the same
@@ -704,7 +626,13 @@ fun ArtistDetailScreen(
 			rating = selectedAlbumRating,
 			onSetRating = { viewModel.rateSelectedAlbum(it) },
 			missingTrackCount = gapEntry?.missingTracks,
-			onFillGaps = gapEntry?.let { entry -> { viewModel.selectGap(entry) } },
+			// The album page's gaps box does the whole fill now (P4 round 2): open it unfolded.
+			onFillGaps = gapEntry?.let {
+				{
+					viewModel.clearAlbumSelection()
+					backStack.add(Screen.CollectionDetail(album.id, "artist", openGaps = true))
+				}
+			},
 			onFixAlbumMatch = {
 				lbBot.openAlbumMatch(
 					AlbumMatchTarget(
@@ -737,31 +665,6 @@ fun ArtistDetailScreen(
 		}
 	}
 
-	selectedGap?.let { entry ->
-		val groupId = entry.gapGroupId
-		if (groupId != null) {
-			GapFillSheet(
-				groupId = groupId,
-				albumTitle = entry.title,
-				coverArtId = entry.album?.coverArtId,
-				onDismissRequest = { viewModel.selectGap(null) },
-				onWrongEdition = { gap ->
-					lbBot.openAlbumMatch(
-						AlbumMatchTarget(
-							albumId = gap.albumId,
-							title = gap.album.ifBlank { entry.title },
-							artistName = gap.artist,
-							// The album's own artist where Room names one, else this page's.
-							artistId = entry.album?.artistId ?: artistId,
-							coverArtId = entry.album?.coverArtId
-						)
-					)
-					viewModel.selectGap(null)
-				}
-			)
-		}
-	}
-
 	if (playlistDialogShown) {
 		PlaylistUpdateDialog(
 			songs = selectedAlbum?.songs.orEmpty().toPersistentList(),
@@ -770,3 +673,35 @@ fun ArtistDetailScreen(
 	}
 }
 
+/** Frequently played shows this many rows; "See more" opens the rest. */
+private const val FREQUENT_ROWS = 5
+
+/** "Frequently played … See more": a section's title and the link to its whole page. */
+@Composable
+private fun PageSectionHeading(title: String, action: String, onAction: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.heightIn(min = 32.dp)
+			.padding(top = 8.dp, bottom = 4.dp)
+			.padding(horizontal = 20.dp)
+			.fillMaxWidth(),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.SpaceBetween
+	) {
+		Text(
+			title,
+			style = MaterialTheme.typography.titleMediumEmphasized,
+			fontWeight = FontWeight(600),
+			modifier = Modifier.weight(1f, fill = false)
+		)
+		Text(
+			action,
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+			modifier = Modifier
+				.clip(MaterialTheme.shapes.small)
+				.clickable(onClick = onAction)
+				.padding(horizontal = 6.dp, vertical = 4.dp)
+		)
+	}
+}

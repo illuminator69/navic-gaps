@@ -501,6 +501,14 @@ private fun ActiveContent(view: FillPresentation, steps: List<RequestStep>) {
 	}
 }
 
+/** The steps of a request, one row each; the gaps box draws its fill with these too. */
+@Composable
+internal fun RequestSteps(steps: List<RequestStep>) {
+	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		steps.forEach { StepRow(it) }
+	}
+}
+
 @Composable
 private fun StepRow(step: RequestStep) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
@@ -601,7 +609,7 @@ private fun AllFilesCaption(note: AllFilesNote) {
 }
 
 @Composable
-private fun BusyLine(text: String) {
+internal fun BusyLine(text: String) {
 	Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
 		CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
 		Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))

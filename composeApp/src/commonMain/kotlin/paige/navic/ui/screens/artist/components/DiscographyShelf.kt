@@ -36,78 +36,48 @@ import navic.composeapp.generated.resources.title_type_soundtrack
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.ui.screens.artist.viewmodels.DiscographyEntry
-import paige.navic.ui.screens.external.components.ReleaseRows
 import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
 
 /**
- * The artist's discography, one heading per release type and a row per release ([ReleaseRows], P4).
+ * The scan behind an artist's discography: "Scan discography" for an artist lb-bot has never walked,
+ * a spinner while it walks, and why the last walk failed. The rows themselves are elsewhere now
+ * (round 2): the artist page shows a few as Popular releases and the discography page lists them all
+ * behind chips (`DiscographyBrowser`), where the rescan is a chip.
  *
- * Owned, partly-owned and absent releases sit side by side in the same list, each with a pill
- * saying where it stands. Splitting them into a "yours" list and a "missing" list was the obvious
- * layout and the wrong one: the question a discography answers is "what did this artist release",
- * and the library's coverage of it is an annotation, not a category. Nothing here fetches with one
- * tap: a row opens its album, and an album the library lacks is requested from its page, after a
- * look at the sources.
+ * Owned, partly-owned and absent releases sit side by side in that list, each with a pill saying
+ * where it stands. Splitting them into a "yours" list and a "missing" list was the obvious layout and
+ * the wrong one: the question a discography answers is "what did this artist release", and the
+ * library's coverage of it is an annotation, not a category. Nothing fetches with one tap: a row
+ * opens its album, and an album the library lacks is requested from its page, after a look at the
+ * sources.
  *
- * Renders nothing at all when lb-bot isn't reachable, which is the state most
- * users are in. The page above must look exactly as it did before this existed.
+ * Renders nothing at all when lb-bot isn't reachable, which is the state most users are in, and
+ * nothing once there is an index with releases in it and no scan running or failed.
  */
 @Composable
-fun DiscographyShelf(
+fun DiscographyScanAction(
 	ui: DiscographyUi,
 	canIndex: Boolean,
 	onIndex: () -> Unit,
-	onOpenEntry: (DiscographyEntry) -> Unit,
-	/** The long press: an owned release's own sheet. Null where nothing on the page is owned. */
-	onSelectEntry: ((DiscographyEntry) -> Unit)?,
-	/** The unowned artist page: each heading says a row is where its sources are found. */
-	tapHint: Boolean = false,
 	/** Opens the MusicBrainz match picker. Null where there is none to open: an artist off the
 	 *  library, or a hub that cannot store an override. Only offered when [canIndex] is false. */
 	onChooseMbid: (() -> Unit)? = null
 ) {
 	if (!ui.available) return
-
-	if (!ui.indexed) {
-		// Never scanned. Offer it rather than doing it: the walk is one MusicBrainz
-		// request a second, 10-60s for a real discography.
-		//
-		// Rendered even without an MBID, disabled and saying so. lb-bot's index POST
-		// needs `mbid` *and* `name`, so this artist genuinely cannot be scanned —
-		// which is a real limitation to state, not a reason to make the control
-		// vanish and leave the user wondering where the feature went.
-		IndexAction(
-			ui = ui,
-			onIndex = onIndex,
-			label = Res.string.action_index_artist,
-			enabled = canIndex,
-			onChooseMbid = onChooseMbid
-		)
-		return
-	}
-
-	// Rows with a state pill each (P4), the ledger read once for the shelf inside them.
-	ReleaseRows(
-		sections = ui.sections,
-		sectionTitle = { sectionTitle(it) },
-		tapHint = tapHint,
-		onOpenEntry = onOpenEntry,
-		onLongClick = onSelectEntry
-	)
-
-	// Always offered once there is an MBID, never only when the index is missing.
+	// Offered rather than done: the walk is one MusicBrainz request a second, 10-60s for a real
+	// discography. Rendered even without an MBID, disabled and saying so: lb-bot's index POST needs
+	// `mbid` *and* `name`, which is a real limitation to state, not a reason to hide the control.
 	//
-	// A scan that matched the wrong MusicBrainz artist — or that MusicBrainz answered thinly —
-	// writes a perfectly fresh index holding nothing, and `indexed` is then true forever. Gating
-	// the action on `!indexed` meant the one page that could fix that offered no way to, so the
-	// artist simply had an empty discography for good. A rescan is idempotent; the only cost of an
-	// unnecessary one is a minute of MusicBrainz's patience.
+	// Also offered for an index that holds nothing: a scan that matched the wrong MusicBrainz artist
+	// writes a perfectly fresh, empty index, and `indexed` is then true for good.
+	val quiet = ui.indexed && ui.sections.isNotEmpty() && !ui.indexing &&
+		ui.scanError.isBlank() && !ui.scanShared
+	if (quiet) return
 	IndexAction(
 		ui = ui,
 		onIndex = onIndex,
-		label = if (ui.sections.isEmpty()) Res.string.action_index_artist
-		else Res.string.action_rescan_discography,
+		label = if (ui.indexed && ui.sections.isNotEmpty()) Res.string.action_rescan_discography
+		else Res.string.action_index_artist,
 		enabled = canIndex,
 		onChooseMbid = onChooseMbid
 	)
@@ -193,7 +163,7 @@ private fun IndexAction(
 
 /** "Last scanned N days ago", or null when lb-bot has never said. */
 @Composable
-private fun indexFreshnessLabel(ui: DiscographyUi): String? {
+internal fun indexFreshnessLabel(ui: DiscographyUi): String? {
 	if (!ui.indexed || ui.scannedAt <= 0L) return null
 	val days = ((Clock.System.now().toEpochMilliseconds() - ui.scannedAt) / 86_400_000L).toInt()
 	val fresh = when {
@@ -214,7 +184,7 @@ private fun indexFreshnessLabel(ui: DiscographyUi): String? {
  * would ever get that one right.
  */
 @Composable
-private fun sectionTitle(type: String): String = when (type) {
+internal fun sectionTitle(type: String): String = when (type) {
 	"album" -> stringResource(Res.string.title_type_album)
 	"ep" -> stringResource(Res.string.title_type_ep)
 	"single" -> stringResource(Res.string.title_type_single)

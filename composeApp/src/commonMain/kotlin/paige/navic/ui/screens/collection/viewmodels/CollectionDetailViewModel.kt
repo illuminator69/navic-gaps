@@ -17,6 +17,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
+import paige.navic.domain.manager.LbGapSource
+import paige.navic.domain.manager.LbSourceFiles
+import paige.navic.ui.screens.collection.GapView
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
@@ -173,15 +180,161 @@ class CollectionDetailViewModel(
 	private val _gap = MutableStateFlow<AlbumGap?>(null)
 	val gap = _gap.asStateFlow()
 
-	private val _gapOpen = MutableStateFlow(false)
-	val gapOpen = _gapOpen.asStateFlow()
+	/** The gaps box (P4 round 2): where the user has it, and what a tap is waiting on. */
+	private val _gapBox = MutableStateFlow(GapBoxUi())
+	val gapBox = _gapBox.asStateFlow()
 
-	fun openGap() {
-		_gapOpen.value = true
+	/** lb-bot's record for this album's gap group, read when the group is known; then watched. */
+	private var gapRecordLoaded = false
+
+	private val gapGroupId: String? get() = _gap.value?.groupId?.ifBlank { null }
+
+	fun setGapView(view: GapView) {
+		_gapBox.update { it.copy(view = view, error = null) }
 	}
 
-	fun dismissGap() {
-		_gapOpen.value = false
+	/** The header's tap: fold and unfold. */
+	fun toggleGap() {
+		_gapBox.update { it.copy(view = if (it.view == GapView.FOLDED) GapView.TRACKS else GapView.FOLDED, error = null) }
+	}
+
+	/**
+	 * "Fill gaps": the same box turns to the sources for the missing tracks, asking for them unless
+	 * lb-bot already holds some (or is already looking).
+	 */
+	fun openGapSources() {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(view = GapView.SOURCES, error = null) }
+		val gap = lbBotManager.gaps.value[groupId]
+		val searching = gap?.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
+		if (gap == null || (gap.sources.isEmpty() && !searching)) searchGap()
+	}
+
+	/** Ask lb-bot to search; [GapBoxUi.searchAsked] covers the time until its record says so. */
+	fun searchGap() {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(view = GapView.SOURCES, searchAsked = true, selected = null, error = null) }
+		viewModelScope.launch {
+			val result = lbBotManager.gapSearch(groupId)
+			if (result is LbBotManager.LbResult.Failed) _gapBox.update { it.copy(error = result.error) }
+			else lbBotManager.refreshGap(groupId)
+			_gapBox.update { it.copy(searchAsked = false) }
+		}
+	}
+
+	/** A card chosen. A tap also fetches its folder listing (the poll carries none); a preselection does not. */
+	fun selectGapSource(index: Int, fetchListing: Boolean) {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(selected = index) }
+		if (!fetchListing) return
+		val source = lbBotManager.gaps.value[groupId]?.sources?.getOrNull(index) ?: return
+		if (source.id in _gapBox.value.listings) return
+		viewModelScope.launch {
+			(lbBotManager.gapSourceFiles(groupId, source.id) as? LbBotManager.LbResult.Ok)?.let { ok ->
+				_gapBox.update { it.copy(listings = it.listings + (source.id to ok.value)) }
+			}
+		}
+	}
+
+	/**
+	 * Request the missing tracks from [source]. Held as committed until lb-bot's status shows the
+	 * transfer, or for 30 s if it never does, so a fetch that quietly did not take gives the box back.
+	 */
+	fun requestGap(source: LbGapSource) {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(working = true, error = null) }
+		viewModelScope.launch {
+			when (val result = lbBotManager.gapFetch(groupId, source.id)) {
+				is LbBotManager.LbResult.Failed -> _gapBox.update { it.copy(working = false, error = result.error) }
+				is LbBotManager.LbResult.Ok -> {
+					_gapBox.update { it.copy(working = false, committed = true, fetched = source) }
+					withTimeoutOrNull(GAP_COMMIT_RELEASE_MS) {
+						lbBotManager.gaps.first { it[groupId]?.status == "downloading" }
+					}
+					_gapBox.update { it.copy(committed = false) }
+				}
+			}
+		}
+	}
+
+	/** "Pick the best source for me": lb-bot walks the same ranked list. */
+	fun autoGap() {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(working = true, error = null) }
+		viewModelScope.launch {
+			val result = lbBotManager.gapAuto(groupId)
+			_gapBox.update {
+				if (result is LbBotManager.LbResult.Failed) it.copy(working = false, error = result.error)
+				else it.copy(working = false, committed = true)
+			}
+			if (result is LbBotManager.LbResult.Ok) {
+				withTimeoutOrNull(GAP_COMMIT_RELEASE_MS) {
+					lbBotManager.gaps.first { it[groupId]?.status == "downloading" }
+				}
+				_gapBox.update { it.copy(committed = false) }
+			}
+		}
+	}
+
+	fun cancelGap() = gapAct(after = { it.copy(view = GapView.TRACKS, fetched = null, committed = false) }) {
+		lbBotManager.gapCancel(it)
+	}
+
+	/** Also accept MP3 for this album, then search again with it. */
+	fun allowMp3ForGap() {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(working = true, error = null) }
+		viewModelScope.launch {
+			val result = lbBotManager.allowMp3(groupId)
+			_gapBox.update { it.copy(working = false, error = (result as? LbBotManager.LbResult.Failed)?.error) }
+			if (result is LbBotManager.LbResult.Ok) searchGap()
+		}
+	}
+
+	/** Re-check the album against Navidrome and its folder: files put there by hand count too. */
+	fun recheckGap() = gapAct { lbBotManager.gapRescan(it) }
+
+	/** A failed or waiting fill, put away: the ledger row goes and the box folds to its line. */
+	fun dismissGapFill() {
+		val groupId = gapGroupId ?: return
+		lbBotManager.dismiss(groupId)
+		_gapBox.update { it.copy(view = GapView.FOLDED, error = null) }
+	}
+
+	private fun gapAct(
+		after: (GapBoxUi) -> GapBoxUi = { it },
+		block: suspend (String) -> LbBotManager.LbResult<*>
+	) {
+		val groupId = gapGroupId ?: return
+		_gapBox.update { it.copy(working = true, error = null) }
+		viewModelScope.launch {
+			val result = block(groupId)
+			_gapBox.update { ui ->
+				val settled = ui.copy(working = false)
+				if (result is LbBotManager.LbResult.Failed) settled.copy(error = result.error) else after(settled)
+			}
+		}
+	}
+
+	/**
+	 * Read lb-bot's record once the group is known. lb-bot serialises every route behind one lock, so
+	 * a read during someone's search times out as "busy": absorbed twice, quietly, since nothing was
+	 * pressed. A fill already running (here before a restart, or on another client) is watched.
+	 */
+	private fun loadGapRecord(groupId: String) {
+		if (gapRecordLoaded) return
+		gapRecordLoaded = true
+		viewModelScope.launch {
+			var attempt = 0
+			while (true) {
+				val result = lbBotManager.refreshGap(groupId)
+				if (result !is LbBotManager.LbResult.Failed) break
+				if (result.error !is LbBotManager.LbError.Busy || attempt >= 2) break
+				attempt++
+				delay(1_500L)
+			}
+			if (lbBotManager.gaps.value[groupId]?.status == "downloading") lbBotManager.startGapWatch(groupId)
+		}
 	}
 
 	fun openAbout() {
@@ -267,6 +420,10 @@ class CollectionDetailViewModel(
 					}
 					?.takeIf { it.missing > 0 }
 			}.getOrNull()
+				// Once the page has a gap it keeps the group for the visit: a fill that completes the
+				// album flips the mirrored row, and the box still owes its result row before it goes.
+				?: _gap.value?.copy(missing = 0)
+			_gap.value?.groupId?.ifBlank { null }?.let { loadGapRecord(it) }
 			val fromMirror = mirroredRelease(album)
 			val rgid: String?
 			val artistMbid: String?
@@ -585,3 +742,22 @@ class CollectionDetailViewModel(
 
 /** An owned album's gap as lb-bot's index records it: the Fill-gaps group, and the tracks missing. */
 data class AlbumGap(val groupId: String, val missing: Int)
+
+/** How long a fetch lb-bot accepted holds the box on its steps before lb-bot's status must show it. */
+private const val GAP_COMMIT_RELEASE_MS = 30_000L
+
+/** The gaps box's own state; which stage it shows is `gapStage`'s, from this and lb-bot's record. */
+data class GapBoxUi(
+	val view: GapView = GapView.FOLDED,
+	/** A fetch lb-bot accepted that its status does not show yet. */
+	val committed: Boolean = false,
+	/** A search tap whose answer has not come back yet. */
+	val searchAsked: Boolean = false,
+	val selected: Int? = null,
+	val working: Boolean = false,
+	val error: LbBotManager.LbError? = null,
+	/** The source this device requested from, for the steps' "FLAC · from …" line. */
+	val fetched: LbGapSource? = null,
+	/** Folder listings fetched for cards, by source id. */
+	val listings: Map<Int, LbSourceFiles> = emptyMap()
+)

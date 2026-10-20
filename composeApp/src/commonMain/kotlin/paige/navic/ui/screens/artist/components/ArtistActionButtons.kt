@@ -30,6 +30,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.data.database.entities.DownloadStatus
@@ -39,11 +40,14 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.Shuffle
 import paige.navic.ui.theme.defaultFont
 
 @Composable
 fun ArtistActionButtons(
 	onPlay: () -> Unit,
+	/** Every album of the artist's, shuffled (P4 round 2, as the mockup's hero has it). */
+	onShuffle: () -> Unit,
 	onDownload: () -> Unit,
 	onCancelDownload: () -> Unit,
 	onDeleteDownload: () -> Unit,
@@ -94,10 +98,24 @@ fun ArtistActionButtons(
 			}
 		}
 
+		// The album page's shuffle: an outlined capsule beside Play.
+		OutlinedButton(
+			modifier = Modifier.size(width = 52.dp, height = 44.dp),
+			onClick = onShuffle,
+			shape = ContinuousCapsule,
+			enabled = playEnabled,
+			contentPadding = PaddingValues(0.dp)
+		) {
+			Icon(
+				Icons.Outlined.Shuffle,
+				contentDescription = stringResource(Res.string.action_shuffle),
+				modifier = Modifier.size(24.dp)
+			)
+		}
+
 		OutlinedButton(
 			modifier = Modifier.size(width = 52.dp, height = 44.dp),
 			onClick = {
-				
 				when (downloadStatus) {
 					DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED -> onDownload()
 					// Queued work is cancellable exactly like an in-flight transfer.

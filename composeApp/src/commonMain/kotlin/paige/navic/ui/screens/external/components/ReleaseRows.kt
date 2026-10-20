@@ -3,11 +3,9 @@ package paige.navic.ui.screens.external.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,17 +18,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.count_releases
 import navic.composeapp.generated.resources.count_tracks
-import navic.composeapp.generated.resources.info_tracks_missing
+import navic.composeapp.generated.resources.info_source_partial
 import navic.composeapp.generated.resources.release_tap_hint
+import navic.composeapp.generated.resources.release_type_album
+import navic.composeapp.generated.resources.release_type_compilation
+import navic.composeapp.generated.resources.release_type_demo
+import navic.composeapp.generated.resources.release_type_ep
+import navic.composeapp.generated.resources.release_type_live
+import navic.composeapp.generated.resources.release_type_remix
+import navic.composeapp.generated.resources.release_type_single
+import navic.composeapp.generated.resources.release_type_soundtrack
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.icons.Icons
-import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RemoteCoverArt
@@ -44,51 +49,70 @@ import paige.navic.ui.util.COVER_FADE_MS
 import paige.navic.ui.util.arrive
 import paige.navic.ui.util.rememberArrivalGate
 
-private val ArtSize = 50.dp
+private val ArtSize = 56.dp
 
 /**
- * The discography as rows (P4): one heading per release type, then a row per release with its
- * cover, "year · N tracks", and a pill saying where it stands (`releaseState`: owned, partly owned,
- * added and syncing, missing, or what the fill it has is doing). A partly-owned row also draws how
- * much of it the library holds. Rows replace the carousel's tiles because the review is the point:
- * a tile's corner button fetched an album with nothing read.
+ * The discography as rows (P4): a row per release with its cover, "year · N tracks", and a pill
+ * saying where it stands (`releaseState`: owned, partly owned, added and syncing, missing, or what
+ * the fill it has is doing). A partly-owned row counts what the library holds ("9 of 12 tracks")
+ * and draws it as a bar. Rows replace the carousel's tiles because the review is the point: a
+ * tile's corner button fetched an album with nothing read.
  *
- * The ledger is read once for the shelf. A row's fill is the ledger row keyed by its release-group,
+ * As the owner's mockups lay it out (round 2): the pill at the row's end, where a column of them
+ * reads down the list; a running or failed request's longer sentence goes under the line instead,
+ * where it cannot crush the title. No chevron: the whole row is the target.
+ *
+ * The ledger is read once for the list. A row's fill is the ledger row keyed by its release-group,
  * or, for a partly-owned row, by its gap's group id (a gap fill's key).
  */
 @Composable
 fun ReleaseRows(
 	sections: List<DiscographySection>,
 	sectionTitle: @Composable (String) -> String,
-	/** The unowned artist page: each heading says what a tap does. */
-	tapHint: Boolean,
 	onOpenEntry: (DiscographyEntry) -> Unit,
 	/** The release's own sheet; null where there is none (nothing owned on the page). */
-	onLongClick: ((DiscographyEntry) -> Unit)?
+	onLongClick: ((DiscographyEntry) -> Unit)?,
+	/** The unowned artist page: each heading says what a tap does. */
+	tapHint: Boolean = false,
+	/** One heading per section; false where the caller has drawn the list's heading itself. */
+	headings: Boolean = true,
+	/** Each heading counts its releases ("Albums  5 releases"). */
+	countInHeading: Boolean = false,
+	/** Each row names its type ("Album · 2019 · 10 tracks"): a list that is not split by type. */
+	typeOf: ((DiscographyEntry) -> String)? = null,
+	/** False where every row would say the same thing (no lb-bot index: all owned). */
+	pills: Boolean = true
 ) {
 	val lbBot = koinInject<LbBotManager>()
 	val ledger by lbBot.ledger.collectAsState()
 	val gate = rememberArrivalGate()
-	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
 		sections.forEach { section ->
 			Column {
-				Row(
-					Modifier.padding(horizontal = 20.dp).padding(bottom = 6.dp),
-					verticalAlignment = Alignment.Bottom
-				) {
-					Text(
-						sectionTitle(section.type),
-						style = MaterialTheme.typography.titleMediumEmphasized,
-						fontWeight = FontWeight(600),
-						modifier = Modifier.weight(1f, fill = false)
-					)
-					if (tapHint) {
+				if (headings) {
+					Row(
+						Modifier.padding(horizontal = 20.dp).padding(bottom = 6.dp),
+						verticalAlignment = Alignment.Bottom
+					) {
 						Text(
-							stringResource(Res.string.release_tap_hint),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(start = 10.dp)
+							sectionTitle(section.type),
+							style = MaterialTheme.typography.titleMediumEmphasized,
+							fontWeight = FontWeight(600),
+							modifier = Modifier.weight(1f, fill = false)
 						)
+						val note = when {
+							countInHeading -> pluralStringResource(Res.plurals.count_releases, section.entries.size, section.entries.size)
+							tapHint -> stringResource(Res.string.release_tap_hint)
+							else -> null
+						}
+						if (note != null) {
+							Text(
+								note,
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.padding(start = 10.dp)
+							)
+						}
 					}
 				}
 				Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -96,6 +120,8 @@ fun ReleaseRows(
 						ReleaseRow(
 							entry = entry,
 							fill = fillFor(entry, ledger),
+							type = typeOf?.invoke(entry),
+							pills = pills,
 							index = index,
 							count = section.entries.size,
 							onClick = { onOpenEntry(entry) },
@@ -121,6 +147,8 @@ private fun fillFor(entry: DiscographyEntry, ledger: List<LbFillEntry>): LbFillE
 private fun ReleaseRow(
 	entry: DiscographyEntry,
 	fill: LbFillEntry?,
+	type: String?,
+	pills: Boolean,
 	index: Int,
 	count: Int,
 	onClick: () -> Unit,
@@ -129,9 +157,15 @@ private fun ReleaseRow(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = preferenceManager.coverArtShape.decreasedShape
-	// The release's own length where lb-bot knows it (a partly-owned album: "12 tracks", "11
-	// missing"), else the library album's; Room's count of a part-owned album is what it holds.
+	// The release's own length where lb-bot knows it, else the library album's; Room's count of a
+	// part-owned album is what it holds, not how long the release is.
 	val tracks = entry.totalTracks?.takeIf { it > 0 } ?: entry.album?.songCount?.takeIf { it > 0 }
+	val present = entry.presentTracks
+	val total = entry.totalTracks
+	val partly = entry.gapGroupId != null && present != null && total != null && total > 0
+	val pill = releaseState(entry, fill)
+	// A base state is one word and sits at the row's end; a request's sentence goes under the line.
+	val pillAtEnd = pills && fill == null
 	SegmentedListItem(
 		modifier = modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
 		onClick = onClick,
@@ -159,37 +193,46 @@ private fun ReleaseRow(
 			}
 		},
 		supportingContent = {
-			Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
 				val line = listOfNotNull(
+					type?.let { releaseTypeName(it) },
 					entry.year.takeIf { it.isNotBlank() },
-					tracks?.let { pluralStringResource(Res.plurals.count_tracks, it, it) }
+					when {
+						partly -> stringResource(Res.string.info_source_partial, present, total)
+						tracks != null -> pluralStringResource(Res.plurals.count_tracks, tracks, tracks)
+						else -> null
+					}
 				).joinToString(" · ")
 				if (line.isNotBlank()) Text(line, maxLines = 1, overflow = TextOverflow.Ellipsis)
-				// How much of a partly-owned album the library holds: lb-bot's counts, a thin bar and
-				// the number that is the reason to tap.
-				val present = entry.presentTracks
-				val total = entry.totalTracks
-				if (entry.gapGroupId != null && present != null && total != null && total > 0) {
-					Row(verticalAlignment = Alignment.CenterVertically) {
-						LinearProgressIndicator(
-							progress = { present.toFloat() / total },
-							modifier = Modifier.width(72.dp),
-							drawStopIndicator = {}
-						)
-						Text(
-							stringResource(Res.string.info_tracks_missing, total - present),
-							style = MaterialTheme.typography.bodySmall,
-							modifier = Modifier.padding(start = 8.dp)
-						)
-					}
+				// How much of a partly-owned album the library holds, from lb-bot's counts.
+				if (partly) {
+					LinearProgressIndicator(
+						progress = { present.toFloat() / total },
+						modifier = Modifier.width(120.dp),
+						drawStopIndicator = {}
+					)
 				}
-				StatePill(releaseState(entry, fill))
+				if (pills && !pillAtEnd) StatePill(pill)
 			}
 		},
-		trailingContent = {
-			Icon(Icons.Outlined.ChevronForward, contentDescription = null, modifier = Modifier.size(20.dp))
-		}
+		trailingContent = if (pillAtEnd) {
+			{ StatePill(pill) }
+		} else null
 	) {
 		MarqueeText(entry.title)
 	}
+}
+
+/** lb-bot's release type, singular, for a row's line. A type it adds later reads as itself. */
+@Composable
+fun releaseTypeName(type: String): String = when (type) {
+	"album" -> stringResource(Res.string.release_type_album)
+	"ep" -> stringResource(Res.string.release_type_ep)
+	"single" -> stringResource(Res.string.release_type_single)
+	"compilation" -> stringResource(Res.string.release_type_compilation)
+	"soundtrack" -> stringResource(Res.string.release_type_soundtrack)
+	"live" -> stringResource(Res.string.release_type_live)
+	"remix" -> stringResource(Res.string.release_type_remix)
+	"demo" -> stringResource(Res.string.release_type_demo)
+	else -> type.replaceFirstChar { it.uppercase() }
 }

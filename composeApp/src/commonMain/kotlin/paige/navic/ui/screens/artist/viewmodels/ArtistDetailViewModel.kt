@@ -247,10 +247,6 @@ class ArtistDetailViewModel(
 	private val _discography = MutableStateFlow(DiscographyUi())
 	val discography = _discography.asStateFlow()
 
-	/** The tile whose sheet is open, if it's a partly-owned album with a gap. */
-	private val _selectedGap = MutableStateFlow<DiscographyEntry?>(null)
-	val selectedGap = _selectedGap.asStateFlow()
-
 	// ----- where the shelf's lb-bot rows came from -------------------------------------------- //
 	//
 	// Two sources, and the mirror wins. The local index mirror (`LbIndexSync`, Room) is read
@@ -1182,10 +1178,6 @@ class ArtistDetailViewModel(
 		return known
 	}
 
-	fun selectGap(entry: DiscographyEntry?) {
-		_selectedGap.value = entry
-	}
-
 	fun selectSong(song: DomainSong) {
 		viewModelScope.launch {
 			selectedSong.value = song
@@ -1288,6 +1280,12 @@ class ArtistDetailViewModel(
 			}
 			player.playAt(0)
 		}
+	}
+
+	/** Every song of the artist's albums, shuffled, as one queue. */
+	fun shuffleArtist(player: MediaPlayerViewModel) {
+		val songs = (artistState.value as? UiState.Success)?.data?.albums.orEmpty().flatMap { it.songs }
+		if (songs.isNotEmpty()) player.playNow(songs.shuffled(), 0)
 	}
 
 	fun downloadSong(song: DomainSong) {

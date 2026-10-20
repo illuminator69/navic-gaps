@@ -1363,4 +1363,57 @@
 		<item quantity="other">%1$d tracks missing</item>
 	</plurals>
 	<string name="gap_banner_action">Fill gaps</string>
+	<string name="gap_tap_to_see">Tap to see which</string>
+	<string name="gap_tap_to_fold">Tap to fold</string>
+	<string name="gap_measured_against">Measured against your album's tagged release, %1$s (%2$d tracks).</string>
+	<plurals name="gap_for_missing_only">
+		<item quantity="one">For the %1$d missing track only</item>
+		<item quantity="other">For the %1$d missing tracks only</item>
+	</plurals>
+	<plurals name="gap_sources_best_first">
+		<item quantity="one">%1$d source</item>
+		<item quantity="other">%1$d sources, best first</item>
+	</plurals>
+	<plurals name="gap_request_tracks">
+		<item quantity="one">Request %1$d track</item>
+		<item quantity="other">Request %1$d tracks</item>
+	</plurals>
+	<string name="gap_allow_mp3_request">Allow MP3 for this request</string>
+	<plurals name="gap_getting">
+		<item quantity="one">Getting %1$d track</item>
+		<item quantity="other">Getting %1$d tracks</item>
+	</plurals>
+	<string name="gap_from">from %1$s</string>
+	<plurals name="gap_added">
+		<item quantity="one">%1$d track added</item>
+		<item quantity="other">%1$d tracks added</item>
+	</plurals>
+	<string name="gap_searching">Searching for the missing tracks…</string>
+	<string name="gap_back">Back to the missing tracks</string>
+	<string name="release_type_album">Album</string>
+	<string name="release_type_ep">EP</string>
+	<string name="release_type_single">Single</string>
+	<string name="release_type_compilation">Compilation</string>
+	<string name="release_type_soundtrack">Soundtrack</string>
+	<string name="release_type_live">Live</string>
+	<string name="release_type_remix">Remix</string>
+	<string name="release_type_demo">Demo</string>
+	<plurals name="count_releases">
+		<item quantity="one">%1$d release</item>
+		<item quantity="other">%1$d releases</item>
+	</plurals>
+	<string name="discography_chip">%1$s %2$d</string>
+	<string name="discography_ownership">Ownership: %1$s</string>
+	<string name="discography_matched_owned">%1$d owned</string>
+	<string name="discography_matched_partly">%1$d partly owned</string>
+	<string name="discography_matched_missing">%1$d missing</string>
+	<string name="discography_of_total">of %1$d</string>
+	<string name="discography_none_match">Nothing here matches.</string>
+	<string name="discography_sort_most_played">Most played</string>
+	<string name="discography_sort_newest">Newest</string>
+	<string name="discography_sort_oldest">Oldest</string>
+	<string name="discography_sort_title">A to Z</string>
+	<string name="title_popular_releases">Popular releases</string>
+	<string name="action_see_discography">See discography</string>
+	<string name="action_see_more">See more</string>
 </resources>

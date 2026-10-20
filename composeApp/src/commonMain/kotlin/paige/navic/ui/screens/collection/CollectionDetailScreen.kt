@@ -1,13 +1,12 @@
 package paige.navic.ui.screens.collection
 
-import paige.navic.ui.components.sheets.GapFillSheet
-import paige.navic.ui.components.common.SegmentedListItem
-import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
-import paige.navic.icons.outlined.Incomplete
+import paige.navic.ui.screens.collection.components.GapBox
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalUriHandler
+import kotlinx.coroutines.delay
+import kotlin.time.Clock
 import paige.navic.ui.util.Fold
-import navic.composeapp.generated.resources.gap_banner_action
-import navic.composeapp.generated.resources.gap_tracks_missing_banner
-import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -32,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -104,14 +102,15 @@ import paige.navic.ui.util.coverAmbientGradient
 import paige.navic.ui.util.onAmbientColor
 import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.util.withoutTop
-import kotlin.time.Clock
 import kotlin.time.Duration
 import paige.navic.ui.components.snackbars.ErrorSnackBar
 
 @Composable
 fun CollectionDetailScreen(
 	collectionId: String,
-	tab: String
+	tab: String,
+	/** Opened from an album sheet's "Fill gaps": the gaps box starts unfolded. */
+	openGaps: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 
@@ -142,7 +141,7 @@ fun CollectionDetailScreen(
 	val similar by viewModel.similar.collectAsStateWithLifecycle()
 	val aboutOpen by viewModel.aboutOpen.collectAsStateWithLifecycle()
 	val albumGap by viewModel.gap.collectAsStateWithLifecycle()
-	val gapOpen by viewModel.gapOpen.collectAsStateWithLifecycle()
+	val gapBox by viewModel.gapBox.collectAsStateWithLifecycle()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
 	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
@@ -262,6 +261,50 @@ fun CollectionDetailScreen(
 	// hub offers the route. The sheet is not composed here: it lives above the pages
 	// (`AlbumMatchHost`), because this page is left when a retag gives the album a new id.
 	val lbBot = koinInject<LbBotManager>()
+	// The gaps box's inputs: lb-bot's record for the group, this device's ledger row for it, and a
+	// clock while a result row is showing (it folds away after GAP_RESULT_HOLD_MS).
+	val gapRecords by lbBot.gaps.collectAsState()
+	val ledger by lbBot.ledger.collectAsState()
+	val canFixAlbumMatch by lbBot.albumOverridesSupported.collectAsState()
+	val lbWebUrl by lbBot.webUrl.collectAsState()
+	val uriHandler = LocalUriHandler.current
+	val gapRecord = albumGap?.groupId?.let { gapRecords[it] }
+	val gapFill = albumGap?.groupId?.ifBlank { null }?.let { id -> ledger.firstOrNull { it.key == id } }
+	var gapClock by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
+	LaunchedEffect(gapFill?.finishedAt) {
+		val finished = gapFill?.finishedAt ?: return@LaunchedEffect
+		val left = finished + GAP_RESULT_HOLD_MS - Clock.System.now().toEpochMilliseconds()
+		gapClock = Clock.System.now().toEpochMilliseconds()
+		if (left > 0) {
+			delay(left)
+			gapClock = Clock.System.now().toEpochMilliseconds()
+		}
+	}
+	val gapStage = gapStage(
+		GapInput(
+			gap = gapRecord,
+			mirroredMissing = albumGap?.missing ?: 0,
+			fill = gapFill,
+			view = gapBox.view,
+			committed = gapBox.committed,
+			searchAsked = gapBox.searchAsked,
+			now = gapClock
+		)
+	)
+	// A safe source is chosen for the user when the sources land (recommended, the artist found in
+	// the folder, the folder read as this album); anything less waits for a tap.
+	val preselect = (gapStage as? GapStage.Choosing)?.preselected
+	LaunchedEffect(preselect) {
+		if (preselect != null && gapBox.selected == null) viewModel.selectGapSource(preselect, fetchListing = false)
+	}
+	// Opened to fill its gaps: unfold once, on the first visit to this entry.
+	var gapsOpened by rememberSaveable { mutableStateOf(false) }
+	LaunchedEffect(openGaps) {
+		if (openGaps && !gapsOpened) {
+			gapsOpened = true
+			viewModel.setGapView(GapView.TRACKS)
+		}
+	}
 	val fixAlbumMatch: (() -> Unit)? = if (collection is DomainAlbum) {
 		{
 			lbBot.openAlbumMatch(
@@ -424,11 +467,44 @@ fun CollectionDetailScreen(
 					)
 				}
 
-				// The gaps lb-bot's index records for this album (P4), one tap from the album
-				// itself rather than only from its artist's page. Rolls in when the mirror answers.
+				// The gaps box (P4 round 2): the whole fill-gaps flow in place, from "3 tracks missing"
+				// to the result row, without leaving the album. Rolls in when the mirror answers and
+				// folds away once the album is whole.
 				item(key = "gap") {
-					Fold(visible = albumGap != null && lbBot.supportsGapFilling) {
-						albumGap?.let { gap -> AlbumGapBanner(gap.missing, onOpen = viewModel::openGap) }
+					Fold(visible = gapStage != GapStage.Absent && lbBot.supportsGapFilling) {
+						GapBox(
+							stage = gapStage,
+							ui = gapBox,
+							gap = gapRecord,
+							onWrongEdition = if (canFixAlbumMatch && collection is DomainAlbum) {
+								{
+									lbBot.openAlbumMatch(
+										AlbumMatchTarget(
+											albumId = gapRecord?.albumId?.ifBlank { null } ?: collection.id,
+											title = gapRecord?.album?.ifBlank { null } ?: collection.name.orEmpty(),
+											artistName = gapRecord?.artist?.ifBlank { null } ?: collection.artistName.orEmpty(),
+											artistId = collection.artistId,
+											coverArtId = collection.coverArtId
+										)
+									)
+								}
+							} else null,
+							onOpenInLbBot = albumGap?.groupId?.takeIf { lbWebUrl.isNotBlank() && it.isNotBlank() }?.let { groupId ->
+								{ runCatching { uriHandler.openUri("$lbWebUrl/#/gaps/$groupId") } }
+							},
+							onToggle = viewModel::toggleGap,
+							onFillGaps = viewModel::openGapSources,
+							onBack = { viewModel.setGapView(GapView.TRACKS) },
+							onClose = { viewModel.setGapView(GapView.FOLDED) },
+							onSelect = { viewModel.selectGapSource(it, fetchListing = true) },
+							onRequest = viewModel::requestGap,
+							onAuto = viewModel::autoGap,
+							onSearchAgain = viewModel::searchGap,
+							onAllowMp3 = viewModel::allowMp3ForGap,
+							onCancel = viewModel::cancelGap,
+							onRecheck = viewModel::recheckGap,
+							onDismiss = viewModel::dismissGapFill
+						)
 					}
 				}
 
@@ -650,29 +726,6 @@ fun CollectionDetailScreen(
 
 	}
 
-	val gapToOpen = albumGap
-	if (gapOpen && gapToOpen != null && collection is DomainAlbum) {
-		GapFillSheet(
-			groupId = gapToOpen.groupId,
-			albumTitle = collection.name.orEmpty(),
-			coverArtId = collection.coverArtId,
-			onDismissRequest = { viewModel.dismissGap() },
-			// As the artist page's: "Wrong edition?" opens Fix album match for this album.
-			onWrongEdition = { gap ->
-				lbBot.openAlbumMatch(
-					AlbumMatchTarget(
-						albumId = gap.albumId.ifBlank { collection.id },
-						title = gap.album.ifBlank { collection.name.orEmpty() },
-						artistName = gap.artist.ifBlank { collection.artistName.orEmpty() },
-						artistId = collection.artistId,
-						coverArtId = collection.coverArtId
-					)
-				)
-				viewModel.dismissGap()
-			}
-		)
-	}
-
 	if (aboutOpen) {
 		AboutSheet(
 			title = collection?.name ?: "",
@@ -706,30 +759,4 @@ fun CollectionDetailScreen(
 	}
 }
 
-/** "N tracks missing · Fill gaps": a row under the heading buttons that opens the gap sheet. */
-@Composable
-private fun AlbumGapBanner(missing: Int, onOpen: () -> Unit) {
-	SegmentedListItem(
-		modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-		onClick = onOpen,
-		shapes = segmentedShapes(0, 1),
-		// The page's tonal role, so the row sits in the washed page like its buttons do.
-		colors = paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedColors(
-			containerColor = MaterialTheme.colorScheme.secondaryContainer,
-			contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-			leadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer
-		),
-		leadingContent = {
-			Icon(Icons.Outlined.Incomplete, contentDescription = null)
-		},
-		trailingContent = {
-			Text(
-				stringResource(Res.string.gap_banner_action),
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.primary
-			)
-		}
-	) {
-		Text(pluralStringResource(Res.plurals.gap_tracks_missing_banner, missing, missing))
-	}
-}
+

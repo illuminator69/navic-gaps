@@ -108,6 +108,7 @@ import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
+import paige.navic.ui.screens.artist.ArtistDiscographyScreen
 import paige.navic.ui.screens.external.ExternalAlbumScreen
 import paige.navic.ui.screens.external.ExternalArtistScreen
 import paige.navic.ui.screens.browse.BrowseFeedScreen
@@ -603,7 +604,7 @@ private fun entryProvider(
 			PlaybackSpeedScreen()
 		}
 		entry<Screen.CollectionDetail>(metadata = detailPane("root")) { key ->
-			CollectionDetailScreen(key.collectionId, key.tab)
+			CollectionDetailScreen(key.collectionId, key.tab, key.openGaps)
 		}
 		entry<Screen.SongDetailScreen>(metadata = detailPane("root")) { key ->
 			SongDetailScreen(key.songId, key.coverArtId)
@@ -635,6 +636,11 @@ private fun entryProvider(
 		}
 		entry<Screen.ArtistDetail> { key ->
 			ArtistDetailScreen(key.artist)
+		}
+
+		// P4 round 2: the whole discography behind chips; washed like the artist's Songs page.
+		entry<Screen.ArtistDiscography> { key ->
+			Washed { ArtistDiscographyScreen(key.artist) }
 		}
 
 		entry<Screen.Statistics>(metadata = navtabMetadata) { key ->

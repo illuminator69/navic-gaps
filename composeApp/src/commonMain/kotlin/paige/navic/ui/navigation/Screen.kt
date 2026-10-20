@@ -123,7 +123,9 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class CollectionDetail(
 		val collectionId: String,
-		val tab: String
+		val tab: String,
+		/** Opened to fill its gaps (the album sheet's "Fill gaps"): the gaps box starts unfolded. */
+		val openGaps: Boolean = false
 	) : Screen
 
 	@Immutable
@@ -185,6 +187,14 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen
+
+	/**
+	 * An owned artist's whole discography behind chips (P4 round 2): the artist page shows a few
+	 * releases and "See discography" opens this.
+	 */
+	@Immutable
+	@Serializable
+	data class ArtistDiscography(val artist: String) : Screen
 
 	@Immutable
 	@Serializable
