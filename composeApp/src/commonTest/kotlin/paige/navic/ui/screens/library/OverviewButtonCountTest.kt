@@ -36,8 +36,10 @@ class OverviewButtonCountTest {
 		// them and nothing the old bar reached may become unreachable. Nine primaries at most: the
 		// count rounds up to ten, so one filler (Recently added) closes the last row, and Random is
 		// still there.
-		assertEquals(9, OVERVIEW_PRIMARY_MAX)
-		assertEquals(10, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
+		// P3: Discover and Fresh left for Search's browse cards and Radios joined (unreachable since
+		// the tab editor went): eight at most, which fills four rows with no filler.
+		assertEquals(8, OVERVIEW_PRIMARY_MAX)
+		assertEquals(8, overviewButtonCount(OVERVIEW_PRIMARY_MAX))
 		// A tenth would fill the row exactly; an eleventh adds a row with one filler rather than
 		// push Random off.
 		assertEquals(10, overviewButtonCount(10))

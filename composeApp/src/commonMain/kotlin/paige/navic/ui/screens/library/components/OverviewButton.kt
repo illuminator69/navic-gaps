@@ -34,22 +34,19 @@ import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
-import navic.composeapp.generated.resources.title_discover
+import navic.composeapp.generated.resources.title_radios
 import navic.composeapp.generated.resources.title_discover_mixes
 import navic.composeapp.generated.resources.title_downloads
-import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_library_matches
 import navic.composeapp.generated.resources.title_playlists
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
-import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.icons.outlined.Equalizer
-import paige.navic.icons.outlined.Sparkle
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.outlined.Album
@@ -58,7 +55,7 @@ import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.PlaylistPlay
-import paige.navic.icons.outlined.Explore
+import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.navigation.Screen
@@ -156,26 +153,24 @@ internal fun libraryMatchesOffered(lbConfigured: Boolean, overridesSupported: Bo
 	lbConfigured
 
 /**
- * The longest the primary list gets: Discover, Mixed for You, Fresh, Library Matches, Downloads,
- * Random, and (P1) Albums, Playlists and Artists. [overviewButtonCount] never shows fewer than
- * there are, so the home page has at most this rounded up to even: ten, one filler closing the
- * last row. (My Listening was a seventh until I-039 made it Stats', which the home reaches by its
+ * The longest the primary list gets: Mixed for You, Library Matches, Downloads, Random, (P1)
+ * Albums, Playlists and Artists, and (P3) Radios. Discover and Fresh left for Search's browse cards
+ * (P3). [overviewButtonCount] never shows fewer than there are, so the home page has at most this
+ * rounded up to even: eight, no filler. (My Listening was a seventh until I-039 made it Stats', which the home reaches by its
  * own card at the foot of the page.)
  *
  * Albums, Playlists and Artists are here because the bottom bar no longer holds them (P1: it is
  * Home, Search, Library, New). They were its default tabs, and nothing the old bar reached may
  * become unreachable. Songs, Genres and Radios were hidden by default and are not added.
  */
-internal const val OVERVIEW_PRIMARY_MAX = 9
+internal const val OVERVIEW_PRIMARY_MAX = 8
 
 /**
- * The home page's buttons: at least four, and up to ten where more of the fork's pages are offered.
+ * The home page's buttons: at least six, and up to eight where more of the fork's pages are offered.
  *
- * Discover, Mixed for You and Fresh live here instead of on the bottom bar. They
- * are gated on exactly what `rememberVisibleNavigationTabs()` gated the matching
- * tabs on (it is unused since P1, but its rules are these) — lb-bot for Fresh, lb-bot **or**
- * AudioMuse for Discover (it also carries mood search and the rediscovery set), and a
- * *configured* hub for Mixed for You.
+ * Mixed for You lives here instead of on the bottom bar, gated on a *configured* hub, as
+ * `rememberVisibleNavigationTabs()` gated its tab (unused since P1, but its rules are these).
+ * Discover and Fresh were here too until P3 moved them to Search's browse cards.
  * Configured, not connected: this runs on every mount of the home page, and gating
  * on a value that flips during a round trip is the bug that made the Fresh tab
  * blink out.
@@ -193,12 +188,9 @@ internal const val OVERVIEW_PRIMARY_MAX = 9
 @Composable
 fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	val lbBot = koinInject<LbBotManager>()
-	val lbBotAvailable by lbBot.available.collectAsState()
 	LaunchedEffect(Unit) { lbBot.ensureAvailability() }
 
-	val audioMuse = koinInject<AudioMuseManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
-	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
 	val hubConfigured = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
 	// Library Matches (I-026) is offered wherever the lb-bot layer is on, as the settings
 	// section it replaced was (`libraryMatchesOffered`). NOT on the override routes being
@@ -208,37 +200,14 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 	val overridesSupported by lbBot.artistOverridesSupported.collectAsState()
 	val matches = libraryMatchesOffered(lbBot.isConfigured, overridesSupported)
 
-	return remember(lbBotAvailable, discoverHasSources, hubConfigured, matches) {
+	return remember(hubConfigured, matches) {
 		val primary = buildList {
-			if (discoverHasSources) {
-				add(
-					OverviewButtonSpec(
-						Icons.Outlined.Explore,
-						Res.string.title_discover,
-						// `nested = true` is required: these are PUSHED onto the
-						// library's own stack rather than swapped in as a root tab,
-						// and without it the screen renders `RootTopBar` with no
-						// back arrow. It is the same key Discover's own "See all"
-						// rows already use.
-						Screen.Discover(nested = true)
-					)
-				)
-			}
 			if (hubConfigured) {
 				add(
 					OverviewButtonSpec(
 						Icons.Outlined.Equalizer,
 						Res.string.title_discover_mixes,
 						Screen.MixList(nested = true)
-					)
-				)
-			}
-			if (lbBotAvailable) {
-				add(
-					OverviewButtonSpec(
-						Icons.Outlined.Sparkle,
-						Res.string.title_fresh,
-						Screen.Fresh(nested = true)
 					)
 				)
 			}
@@ -291,6 +260,15 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 					Screen.ArtistList(nested = true)
 				)
 			)
+			// P3: internet radio had no way in once P1 removed the tab editor (its hidden tab was the
+			// only route). Plan 5 turns these buttons into Library chips.
+			add(
+				OverviewButtonSpec(
+					Icons.Outlined.Radio,
+					Res.string.title_radios,
+					Screen.RadioList(nested = true)
+				)
+			)
 		}
 		val filler = listOf(
 			OverviewButtonSpec(
@@ -309,7 +287,7 @@ fun rememberOverviewButtons(): List<OverviewButtonSpec> {
 				Screen.AlbumList(true, DomainAlbumListType.Frequent)
 			)
 		)
-		// `primary` is 5..9 long and `filler` is 3, so there is always enough to fill the count.
+		// `primary` is 6..8 long and `filler` is 3, so there is always enough to fill the count.
 		(primary + filler).take(overviewButtonCount(primary.size))
 	}
 }
