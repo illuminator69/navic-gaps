@@ -99,7 +99,46 @@ data class StationCatalogue(
 	}
 }
 
-/** What a station is seeded from. `track` and `tracks` carry ids (1, or 1–5); `yourMix` none. */
+/**
+ * A count's answer (`POST /sonic/station/count`, P5): how many songs a seed set could draw from at
+ * a character's ceiling, before the 14-day filter and the spacing rule. [Counted.partial] says a
+ * list failed and the number may be low. [SeedUnknown] is AudioMuse (or Navidrome) holding none of
+ * the seeds; [Unavailable] no engine, or a hub too old to count; [Failed] no answer.
+ */
+sealed interface StationCountAnswer {
+	data class Counted(val count: Int, val partial: Boolean) : StationCountAnswer
+	data object SeedUnknown : StationCountAnswer
+	data object Unavailable : StationCountAnswer
+	data object Failed : StationCountAnswer
+}
+
+@Serializable
+internal data class StationCountBody(val seed: StationSeed, val character: String)
+
+/**
+ * Read a count's answer by its status and body. 404 with `seed_unknown` is an answer; any other 404
+ * (an older hub that has no such route), a 503 and a `fallback` body are [StationCountAnswer.Unavailable];
+ * a 200 that is not a count, another status, or no answer at all is [StationCountAnswer.Failed].
+ */
+fun parseStationCount(status: Int?, body: String?): StationCountAnswer {
+	if (status == null) return StationCountAnswer.Failed
+	val obj = body?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonObject
+	fun str(key: String) = (obj?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
+	return when {
+		status == 200 -> {
+			val count = (obj?.get("count") as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
+				?: return StationCountAnswer.Failed
+			val partial = (obj["partial"] as? JsonPrimitive)?.content == "true"
+			StationCountAnswer.Counted(count.coerceAtLeast(0), partial)
+		}
+		status == 404 && str("code") == "seed_unknown" -> StationCountAnswer.SeedUnknown
+		status == 404 || status == 503 || (obj?.get("fallback") as? JsonPrimitive)?.content == "true" ->
+			StationCountAnswer.Unavailable
+		else -> StationCountAnswer.Failed
+	}
+}
+
+/** What a station is seeded from. `track` and `tracks` carry ids (1, or 1–12); `yourMix` none. */
 @Serializable
 data class StationSeed(
 	val kind: String,

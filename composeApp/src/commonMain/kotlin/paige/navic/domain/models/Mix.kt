@@ -57,6 +57,14 @@ data class Mix(
 	val character: String = "",
 	val count: Int = 50,
 	val coverArtId: String = "",
+	/**
+	 * A custom radio's artists (P5, PROTOCOL §17.1), in the order they were picked; [seedId] is the
+	 * first of them, so a client that predates this field plays that artist's radio. Empty on every
+	 * other recipe, and on an `artist` mix of one artist made before custom radios.
+	 */
+	val seedIds: List<String> = emptyList(),
+	/** A custom radio's Artist variety (`low|medium|high`); "" = the character's own spacing. */
+	val variety: String = "",
 	val createdAt: Long = 0L,
 	val updatedAt: Long = 0L,
 	val lastPlayedAt: Long = 0L
@@ -112,6 +120,16 @@ object MixKind {
  * is the name (what both clients write since B-150), then `seedName`, for an older
  * Feishin recipe whose `seedId` was the genre's Navidrome id. A genre is drawn by name.
  */
+/** Whether [mix] is a custom radio: an `artist` mix of more than one artist (P5). */
+fun isCustomRadio(mix: Mix): Boolean = mix.kind == MixKind.ARTIST && mix.seedIds.size > 1
+
+/**
+ * The artists an `artist` mix plays: its [Mix.seedIds], else (one made before custom radios, or
+ * by a client that does not write them) its [Mix.seedId].
+ */
+fun mixArtistIds(mix: Mix): List<String> =
+	mix.seedIds.filter { it.isNotBlank() }.distinct().ifEmpty { listOfNotNull(mix.seedId.ifBlank { null }) }
+
 fun genreSeedNames(mix: Mix): List<String> =
 	listOf(mix.seedId, mix.seedName).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
