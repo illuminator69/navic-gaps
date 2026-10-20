@@ -116,7 +116,8 @@ internal fun PasteLinkSheet(
 						Screen.ExternalAlbum(
 							rgid = answer.rgid,
 							artistName = answer.artist,
-							title = answer.title
+							title = answer.title,
+							fromLink = true
 						)
 					} else {
 						Screen.ExternalArtist(answer.mbid, answer.artist)

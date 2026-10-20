@@ -252,7 +252,9 @@ sealed interface Screen : NavKey {
 		 * page, which for an owned artist is the worse of the two answers — and
 		 * the tile this page was reached from already knew better.
 		 */
-		val artistId: String = ""
+		val artistId: String = "",
+		/** Opened from a pasted link (P4): the heading says "Found from your link". */
+		val fromLink: Boolean = false
 	) : Screen
 
 	// settings

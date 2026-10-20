@@ -722,18 +722,4 @@ class ExternalAlbumViewModel(
 			ownedAlbumId = added?.navidromeAlbumIds?.firstOrNull { it.isNotBlank() }
 		)
 	}
-
-	/**
-	 * The index row if there is one, else a synthetic `missing` row.
-	 *
-	 * The picker only reads `rgid`, `title` and `status` off it, and everything real
-	 * about the release comes from lb-bot inside the sheet — so a release the index
-	 * has never heard of is still fully actionable rather than a dead page.
-	 */
-	fun releaseForPicker(fallbackTitle: String): LbRelease =
-		_state.value.indexed ?: LbRelease(
-			rgid = rgid,
-			title = _state.value.detail?.title?.ifBlank { null } ?: fallbackTitle,
-			status = "missing"
-		)
 }

@@ -56,12 +56,14 @@ fun AboutSheet(
 	 * passes an ambient; this one did not, so it opened in the flat M3 container
 	 * colour on top of a page fully washed in the cover's palette.
 	 */
-	coverArtId: String? = null
+	coverArtId: String? = null,
+	/** For a release with no Navidrome cover (an unowned album, P4): its Cover Art Archive front. */
+	paletteUrl: String? = null
 ) {
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
 		sheetTitle = title,
-		ambient = rememberCoverAmbient(coverArtId)
+		ambient = rememberCoverAmbient(coverArtId, paletteUrl = paletteUrl)
 	) {
 		// A fixed header above the text (B-121): a long article makes this sheet taller than the
 		// screen, and with the title inside the scroll there was nowhere to take hold of it.

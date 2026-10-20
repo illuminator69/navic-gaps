@@ -367,7 +367,8 @@ fun App() {
 				Screen.ExternalAlbum(
 					rgid = answer.rgid,
 					artistName = answer.artist,
-					title = answer.title
+					title = answer.title,
+					fromLink = true
 				)
 			} else {
 				Screen.ExternalArtist(answer.mbid, answer.artist)
@@ -648,7 +649,7 @@ private fun entryProvider(
 		}
 
 		entry<Screen.ExternalAlbum> { key ->
-			ExternalAlbumScreen(key.rgid, key.artistMbid, key.artistName, key.title, key.artistId)
+			ExternalAlbumScreen(key.rgid, key.artistMbid, key.artistName, key.title, key.artistId, key.fromLink)
 		}
 
 		// settings

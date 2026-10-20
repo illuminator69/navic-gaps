@@ -50,7 +50,6 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
 import paige.navic.ui.components.layouts.NestedTopBar
-import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.DiscographyShelf
 import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
@@ -71,7 +70,6 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 	)
 	val backStack = LocalNavStack.current
 	val discography by viewModel.discography.collectAsStateWithLifecycle()
-	val selectedRelease by viewModel.selectedRelease.collectAsStateWithLifecycle()
 	val artistName by viewModel.name.collectAsStateWithLifecycle()
 	val loading by viewModel.loading.collectAsStateWithLifecycle()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -180,12 +178,5 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 				)
 			}
 		}
-	}
-
-	selectedRelease?.let { release ->
-		MissingAlbumSheet(
-			release = release,
-			onDismissRequest = { viewModel.selectRelease(null) }
-		)
 	}
 }

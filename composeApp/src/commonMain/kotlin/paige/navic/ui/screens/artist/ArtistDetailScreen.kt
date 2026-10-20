@@ -107,7 +107,6 @@ import paige.navic.ui.util.rememberCoverColorScheme
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.components.sheets.GapFillSheet
 import paige.navic.ui.components.sheets.MbidMatchSheet
-import paige.navic.ui.components.sheets.MissingAlbumSheet
 import paige.navic.ui.screens.artist.components.DiscographyShelf
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
@@ -161,8 +160,6 @@ fun ArtistDetailScreen(
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 	val discography by viewModel.discography.collectAsStateWithLifecycle()
-	val selectedRelease by viewModel.selectedRelease.collectAsStateWithLifecycle()
-	val selectedReleaseReadOnly by viewModel.selectedReleaseReadOnly.collectAsStateWithLifecycle()
 	val selectedGap by viewModel.selectedGap.collectAsStateWithLifecycle()
 	// Which MusicBrainz artist lb-bot is asked about, and the picker that changes it (I-019).
 	val artistMbid by viewModel.artistMbid.collectAsStateWithLifecycle()
@@ -196,6 +193,20 @@ fun ArtistDetailScreen(
 	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
 	val lbBot = koinInject<LbBotManager>()
 	val radioManager = koinInject<paige.navic.domain.manager.RadioManager>()
+
+	// A release the library does not hold (or holds only in lb-bot's index so far) opens its own
+	// page, where the request box finds, chooses and requests it (P4). Its artist is this one.
+	val openRelease: (paige.navic.domain.manager.LbRelease) -> Unit = { release ->
+		backStack.add(
+			Screen.ExternalAlbum(
+				rgid = release.rgid,
+				artistMbid = artistMbid.effective,
+				artistName = artistState.data?.artist?.name.orEmpty(),
+				title = release.title,
+				artistId = artistId
+			)
+		)
+	}
 
 	// "Merge into one name" (I-023). A merge that lands rewrites one spelling's files to the
 	// other's name, and Navidrome keys artists by name: the rewritten spelling's id is dead.
@@ -566,17 +577,23 @@ fun ArtistDetailScreen(
 										// caught up, else say what is happening — a
 										// tile you can see and can't touch reads as
 										// broken, which is what this used to be.
+										// lb-bot has placed the files and Navidrome hasn't
+										// indexed them yet: open the album if Room has
+										// caught up, else the release's page, whose box
+										// says what is happening.
 										entry.pendingSync -> {
 											val albumId = viewModel.openPendingSync(entry)
 											if (albumId != null) {
 												backStack.add(
 													Screen.CollectionDetail(albumId, "artist")
 												)
+											} else {
+												entry.release?.let { openRelease(it) }
 											}
 										}
-										// Nothing to open: only a release to fetch.
-										entry.release != null ->
-											viewModel.selectRelease(entry.release)
+										// Nothing to open in the library: the release's own
+										// page, where it is found, chosen and requested (P4).
+										entry.release != null -> openRelease(entry.release)
 									}
 								},
 								onSelectEntry = { entry ->
@@ -700,14 +717,6 @@ fun ArtistDetailScreen(
 					)
 				)
 			}
-		)
-	}
-
-	selectedRelease?.let { release ->
-		MissingAlbumSheet(
-			release = release,
-			onDismissRequest = { viewModel.selectRelease(null) },
-			readOnly = selectedReleaseReadOnly
 		)
 	}
 

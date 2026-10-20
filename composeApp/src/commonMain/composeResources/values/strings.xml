@@ -1339,4 +1339,13 @@
 	<string name="request_step_placing">Placing in your library</string>
 	<string name="request_step_in_library">In your library</string>
 	<string name="request_step_count">%1$d of %2$d</string>
+	<string name="request_this_album">Request this album</string>
+	<string name="request_starting">Sending the request…</string>
+	<string name="request_search_failed">Couldn't search for sources</string>
+	<string name="request_cancel">Cancel request</string>
+	<string name="request_retry_from">From %1$s</string>
+	<string name="request_leave_any_time">Leave this page any time. Progress also shows in Downloads.</string>
+	<string name="request_refused">lb-bot would not take that request.</string>
+	<string name="request_found_from_link">Found from your link</string>
+	<string name="request_on_wishlist">On your wishlist</string>
 </resources>

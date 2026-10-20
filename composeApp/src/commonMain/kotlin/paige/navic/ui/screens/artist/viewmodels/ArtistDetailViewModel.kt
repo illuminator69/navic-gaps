@@ -247,15 +247,6 @@ class ArtistDetailViewModel(
 	private val _discography = MutableStateFlow(DiscographyUi())
 	val discography = _discography.asStateFlow()
 
-	/** The tile whose sheet is open, if it's a release the library doesn't have. */
-	private val _selectedRelease = MutableStateFlow<LbRelease?>(null)
-	val selectedRelease = _selectedRelease.asStateFlow()
-
-	/** The release sheet is open purely to report on a fill, with no download
-	 *  actions — see [openPendingSync]. */
-	private val _selectedReleaseReadOnly = MutableStateFlow(false)
-	val selectedReleaseReadOnly = _selectedReleaseReadOnly.asStateFlow()
-
 	/** The tile whose sheet is open, if it's a partly-owned album with a gap. */
 	private val _selectedGap = MutableStateFlow<DiscographyEntry?>(null)
 	val selectedGap = _selectedGap.asStateFlow()
@@ -1162,20 +1153,16 @@ class ArtistDetailViewModel(
 			?: entry.release?.primaryType?.takeIf { it.isNotBlank() }
 			?: "album"
 
-	fun selectRelease(release: LbRelease?) {
-		_selectedRelease.value = release
-		if (release == null) _selectedReleaseReadOnly.value = false
-	}
-
 	/**
 	 * Open a `pendingSync` tile — lb-bot has placed the files and Navidrome has not
-	 * indexed them yet, so there is no album row to open but there is a fill to
+	 * indexed them yet, so there may be no album row to open but there is a fill to
 	 * report on.
 	 *
-	 * Returns the Navidrome album id to open instead, when one has appeared (lb-bot
-	 * wrote it into the index row itself, and Room may have caught up since the
-	 * shelf was built). Otherwise it opens the sheet read-only. Before this the tile
-	 * was simply inert — visible, and not tappable, which reads as broken.
+	 * Returns the Navidrome album id to open, when one has appeared (lb-bot wrote it
+	 * into the index row itself, and Room may have caught up since the shelf was
+	 * built). Null sends the caller to the release's own page, whose request box says
+	 * "In your library, syncing" (P4). Before either the tile was simply inert —
+	 * visible, and not tappable, which reads as broken.
 	 */
 	fun openPendingSync(entry: DiscographyEntry): String? {
 		// Only an id Room actually has: lb-bot writes these into its index row, and
@@ -1192,11 +1179,7 @@ class ArtistDetailViewModel(
 		owned.addAll(resolvedStrayAlbumIds)
 		val known = entry.release?.navidromeAlbumIds.orEmpty()
 			.firstOrNull { it.isNotBlank() && it in owned }
-		if (known != null) return known
-		val release = entry.release ?: return null
-		_selectedReleaseReadOnly.value = true
-		_selectedRelease.value = release
-		return null
+		return known
 	}
 
 	fun selectGap(entry: DiscographyEntry?) {

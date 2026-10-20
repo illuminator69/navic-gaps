@@ -107,7 +107,7 @@ private const val COMMIT_RELEASE_MS = 30_000L
  * The gaps in an album the library already has: which tracks are absent, and what
  * to do about them.
  *
- * Distinct from [MissingAlbumSheet], which acquires a whole release. This drives
+ * Distinct from the album page's request box (`RequestBox`), which acquires a whole release. This drives
  * lb-bot's Fill-gaps pipeline against one review group — the `group_id` that came
  * on the `incomplete` discography row, which is live because lb-bot's discography
  * scan builds the review group as it goes.

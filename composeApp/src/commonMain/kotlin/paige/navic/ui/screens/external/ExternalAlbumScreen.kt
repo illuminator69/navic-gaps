@@ -75,7 +75,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_find_sources
+import navic.composeapp.generated.resources.request_found_from_link
+import navic.composeapp.generated.resources.request_on_wishlist
+import navic.composeapp.generated.resources.title_wishlist
 import navic.composeapp.generated.resources.action_preview_track
 import navic.composeapp.generated.resources.preview_none_found
 import navic.composeapp.generated.resources.action_view_artist
@@ -91,9 +93,19 @@ import paige.navic.ui.components.common.RemoteCoverArt
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
-import paige.navic.ui.components.sheets.MissingAlbumSheet
+import paige.navic.ui.components.sheets.AboutSheet
+import paige.navic.ui.components.common.Pill
+import paige.navic.ui.components.common.PillTone
+import paige.navic.ui.components.common.FillText
+import paige.navic.ui.components.common.StatePill
+import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
+import paige.navic.ui.screens.external.components.RequestBox
+import paige.navic.icons.outlined.Favorite
+import paige.navic.icons.filled.Favorite
+import androidx.compose.runtime.collectAsState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.external.viewmodels.ArtistTarget
+import paige.navic.ui.screens.external.Support
 import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.di.ForceSystemBars
@@ -105,12 +117,13 @@ import paige.navic.ui.util.rememberCoverColorScheme
 /**
  * A release the library does not have: its tracklist, and the way to get it.
  *
- * The download path is the *existing* two-step picker ([MissingAlbumSheet]) rather
- * than a second one built here — that sheet has already paid for the traps
- * (coverage measured against the canonical tracklist and not a file count, the
- * "is this even the right album" verdict, sending the resolved edition so lb-bot
- * doesn't overrule the choice and doesn't re-enter its MusicBrainz cooldown), and
- * a duplicate would drift off all of them.
+ * The way to get it is the request box under the heading ([RequestBox], P4): find sources,
+ * choose, request, watch and recover without leaving the page. It took over the missing-album
+ * sheet's state and its traps (coverage measured against the canonical tracklist and not a file
+ * count, the "is this even the right album" verdict, sending the resolved edition so lb-bot
+ * doesn't overrule the choice and doesn't re-enter its MusicBrainz cooldown); they live in
+ * `ExternalAlbumViewModel` now. Under the box, lb-bot's About for the release-group when it has
+ * one.
  *
  * `presenceKnown` comes back false with no Navidrome album ids, which is the normal
  * case here. Every track is missing; that is not an error, and it must not render
@@ -122,7 +135,9 @@ fun ExternalAlbumScreen(
 	artistMbid: String,
 	artistName: String,
 	title: String,
-	artistId: String = ""
+	artistId: String = "",
+	/** Reached from a pasted link: the heading says so. */
+	fromLink: Boolean = false
 ) {
 	val viewModel = koinViewModel<ExternalAlbumViewModel>(
 		key = rgid,
@@ -133,7 +148,9 @@ fun ExternalAlbumScreen(
 	val previewsAvailable by viewModel.previewsAvailable.collectAsStateWithLifecycle()
 	val previewBusy by viewModel.previewBusy.collectAsStateWithLifecycle()
 	val previewMissing by viewModel.previewMissing.collectAsStateWithLifecycle()
-	var pickerOpen by remember(rgid) { mutableStateOf(false) }
+	val lbBot = koinInject<LbBotManager>()
+	// The fills this device knows of; the box reads its own row out of them by release-group.
+	val ledger by lbBot.ledger.collectAsState()
 
 	// The library turns out to hold this release-group after all — only lb-bot's
 	// index knows which Navidrome album that is, so this can only be answered once
@@ -250,15 +267,48 @@ fun ExternalAlbumScreen(
 					rgid = rgid,
 					title = heading,
 					artist = artist,
+					fromLink = fromLink,
 					onArtist = openArtist
 				)
 			}
 			item(key = "buttons") {
 				ExternalAlbumButtons(
 					onViewArtist = openArtist,
-					onFindSources = { pickerOpen = true }
+					// Album-level, on the routes that exist (lb-bot's wishlist is per
+					// release-group); only once the page knows where this album stands.
+					wishlisted = state.request.wishlisted,
+					onToggleWishlist = viewModel::toggleWishlist
 				)
 			}
+			item(key = "request") {
+				RequestBox(
+					support = when {
+						!lbBot.isConfigured -> Support.ABSENT
+						!lbBot.supportsSourcePicker -> Support.NEEDS_HUB_RESTART
+						else -> Support.YES
+					},
+					fill = ledger.firstOrNull { it.key == rgid },
+					indexed = state.indexed,
+					request = state.request,
+					detail = state.detail,
+					wishlistAvailable = lbBot.supportsWishlist && state.request.wishlisted != true,
+					ownedAlbumId = state.ownedAlbumId,
+					onFindSources = viewModel::findSources,
+					onSelectEdition = viewModel::selectEdition,
+					onSelectSource = viewModel::selectSource,
+					onRequest = viewModel::request,
+					onQuality = viewModel::setQuality,
+					onAction = viewModel::fillAction,
+					onOpenAlbum = { albumId -> backStack.add(Screen.CollectionDetail(albumId, "artist")) }
+				)
+			}
+			// lb-bot's About, the only one an unowned album can have. No answer is no row and
+			// no gap; an article that arrives later comes in under the box.
+			collectionDetailScreenAboutRow(
+				meta = state.meta,
+				fallbackNotes = null,
+				onOpen = viewModel::openAbout
+			)
 			// Not fatal, and worth saying: the album is still fully downloadable through the
 			// picker above. What is lost is the index row, so this release keeps listing as
 			// missing on the artist page until a rescan.
@@ -299,10 +349,14 @@ fun ExternalAlbumScreen(
 	}  // Box
 	}  // NavicTheme
 
-	if (pickerOpen) {
-		MissingAlbumSheet(
-			release = viewModel.releaseForPicker(title),
-			onDismissRequest = { pickerOpen = false }
+	if (state.aboutOpen) {
+		AboutSheet(
+			title = heading,
+			meta = state.meta,
+			onDismissRequest = viewModel::dismissAbout,
+			coverArtId = null,
+			// Washed in the sleeve, as the page is: an unowned release has no Navidrome cover id.
+			paletteUrl = LbBotManager.caaCoverUrl(rgid).ifBlank { null }
 		)
 	}
 }
@@ -317,6 +371,7 @@ private fun ExternalAlbumHeading(
 	rgid: String,
 	title: String,
 	artist: String,
+	fromLink: Boolean,
 	onArtist: (() -> Unit)?
 ) {
 	val coverCardShape = ContinuousRoundedRectangle(18.dp)
@@ -361,17 +416,30 @@ private fun ExternalAlbumHeading(
 			style = MaterialTheme.typography.bodySmall,
 			fontFamily = defaultFont(grade = 100, round = 100f)
 		)
+		if (fromLink) {
+			StatePill(
+				Pill(FillText.Res(Res.string.request_found_from_link), PillTone.NEUTRAL),
+				modifier = Modifier.padding(top = 8.dp)
+			)
+		}
 	}
 }
 
 /**
  * The album page's heading buttons (`CollectionDetailScreenHeadingRowButtons`): a glass capsule
  * for the artist, kept as a button because a coloured name is only obvious once you have already
- * guessed, and the filled one for the action this page exists for. The artist's is left out when
- * nothing identifies the artist, rather than offered as a control that refuses.
+ * guessed, and the wishlist, lb-bot's per release-group (there is no artist-level one). The
+ * artist's is left out when nothing identifies the artist, the wishlist's while the page does not
+ * know where the album stands ([wishlisted] null: not read yet, or a hub without the routes).
+ * Finding sources is the request box's, under these.
  */
 @Composable
-private fun ExternalAlbumButtons(onViewArtist: (() -> Unit)?, onFindSources: () -> Unit) {
+private fun ExternalAlbumButtons(
+	onViewArtist: (() -> Unit)?,
+	wishlisted: Boolean?,
+	onToggleWishlist: () -> Unit
+) {
+	if (onViewArtist == null && wishlisted == null) return
 	Row(
 		modifier = Modifier.padding(horizontal = 31.dp, vertical = 10.dp),
 		verticalAlignment = Alignment.CenterVertically,
@@ -382,7 +450,7 @@ private fun ExternalAlbumButtons(onViewArtist: (() -> Unit)?, onFindSources: () 
 		)
 		onViewArtist?.let { open ->
 			OutlinedButton(
-				modifier = Modifier.height(44.dp),
+				modifier = Modifier.weight(1f).height(44.dp),
 				onClick = open,
 				shape = ContinuousCapsule,
 				colors = glassColors
@@ -395,19 +463,25 @@ private fun ExternalAlbumButtons(onViewArtist: (() -> Unit)?, onFindSources: () 
 				)
 			}
 		}
-		Button(
-			modifier = Modifier.weight(1f).height(44.dp),
-			onClick = onFindSources,
-			shape = ContinuousCapsule
-		) {
-			Icon(Icons.Outlined.Download, null, modifier = Modifier.size(22.dp).padding(end = 4.dp))
-			Text(
-				stringResource(Res.string.action_find_sources),
-				maxLines = 1,
-				autoSize = TextAutoSize.StepBased(minFontSize = 1.sp, maxFontSize = 15.sp),
-				fontWeight = FontWeight.SemiBold,
-				fontFamily = defaultFont(round = 100f)
-			)
+		wishlisted?.let { listed ->
+			OutlinedButton(
+				modifier = Modifier.weight(1f).height(44.dp),
+				onClick = onToggleWishlist,
+				shape = ContinuousCapsule,
+				colors = glassColors
+			) {
+				Icon(
+					if (listed) Icons.Filled.Favorite else Icons.Outlined.Favorite,
+					null,
+					modifier = Modifier.size(22.dp).padding(end = 4.dp)
+				)
+				Text(
+					stringResource(if (listed) Res.string.request_on_wishlist else Res.string.title_wishlist),
+					maxLines = 1,
+					autoSize = TextAutoSize.StepBased(minFontSize = 1.sp, maxFontSize = 15.sp),
+					fontFamily = defaultFont(round = 100f)
+				)
+			}
 		}
 	}
 }

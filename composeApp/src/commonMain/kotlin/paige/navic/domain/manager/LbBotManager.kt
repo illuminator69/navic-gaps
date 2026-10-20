@@ -2652,7 +2652,7 @@ class LbBotManager(
 	 *
 	 * The blind version existed once and was removed: it fetched the wrong record for a
 	 * self-titled album, where every candidate folder's name looks plausible, and nothing
-	 * before or after the fact said so. [albumSources] and [MissingAlbumSheet]'s two-step
+	 * before or after the fact said so. [albumSources] and the album page's two-step
 	 * picker are what replaced it. So this does the review on the user's behalf and only
 	 * skips the sheet when there is nothing left to decide — lb-bot's top-ranked folder,
 	 * its own "is this the right record" verdict, and coverage complete **against the
@@ -5372,7 +5372,8 @@ private data class LbWatch(
 		lastError = lastError,
 		lastErrorTicks = lastErrorTicks,
 		verifyGaveUp = verifyGaveUp,
-		leftOut = leftOut
+		leftOut = leftOut,
+		retryPeer = if (kind == "gap") "" else sourcePeer
 	)
 }
 
@@ -5430,7 +5431,9 @@ data class LbFillEntry(
 	/** `placed` past lb-bot's verify deadline — on disk, not in Navidrome. */
 	val verifyGaveUp: Boolean = false,
 	/** [LbFillStatus.leftOut] as last reported. Always 0 on a gap fill, which has none. */
-	val leftOut: Int = 0
+	val leftOut: Int = 0,
+	/** The peer a plain Retry asks again: the one the user picked, until a retry rules it out. */
+	val retryPeer: String = ""
 ) {
 	val isRunning: Boolean get() = !settled
 

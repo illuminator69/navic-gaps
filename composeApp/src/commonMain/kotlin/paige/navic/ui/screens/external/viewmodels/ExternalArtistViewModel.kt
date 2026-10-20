@@ -46,9 +46,6 @@ class ExternalArtistViewModel(
 	private val _discography = MutableStateFlow(DiscographyUi())
 	val discography = _discography.asStateFlow()
 
-	private val _selectedRelease = MutableStateFlow<LbRelease?>(null)
-	val selectedRelease = _selectedRelease.asStateFlow()
-
 	private val _name = MutableStateFlow(artistName)
 	val name = _name.asStateFlow()
 
@@ -197,10 +194,6 @@ class ExternalArtistViewModel(
 				LbScanOutcome.TimedOut -> _discography.value = _discography.value.copy(indexing = false)
 			}
 		}
-	}
-
-	fun selectRelease(release: LbRelease?) {
-		_selectedRelease.value = release
 	}
 
 	/** Group by release type, in lb-bot's own order — the same shape the owned
