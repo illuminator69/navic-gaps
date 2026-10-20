@@ -172,4 +172,20 @@ class GapStageTest {
 	fun aCancelledFillIsJustTheFold() {
 		assertEquals(GapStage.Folded(2), gapStage(input(fill = fill("cancelled"))))
 	}
+
+	@Test
+	fun aFillHasLandedOnceItsRowSettlesDoneOrTheAlbumIsWhole() {
+		val moving = gap(status = "downloading", tracks = listOf(track(1, "present"), track(2, "downloading")))
+		assertEquals(false, gapFillLanded(moving, fill("done", settled = false)))
+		assertEquals(true, gapFillLanded(gap(), fill("done")))
+		// Started on another client: no ledger row here, and lb-bot's record says it all.
+		assertEquals(true, gapFillLanded(gap(status = "complete"), null))
+		assertEquals(true, gapFillLanded(gap(tracks = listOf(track(1, "present"), track(2, "done"))), null))
+		assertEquals(false, gapFillLanded(gap(), fill("failed")))
+	}
+
+	@Test
+	fun heldTracksCountWhatTheLibraryHasBeforeAndAfterTheFill() {
+		assertEquals(3, heldTracks(gap(tracks = listOf(track(1, "present"), track(2, "done"), track(3, "done"), track(4, "failed")))))
+	}
 }

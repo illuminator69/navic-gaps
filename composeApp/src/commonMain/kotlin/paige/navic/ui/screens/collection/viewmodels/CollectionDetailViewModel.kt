@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -24,6 +26,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.domain.manager.LbGapSource
 import paige.navic.domain.manager.LbSourceFiles
 import paige.navic.ui.screens.collection.GapView
+import paige.navic.ui.screens.collection.gapFillLanded
+import paige.navic.ui.screens.collection.heldTracks
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_deleted_download
 import navic.composeapp.generated.resources.notice_download_started
@@ -32,6 +36,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.EVENT_LOCAL_SYNCED
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbMeta
@@ -144,6 +149,13 @@ class CollectionDetailViewModel(
 	init {
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshCollection(false) }
+		}
+		// The Room sync wrote this album (a landing lb-bot named it in, or the cover re-read after
+		// one): the page read Room once, so it reads it again.
+		viewModelScope.launch {
+			lbBotManager.libraryBumps.collect { bump ->
+				if (bump.event == EVENT_LOCAL_SYNCED && collectionId in bump.ndAlbumIds) refreshCollection(false)
+			}
 		}
 	}
 
@@ -318,6 +330,45 @@ class CollectionDetailViewModel(
 	}
 
 	/**
+	 * The tracklist follows a fill that lands (P4 round 3, the owner's note: the gaps box folded
+	 * away as the fill landed while the songs below were still the ones from before, and a pull
+	 * to refresh brought the new ones). When [gapFillLanded] turns true during the visit, the page
+	 * reads the album from Navidrome [GAP_LANDED_REFRESH_DELAYS] later, the first after five
+	 * seconds since Navidrome may still be scanning the files, and again while the album holds
+	 * fewer songs than lb-bot counts. Only a change seen here counts: a page opened on an album
+	 * filled before has nothing to catch up on.
+	 */
+	private fun watchGapLanding(groupId: String) {
+		viewModelScope.launch {
+			var before: Boolean? = null
+			var refresh: Job? = null
+			combine(
+				lbBotManager.gaps.map { it[groupId] },
+				lbBotManager.ledger.map { rows -> rows.firstOrNull { it.key == groupId } }
+			) { gap, fill -> gap?.let { it to gapFillLanded(it, fill) } }
+				.filterNotNull()
+				.collect { (gap, landed) ->
+					if (before == false && landed) {
+						val held = heldTracks(gap)
+						refresh?.cancel()
+						refresh = launch { refreshAfterLanding(held) }
+					}
+					before = landed
+				}
+		}
+	}
+
+	private suspend fun refreshAfterLanding(held: Int) {
+		for (wait in GAP_LANDED_REFRESH_DELAYS) {
+			delay(wait)
+			refreshCollection(true).join()
+			val songs = (_collectionState.value.data as? DomainAlbum)?.songs?.size ?: return
+			Logger.i("CollectionDetailViewModel", "gap landed: re-read $collectionId, $songs of $held songs")
+			if (songs >= held) return
+		}
+	}
+
+	/**
 	 * Read lb-bot's record once the group is known. lb-bot serialises every route behind one lock, so
 	 * a read during someone's search times out as "busy": absorbed twice, quietly, since nothing was
 	 * pressed. A fill already running (here before a restart, or on another client) is watched.
@@ -325,6 +376,7 @@ class CollectionDetailViewModel(
 	private fun loadGapRecord(groupId: String) {
 		if (gapRecordLoaded) return
 		gapRecordLoaded = true
+		watchGapLanding(groupId)
 		viewModelScope.launch {
 			var attempt = 0
 			while (true) {
@@ -536,7 +588,7 @@ class CollectionDetailViewModel(
 			?.rgid?.ifBlank { null }
 	}
 
-	fun refreshCollection(fullRefresh: Boolean) {
+	fun refreshCollection(fullRefresh: Boolean): Job =
 		viewModelScope.launch {
 			try {
 				repository.getCollectionFlow(fullRefresh, collectionId).collect {
@@ -567,7 +619,6 @@ class CollectionDetailViewModel(
 				_collectionState.value = UiState.Error(Exception(e.message, e), _collectionState.value.data)
 			}
 		}
-	}
 
 	fun selectSong(song: DomainSong) {
 		viewModelScope.launch {
@@ -746,6 +797,9 @@ data class AlbumGap(val groupId: String, val missing: Int)
 
 /** How long a fetch lb-bot accepted holds the box on its steps before lb-bot's status must show it. */
 private const val GAP_COMMIT_RELEASE_MS = 30_000L
+
+/** When the album is read again after a fill lands: Navidrome scans the placed files on its own time. */
+private val GAP_LANDED_REFRESH_DELAYS = listOf(5_000L, 10_000L, 30_000L)
 
 /** The gaps box's own state; which stage it shows is `gapStage`'s, from this and lb-bot's record. */
 data class GapBoxUi(

@@ -2008,6 +2008,16 @@ true of invented *album art*, and not of an icon naming the kind.
     (`Screen.CollectionDetail.openGaps`). The group stays the page's for the visit even after the mirror flips the
     release to complete, so the result row is still owed. Source cards: the selection eases (one fraction for the
     tone and the outline) and a card's own height eases as its listing opens.
+  - **Round 3, the owner's notes on round 2.** Every chip or sort change on `DiscographyBrowser` replays the rows'
+    arrival (the list is composed under `key(filter)`, so its arrival gate starts empty; the ownership menu already
+    did, by switching branches). A fill that lands while the album page is open re-reads the tracklist: from Room
+    when the landing sync names the album (`libraryBumps`, `EVENT_LOCAL_SYNCED`), and from Navidrome 5, 15 and 45 s
+    after `gapFillLanded` turns true during the visit, stopping once the album holds `heldTracks`. A request that
+    lands on the unowned album page follows it to the album: the page re-reads the index mirror on each library bump
+    and every 5 s for 3 minutes, pulls the named album into Room if the landing sync has not (CollectionDetail reads
+    Room), and replaces its own back-stack entry with the album's. The artist Songs list ("See more") is scoped to
+    the artist again (`SongListArtist`): upstream's paging revert (d6671510) had dropped the artist id, so it opened
+    the whole library.
 
 ---
 

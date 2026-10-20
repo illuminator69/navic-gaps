@@ -158,10 +158,12 @@ fun ExternalAlbumScreen(
 	// The library turns out to hold this release-group after all — only lb-bot's
 	// index knows which Navidrome album that is, so this can only be answered once
 	// the index row has been read (or added).
+	// This page's own entry is replaced, found by its release-group: a request that lands while
+	// the page is open (round 3) can resolve with another page pushed over it.
 	LaunchedEffect(state.ownedAlbumId) {
 		state.ownedAlbumId?.let { albumId ->
-			backStack.removeLastOrNull()
-			backStack.add(Screen.CollectionDetail(albumId, "artist"))
+			val index = backStack.indexOfLast { (it as? Screen.ExternalAlbum)?.rgid == rgid }
+			if (index >= 0) backStack[index] = Screen.CollectionDetail(albumId, "artist")
 		}
 	}
 

@@ -142,3 +142,15 @@ fun gapStepState(gap: LbGap): String {
 		else -> "queued"
 	}
 }
+
+/**
+ * A fill has put its tracks in the library: this device's ledger row settled done, or lb-bot counts
+ * the album whole (a fill started on another client has no ledger row here). The album page re-reads
+ * its tracklist when this turns true (`CollectionDetailViewModel.watchGapLanding`).
+ */
+fun gapFillLanded(gap: LbGap, fill: LbFillEntry?): Boolean =
+	(fill != null && fill.settled && fill.outcome == LbBotManager.OUTCOME_DONE) ||
+		gap.status == "complete" || (gap.total > 0 && missingTracks(gap).isEmpty())
+
+/** The tracks the album holds by lb-bot's count: what a re-read tracklist should have at least. */
+fun heldTracks(gap: LbGap): Int = gap.tracks.count { it.state in HELD_TRACK_STATES }

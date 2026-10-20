@@ -11,7 +11,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.domain.repositories.DbRepository
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.domain.manager.AllFilesNote
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.FillActions
@@ -140,6 +145,8 @@ class ExternalAlbumViewModel(
 	/** The title the route carried: the last fallback for the release's name. */
 	private val title: String,
 	private val artistDao: ArtistDao,
+	private val albumDao: AlbumDao,
+	private val dbRepository: DbRepository,
 	private val lbBotManager: LbBotManager,
 	private val lbIndexSync: LbIndexSync,
 	private val previewManager: PreviewManager,
@@ -240,6 +247,58 @@ class ExternalAlbumViewModel(
 		viewModelScope.launch {
 			_previewsAvailable.value = previewManager.ensureAvailability()
 		}
+	}
+
+	/*
+	 * P4 round 3, the owner's note: a request that finished while this page was open ended on
+	 * "In your library" with nowhere to go. The page read the index mirror once, at open, so the
+	 * Navidrome album lb-bot names after the landing never reached it, and Room (which the album
+	 * page reads) may not have had the album yet either. Once this release-group's fill has
+	 * landed, the page looks again on every library bump and every [LANDING_POLL_MS], for
+	 * [LANDING_FOLLOW_MS]; when the mirror names the album it is pulled into Room if the landing
+	 * sync has not done so, and `ownedAlbumId` moves the page to it, as an owned release-group
+	 * always did.
+	 */
+	private var landingJob: Job? = null
+
+	init {
+		viewModelScope.launch {
+			lbBotManager.ledger
+				.map { rows ->
+					rows.firstOrNull { it.key == rgid }
+						?.let { it.settled && it.outcome == LbBotManager.OUTCOME_DONE } == true
+				}
+				.distinctUntilChanged()
+				.collect { landed -> if (landed) followLanding() }
+		}
+	}
+
+	private fun followLanding() {
+		if (landingJob?.isActive == true || _state.value.ownedAlbumId != null) return
+		landingJob = viewModelScope.launch {
+			withTimeoutOrNull(LANDING_FOLLOW_MS) {
+				while (_state.value.ownedAlbumId == null) {
+					resolveLandedAlbum()
+					if (_state.value.ownedAlbumId != null) break
+					withTimeoutOrNull(LANDING_POLL_MS) { lbBotManager.libraryBumps.first() }
+				}
+			}
+		}
+	}
+
+	private suspend fun resolveLandedAlbum() {
+		val found = runCatching { lbIndexSync.releasesByRgid(rgid, preferArtistKey = artistMbid) }
+			.getOrNull()?.firstOrNull() ?: return
+		val albumId = found.release.navidromeAlbumIds.firstOrNull { it.isNotBlank() } ?: return
+		if (albumDao.getAlbumById(albumId) == null) {
+			dbRepository.syncAlbumsById(listOf(albumId))
+				.onSuccess { lbBotManager.onLocalLibrarySynced(listOf(albumId)) }
+				.onFailure { Logger.w("ExternalAlbumViewModel", "landed album $albumId not pulled yet", it) }
+			if (albumDao.getAlbumById(albumId) == null) return
+		}
+		mirrored = found
+		Logger.i("ExternalAlbumViewModel", "request landed: $rgid is album $albumId")
+		_state.value = _state.value.copy(indexed = found.release, ownedAlbumId = albumId)
 	}
 
 	/**
@@ -733,3 +792,9 @@ class ExternalAlbumViewModel(
 		)
 	}
 }
+
+/** How long a landed request keeps looking for its album in the library. */
+private const val LANDING_FOLLOW_MS = 180_000L
+
+/** How often it looks between library bumps. */
+private const val LANDING_POLL_MS = 5_000L
