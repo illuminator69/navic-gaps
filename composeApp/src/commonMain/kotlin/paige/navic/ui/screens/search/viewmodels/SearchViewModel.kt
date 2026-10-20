@@ -29,6 +29,7 @@ import paige.navic.ui.screens.search.Lookup
 import paige.navic.ui.screens.search.SearchEvent
 import paige.navic.ui.screens.search.SearchUi
 import paige.navic.ui.screens.search.reduce
+import paige.navic.ui.screens.search.ownedArtistJoinsLibrary
 import paige.navic.ui.screens.search.splitExternalArtists
 import paige.navic.util.Logger
 import kotlin.time.Duration.Companion.milliseconds
@@ -117,7 +118,9 @@ class SearchViewModel(
 						emptyMap()
 					}
 					val split = splitExternalArtists(r.value, owned)
-					val ownedIds = split.mapNotNull { it.ownedNdArtistId }
+					val ownedIds = split
+						.filter { ownedArtistJoinsLibrary(query, it.candidate.name) }
+						.mapNotNull { it.ownedNdArtistId }
 					if (ownedIds.isNotEmpty()) {
 						send(SearchEvent.OwnedArtistsLanded(query, repository.artistsByIds(ownedIds)))
 					}

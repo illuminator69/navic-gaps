@@ -307,4 +307,13 @@ class SearchModelTest {
 		assertEquals(emptyList(), externalRows(artists, albums, SearchCategory.PLAYLISTS))
 		assertEquals(emptyList(), externalRows(Lookup.Looking, Lookup.Failed, SearchCategory.ALL))
 	}
+
+	@Test
+	fun anOwnedMusicBrainzArtistJoinsTheLibraryOnlyByName() {
+		assertTrue(ownedArtistJoinsLibrary("beetles", "The Beatles"))
+		assertTrue(ownedArtistJoinsLibrary("kendrik lamar", "Kendrick Lamar"))
+		assertFalse(ownedArtistJoinsLibrary("hail to the theif", "Various Artists"))
+		assertFalse(ownedArtistJoinsLibrary("hail to the theif", "The Beatles"))
+		assertFalse(ownedArtistJoinsLibrary("beetles", "John Lennon"))
+	}
 }

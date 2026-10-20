@@ -280,3 +280,14 @@ fun externalRows(
 	}
 	return rows.distinctBy { it.key }
 }
+
+/**
+ * Whether a MusicBrainz artist the library holds (by MBID) is drawn in the library section: only when
+ * its name matches what was typed, typo-tolerantly. MusicBrainz answers a multi-word query with
+ * whoever shares a word: "hail to the theif" brought Various Artists (score 100) and The Beatles (91)
+ * on "the", and both sat at the top of "In your library" (seen on the AVD, 2026-10-20). The score
+ * cannot tell them apart; the name can. The cost: an artist found only by a MusicBrainz alias is not
+ * promoted (it is not shown as unowned either: the library holds it).
+ */
+fun ownedArtistJoinsLibrary(query: String, name: String): Boolean =
+	paige.navic.domain.search.fuzzyScore(query, name) > 0
