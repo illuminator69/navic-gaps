@@ -29,6 +29,7 @@ import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.genreSeedNames
+import paige.navic.domain.models.mixArtistIds
 import paige.navic.domain.models.settings.StationCharacter
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
@@ -469,13 +470,15 @@ class RadioManager(
 		seedSongs: List<DomainSong>,
 		character: StationCharacter,
 		fallbackName: String,
-		count: Int = RADIO_START_COUNT
+		count: Int = RADIO_START_COUNT,
+		variety: String = ""
 	): StationPlay {
 		if (!stationManager.available.value) return StationPlay.Unavailable
 		stationManager.setBusy(true)
 		try {
 			val result = stationManager.start(
-				seed, character, count, seedSongs.map { it.id }, bindSession = null, origin = ORIGIN_RADIO
+				seed, character, count, seedSongs.map { it.id }, bindSession = null, origin = ORIGIN_RADIO,
+				variety = variety
 			)
 			val answer = (result as? StationResult.Ok)?.answer ?: run {
 				Logger.i("RadioManager", "station start: $result, using the fallback")
@@ -562,7 +565,7 @@ class RadioManager(
 			val recipe = stationRecipe(mix)
 			if (recipe != null) {
 				val name = mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO).orEmpty() }
-				when (playStation(recipe.seed, recipe.seedSongs, recipe.character, name, mix.count.coerceIn(5, 50))) {
+				when (playStation(recipe.seed, recipe.seedSongs, recipe.character, name, mix.count.coerceIn(5, 50), mix.variety)) {
 					StationPlay.Played -> {
 						hubManager.actTouchMix(mix.id)
 						return true
@@ -636,11 +639,14 @@ class RadioManager(
 			MixKind.FINGERPRINT, MixKind.ADAPTIVE ->
 				StationRecipe(StationSeed.YourMix, emptyList(), stored ?: StationCharacter.Default)
 
-			// The artist page's radio (B-150), on the recipe's character.
+			// The artist page's radio (B-150), on the recipe's character; a custom radio (P5) is the
+			// same from each of its artists' songs, an artist the library no longer holds skipped.
 			MixKind.ARTIST -> {
-				val songs = songDao.getSongsByArtistId(mix.seedId).map { it.toDomainModel() }
-				val name = mix.seedName.ifBlank { songs.firstOrNull()?.artistName.orEmpty() }
-				val plan = artistRadioPlan(engine = true, artistName = name, songs = songs)
+				val ids = mixArtistIds(mix)
+				val songs = ids.map { id -> songDao.getSongsByArtistId(id).map { it.toDomainModel() } }
+				val name = if (ids.size > 1) mix.name.ifBlank { mix.seedName }
+				else mix.seedName.ifBlank { songs.firstOrNull()?.firstOrNull()?.artistName.orEmpty() }
+				val plan = customRadioPlan(engine = true, name = name, songsPerArtist = songs)
 				plan.station?.let { StationRecipe(it, plan.seeds, stored ?: StationCharacter.Default) }
 			}
 
@@ -703,10 +709,24 @@ class RadioManager(
 
 				// The artist radio without a station (B-150): their songs as the seed, then
 				// Navidrome's similar songs. Never a shuffle of the artist's own catalogue.
+				// A custom radio (P5) without a station: each artist's seeds, dealt in turn, then
+				// each artist's similar songs, dealt in turn.
 				MixKind.ARTIST -> {
-					val songs = songDao.getSongsByArtistId(mix.seedId).map { it.toDomainModel() }
-					val plan = artistRadioPlan(engine = false, artistName = mix.seedName, songs = songs)
-					artistSimilarQueue(mix.seedId, plan.seeds, count).take(count)
+					val ids = mixArtistIds(mix)
+					val held = ids.map { id -> id to songDao.getSongsByArtistId(id).map { it.toDomainModel() } }
+						.filter { it.second.isNotEmpty() }
+					if (held.size <= 1) {
+						val (id, songs) = held.firstOrNull() ?: (mix.seedId to emptyList())
+						val plan = artistRadioPlan(engine = false, artistName = mix.seedName, songs = songs)
+						artistSimilarQueue(id, plan.seeds, count).take(count)
+					} else {
+						val plan = customRadioPlan(engine = false, name = mix.name, songsPerArtist = held.map { it.second })
+						val each = (count / held.size).coerceAtLeast(5)
+						val similar = held.map { (id, _) ->
+							resolveIds(runCatching { sessionManager.fetchSimilarSongIds(id, each) }.getOrDefault(emptyList()))
+						}
+						(plan.seeds + interleaveSeeds(similar)).distinctBy { it.id }.take(count)
+					}
 				}
 
 				else -> {

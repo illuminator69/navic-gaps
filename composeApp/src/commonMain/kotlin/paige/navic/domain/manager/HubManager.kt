@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
@@ -1242,7 +1243,9 @@ class HubManager(
 		moodCharacter: String = "",
 		count: Int = 50,
 		coverArtId: String = "",
-		character: String = ""
+		character: String = "",
+		seedIds: List<String> = emptyList(),
+		variety: String = ""
 	) {
 		sendAsync(buildJsonObject {
 			put("t", "act"); put("action", "saveMix")
@@ -1256,6 +1259,10 @@ class HubManager(
 			// keeps the legacy name beside it, which is why both are sent.
 			if (character.isNotBlank()) put("character", character)
 			if (coverArtId.isNotBlank()) put("coverArtId", coverArtId)
+			// A custom radio's (P5, PROTOCOL §17.1); sent only when there is something to say, and
+			// dropped harmlessly by a hub whose sanitiser predates them.
+			if (seedIds.isNotEmpty()) putJsonArray("seedIds") { seedIds.forEach { add(it) } }
+			if (variety.isNotBlank()) put("variety", variety)
 			put("count", count)
 		})
 	}
@@ -1307,6 +1314,8 @@ class HubManager(
 				character = rec["character"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				count = rec["count"]?.jsonPrimitive?.intOrNull ?: 50,
 				coverArtId = rec["coverArtId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+				seedIds = mixSeedIds(rec["seedIds"]),
+				variety = rec["variety"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
 				createdAt = rec["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
 				updatedAt = rec["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
 				lastPlayedAt = rec["lastPlayedAt"]?.jsonPrimitive?.longOrNull ?: 0L
@@ -2689,3 +2698,12 @@ private fun parseLibraryEvent(msg: JsonObject): LbLibraryEvent {
 			.orEmpty()
 	)
 }
+
+/**
+ * A mix record's `seedIds` (P5): its strings in order, blanks and repeats left out. Absent, or not
+ * a list, is none, which is every recipe but a custom radio's.
+ */
+internal fun mixSeedIds(raw: JsonElement?): List<String> =
+	(raw as? JsonArray).orEmpty()
+		.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content?.takeIf { c -> c.isNotBlank() } }
+		.distinct()

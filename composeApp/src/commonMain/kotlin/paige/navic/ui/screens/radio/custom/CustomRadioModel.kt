@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.radio.custom
 
 import paige.navic.domain.manager.StationCountAnswer
-import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.settings.StationCharacter
@@ -16,9 +15,6 @@ import paige.navic.domain.models.settings.StationCharacter
 
 /** The most artists one custom radio takes (the hub keeps at most 8 `seedIds`, PROTOCOL §17.1). */
 const val CUSTOM_RADIO_MAX_ARTISTS = 8
-
-/** The hub's seed cap (PROTOCOL §18.1), shared among the picked artists. */
-const val CUSTOM_RADIO_SEEDS_MAX = 12
 
 /** The queue a custom radio asks for when it starts. */
 const val CUSTOM_RADIO_COUNT = 50
@@ -43,30 +39,6 @@ data class PickedArtist(val id: String, val name: String, val coverArtId: String
 /** The radio's name: the picked artists' names in the order they were picked. */
 fun radioTitle(artists: List<PickedArtist>): String =
 	artists.map { it.name.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
-
-/**
- * Seed songs per artist: twelve shared out, at least one and at most five each (an artist radio's
- * own number). One artist gets five, three get four each, eight get one.
- */
-fun seedsPerArtist(artists: Int): Int =
-	if (artists <= 0) 0 else (CUSTOM_RADIO_SEEDS_MAX / artists).coerceIn(1, 5)
-
-/**
- * One seed list from each artist's in turn, first of each, then second of each, so the station's
- * first anchors are spread over every artist. A song in two lists (a duet) is taken once.
- */
-fun interleaveSeeds(perArtist: List<List<DomainSong>>): List<DomainSong> {
-	val out = ArrayList<DomainSong>()
-	val seen = HashSet<String>()
-	val longest = perArtist.maxOfOrNull { it.size } ?: 0
-	for (i in 0 until longest) {
-		for (list in perArtist) {
-			val song = list.getOrNull(i) ?: continue
-			if (seen.add(song.id)) out += song
-		}
-	}
-	return out
-}
 
 /**
  * What the count line shows. [Counting] keeps the number it replaces, drawn dimmed under a spinner;

@@ -283,6 +283,8 @@ internal fun HubManager.saveMix(recipe: Mix, name: String) {
 		moodCharacter = recipe.moodCharacter,
 		count = recipe.count,
 		coverArtId = recipe.coverArtId,
-		character = recipe.character
+		character = recipe.character,
+		seedIds = recipe.seedIds,
+		variety = recipe.variety
 	)
 }

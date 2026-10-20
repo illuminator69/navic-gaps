@@ -71,12 +71,26 @@ data class StationCatalogue(
 	val available: Boolean = false,
 	val engine: String? = null,
 	val default: String = StationCharacter.Default.wireId,
-	val characters: List<StationCharacterInfo> = emptyList()
+	val characters: List<StationCharacterInfo> = emptyList(),
+	/** P5: the hub answers `POST /sonic/station/count`. False from an older hub. */
+	val count: Boolean = false,
+	/** P5: the Artist variety values `start` obeys; empty from an older hub (draw no control). */
+	val varieties: List<String> = emptyList(),
+	/** P5: the custom-radio filters the hub obeys; a client draws only these (none yet). */
+	val filters: List<String> = emptyList()
 ) {
-	/** The catalogue's words for [character], or the bundled ones. */
-	fun infoFor(character: StationCharacter): StationCharacterInfo =
-		characters.firstOrNull { it.id == character.wireId }
+	/**
+	 * The catalogue's words for [character], or the bundled ones. The words before P5 (Close,
+	 * Balanced, Explore), from an older hub or a catalogue stored before it, read as today's.
+	 */
+	fun infoFor(character: StationCharacter): StationCharacterInfo {
+		val info = characters.firstOrNull { it.id == character.wireId }
 			?: BUNDLED.characters.first { it.id == character.wireId }
+		return if (info.label in OLD_LABELS) info.copy(label = character.label) else info
+	}
+
+	/** Whether `start` takes [variety] here; an older hub drops the key, so it is not sent. */
+	fun takesVariety(variety: String): Boolean = variety.isNotBlank() && variety in varieties
 
 	companion object {
 		/**
@@ -86,16 +100,18 @@ data class StationCatalogue(
 		val BUNDLED = StationCatalogue(
 			characters = listOf(
 				StationCharacterInfo(
-					"close", "Close", "Stays right next to what you started with.", "EchoMatch"
+					"close", "Familiar", "Stays right next to what you started with.", "EchoMatch"
 				),
 				StationCharacterInfo(
-					"balanced", "Balanced", "Near what you started with, with room to move.", "SteadyVibes"
+					"balanced", "Blend", "Near what you started with, with room to move.", "SteadyVibes"
 				),
 				StationCharacterInfo(
-					"explore", "Explore", "Wanders further, steered by what you skip and like.", "TransitionMaestro"
+					"explore", "Discover", "Wanders further, steered by what you skip and like.", "TransitionMaestro"
 				)
 			)
 		)
+
+		private val OLD_LABELS = setOf("Close", "Balanced", "Explore")
 	}
 }
 
@@ -197,7 +213,9 @@ internal data class StationStartBody(
 	val exclude: List<String>,
 	val bindSession: String? = null,
 	val deviceId: String? = null,
-	val origin: String
+	val origin: String,
+	/** Artist variety (P5); null (not sent) unless the hub's probe lists the value. */
+	val variety: String? = null
 )
 
 @Serializable
@@ -823,6 +841,49 @@ fun artistRadioPlan(engine: Boolean, artistName: String?, songs: List<DomainSong
 	val station = if (engine && seeds.isNotEmpty()) {
 		StationSeed(StationSeed.TRACKS, seeds.map { it.id }, artistName?.ifBlank { null })
 	} else null
+	return ArtistRadioPlan(station, seeds)
+}
+
+/** The hub's seed cap (PROTOCOL §18.1 since P5), shared among a custom radio's artists. */
+const val STATION_SEEDS_MAX = 12
+
+/**
+ * Seed songs per artist: twelve shared out, at least one and at most five each (an artist radio's
+ * own number). One artist gets five, three get four each, eight get one.
+ */
+fun seedsPerArtist(artists: Int): Int =
+	if (artists <= 0) 0 else (STATION_SEEDS_MAX / artists).coerceIn(1, 5)
+
+/**
+ * One seed list from each artist's in turn, first of each, then second of each, so the station's
+ * first anchors are spread over every artist. A song in two lists (a duet) is taken once.
+ */
+fun interleaveSeeds(perArtist: List<List<DomainSong>>): List<DomainSong> {
+	val out = ArrayList<DomainSong>()
+	val seen = HashSet<String>()
+	val longest = perArtist.maxOfOrNull { it.size } ?: 0
+	for (i in 0 until longest) {
+		for (list in perArtist) {
+			val song = list.getOrNull(i) ?: continue
+			if (seen.add(song.id)) out += song
+		}
+	}
+	return out
+}
+
+/**
+ * How a custom radio (an `artist` mix of several artists, P5) plays: [songsPerArtist] is each
+ * artist's songs in the recipe's order, empty for an artist the library no longer holds (skipped:
+ * the rest play). Each artist held gives [seedsPerArtist] of its [artistSeedSongs], dealt in turn,
+ * twelve at most. One artist is exactly [artistRadioPlan]: an `artist` mix made before custom
+ * radios plays as it always has.
+ */
+fun customRadioPlan(engine: Boolean, name: String?, songsPerArtist: List<List<DomainSong>>): ArtistRadioPlan {
+	val held = songsPerArtist.filter { it.isNotEmpty() }
+	if (held.size <= 1) return artistRadioPlan(engine, name, held.firstOrNull().orEmpty())
+	val each = seedsPerArtist(held.size)
+	val seeds = interleaveSeeds(held.map { artistSeedSongs(it).take(each) }).take(STATION_SEEDS_MAX)
+	val station = if (engine) StationSeed(StationSeed.TRACKS, seeds.map { it.id }, name?.ifBlank { null }) else null
 	return ArtistRadioPlan(station, seeds)
 }
 

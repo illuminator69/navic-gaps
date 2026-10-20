@@ -28,9 +28,11 @@ enum class StationCharacter(
 	internal val alchemyTemperature: Float,
 	internal val alchemySubtractDistance: Float?
 ) {
-	Close("close", "EchoMatch", "Close", 0.5f, null),
-	Balanced("balanced", "SteadyVibes", "Balanced", 0.6f, 0.35f),
-	Explore("explore", "TransitionMaestro", "Explore", 1.6f, null);
+	// The words are Familiar / Blend / Discover since P5 (2026-10-20); the entries keep their
+	// names, wire ids and ordinals, which is what a stored preference or recipe holds.
+	Close("close", "EchoMatch", "Familiar", 0.5f, null),
+	Balanced("balanced", "SteadyVibes", "Blend", 0.6f, 0.35f),
+	Explore("explore", "TransitionMaestro", "Discover", 1.6f, null);
 
 	companion object {
 		val Default = Balanced

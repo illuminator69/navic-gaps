@@ -12,6 +12,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -298,7 +299,8 @@ class StationManager(
 		count: Int,
 		exclude: List<String>,
 		bindSession: String?,
-		origin: String
+		origin: String,
+		variety: String = ""
 	): StationResult = call("start") { base ->
 		client.post("$base/sonic/station/start") {
 			auth()
@@ -312,10 +314,36 @@ class StationManager(
 						exclude = stationExclude(exclude),
 						bindSession = bindSession,
 						deviceId = hubManager.myDeviceId.value,
-						origin = origin
+						origin = origin,
+						variety = variety.takeIf { _catalogue.value.takesVariety(it) }
 					)
 				)
 			)
+		}
+	}
+
+	/**
+	 * `POST /sonic/station/count` (P5): how many songs [seed] could draw from on [character]. Read
+	 * only; no station is made. [StationCountAnswer.Unavailable] without the engine or from a hub
+	 * whose probe does not list `count`, without asking.
+	 */
+	suspend fun count(seed: StationSeed, character: StationCharacter): StationCountAnswer {
+		val base = base() ?: return StationCountAnswer.Unavailable
+		if (!available.value || !_catalogue.value.count) return StationCountAnswer.Unavailable
+		return try {
+			val response = client.post("$base/sonic/station/count") {
+				auth()
+				contentType(ContentType.Application.Json)
+				setBody(json.encodeToString(StationCountBody(seed, character.wireId)))
+			}
+			val answer = parseStationCount(response.status.value, response.bodyAsText())
+			if (answer !is StationCountAnswer.Counted) Logger.w(TAG, "count -> HTTP ${response.status.value}: $answer")
+			answer
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			Logger.w(TAG, "count failed: ${e.message}")
+			StationCountAnswer.Failed
 		}
 	}
 
