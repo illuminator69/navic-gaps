@@ -213,3 +213,70 @@ fun offlineHits(downloaded: List<DomainSong>, query: String): LibraryHits {
 
 	return LibraryHits(artists = artists, albums = albums, songs = songs, playlists = emptyList())
 }
+
+/** The browse cards under an empty field, in the board's order. */
+enum class BrowseTile { GENRES, CHARTS, PICKS, FRESH, DISCOVER }
+
+data class PlacedTile(val tile: BrowseTile, val fullWidth: Boolean)
+
+/**
+ * Which browse cards show, and how wide: Genres always; Charts and Editors' picks where the hub
+ * proxies Deezer's routes ([chartsRoute], [picksRoute]: advertised AND the lb-bot layer on, since an
+ * empty advert reads as capable); Fresh where lb-bot answers; Discover where lb-bot answers or
+ * AudioMuse is set up (it carries mood search), always full width. A missing card leaves no hole:
+ * an odd last half-width card spans both columns.
+ */
+fun browseTiles(
+	lbBotAvailable: Boolean,
+	chartsRoute: Boolean,
+	picksRoute: Boolean,
+	audioMuseConfigured: Boolean
+): List<PlacedTile> {
+	val halves = buildList {
+		add(BrowseTile.GENRES)
+		if (chartsRoute) add(BrowseTile.CHARTS)
+		if (picksRoute) add(BrowseTile.PICKS)
+		if (lbBotAvailable) add(BrowseTile.FRESH)
+	}
+	return buildList {
+		halves.forEachIndexed { i, tile ->
+			add(PlacedTile(tile, fullWidth = halves.size % 2 == 1 && i == halves.lastIndex))
+		}
+		if (lbBotAvailable || audioMuseConfigured) add(PlacedTile(BrowseTile.DISCOVER, fullWidth = true))
+	}
+}
+
+/** One row of the "Not in your library" section. [key] is its identity in the list. */
+sealed interface ExternalRow {
+	val key: String
+
+	data class Artist(val artist: ExternalArtist) : ExternalRow {
+		override val key: String get() = "x:ar:" + artist.candidate.mbid.ifBlank { artist.candidate.name }
+	}
+
+	data class Album(val album: paige.navic.domain.manager.LbAlbumCandidate) : ExternalRow {
+		override val key: String get() = "x:al:" + album.rgid.ifBlank { album.title + "\u0000" + album.artist }
+	}
+}
+
+/**
+ * The unowned rows for a category, artists before albums, each once. An artist the library holds (by
+ * MBID) is not here: it is drawn in the library section. All shows a few of each (3 artists, 4 albums);
+ * Artists and Albums show all of their own; Songs and Playlists none, since MusicBrainz answered
+ * neither.
+ */
+fun externalRows(
+	artists: Lookup<ExternalArtist>,
+	albums: Lookup<paige.navic.domain.manager.LbAlbumCandidate>,
+	category: SearchCategory
+): List<ExternalRow> {
+	val a = (artists as? Lookup.Done)?.items.orEmpty().filter { it.ownedNdArtistId == null }.map { ExternalRow.Artist(it) }
+	val b = (albums as? Lookup.Done)?.items.orEmpty().map { ExternalRow.Album(it) }
+	val rows = when (category) {
+		SearchCategory.ALL -> a.take(3) + b.take(4)
+		SearchCategory.ARTISTS -> a
+		SearchCategory.ALBUMS -> b
+		SearchCategory.SONGS, SearchCategory.PLAYLISTS -> emptyList()
+	}
+	return rows.distinctBy { it.key }
+}

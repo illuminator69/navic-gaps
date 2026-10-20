@@ -241,4 +241,70 @@ class SearchModelTest {
 		val kiosk = song("s1", title = "Low Tide Radio", artist = "Pale Kiosk", artistId = "pk", album = "Kiosk Hours", albumId = "kh")
 		assertEquals(listOf("s1"), offlineHits(listOf(kiosk), "pale kiosc").songs.map { it.id })
 	}
+
+	// ---- browse cards ----------------------------------------------------------------------- //
+
+	@Test
+	fun everyCardWhereEverySourceIs() {
+		assertEquals(
+			listOf(
+				PlacedTile(BrowseTile.GENRES, false),
+				PlacedTile(BrowseTile.CHARTS, false),
+				PlacedTile(BrowseTile.PICKS, false),
+				PlacedTile(BrowseTile.FRESH, false),
+				PlacedTile(BrowseTile.DISCOVER, true)
+			),
+			browseTiles(lbBotAvailable = true, chartsRoute = true, picksRoute = true, audioMuseConfigured = false)
+		)
+	}
+
+	@Test
+	fun anOddLastCardSpansBothColumns() {
+		assertEquals(
+			listOf(
+				PlacedTile(BrowseTile.GENRES, false),
+				PlacedTile(BrowseTile.CHARTS, false),
+				PlacedTile(BrowseTile.FRESH, true),
+				PlacedTile(BrowseTile.DISCOVER, true)
+			),
+			browseTiles(lbBotAvailable = true, chartsRoute = true, picksRoute = false, audioMuseConfigured = false)
+		)
+	}
+
+	@Test
+	fun withNothingButTheLibraryOnlyGenres() {
+		assertEquals(
+			listOf(PlacedTile(BrowseTile.GENRES, true)),
+			browseTiles(lbBotAvailable = false, chartsRoute = false, picksRoute = false, audioMuseConfigured = false)
+		)
+	}
+
+	@Test
+	fun audioMuseAloneIsEnoughForDiscover() {
+		assertEquals(
+			listOf(PlacedTile(BrowseTile.GENRES, true), PlacedTile(BrowseTile.DISCOVER, true)),
+			browseTiles(lbBotAvailable = false, chartsRoute = false, picksRoute = false, audioMuseConfigured = true)
+		)
+	}
+
+	// ---- the unowned rows ------------------------------------------------------------------- //
+
+	@Test
+	fun unownedRowsFollowTheCategory() {
+		val owned = ExternalArtist(LbArtistCandidate(mbid = "a", name = "Owned"), "nd1")
+		val stranger = ExternalArtist(LbArtistCandidate(mbid = "b", name = "Stranger"), null)
+		val twice = ExternalArtist(LbArtistCandidate(mbid = "b", name = "Stranger"), null)
+		val album = paige.navic.domain.manager.LbAlbumCandidate(rgid = "rg", title = "T", artist = "Stranger")
+		val artists = Lookup.Done(listOf(owned, stranger, twice))
+		val albums = Lookup.Done(listOf(album))
+		assertEquals(
+			listOf("x:ar:b", "x:al:rg"),
+			externalRows(artists, albums, SearchCategory.ALL).map { it.key }
+		)
+		assertEquals(listOf("x:ar:b"), externalRows(artists, albums, SearchCategory.ARTISTS).map { it.key })
+		assertEquals(listOf("x:al:rg"), externalRows(artists, albums, SearchCategory.ALBUMS).map { it.key })
+		assertEquals(emptyList(), externalRows(artists, albums, SearchCategory.SONGS))
+		assertEquals(emptyList(), externalRows(artists, albums, SearchCategory.PLAYLISTS))
+		assertEquals(emptyList(), externalRows(Lookup.Looking, Lookup.Failed, SearchCategory.ALL))
+	}
 }

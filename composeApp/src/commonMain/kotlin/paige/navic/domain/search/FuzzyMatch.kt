@@ -108,9 +108,12 @@ internal class PreparedQuery(
 	}
 }
 
-private const val TIER_EXACT = 3
-private const val TIER_PREFIX = 2
-private const val TIER_FUZZY = 1
+// A token's match, best first: exact, a prefix, one edit, two edits. Two edits on a seven-letter word
+// let "beetles" find "Nettles" and "Besties" (seen on the AVD), so they rank below one.
+private const val TIER_EXACT = 4
+private const val TIER_PREFIX = 3
+private const val TIER_FUZZY = 2
+private const val TIER_FUZZY2 = 1
 private const val TIER_NONE = 0
 
 private const val MAX_TOKEN = 48
@@ -149,7 +152,8 @@ internal class FuzzyScorer {
 		val base = when (worst) {
 			TIER_EXACT -> 800
 			TIER_PREFIX -> 700
-			else -> 600
+			TIER_FUZZY -> 600
+			else -> 520
 		}
 		val extra = (c.tokens.size - q.tokens.size).coerceAtLeast(0)
 		return base + (if (firstAtStart) 50 else 0) + (40 - 5 * extra).coerceAtLeast(0)
@@ -176,9 +180,14 @@ internal class FuzzyScorer {
 		if (k == 0) return TIER_NONE
 		if (qt.length > MAX_TOKEN || ct.length > MAX_TOKEN) return TIER_NONE
 		val lengthGap = ct.length - qt.length
-		if (lengthGap <= k && lengthGap >= -k && distance(qt, ct, k, prefix = false) <= k) return TIER_FUZZY
-		if (isLast && ct.length >= qt.length - k && distance(qt, ct, k, prefix = true) <= k) return TIER_FUZZY
-		return TIER_NONE
+		var d = k + 1
+		if (lengthGap <= k && lengthGap >= -k) d = distance(qt, ct, k, prefix = false)
+		if (d > 1 && isLast && ct.length >= qt.length - k) d = minOf(d, distance(qt, ct, k, prefix = true))
+		return when {
+			d <= 1 -> TIER_FUZZY
+			d <= k -> TIER_FUZZY2
+			else -> TIER_NONE
+		}
 	}
 
 	/**

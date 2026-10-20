@@ -109,4 +109,11 @@ class FuzzyMatchTest {
 		assertEquals(emptyList(), index.search("   ", 10))
 		assertEquals(emptyList(), index.search("", 10))
 	}
+
+	@Test
+	fun oneEditOutranksTwo() {
+		// "beetles": The Beatles is one edit away, Nettles two (seen on the AVD, 2026-10-20).
+		assertTrue(fuzzyScore("beetles", "Help! The Beatles") > fuzzyScore("beetles", "Nettles Ethel Cain"))
+		assertTrue(fuzzyScore("beetles", "Nettles") > 0)
+	}
 }

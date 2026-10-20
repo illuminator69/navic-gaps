@@ -91,6 +91,14 @@ fun NewSheetHost() {
 	val open by shell.newSheetOpen.collectAsState()
 	// What the picked row shows after the sheet has gone: the dialog or the paste sheet.
 	var followUp by remember { mutableStateOf<NewSheetItem?>(null) }
+	// Search's "Add from a link" (P3) opens the paste step without the sheet.
+	val linkRequested by shell.linkRequested.collectAsState()
+	LaunchedEffect(linkRequested) {
+		if (linkRequested) {
+			followUp = NewSheetItem.AddFromLink
+			shell.linkRequestHandled()
+		}
+	}
 
 	if (open) {
 		// The same gate as the Downloads page's paste button, plus "the lb-bot layer is on": the route

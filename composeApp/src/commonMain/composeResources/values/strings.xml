@@ -1283,4 +1283,32 @@
 	<string name="staged_add_to_this_playlist">Add to %1$s</string>
 	<string name="staged_remove_from_this_playlist">Remove from %1$s</string>
 	<string name="staged_no_playlists">No playlists yet</string>
+	<!-- Search (P3) -->
+	<string name="search_browse">Browse</string>
+	<string name="search_tile_genres_line">All styles</string>
+	<string name="search_tile_charts">Charts</string>
+	<string name="search_tile_charts_line">From Deezer's chart</string>
+	<string name="search_tile_picks">Editors' picks</string>
+	<string name="search_tile_picks_line">Picked by Deezer's editors</string>
+	<string name="search_tile_fresh_line">New from artists you have</string>
+	<string name="search_tile_discover_line">Music you don't have yet, and why it's here</string>
+	<string name="search_in_library_pill">In library</string>
+	<string name="search_not_in_library">Not in your library</string>
+	<string name="search_looking">Looking</string>
+	<string name="search_lookup_failed">Couldn't reach lb-bot</string>
+	<string name="search_lookup_retry">Try lb-bot again</string>
+	<string name="search_kind_artist">Artist</string>
+	<string name="search_kind_album">Album</string>
+	<string name="search_kind_song">Song</string>
+	<string name="search_kind_playlist">Playlist</string>
+	<string name="search_by_sound">Search by sound</string>
+	<string name="search_by_sound_line">Play tracks that sound like “%1$s”</string>
+	<string name="search_nothing_for">Nothing for “%1$s”</string>
+	<string name="search_nothing_checked_both">Checked your library and artists beyond it. Try fewer letters, or search by artist name.</string>
+	<string name="search_nothing_checked_library">Checked your library.</string>
+	<string name="search_add_from_link">Add from a link</string>
+	<string name="search_offline_banner">Offline. Showing downloaded music only.</string>
+	<string name="search_downloaded_here">Downloaded on this device</string>
+	<string name="search_offline_outside">Artists beyond your library show here again when you're back online.</string>
+	<string name="search_offline_none">Nothing downloaded matches</string>
 </resources>

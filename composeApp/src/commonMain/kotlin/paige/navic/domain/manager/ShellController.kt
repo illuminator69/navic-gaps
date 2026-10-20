@@ -37,4 +37,21 @@ class ShellController {
 	fun closeAvatarMenu() {
 		_avatarMenuOpen.value = false
 	}
+
+	/**
+	 * Straight to the New sheet's "Add from a link" step, without the sheet (P3: Search's "Nothing
+	 * for …" offers it). The host shows the paste sheet and calls [linkRequestHandled].
+	 */
+	private val _linkRequested = MutableStateFlow(false)
+	val linkRequested: StateFlow<Boolean> = _linkRequested.asStateFlow()
+
+	fun openAddFromLink() {
+		_avatarMenuOpen.value = false
+		_newSheetOpen.value = false
+		_linkRequested.value = true
+	}
+
+	fun linkRequestHandled() {
+		_linkRequested.value = false
+	}
 }
