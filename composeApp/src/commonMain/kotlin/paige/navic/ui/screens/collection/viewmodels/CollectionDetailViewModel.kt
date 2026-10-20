@@ -164,6 +164,26 @@ class CollectionDetailViewModel(
 	private val _aboutOpen = MutableStateFlow(false)
 	val aboutOpen = _aboutOpen.asStateFlow()
 
+	/**
+	 * The gap lb-bot's index records for this album (P4): the Fill-gaps group and how many tracks
+	 * are missing, from the first mirrored release that names this album and is `incomplete`. Null
+	 * with lb-bot off, with no mirror row, or for a complete album: no banner, and no gap where it
+	 * would be.
+	 */
+	private val _gap = MutableStateFlow<AlbumGap?>(null)
+	val gap = _gap.asStateFlow()
+
+	private val _gapOpen = MutableStateFlow(false)
+	val gapOpen = _gapOpen.asStateFlow()
+
+	fun openGap() {
+		_gapOpen.value = true
+	}
+
+	fun dismissGap() {
+		_gapOpen.value = false
+	}
+
 	fun openAbout() {
 		_aboutOpen.value = true
 	}
@@ -233,6 +253,20 @@ class CollectionDetailViewModel(
 	 */
 	fun loadLbBotExtras(album: DomainAlbum, releaseMbid: String?) {
 		viewModelScope.launch {
+			// A Room read, so it is re-read with the album: a fill that completes the album flips
+			// the mirrored row and the banner goes with it.
+			_gap.value = if (!lbBotManager.isConfigured) null else runCatching {
+				lbIndexSync.releasesForAlbum(collectionId, album.artistId)
+					.firstOrNull { it.release.isIncomplete }
+					?.release
+					?.let { row ->
+						AlbumGap(
+							groupId = row.groupId.orEmpty(),
+							missing = ((row.total ?: 0) - (row.present ?: 0)).coerceAtLeast(0)
+						)
+					}
+					?.takeIf { it.missing > 0 }
+			}.getOrNull()
 			val fromMirror = mirroredRelease(album)
 			val rgid: String?
 			val artistMbid: String?
@@ -548,3 +582,6 @@ class CollectionDetailViewModel(
 		return downloadManager.getCollectionDownloadStatus(songs.map { it.id })
 	}
 }
+
+/** An owned album's gap as lb-bot's index records it: the Fill-gaps group, and the tracks missing. */
+data class AlbumGap(val groupId: String, val missing: Int)

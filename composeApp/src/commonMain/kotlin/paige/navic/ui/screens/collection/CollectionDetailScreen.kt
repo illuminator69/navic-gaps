@@ -1,5 +1,13 @@
 package paige.navic.ui.screens.collection
 
+import paige.navic.ui.components.sheets.GapFillSheet
+import paige.navic.ui.components.common.SegmentedListItem
+import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
+import paige.navic.icons.outlined.Incomplete
+import paige.navic.ui.util.Fold
+import navic.composeapp.generated.resources.gap_banner_action
+import navic.composeapp.generated.resources.gap_tracks_missing_banner
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -133,6 +141,8 @@ fun CollectionDetailScreen(
 	val aboutRefreshable by viewModel.aboutRefreshable.collectAsStateWithLifecycle()
 	val similar by viewModel.similar.collectAsStateWithLifecycle()
 	val aboutOpen by viewModel.aboutOpen.collectAsStateWithLifecycle()
+	val albumGap by viewModel.gap.collectAsStateWithLifecycle()
+	val gapOpen by viewModel.gapOpen.collectAsStateWithLifecycle()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
 	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
@@ -414,6 +424,14 @@ fun CollectionDetailScreen(
 					)
 				}
 
+				// The gaps lb-bot's index records for this album (P4), one tap from the album
+				// itself rather than only from its artist's page. Rolls in when the mirror answers.
+				item(key = "gap") {
+					Fold(visible = albumGap != null && lbBot.supportsGapFilling) {
+						albumGap?.let { gap -> AlbumGapBanner(gap.missing, onOpen = viewModel::openGap) }
+					}
+				}
+
 				// The first album description this app has ever shown. What the
 				// page carried before is the ID3 `comment` tag by way of
 				// nothing at all: `getAlbumInfo2.notes` has been loaded on every
@@ -632,6 +650,29 @@ fun CollectionDetailScreen(
 
 	}
 
+	val gapToOpen = albumGap
+	if (gapOpen && gapToOpen != null && collection is DomainAlbum) {
+		GapFillSheet(
+			groupId = gapToOpen.groupId,
+			albumTitle = collection.name.orEmpty(),
+			coverArtId = collection.coverArtId,
+			onDismissRequest = { viewModel.dismissGap() },
+			// As the artist page's: "Wrong edition?" opens Fix album match for this album.
+			onWrongEdition = { gap ->
+				lbBot.openAlbumMatch(
+					AlbumMatchTarget(
+						albumId = gap.albumId.ifBlank { collection.id },
+						title = gap.album.ifBlank { collection.name.orEmpty() },
+						artistName = gap.artist.ifBlank { collection.artistName.orEmpty() },
+						artistId = collection.artistId,
+						coverArtId = collection.coverArtId
+					)
+				)
+				viewModel.dismissGap()
+			}
+		)
+	}
+
 	if (aboutOpen) {
 		AboutSheet(
 			title = collection?.name ?: "",
@@ -662,5 +703,27 @@ fun CollectionDetailScreen(
 			playlistName = collection.displayName,
 			onDismissRequest = { autoDownloadShown = false }
 		)
+	}
+}
+
+/** "N tracks missing · Fill gaps": a row under the heading buttons that opens the gap sheet. */
+@Composable
+private fun AlbumGapBanner(missing: Int, onOpen: () -> Unit) {
+	SegmentedListItem(
+		modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+		onClick = onOpen,
+		shapes = segmentedShapes(0, 1),
+		leadingContent = {
+			Icon(Icons.Outlined.Incomplete, contentDescription = null)
+		},
+		trailingContent = {
+			Text(
+				stringResource(Res.string.gap_banner_action),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.primary
+			)
+		}
+	) {
+		Text(pluralStringResource(Res.plurals.gap_tracks_missing_banner, missing, missing))
 	}
 }

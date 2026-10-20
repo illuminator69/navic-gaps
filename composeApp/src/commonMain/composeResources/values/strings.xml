@@ -1353,4 +1353,14 @@
 	<string name="artist_try_again">Try again</string>
 	<string name="artist_no_releases">lb-bot's index holds no releases for this artist.</string>
 	<string name="release_tap_hint">Tap one to find sources</string>
+	<string name="gap_in_library">%1$d of %2$d in your library</string>
+	<plurals name="gap_find_sources_for">
+		<item quantity="one">Find sources for %1$d track</item>
+		<item quantity="other">Find sources for %1$d tracks</item>
+	</plurals>
+	<plurals name="gap_tracks_missing_banner">
+		<item quantity="one">%1$d track missing</item>
+		<item quantity="other">%1$d tracks missing</item>
+	</plurals>
+	<string name="gap_banner_action">Fill gaps</string>
 </resources>

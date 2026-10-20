@@ -1,5 +1,12 @@
 package paige.navic.ui.components.sheets
 
+import paige.navic.ui.components.common.FillText
+import paige.navic.ui.components.common.Pill
+import paige.navic.ui.components.common.StatePill
+import paige.navic.ui.components.common.gapTrackTone
+import navic.composeapp.generated.resources.gap_in_library
+import navic.composeapp.generated.resources.gap_find_sources_for
+import org.jetbrains.compose.resources.pluralStringResource
 import com.kyant.capsule.ContinuousCapsule
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
@@ -220,11 +227,19 @@ fun GapFillSheet(
 				)
 				Text(
 					if (gap != null && gap.total > 0)
-						stringResource(Res.string.info_tracks_present, gap.present, gap.total)
+						stringResource(Res.string.gap_in_library, gap.present, gap.total)
 					else stringResource(Res.string.title_fill_gaps),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
+				// How much of the album the library holds (P4): lb-bot's own counts.
+				if (gap != null && gap.total > 0) {
+					LinearProgressIndicator(
+						progress = { gap.present.toFloat() / gap.total },
+						modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
+						drawStopIndicator = {}
+					)
+				}
 			}
 		}
 		HorizontalDivider(Modifier.padding(horizontal = 8.dp, vertical = 12.dp))
@@ -358,12 +373,14 @@ fun GapFillSheet(
 							modifier = Modifier.fillMaxWidth(),
 							shape = ContinuousCapsule
 						) {
+							val stillMissing = gap.tracks.count { it.state == "missing" }
 							if (working || searching) CircularProgressIndicator(Modifier.size(18.dp))
-							else Text(stringResource(
-								if (gap.sources.isNotEmpty() || needsFreshSearch || gap.noSourceReason.isNotBlank())
-									Res.string.action_search_again
-								else Res.string.action_find_sources
-							))
+							else if (gap.sources.isNotEmpty() || needsFreshSearch || gap.noSourceReason.isNotBlank())
+								Text(stringResource(Res.string.action_search_again))
+							// Nothing searched yet: say what the search is for (P4).
+							else if (stillMissing > 0)
+								Text(pluralStringResource(Res.plurals.gap_find_sources_for, stillMissing, stillMissing))
+							else Text(stringResource(Res.string.action_find_sources))
 						}
 					}
 					if (transferInFlight) {
@@ -482,14 +499,16 @@ private fun GapTracks(gap: LbGap) {
 					else MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.weight(1f)
 				)
-				// Only annotate a track that is doing something. "present" is the
-				// majority of the list and needs no word next to it.
-				if (track.state !in setOf("present", "missing")) {
-					Text(
-						gapTrackStateLabel(track.state)?.let { stringResource(it) }
-							?: track.state.replace('_', ' '),
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.primary
+				// Every track that is not simply in the library says where it stands, as a pill
+				// (P4). "present" is the majority of the list and needs no word next to it.
+				if (track.state != "present") {
+					StatePill(
+						Pill(
+							gapTrackStateLabel(track.state)?.let { FillText.Res(it) }
+								?: FillText.Raw(track.state.replace('_', ' ')),
+							gapTrackTone(track.state)
+						),
+						modifier = Modifier.padding(start = 8.dp)
 					)
 				}
 			}
