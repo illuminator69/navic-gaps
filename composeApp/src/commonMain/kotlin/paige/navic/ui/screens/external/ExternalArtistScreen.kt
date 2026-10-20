@@ -187,7 +187,6 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 				) {
 					DiscographyShelf(
 						ui = discography,
-						artistName = artistName,
 						// There is always an MBID here — it is the route key.
 						canIndex = artistMbid.isNotBlank(),
 						onIndex = { viewModel.indexArtist() },
@@ -214,7 +213,8 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 							}
 						},
 						// Nothing owned here, so there is no long-press album menu to offer.
-						onSelectEntry = {}
+						onSelectEntry = null,
+						tapHint = true
 					)
 				}
 			}

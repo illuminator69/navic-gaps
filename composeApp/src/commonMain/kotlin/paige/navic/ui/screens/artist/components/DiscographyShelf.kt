@@ -1,30 +1,20 @@
 package paige.navic.ui.screens.artist.components
 
-import paige.navic.domain.manager.LbFillEntry
-import paige.navic.ui.components.layouts.ArtCarouselItem
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.time.Clock
-import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_choose_musicbrainz_artist
 import navic.composeapp.generated.resources.action_index_artist
@@ -35,9 +25,6 @@ import navic.composeapp.generated.resources.info_index_scanned_days
 import navic.composeapp.generated.resources.info_index_scanned_today
 import navic.composeapp.generated.resources.info_index_stale
 import navic.composeapp.generated.resources.info_indexing_artist
-import navic.composeapp.generated.resources.info_not_in_library
-import navic.composeapp.generated.resources.info_pending_sync
-import navic.composeapp.generated.resources.info_tracks_missing
 import navic.composeapp.generated.resources.title_type_album
 import navic.composeapp.generated.resources.title_type_compilation
 import navic.composeapp.generated.resources.title_type_demo
@@ -49,23 +36,19 @@ import navic.composeapp.generated.resources.title_type_soundtrack
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
-import paige.navic.domain.manager.LbBotManager
-import paige.navic.ui.components.common.AcquireButton
-import paige.navic.ui.components.common.RemoteCoverArt
-import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.screens.artist.viewmodels.DiscographyEntry
+import paige.navic.ui.screens.external.components.ReleaseRows
 import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
 
 /**
- * The artist's discography, as one shelf per release type.
+ * The artist's discography, one heading per release type and a row per release ([ReleaseRows], P4).
  *
- * Owned, partly-owned and absent releases sit side by side in the same row — an
- * absent one is faded, a partly-owned one carries its track count, and an album
- * the library has in full looks like any other album tile. Splitting them into a
- * "yours" row and a "missing" row was the obvious layout and the wrong one: the
- * question a discography answers is "what did this artist release", and the
- * library's coverage of it is an annotation, not a category.
+ * Owned, partly-owned and absent releases sit side by side in the same list, each with a pill
+ * saying where it stands. Splitting them into a "yours" list and a "missing" list was the obvious
+ * layout and the wrong one: the question a discography answers is "what did this artist release",
+ * and the library's coverage of it is an annotation, not a category. Nothing here fetches with one
+ * tap: a row opens its album, and an album the library lacks is requested from its page, after a
+ * look at the sources.
  *
  * Renders nothing at all when lb-bot isn't reachable, which is the state most
  * users are in. The page above must look exactly as it did before this existed.
@@ -73,13 +56,13 @@ import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
 @Composable
 fun DiscographyShelf(
 	ui: DiscographyUi,
-	/** Whose discography this is. Carried only so a one-tap acquire can name the
-	 *  ledger row: lb-bot's index rows know the release, never the artist. */
-	artistName: String,
 	canIndex: Boolean,
 	onIndex: () -> Unit,
 	onOpenEntry: (DiscographyEntry) -> Unit,
-	onSelectEntry: (DiscographyEntry) -> Unit,
+	/** The long press: an owned release's own sheet. Null where nothing on the page is owned. */
+	onSelectEntry: ((DiscographyEntry) -> Unit)?,
+	/** The unowned artist page: each heading says a row is where its sources are found. */
+	tapHint: Boolean = false,
 	/** Opens the MusicBrainz match picker. Null where there is none to open: an artist off the
 	 *  library, or a hub that cannot store an override. Only offered when [canIndex] is false. */
 	onChooseMbid: (() -> Unit)? = null
@@ -104,22 +87,14 @@ fun DiscographyShelf(
 		return
 	}
 
-	// The fills lb-bot is running, read once for the whole shelf rather than once per tile.
-	val lbBot = koinInject<LbBotManager>()
-	val ledger by lbBot.ledger.collectAsState()
-	ui.sections.forEach { section ->
-		ArtCarousel(sectionTitle(section.type), section.entries.toImmutableList()) { entry ->
-			val rgid = entry.release?.rgid.orEmpty()
-			DiscographyTile(
-				entry = entry,
-				artistName = artistName,
-				running = if (rgid.isBlank()) null
-				else ledger.firstOrNull { it.key == rgid && it.isRunning },
-				onClick = { onOpenEntry(entry) },
-				onLongClick = { onSelectEntry(entry) }
-			)
-		}
-	}
+	// Rows with a state pill each (P4), the ledger read once for the shelf inside them.
+	ReleaseRows(
+		sections = ui.sections,
+		sectionTitle = { sectionTitle(it) },
+		tapHint = tapHint,
+		onOpenEntry = onOpenEntry,
+		onLongClick = onSelectEntry
+	)
 
 	// Always offered once there is an MBID, never only when the index is missing.
 	//
@@ -251,112 +226,3 @@ private fun sectionTitle(type: String): String = when (type) {
 	// Something new upstream: show it rather than hiding the section.
 	else -> type.replaceFirstChar { it.uppercase() }
 }
-
-/**
- * One release, as upstream's carousel card (`ArtCarouselItem`) in the user's cover shape. Owned,
- * just landed, or absent, which is faded and carries the one-tap acquire (or the progress of the
- * fill already running) over its artwork; a partly-owned album carries how many tracks it lacks.
- */
-@Composable
-private fun DiscographyTile(
-	entry: DiscographyEntry,
-	artistName: String,
-	running: LbFillEntry?,
-	onClick: () -> Unit,
-	onLongClick: () -> Unit
-) {
-	val present = entry.presentTracks
-	val total = entry.totalTracks
-	// Only a genuinely absent release is faded. An owned one and a just-landed one both read as
-	// "yours".
-	val absent = !entry.owned && !entry.pendingSync
-	val rgid = entry.release?.rgid.orEmpty()
-
-	ArtCarouselItem(
-		coverArtId = entry.album?.coverArtId,
-		title = entry.title,
-		subtitle = when {
-			entry.pendingSync -> stringResource(Res.string.info_pending_sync)
-			entry.owned -> entry.year
-			else -> stringResource(Res.string.info_not_in_library)
-		},
-		contentDescription = entry.title,
-		onSelect = if (absent) ({}) else onLongClick,
-		cover = if (entry.owned) null else { source ->
-			// In the library but not in Room yet (a fill that just landed) is shown at full
-			// strength: it is not missing. Both come from the Cover Art Archive, fetched with NO
-			// Navidrome headers attached (see RemoteCoverArt for why that is not cosmetic).
-			RemoteCoverArt(
-				url = LbBotManager.caaCoverUrl(rgid),
-				contentDescription = null,
-				modifier = Modifier
-					.fillMaxWidth()
-					.then(if (absent) Modifier.alpha(ABSENT_ALPHA) else Modifier),
-				interactionSource = source
-			)
-		},
-		coverOverlay = {
-			// One tap to fetch a genuinely absent record. Only there: an owned tile opens the
-			// album and a just-landed one is a fill that already landed, and offering to fetch
-			// either is the trap this shelf's three cases exist to keep apart. A gap row is
-			// excluded too: an album the library holds 9 of 12 tracks of goes through the
-			// Fill-gaps workspace, a different pipeline from acquiring a release outright.
-			if (absent && rgid.isNotBlank() && entry.gapGroupId == null) {
-				if (running != null) {
-					// A fill already running shows its progress instead of a button
-					// offering to start another one.
-					Box(
-						Modifier
-							.align(Alignment.TopEnd)
-							.padding(6.dp)
-							.size(28.dp)
-							.background(
-								MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-								RoundedCornerShape(50)
-							),
-						contentAlignment = Alignment.Center
-					) {
-						if (running.total > 0 || running.bytesTotal > 0L) {
-							CircularProgressIndicator(
-								progress = { running.percent / 100f },
-								modifier = Modifier.size(20.dp),
-								strokeWidth = 2.dp
-							)
-						} else {
-							CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-						}
-					}
-				} else {
-					AcquireButton(
-						rgid = rgid,
-						artist = artistName,
-						album = entry.release?.title.orEmpty(),
-						onReview = onClick,
-						modifier = Modifier.align(Alignment.TopEnd)
-					)
-				}
-			}
-			if (entry.gapGroupId != null && present != null && total != null && total > 0) {
-				Text(
-					// The number the badge exists to answer, rather than the one it can be
-					// derived from: "3 missing" is the reason to tap, "9/12" is arithmetic.
-					stringResource(Res.string.info_tracks_missing, total - present),
-					style = MaterialTheme.typography.labelSmall,
-					fontWeight = FontWeight.Medium,
-					color = MaterialTheme.colorScheme.onSecondaryContainer,
-					modifier = Modifier
-						.align(Alignment.BottomEnd)
-						.padding(6.dp)
-						.background(
-							MaterialTheme.colorScheme.secondaryContainer,
-							RoundedCornerShape(50)
-						)
-						.padding(horizontal = 8.dp, vertical = 2.dp)
-				)
-			}
-		},
-		onClick = onClick
-	)
-}
-
-private const val ABSENT_ALPHA = 0.45f

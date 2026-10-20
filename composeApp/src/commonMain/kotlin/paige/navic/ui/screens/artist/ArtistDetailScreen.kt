@@ -553,7 +553,6 @@ fun ArtistDetailScreen(
 							// skipped entirely for an artist with no similar artists.
 							DiscographyShelf(
 								ui = discography,
-								artistName = state.artist.name,
 								// The override when the user has set one, else Navidrome's tag.
 								canIndex = artistMbid.effective.isNotBlank(),
 								onIndex = { viewModel.indexArtist() },
