@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.external.components
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -63,20 +64,23 @@ fun SourceCards(
 	Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 		sources.forEachIndexed { index, source ->
 			val isSelected = index == selected
+			val shapes = segmentedShapes(index = index, count = sources.size)
 			SegmentedListItem(
 				selected = isSelected,
 				onClick = { onSelect(index) },
 				enabled = enabled,
-				shapes = segmentedShapes(index = index, count = sources.size),
-				// Cards a step lighter than the box; the chosen one in the selection colour, so it is
-				// told by more than its radio.
+				shapes = shapes,
+				// Every card stays on a surface role, where the lines' own colours (the verdict in
+				// primary, a warning in error) were made to sit: a selection colour under them failed
+				// contrast on a red cover (seen on the AVD). The chosen card is a step lighter and
+				// outlined in primary, so it is told by more than its radio.
 				colors = SegmentedListItemDefaults.segmentedColors(
 					containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
 					disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
 					disabledContentColor = MaterialTheme.colorScheme.onSurface,
-					selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-					selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+					selectedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
 				),
+				modifier = if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shapes.selectedShape) else Modifier,
 				leadingContent = {
 					RadioButton(selected = isSelected, onClick = null, enabled = enabled)
 				}
