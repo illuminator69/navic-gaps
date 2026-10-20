@@ -9,7 +9,6 @@ import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.genreSeedNames
 import paige.navic.domain.models.settings.StationCharacter
-import paige.navic.ui.screens.mixes.viewmodels.MixSeedOption
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,10 +21,9 @@ import kotlin.time.Duration.Companion.seconds
  * same icon for your mix and it does not really make sense for it to be that icon. mix choices are
  * different from those in feishin when they should be the same."
  *
- * One spec for both clients: the form offers Radio, Your mix, Genre, Artist in that order (Your mix
- * only with the hub's station engine), a character for all but Genre; a genre recipe holds the
- * genre's NAME; an artist recipe plays as the artist page's radio, never a shuffle; Your mix and
- * the legacy kinds that play as it wear a person. The words themselves are `MixFormWordsTest`'s.
+ * One spec for both clients: a genre recipe holds the genre's NAME; an artist recipe plays as the
+ * artist page's radio, never a shuffle; Your mix and the legacy kinds that play as it wear a
+ * person. (The new mix form these tests also covered was retired by the custom radio, P5.)
  */
 class MixRecipesTest {
 	private fun song(id: String, album: String? = "al", plays: Int = 0, title: String = "Song $id") = DomainSong(
@@ -39,116 +37,6 @@ class MixRecipesTest {
 		explicitStatus = DomainExplicitStatus.Unknown, artists = emptyList(), albumArtists = emptyList(),
 		playCount = plays
 	)
-
-	// ---- The form's choices ---------------------------------------------------------------- //
-
-	@Test
-	fun withTheEngineTheFormOffersRadioYourMixGenreArtistInThatOrder() {
-		assertEquals(
-			listOf(MixFormKind.Radio, MixFormKind.YourMix, MixFormKind.Genre, MixFormKind.Artist),
-			mixFormKinds(stationEngine = true)
-		)
-	}
-
-	@Test
-	fun withoutTheEngineYourMixIsHiddenAndTheOtherThreeStay() {
-		assertEquals(
-			listOf(MixFormKind.Radio, MixFormKind.Genre, MixFormKind.Artist),
-			mixFormKinds(stationEngine = false)
-		)
-	}
-
-	@Test
-	fun aCharacterForRadioYourMixAndArtistButNotGenre() {
-		assertEquals(
-			mapOf(
-				MixFormKind.Radio to true,
-				MixFormKind.YourMix to true,
-				MixFormKind.Genre to false,
-				MixFormKind.Artist to true
-			),
-			MixFormKind.entries.associateWith { it.takesCharacter }
-		)
-	}
-
-	@Test
-	fun eachChoiceTakesItsOwnSeed() {
-		assertEquals(
-			mapOf(
-				MixFormKind.Radio to MixFormSeed.PlayingSong,
-				MixFormKind.YourMix to MixFormSeed.None,
-				MixFormKind.Genre to MixFormSeed.Genre,
-				MixFormKind.Artist to MixFormSeed.Artist
-			),
-			MixFormKind.entries.associateWith { it.seed }
-		)
-	}
-
-	@Test
-	fun theChoicesNameTheirWordsByTheseKeys() {
-		assertEquals(
-			listOf(
-				"mix_kind_station" to "mix_line_radio",
-				"queue_your_mix" to "mix_your_mix_line",
-				"mix_kind_genre" to "mix_line_genre",
-				"mix_kind_artist" to "mix_line_artist"
-			),
-			MixFormKind.entries.map { it.label.key to it.line.key }
-		)
-	}
-
-	// ---- What each choice saves ------------------------------------------------------------ //
-
-	@Test
-	fun aRadioIsAStationOnThePlayingSongWithItsCharacter() {
-		val mix = mixRecipe("Cinnamon Girl radio", MixFormKind.Radio, song("s1", title = "Cinnamon Girl"), null, StationCharacter.Explore, 50)
-		assertEquals(MixKind.STATION, mix.kind)
-		assertEquals("s1", mix.seedId)
-		assertEquals("Cinnamon Girl", mix.seedName)
-		assertEquals("explore", mix.character)
-		assertEquals("TransitionMaestro", mix.moodCharacter)
-		assertEquals("al-s1", mix.coverArtId)
-		assertEquals("", mix.id)
-		assertEquals(50, mix.count)
-	}
-
-	@Test
-	fun yourMixIsASeedlessStationWithItsCharacter() {
-		val mix = mixRecipe("Your mix", MixFormKind.YourMix, song("s1"), null, StationCharacter.Close, 25)
-		assertEquals(MixKind.STATION, mix.kind)
-		assertEquals("", mix.seedId)
-		assertEquals("", mix.seedName)
-		assertEquals("close", mix.character)
-		assertEquals("EchoMatch", mix.moodCharacter)
-		assertEquals("", mix.coverArtId)
-	}
-
-	@Test
-	fun aGenreHoldsTheGenreNameInBothFieldsAndNoCharacter() {
-		val mix = mixRecipe("Shoegaze", MixFormKind.Genre, song("s1"), MixSeedOption(id = "Shoegaze", name = "Shoegaze"), StationCharacter.Explore, 100)
-		assertEquals(MixKind.GENRE, mix.kind)
-		assertEquals("Shoegaze", mix.seedId)
-		assertEquals("Shoegaze", mix.seedName)
-		assertEquals("", mix.character)
-		assertEquals("", mix.moodCharacter)
-	}
-
-	@Test
-	fun aGenreIsSavedByNameEvenIfTheOptionCarriedAnId() {
-		val mix = mixRecipe("Shoegaze", MixFormKind.Genre, null, MixSeedOption(id = "g-42", name = "Shoegaze"), StationCharacter.Balanced, 50)
-		assertEquals("Shoegaze", mix.seedId)
-	}
-
-	@Test
-	fun anArtistIsAnArtistRecipeByIdWithItsNameCoverAndCharacter() {
-		val mix = mixRecipe("Neil Young", MixFormKind.Artist, song("s1"), MixSeedOption(id = "ar1", name = "Neil Young", coverArtId = "ar-ar1"), StationCharacter.Balanced, 50)
-		assertEquals(MixKind.ARTIST, mix.kind)
-		assertEquals("ar1", mix.seedId)
-		assertEquals("Neil Young", mix.seedName)
-		assertEquals("balanced", mix.character)
-		assertEquals("SteadyVibes", mix.moodCharacter)
-		assertEquals("ar-ar1", mix.coverArtId)
-	}
 
 	// ---- How a recipe plays ---------------------------------------------------------------- //
 

@@ -15,6 +15,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
@@ -41,7 +43,14 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.new_add_link
+import navic.composeapp.generated.resources.action_undo
+import navic.composeapp.generated.resources.custom_radio_failed
+import navic.composeapp.generated.resources.custom_radio_start_failed
+import navic.composeapp.generated.resources.custom_radio_started
+import navic.composeapp.generated.resources.custom_radio_started_unsaved
 import navic.composeapp.generated.resources.new_add_link_hint
+import navic.composeapp.generated.resources.new_custom_radio
+import navic.composeapp.generated.resources.new_custom_radio_hint
 import navic.composeapp.generated.resources.new_playlist
 import navic.composeapp.generated.resources.new_playlist_hint
 import navic.composeapp.generated.resources.new_smart_playlist
@@ -50,11 +59,14 @@ import navic.composeapp.generated.resources.title_new
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalSnackBarState
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Sparkle
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.downloads.PasteLinkSheet
@@ -70,8 +82,8 @@ import paige.navic.ui.util.rememberNowPlayingCoverAmbient
  * new playlist opens its page, as it does from the Playlists tab.
  */
 
-/** The sheet's rows in the board's order. (P5 adds Custom radio before [AddFromLink].) */
-internal enum class NewSheetItem { Playlist, SmartPlaylist, AddFromLink }
+/** The sheet's rows in the board's order (board CreateMenu). */
+internal enum class NewSheetItem { Playlist, SmartPlaylist, CustomRadio, AddFromLink }
 
 /**
  * [lbBotAvailable]: the link row is offered. It needs lb-bot to say what the link is, so it is absent
@@ -80,6 +92,9 @@ internal enum class NewSheetItem { Playlist, SmartPlaylist, AddFromLink }
 internal fun newSheetItems(lbBotAvailable: Boolean): List<NewSheetItem> = buildList {
 	add(NewSheetItem.Playlist)
 	add(NewSheetItem.SmartPlaylist)
+	// Always: without the hub's engine a custom radio plays Navidrome's similar songs, and without
+	// the hub it plays and says it could not be saved.
+	add(NewSheetItem.CustomRadio)
 	if (lbBotAvailable) add(NewSheetItem.AddFromLink)
 }
 
@@ -91,6 +106,31 @@ fun NewSheetHost() {
 	val open by shell.newSheetOpen.collectAsState()
 	// What the picked row shows after the sheet has gone: the dialog or the paste sheet.
 	var followUp by remember { mutableStateOf<NewSheetItem?>(null) }
+	// A custom radio's Done (P5): its page has gone, so it is said here. Undo deletes the saved mix
+	// and leaves the radio playing (starting it replaced the queue, which cannot be given back).
+	val snackBarState = LocalSnackBarState.current
+	val hubManager = koinInject<HubManager>()
+	val startedWords = stringResource(Res.string.custom_radio_started)
+	val unsavedWords = stringResource(Res.string.custom_radio_started_unsaved)
+	val notStartedWords = stringResource(Res.string.custom_radio_start_failed)
+	val failedWords = stringResource(Res.string.custom_radio_failed)
+	val undoWords = stringResource(Res.string.action_undo)
+	LaunchedEffect(Unit) {
+		shell.customRadioDone.collect { done ->
+			val words = when {
+				done.saved && done.started -> startedWords
+				done.started -> unsavedWords
+				done.saved -> notStartedWords
+				else -> failedWords
+			}
+			val result = snackBarState.showSnackbar(
+				message = words,
+				actionLabel = if (done.saved && done.started) undoWords else null,
+				duration = SnackbarDuration.Long
+			)
+			if (result == SnackbarResult.ActionPerformed) hubManager.actDeleteMix(done.mixId)
+		}
+	}
 	// Search's "Add from a link" (P3) opens the paste step without the sheet.
 	val linkRequested by shell.linkRequested.collectAsState()
 	LaunchedEffect(linkRequested) {
@@ -113,6 +153,7 @@ fun NewSheetHost() {
 				when (item) {
 					NewSheetItem.Playlist, NewSheetItem.AddFromLink -> followUp = item
 					NewSheetItem.SmartPlaylist -> backStack.add(Screen.SmartPlaylistEditor())
+					NewSheetItem.CustomRadio -> backStack.add(Screen.CustomRadio)
 				}
 			}
 		)
@@ -210,6 +251,10 @@ private fun NewSheet(
 				NewSheetItem.SmartPlaylist -> NewSheetRow(
 					Icons.Outlined.Sparkle, stringResource(Res.string.new_smart_playlist),
 					stringResource(Res.string.new_smart_playlist_hint)
+				) { pick(item) }
+				NewSheetItem.CustomRadio -> NewSheetRow(
+					Icons.Outlined.Radio, stringResource(Res.string.new_custom_radio),
+					stringResource(Res.string.new_custom_radio_hint)
 				) { pick(item) }
 				NewSheetItem.AddFromLink -> NewSheetRow(
 					Icons.Outlined.Link, stringResource(Res.string.new_add_link),

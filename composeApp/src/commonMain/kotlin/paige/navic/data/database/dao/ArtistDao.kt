@@ -14,6 +14,18 @@ interface ArtistDao {
 	@Query("SELECT * FROM ArtistEntity ORDER BY name COLLATE NOCASE ASC")
 	suspend fun getArtistsAlphabeticalByName(): List<ArtistEntity>
 
+	/**
+	 * Every artist, the most played first: the sum of their albums' play counts (P5, the custom
+	 * radio's pick screen), then by name. An artist with no album played is among the last.
+	 */
+	@Query("""
+		SELECT a.* FROM ArtistEntity a
+		LEFT JOIN (SELECT artistId, SUM(playCount) AS plays FROM AlbumEntity GROUP BY artistId) p
+		ON p.artistId = a.artistId
+		ORDER BY COALESCE(p.plays, 0) DESC, a.name COLLATE NOCASE ASC
+	""")
+	suspend fun getArtistsMostPlayed(): List<ArtistEntity>
+
 	@Query("SELECT * FROM ArtistEntity ORDER BY RANDOM()")
 	suspend fun getArtistsRandom(): List<ArtistEntity>
 

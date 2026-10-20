@@ -22,8 +22,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.IntOffset
 import navic.composeapp.generated.resources.action_more
+import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
+import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.Add
@@ -88,6 +90,7 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.isCustomRadio
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
@@ -143,7 +146,6 @@ fun MixListScreen(nested: Boolean = false) {
 
 	var renameTarget by remember { mutableStateOf<Mix?>(null) }
 	var deleteTarget by remember { mutableStateOf<Mix?>(null) }
-	var formOpen by remember { mutableStateOf(false) }
 
 	val snackbarHostState = remember { SnackbarHostState() }
 	val failedMsg = stringResource(Res.string.mix_regenerate_failed)
@@ -169,6 +171,7 @@ fun MixListScreen(nested: Boolean = false) {
 
 	var sheetTarget by remember { mutableStateOf<Mix?>(null) }
 	val platformContext = LocalPlatformContext.current
+	val backStack = LocalNavStack.current
 	val scrollManager = LocalBottomBarScrollManager.current
 	val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
 	val scaleInSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
@@ -187,9 +190,9 @@ fun MixListScreen(nested: Boolean = false) {
 			else NestedTopBar(title)
 		},
 		snackbarHost = { SnackbarHost(snackbarHostState) },
-		// "New mix" is the general create, and the only way to reach the `genre` and `artist`
-		// kinds at all: the autoplay modes cannot express them. Upstream's create button, as
-		// on the playlist list.
+		// "New mix" is the custom radio since P5 (it replaced the old form; a Genre mix can no
+		// longer be made, an existing one still plays). Upstream's create button, as on the
+		// playlist list; the New sheet offers the same.
 		floatingActionButton = {
 			AnimatedContent(
 				connected && (!scrollManager.isTriggered ||
@@ -209,10 +212,7 @@ fun MixListScreen(nested: Boolean = false) {
 					MediumFloatingActionButton(
 						shape = MaterialTheme.shapes.large,
 						containerColor = MaterialTheme.colorScheme.primary,
-						onClick = {
-							viewModel.loadSeedOptions()
-							formOpen = true
-						}
+						onClick = dropUnlessResumed { backStack.add(Screen.CustomRadio) }
 					) {
 						Icon(
 							imageVector = Icons.Outlined.Add,
@@ -317,27 +317,6 @@ fun MixListScreen(nested: Boolean = false) {
 		)
 	}
 
-	if (formOpen) {
-		val artists by viewModel.seedArtists.collectAsStateWithLifecycle()
-		val genres by viewModel.seedGenres.collectAsStateWithLifecycle()
-		val playing by viewModel.playingSong.collectAsStateWithLifecycle()
-		MixFormSheet(
-			playing = playing,
-			artists = artists,
-			genres = genres,
-			defaultCharacter = viewModel.defaultCharacter,
-			catalogue = catalogue,
-			stationEngine = stationsAvailable,
-			onSave = { recipe ->
-				// `save` takes the name separately because the rename dialog reuses
-				// it; the form has already put the name on the recipe.
-				viewModel.save(recipe, recipe.name)
-				formOpen = false
-			},
-			onDismissRequest = { formOpen = false }
-		)
-	}
-
 	renameTarget?.let { target ->
 		MixNameDialog(
 			title = stringResource(Res.string.title_rename_mix),
@@ -415,7 +394,8 @@ private fun MixRow(
 				}
 			}
 		},
-		content = { Text(mix.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+		// A custom radio's name is its artists, so it may take two lines (P5).
+		content = { Text(mix.name, maxLines = if (isCustomRadio(mix)) 2 else 1, overflow = TextOverflow.Ellipsis) },
 		supportingContent = {
 			Text(mixKindLabel(mix), maxLines = 1, overflow = TextOverflow.Ellipsis)
 		},

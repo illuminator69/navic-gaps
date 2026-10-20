@@ -11,17 +11,17 @@ import kotlin.test.assertEquals
 class NewSheetItemsTest {
 
 	@Test
-	fun withLbBotTheOrderIsPlaylistSmartLink() {
+	fun withLbBotTheOrderIsPlaylistSmartCustomRadioLink() {
 		assertEquals(
-			listOf(NewSheetItem.Playlist, NewSheetItem.SmartPlaylist, NewSheetItem.AddFromLink),
+			listOf(NewSheetItem.Playlist, NewSheetItem.SmartPlaylist, NewSheetItem.CustomRadio, NewSheetItem.AddFromLink),
 			newSheetItems(lbBotAvailable = true)
 		)
 	}
 
 	@Test
-	fun withoutLbBotThereIsNoLinkRow() {
+	fun withoutLbBotThereIsNoLinkRowButStillACustomRadio() {
 		assertEquals(
-			listOf(NewSheetItem.Playlist, NewSheetItem.SmartPlaylist),
+			listOf(NewSheetItem.Playlist, NewSheetItem.SmartPlaylist, NewSheetItem.CustomRadio),
 			newSheetItems(lbBotAvailable = false)
 		)
 	}

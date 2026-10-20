@@ -9,8 +9,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import paige.navic.data.database.dao.ArtistDao
-import paige.navic.data.database.dao.GenreDao
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
@@ -19,21 +17,6 @@ import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.models.settings.StationCharacter
-import paige.navic.shared.MediaPlayerViewModel
-
-/**
- * One choosable seed, flattened out of whatever table it came from.
- *
- * The two seeded kinds draw from different tables and store different things in
- * [Mix.seedId] — an artist id for [MixKind.ARTIST], a genre **name** for
- * [MixKind.GENRE], because that is what `getRandomSongsByGenre` takes. Flattening
- * them here is what lets the dialog hold one picker instead of two.
- */
-data class MixSeedOption(
-	val id: String,
-	val name: String,
-	val coverArtId: String = ""
-)
 
 /** What the list screen needs to say after an action that can fail silently. */
 enum class MixMessage { RegenerateFailed, UnknownKind, NotConnected }
@@ -53,9 +36,6 @@ enum class MixMessage { RegenerateFailed, UnknownKind, NotConnected }
 class MixListViewModel(
 	private val hubManager: HubManager,
 	private val radioManager: RadioManager,
-	private val mediaPlayer: MediaPlayerViewModel,
-	private val artistDao: ArtistDao,
-	private val genreDao: GenreDao,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 
@@ -88,45 +68,6 @@ class MixListViewModel(
 			hubManager.mixErrors.collect { _hubMessage.value = it }
 		}
 	}
-
-	/**
-	 * Artists and genres to seed a new recipe from, read once when the form first
-	 * asks for them.
-	 *
-	 * Local reads, and deliberately so: `regenerate` resolves both against Room
-	 * anyway (`getSongsByArtistId` / `getRandomSongsByGenre`), so offering a seed
-	 * the library does not hold would build a recipe that can never produce a
-	 * queue. Loaded on demand rather than in `init` because the overwhelmingly
-	 * common visit to this screen plays an existing mix and never opens the form.
-	 */
-	private val _seedArtists = MutableStateFlow<List<MixSeedOption>>(emptyList())
-	val seedArtists: StateFlow<List<MixSeedOption>> = _seedArtists.asStateFlow()
-
-	private val _seedGenres = MutableStateFlow<List<MixSeedOption>>(emptyList())
-	val seedGenres: StateFlow<List<MixSeedOption>> = _seedGenres.asStateFlow()
-
-	fun loadSeedOptions() {
-		if (_seedArtists.value.isNotEmpty() || _seedGenres.value.isNotEmpty()) return
-		viewModelScope.launch {
-			_seedArtists.value = artistDao.getArtistsAlphabeticalByName().map {
-				MixSeedOption(id = it.artistId, name = it.name, coverArtId = it.coverArtId.orEmpty())
-			}
-			// By name, which is what `Mix.seedId` holds for a genre recipe.
-			_seedGenres.value = genreDao.getAllGenreNames()
-				.filter { it.isNotBlank() }
-				.map { MixSeedOption(id = it, name = it) }
-		}
-	}
-
-	/**
-	 * What is playing, for the form's `similar` seed.
-	 *
-	 * `steadyState`, not `uiState` — the latter re-stamps progress about five times
-	 * a second, which would recompose the open form for the whole of playback.
-	 */
-	val playingSong: StateFlow<DomainSong?> = mediaPlayer.steadyState
-		.map { it.currentSong }
-		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
 	/** The character a new radio or Your mix recipe is offered with: the one autoplay uses. */
 	val defaultCharacter: StationCharacter get() = preferenceManager.stationCharacter

@@ -1,7 +1,10 @@
 package paige.navic.domain.manager
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -54,4 +57,19 @@ class ShellController {
 	fun linkRequestHandled() {
 		_linkRequested.value = false
 	}
+
+	/**
+	 * A custom radio's Done (P5) came to this: the flow's page has gone by the time it is said, so
+	 * the New sheet's host, which is always there, shows the snackbar (with Undo, which deletes the
+	 * saved mix and leaves the radio playing).
+	 */
+	private val _customRadioDone = MutableSharedFlow<CustomRadioDone>(extraBufferCapacity = 1)
+	val customRadioDone: SharedFlow<CustomRadioDone> = _customRadioDone.asSharedFlow()
+
+	fun announceCustomRadio(done: CustomRadioDone) {
+		_customRadioDone.tryEmit(done)
+	}
 }
+
+/** What a custom radio's Done did: [saved] under Mixes as [mixId], and whether it [started]. */
+data class CustomRadioDone(val mixId: String, val saved: Boolean, val started: Boolean)

@@ -189,6 +189,14 @@ sealed interface Screen : NavKey {
 	data class ArtistDetail(val artist: String) : Screen
 
 	/**
+	 * The custom radio (P5): pick artists, tune the feel, Done saves it under Mixes and starts it.
+	 * Opened by the New sheet and the Mixes page's "+".
+	 */
+	@Immutable
+	@Serializable
+	data object CustomRadio : Screen
+
+	/**
 	 * An owned artist's whole discography behind chips (P4 round 2): the artist page shows a few
 	 * releases and "See discography" opens this.
 	 */

@@ -10,6 +10,7 @@ import navic.composeapp.generated.resources.mix_kind_fingerprint
 import navic.composeapp.generated.resources.mix_kind_genre
 import navic.composeapp.generated.resources.mix_kind_similar
 import navic.composeapp.generated.resources.mix_kind_station
+import navic.composeapp.generated.resources.mix_custom_radio
 import navic.composeapp.generated.resources.mix_kind_unknown
 import navic.composeapp.generated.resources.mix_seeded_by
 import navic.composeapp.generated.resources.queue_station_line
@@ -19,6 +20,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.StationManager
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.isCustomRadio
 import paige.navic.domain.models.settings.StationCharacter
 
 /**
@@ -57,6 +59,13 @@ fun mixKindName(kind: String): String = when (kind) {
 fun mixKindLabel(mix: Mix): String {
 	val seed = mix.seedName.ifBlank { mix.seedId }
 	val character = StationCharacter.fromWire(mix.character) ?: StationCharacter.fromWire(mix.moodCharacter)
+	// A custom radio (P5): its name already lists the artists, so the line says what it is.
+	if (isCustomRadio(mix)) {
+		val kind = stringResource(Res.string.mix_custom_radio)
+		if (character == null) return kind
+		val catalogue by koinInject<StationManager>().catalogue.collectAsState()
+		return stringResource(Res.string.queue_station_line, kind, catalogue.infoFor(character).label.ifBlank { character.label })
+	}
 	if (mix.kind == MixKind.STATION || mix.kind == MixKind.ADAPTIVE) {
 		val catalogue by koinInject<StationManager>().catalogue.collectAsState()
 		val kind = if (mix.kind == MixKind.STATION && seed.isNotBlank()) {

@@ -22,6 +22,7 @@ import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.home.HomeViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
+import paige.navic.ui.screens.radio.custom.CustomRadioViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningCardViewModel
 import paige.navic.ui.screens.listening.viewmodels.ListeningViewModel
 import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
@@ -60,6 +61,7 @@ val viewModelModule = module {
 	// P3: Charts and Editors' picks, one view model each, keyed by which.
 	viewModel { (kind: BrowseKind) -> BrowseFeedViewModel(kind, get(), get(), get()) }
 	viewModelOf(::MixListViewModel)
+	viewModelOf(::CustomRadioViewModel)
 	viewModelOf(::WishlistViewModel)
 	viewModelOf(::ListeningViewModel)
 	viewModelOf(::ListeningCardViewModel)
