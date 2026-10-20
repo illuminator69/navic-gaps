@@ -209,6 +209,16 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class Discover(val nested: Boolean = false) : Screen
 
+	/** Deezer's chart through lb-bot, a page of fifty narrowed by genre (P3, Search's browse card). */
+	@Immutable
+	@Serializable
+	data object Charts : Screen
+
+	/** Deezer's editorial selections through lb-bot, as [Charts] (P3, Search's browse card). */
+	@Immutable
+	@Serializable
+	data object EditorsPicks : Screen
+
 	/**
 	 * An artist the library does not have, keyed on their MusicBrainz id.
 	 *

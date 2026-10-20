@@ -1311,4 +1311,10 @@
 	<string name="search_downloaded_here">Downloaded on this device</string>
 	<string name="search_offline_outside">Artists beyond your library show here again when you're back online.</string>
 	<string name="search_offline_none">Nothing downloaded matches</string>
+	<string name="browse_charts_line">From Deezer's chart.</string>
+	<string name="browse_picks_line">Hand-picked by Deezer's editors.</string>
+	<string name="browse_pick_genre">Pick a genre to narrow.</string>
+	<string name="browse_failed">Couldn't load this from lb-bot.</string>
+	<string name="browse_empty">Nothing here for this genre.</string>
+	<string name="browse_rank">Number %1$d</string>
 </resources>

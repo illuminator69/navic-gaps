@@ -16,6 +16,8 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.external.viewmodels.ExternalAlbumViewModel
 import paige.navic.ui.screens.external.viewmodels.ExternalArtistViewModel
+import paige.navic.ui.screens.browse.BrowseFeedViewModel
+import paige.navic.ui.screens.browse.BrowseKind
 import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.home.HomeViewModel
@@ -54,6 +56,8 @@ val viewModelModule = module {
 	viewModelOf(::FreshViewModel)
 	viewModelOf(::HomeViewModel)
 	viewModelOf(::DiscoverViewModel)
+	// P3: Charts and Editors' picks, one view model each, keyed by which.
+	viewModel { (kind: BrowseKind) -> BrowseFeedViewModel(kind, get(), get(), get()) }
 	viewModelOf(::MixListViewModel)
 	viewModelOf(::WishlistViewModel)
 	viewModelOf(::ListeningViewModel)

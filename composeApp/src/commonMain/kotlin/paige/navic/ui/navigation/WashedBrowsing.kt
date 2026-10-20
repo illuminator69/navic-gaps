@@ -25,6 +25,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	// The fork's pushed pages (I-026, I-039): not tabs, washed like the tabs are.
 	Screen.LibraryMatches::class, Screen.Downloads::class,
 	Screen.SavedQueues::class,
+	// P3: Search's two Deezer pages.
+	Screen.Charts::class, Screen.EditorsPicks::class,
 	// P1 round 2: every surface wears the playing song's colours but the artist and album pages, so
 	// Settings and its pages, the smart playlist form, shares and a genre's albums are washed too.
 	Screen.Settings.Root::class, Screen.Settings.Appearance::class, Screen.Settings.BottomAppBar::class,

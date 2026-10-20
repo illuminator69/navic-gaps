@@ -214,8 +214,8 @@ fun SearchScreen(
 	val tiles = remember(lbBotAvailable) {
 		browseTiles(
 			lbBotAvailable = lbBotAvailable,
-			chartsRoute = false,
-			picksRoute = false,
+			chartsRoute = lbBot.isConfigured && lbBot.advertisesRoute(ROUTE_DEEZER_CHART),
+			picksRoute = lbBot.isConfigured && lbBot.advertisesRoute(ROUTE_DEEZER_EDITORIAL),
 			audioMuseConfigured = audioMuseManager.isConfigured
 		)
 	}
@@ -342,9 +342,10 @@ fun SearchScreen(
 							BrowseTile.GENRES -> Screen.GenreList(nested = true)
 							BrowseTile.FRESH -> Screen.Fresh(nested = true)
 							BrowseTile.DISCOVER -> Screen.Discover(nested = true)
-							BrowseTile.CHARTS, BrowseTile.PICKS -> null
+							BrowseTile.CHARTS -> Screen.Charts
+							BrowseTile.PICKS -> Screen.EditorsPicks
 						}
-						if (destination != null && backStack.lastOrNull() != destination) backStack.add(destination)
+						if (backStack.lastOrNull() != destination) backStack.add(destination)
 					}
 				}
 
@@ -545,6 +546,10 @@ fun SearchScreen(
 		)
 	}
 }
+
+/** The two Deezer routes the Charts and Editors' picks cards need (Discover's catalogue names the same). */
+private const val ROUTE_DEEZER_CHART = "GET /lb/deezer/chart"
+private const val ROUTE_DEEZER_EDITORIAL = "GET /lb/deezer/editorial"
 
 /** Every library row's list key, as [librarySection] writes them. */
 private fun libraryKeys(hits: LibraryHits): List<String> =

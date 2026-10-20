@@ -110,6 +110,8 @@ import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
 import paige.navic.ui.screens.external.ExternalAlbumScreen
 import paige.navic.ui.screens.external.ExternalArtistScreen
+import paige.navic.ui.screens.browse.BrowseFeedScreen
+import paige.navic.ui.screens.browse.BrowseKind
 import paige.navic.ui.screens.discover.DiscoverScreen
 import paige.navic.ui.screens.fresh.FreshScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
@@ -556,6 +558,15 @@ private fun entryProvider(
 
 		entry<Screen.Discover>(metadata = navtabMetadata) { key ->
 			Washed { DiscoverScreen(key.nested) }
+		}
+
+		// P3: pushed from Search's browse cards, with a back arrow, so no tab metadata.
+		entry<Screen.Charts> {
+			Washed { BrowseFeedScreen(BrowseKind.CHARTS) }
+		}
+
+		entry<Screen.EditorsPicks> {
+			Washed { BrowseFeedScreen(BrowseKind.PICKS) }
 		}
 
 		entry<Screen.MixList>(metadata = navtabMetadata) { key ->

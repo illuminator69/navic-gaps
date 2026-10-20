@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.dsl.singleOf
+import paige.navic.domain.manager.BrowseResolver
 import org.koin.dsl.module
 import paige.navic.domain.manager.AudioMuseManager
 import paige.navic.domain.manager.CastScrobbler
@@ -31,6 +32,8 @@ import paige.navic.ui.util.CoverSeedStore
 
 val managerModule = module {
 	singleOf(::AmbientColorHolder)
+	// P3: where a Deezer browse tile opens, for Discover and the Charts / Editors' picks pages.
+	singleOf(::BrowseResolver)
 	// I-043: cover seed colours, persisted. An explicit lambda: singleOf would try to resolve the
 	// constructor's default parameters. Main-thread only, so its delayed write runs on Main too.
 	single {
