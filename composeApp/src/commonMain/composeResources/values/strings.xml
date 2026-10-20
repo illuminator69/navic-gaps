@@ -1317,4 +1317,11 @@
 	<string name="browse_failed">Couldn't load this from lb-bot.</string>
 	<string name="browse_empty">Nothing here for this genre.</string>
 	<string name="browse_rank">Number %1$d</string>
+	<string name="discover_intro">Music that isn't in your library, each with why it's here.</string>
+	<string name="discover_reason_fresh">New from an artist you have</string>
+	<string name="discover_reason_similar">Similar to %1$s</string>
+	<string name="discover_reason_chart">In Deezer's chart</string>
+	<string name="discover_reason_picked">Picked by Deezer's editors</string>
+	<string name="discover_from_library">From your library</string>
+	<string name="label_not_in_library_short">Not in library</string>
 </resources>

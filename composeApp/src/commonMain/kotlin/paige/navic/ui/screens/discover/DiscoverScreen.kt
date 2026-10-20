@@ -1,5 +1,21 @@
 package paige.navic.ui.screens.discover
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.style.TextOverflow
+import navic.composeapp.generated.resources.discover_from_library
+import navic.composeapp.generated.resources.discover_intro
+import navic.composeapp.generated.resources.discover_reason_chart
+import navic.composeapp.generated.resources.discover_reason_fresh
+import navic.composeapp.generated.resources.discover_reason_picked
+import navic.composeapp.generated.resources.discover_reason_similar
+import navic.composeapp.generated.resources.label_not_in_library_short
+import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.GroupHeader
+import paige.navic.ui.screens.search.components.SearchPill
+import paige.navic.ui.util.COVER_FADE_MS
+import paige.navic.ui.util.arrive
+import paige.navic.ui.util.rememberArrivalGate
 import paige.navic.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.font.FontWeight
@@ -169,18 +185,10 @@ fun DiscoverScreen(nested: Boolean = false) {
 
 	// `stringResource` is composable and a LazyGridScope builder lambda is not, so
 	// every reason line is resolved up here rather than at the row that uses it.
-	val becauseFresh = stringResource(Res.string.because_discover_fresh)
-	val becauseSimilar = if (state.similarSeed.isNotBlank()) {
-		stringResource(Res.string.because_discover_similar_artists, state.similarSeed)
-	} else {
-		stringResource(Res.string.because_discover_similar_artists_generic)
-	}
 	val becauseListenBrainz = stringResource(Res.string.because_discover_listenbrainz)
 	val becauseRediscovery = stringResource(Res.string.because_discover_rediscovery)
 	val becauseMood = stringResource(Res.string.because_discover_mood)
 	val becauseMixes = stringResource(Res.string.because_discover_mixes)
-	val becauseCharts = stringResource(Res.string.because_discover_charts)
-	val becauseEditorial = stringResource(Res.string.because_discover_editorial)
 	val titleMood = stringResource(Res.string.title_discover_mood)
 	val titleListening = stringResource(Res.string.title_statistics)
 	val becauseListening = stringResource(Res.string.because_listening)
@@ -231,6 +239,27 @@ fun DiscoverScreen(nested: Boolean = false) {
 		}
 	}
 
+	val stack = remember(state) { discoverStack(state) }
+	val gate = rememberArrivalGate()
+	val openStackEntry: (DiscoverTarget) -> Unit = { target ->
+		when (target) {
+			is DiscoverTarget.Release -> {
+				val release = target.release
+				backStack.add(
+					Screen.ExternalAlbum(
+						rgid = release.releaseGroupMbid,
+						artistMbid = release.artistMbids.firstOrNull() ?: "",
+						artistName = release.artist,
+						title = release.releaseName,
+						artistId = if (release.artistOwned) release.artistId else ""
+					)
+				)
+			}
+			is DiscoverTarget.Artist -> backStack.add(Screen.ExternalArtist(target.mbid, target.name))
+			is DiscoverTarget.Browse -> openBrowseAlbum(target.album)
+		}
+	}
+
 	// Playing a mix is the one action on this screen that can visibly do nothing —
 	// the engine may answer no tracks, and the tap is otherwise silent. Hoisted out
 	// of the grid because a LazyGridScope builder lambda is not composable.
@@ -266,8 +295,6 @@ fun DiscoverScreen(nested: Boolean = false) {
 	}
 
 	val emptyText = stringResource(Res.string.info_discover_empty)
-	val inLibrary = stringResource(Res.string.label_in_library)
-	val notInLibrary = stringResource(Res.string.label_not_in_library)
 
 	Scaffold(
 		topBar = {
@@ -308,7 +335,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 				// NOTE this list is by hand and the compiler will not flag an
 				// omission: a new row left out of it prints the "nothing to
 				// discover" paragraph directly above its own populated content.
-				val anyContent = state.mixes.isNotEmpty() ||
+				val anyContent = stack.isNotEmpty() || state.mixes.isNotEmpty() ||
 					state.fresh.isNotEmpty() ||
 					state.similarArtists.isNotEmpty() ||
 					state.charts.isNotEmpty() ||
@@ -346,6 +373,46 @@ fun DiscoverScreen(nested: Boolean = false) {
 					}
 				}
 
+				// P3: music the library does not hold, each row with the reason it is here.
+				if (stack.isNotEmpty()) {
+					item(span = { GridItemSpan(maxLineSpan) }, key = "stack-intro") {
+						Text(
+							stringResource(Res.string.discover_intro),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+						)
+					}
+					stack.forEachIndexed { index, entry ->
+						item(span = { GridItemSpan(maxLineSpan) }, key = entry.key) {
+							DiscoverStackRow(
+								entry = entry,
+								index = index,
+								count = stack.size,
+								onClick = { openStackEntry(entry.target) },
+								modifier = Modifier.animateItem().arrive(gate, entry.key, index)
+							)
+						}
+					}
+				}
+				val libraryRowsShown = DISCOVER_ROWS.any { row ->
+					row.id in state.supported && when (row.id) {
+						DiscoverRowId.MIXES -> state.mixes.isNotEmpty()
+						DiscoverRowId.LISTENBRAINZ -> state.listenBrainz.isNotEmpty()
+						DiscoverRowId.REDISCOVERY -> state.rediscovery.isNotEmpty()
+						DiscoverRowId.MOOD -> true
+						else -> false
+					}
+				}
+				if (libraryRowsShown) {
+					item(span = { GridItemSpan(maxLineSpan) }, key = "from-library") {
+						GroupHeader(
+							title = stringResource(Res.string.discover_from_library),
+							modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+						)
+					}
+				}
+
 				DISCOVER_ROWS.forEach { row ->
 					if (row.id !in state.supported) return@forEach
 					when (row.id) {
@@ -363,165 +430,10 @@ fun DiscoverScreen(nested: Boolean = false) {
 							DiscoverMixTile(mix = mix, onClick = { playMix(mix) })
 						}
 
-						DiscoverRowId.FRESH -> horizontalSection(
-							seeAll = true,
-							title = Res.string.title_discover_fresh,
-							destination = Screen.Fresh(nested = true),
-							state = rowState(state.fresh, state.loading),
-							key = { it.releaseGroupMbid.ifBlank { it.releaseName + it.artist } },
-							because = becauseFresh
-						) { release ->
-							DiscoverAlbumTile(
-								title = release.releaseName,
-								subtitle = release.artist,
-								coverUrl = release.coverUrl
-									.ifBlank { LbBotManager.caaCoverUrl(release.releaseGroupMbid) },
-								modifier = Modifier.animateItem(),
-								// One tap to fetch it, but never blind: the
-								// control reviews lb-bot's ranked sources first
-								// and opens the picker whenever anything is left
-								// to decide.
-								action = if (release.releaseOwned) null else {
-									{
-										AcquireButton(
-											rgid = release.releaseGroupMbid,
-											artist = release.artist,
-											album = release.releaseName,
-											onReview = {
-												backStack.add(
-													Screen.ExternalAlbum(
-														rgid = release.releaseGroupMbid,
-														artistMbid = release.artistMbids
-															.firstOrNull() ?: "",
-														artistName = release.artist,
-														title = release.releaseName,
-														artistId = if (release.artistOwned) {
-															release.artistId
-														} else ""
-													)
-												)
-											}
-										)
-									}
-								},
-								onClick = {
-									// An owned release opens the library album
-									// directly: `releaseAlbumId` exists so a row
-									// badged "in library" need not route through
-									// the virtual page and wait for a redirect
-									// that cannot fire for an album lb-bot filled
-									// itself.
-									val albumId = release.releaseAlbumId
-									if (release.releaseOwned && albumId.isNotBlank()) {
-										backStack.add(Screen.CollectionDetail(albumId, "discover"))
-									} else {
-										backStack.add(
-											Screen.ExternalAlbum(
-												rgid = release.releaseGroupMbid,
-												artistMbid = release.artistMbids.firstOrNull() ?: "",
-												artistName = release.artist,
-												title = release.releaseName,
-												artistId = if (release.artistOwned) {
-													release.artistId
-												} else ""
-											)
-										)
-									}
-								}
-							)
-						}
-
-						DiscoverRowId.SIMILAR_ARTISTS -> horizontalSection(
-							seeAll = false,
-							title = Res.string.title_discover_similar_artists,
-							destination = null,
-							state = rowState(
-								// Someone with neither a library id nor an MBID
-								// has nowhere to go; that is a name, not a row.
-								state.similarArtists.filter {
-									it.artistId.isNotBlank() || it.mbid.isNotBlank()
-								},
-								state.loading
-							),
-							key = { it.mbid.ifBlank { it.name } },
-							because = becauseSimilar
-						) { artist ->
-							// The app's ordinary artist tile, so this row looks
-							// like every other carousel rather than like a list
-							// of bare names. An owned artist carries Navidrome's
-							// picture; an unowned one has none to carry and gets
-							// the same placeholder an untagged library artist
-							// does.
-							ArtCarouselItem(
-								coverArtId = artist.coverArtId,
-								isArtist = true,
-								title = artist.name,
-								subtitle = if (artist.owned) inLibrary else notInLibrary,
-								contentDescription = null,
-								onClick = {
-									// Owned goes to the real artist page; unowned
-									// to the virtual `mb:` one, which renders
-									// their discography from lb-bot and is where
-									// a fill starts.
-									if (artist.artistId.isNotBlank()) {
-										backStack.add(Screen.ArtistDetail(artist.artistId))
-									} else {
-										backStack.add(
-											Screen.ExternalArtist(artist.mbid, artist.name)
-										)
-									}
-								}
-							)
-						}
-
-						// Both Deezer rows render identically and differ only in
-						// what they mean, so one tile builder serves both. They are
-						// the first rows here that are NOT scoped to the user's
-						// library at all, which is why each carries an acquire
-						// control on every unowned tile rather than on some.
-						DiscoverRowId.CHARTS -> {
-							// Above the row, and scoping BOTH Deezer rows: they are
-							// two views of the same browse source, and letting them
-							// sit on different genres would be two chart rows with
-							// no way to tell which was which.
-							//
-							// Nothing here for country. Deezer's open API has no
-							// country parameter at all — the chart is geolocated by
-							// lb-bot's own egress address — so genre is the only
-							// axis that exists to offer.
-							if (state.genres.isNotEmpty()) {
-								item(span = { GridItemSpan(maxLineSpan) }) {
-									PageChips(
-										options = state.genres.map { it.id },
-										selected = state.genre,
-										label = { id -> state.genres.firstOrNull { it.id == id }?.name ?: id },
-										onSelect = { viewModel.setDeezerGenre(it) },
-										modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
-									)
-								}
-							}
-							horizontalSection(
-								seeAll = false,
-								title = Res.string.title_discover_charts,
-								destination = null,
-								state = rowState(state.charts, state.loading),
-								key = { it.rgid.ifBlank { it.title + it.artist } },
-								because = becauseCharts
-							) { album ->
-								BrowseAlbumTile(album, openBrowseAlbum)
-							}
-						}
-
-						DiscoverRowId.EDITORIAL -> horizontalSection(
-							seeAll = false,
-							title = Res.string.title_discover_editorial,
-							destination = null,
-							state = rowState(state.editorial, state.loading),
-							key = { it.rgid.ifBlank { it.title + it.artist } },
-							because = becauseEditorial
-						) { album ->
-							BrowseAlbumTile(album, openBrowseAlbum)
-						}
+						// P3: Fresh, similar artists, charts and editors' picks are the stack above,
+						// each row with its reason; the catalogue's ids do not change (Feishin's twin).
+						DiscoverRowId.FRESH, DiscoverRowId.SIMILAR_ARTISTS,
+						DiscoverRowId.CHARTS, DiscoverRowId.EDITORIAL -> Unit
 
 						DiscoverRowId.LISTENBRAINZ -> horizontalSection(
 							seeAll = false,
@@ -651,43 +563,6 @@ fun DiscoverScreen(nested: Boolean = false) {
 }
 
 /**
- * A browse-row release, with the acquire control every unowned tile needs.
- *
- * Its own composable rather than a lambda at each call site because the two Deezer
- * rows would otherwise hold two copies of the acquire wiring, and a fix applied to
- * one of them is exactly the drift this file's header warns about. Takes the back
- * stack explicitly: a `LazyGridScope` item lambda is composable, but the row
- * builder that calls it is not, so `LocalNavStack` has to be read above the grid.
- */
-@Composable
-private fun BrowseAlbumTile(album: LbBrowseAlbum, onOpen: (LbBrowseAlbum) -> Unit) {
-	DiscoverAlbumTile(
-		title = album.title,
-		subtitle = album.artist,
-		// lb-bot already picks between the Archive's front and Deezer's own cover,
-		// so this is right for a resolved and an unresolved row alike; the CAA
-		// fallback is only for the case where it sent neither.
-		coverUrl = album.coverUrl.ifBlank { LbBotManager.caaCoverUrl(album.rgid) },
-
-		// No acquire control on a row with no release-group id: the whole
-		// acquisition path is release-group-shaped, and the one search that could
-		// mint one belongs on the tap, not on every tile in the row. Tapping such a
-		// tile still works — it resolves first.
-		action = if (album.releaseOwned || album.rgid.isBlank()) null else {
-			{
-				AcquireButton(
-					rgid = album.rgid,
-					artist = album.artist,
-					album = album.title,
-					onReview = { onOpen(album) }
-				)
-			}
-		},
-		onClick = { onOpen(album) }
-	)
-}
-
-/**
  * A mix tile: a name, what the recipe is, and nothing that looks like a tracklist.
  *
  * Deliberately not showing a track count or a "last played" line. Both would read
@@ -710,38 +585,66 @@ private fun DiscoverMixTile(mix: Mix, onClick: () -> Unit) {
 }
 
 /**
- * A release lb-bot found, as upstream's carousel card: the cover from its URL rather than a
- * library id, and the one-tap acquire control over the artwork, where it does not push every
- * card in the row taller for the sake of the unowned ones.
+ * One row of the stack (P3): the art, the title and artist, the reason in the body colour, and the
+ * "Not in library" pill, which every row here is. A tap opens what the row is, never a download.
  */
 @Composable
-private fun DiscoverAlbumTile(
-	title: String,
-	subtitle: String,
-	coverUrl: String,
-	modifier: Modifier = Modifier,
+private fun DiscoverStackRow(
+	entry: DiscoverEntry,
+	index: Int,
+	count: Int,
 	onClick: () -> Unit,
-	action: @Composable (() -> Unit)? = null
+	modifier: Modifier = Modifier
 ) {
-	ArtCarouselItem(
-		modifier = modifier,
-		coverArtId = null,
-		title = title,
-		subtitle = subtitle,
-		contentDescription = title,
-		cover = { source ->
-			RemoteCoverArt(
-				url = coverUrl,
-				contentDescription = title,
-				modifier = Modifier.fillMaxWidth(),
-				interactionSource = source
-			)
+	val preferenceManager = koinInject<PreferenceManager>()
+	val reason = when (val r = entry.reason) {
+		DiscoverReason.Fresh -> stringResource(Res.string.discover_reason_fresh)
+		is DiscoverReason.Similar -> stringResource(Res.string.discover_reason_similar, r.seed)
+		DiscoverReason.Chart -> stringResource(Res.string.discover_reason_chart)
+		DiscoverReason.Picked -> stringResource(Res.string.discover_reason_picked)
+	}
+	SegmentedListItem(
+		modifier = modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
+		onClick = onClick,
+		shapes = SegmentedListItemDefaults.segmentedShapes(index = index, count = count),
+		leadingContent = {
+			if (entry.isArtist) {
+				CoverArt(
+					coverArtId = entry.art,
+					modifier = Modifier.size(50.dp),
+					isArtist = true,
+					shape = CircleShape,
+					crossfadeMs = COVER_FADE_MS,
+					placeholderName = entry.title
+				)
+			} else {
+				RemoteCoverArt(
+					url = entry.art,
+					modifier = Modifier.size(50.dp),
+					shape = preferenceManager.coverArtShape.decreasedShape,
+					crossfadeMs = COVER_FADE_MS,
+					placeholderName = entry.title
+				)
+			}
 		},
-		coverOverlay = action?.let { control ->
-			{ Box(Modifier.align(Alignment.TopEnd)) { control() } }
+		supportingContent = {
+			Column {
+				if (entry.subtitle.isNotBlank()) {
+					Text(entry.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				}
+				Text(
+					reason,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
 		},
-		onClick = onClick
-	)
+		trailingContent = { SearchPill(stringResource(Res.string.label_not_in_library_short)) }
+	) {
+		Text(entry.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+	}
 }
 
 /** A row's state: loading while the page loads and the row has nothing yet, so it shimmers. */
