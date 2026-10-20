@@ -107,7 +107,6 @@ import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.Sparkle
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.GroupHeader
 import paige.navic.ui.components.common.PageChips
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShapes
@@ -127,6 +126,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.search.components.SearchAlbumRow
 import paige.navic.ui.screens.search.components.SearchArtistRow
+import paige.navic.ui.screens.search.components.SearchSectionHeader
 import paige.navic.ui.screens.search.components.SearchPlaylistRow
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.components.SearchSongRow
@@ -564,9 +564,9 @@ private fun LazyGridScope.historySection(
 ) {
 	if (history.isEmpty()) return
 	item(span = { GridItemSpan(maxLineSpan) }, key = "history-header", contentType = "header") {
-		GroupHeader(
+		SearchSectionHeader(
 			title = stringResource(Res.string.action_search_history),
-			modifier = Modifier.animateItem().padding(horizontal = 16.dp)
+			modifier = Modifier.animateItem()
 		)
 	}
 	history.forEachIndexed { index, historyItem ->
@@ -616,7 +616,7 @@ private fun LazyGridScope.librarySection(
 	val count = hits.artists.size + hits.albums.size + hits.songs.size + hits.playlists.size
 	if (count == 0) return
 	item(span = { GridItemSpan(maxLineSpan) }, key = "l-header", contentType = "header") {
-		GroupHeader(title = stringResource(title), modifier = Modifier.animateItem().padding(horizontal = 16.dp))
+		SearchSectionHeader(title = stringResource(title), modifier = Modifier.animateItem())
 	}
 	var index = 0
 	hits.artists.forEach { artist ->

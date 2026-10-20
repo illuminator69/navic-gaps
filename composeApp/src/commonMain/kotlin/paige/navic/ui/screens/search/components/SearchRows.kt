@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -447,5 +448,33 @@ fun BrowseTileCard(
 				overflow = TextOverflow.Ellipsis
 			)
 		}
+	}
+}
+
+/**
+ * A section's title on the Search page, the whole row wide. `GroupHeader` shares its row with a
+ * spacer, which gave "Downloaded on this device" half the width and cut it short (seen on the AVD).
+ */
+@Composable
+fun SearchSectionHeader(title: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
+	Row(
+		modifier = modifier
+			.fillMaxWidth()
+			.padding(start = 20.dp, end = 16.dp, top = 12.dp)
+			.height(48.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(12.dp)
+	) {
+		Text(
+			title,
+			style = MaterialTheme.typography.titleMediumEmphasized,
+			fontWeight = androidx.compose.ui.text.font.FontWeight(600),
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier
+				.weight(1f)
+				.semantics { heading() }
+		)
+		trailing()
 	}
 }

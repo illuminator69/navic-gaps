@@ -19,7 +19,6 @@ import navic.composeapp.generated.resources.title_fresh
 import navic.composeapp.generated.resources.title_genres
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.ui.components.common.GroupHeader
 import paige.navic.ui.screens.search.BrowseTile
 import paige.navic.ui.screens.search.PlacedTile
 import paige.navic.ui.util.ArrivalGate
@@ -44,9 +43,9 @@ fun LazyGridScope.browseSection(
 ) {
 	if (tiles.isEmpty()) return
 	item(span = { GridItemSpan(maxLineSpan) }, key = "browse-header", contentType = "header") {
-		GroupHeader(
+		SearchSectionHeader(
 			title = stringResource(Res.string.search_browse),
-			modifier = Modifier.animateItem().padding(horizontal = 16.dp)
+			modifier = Modifier.animateItem()
 		)
 	}
 	var column = 0

@@ -21,7 +21,6 @@ import navic.composeapp.generated.resources.search_lookup_retry
 import navic.composeapp.generated.resources.search_not_in_library
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbAlbumCandidate
-import paige.navic.ui.components.common.GroupHeader
 import paige.navic.ui.screens.search.ExternalArtist
 import paige.navic.ui.screens.search.ExternalRow
 import paige.navic.ui.util.ArrivalGate
@@ -51,9 +50,9 @@ fun LazyGridScope.externalSection(
 	val count = if (looking) maxOf(GHOST_ROWS, rows.size) else rows.size
 
 	item(span = { GridItemSpan(maxLineSpan) }, key = "x-header", contentType = "header") {
-		GroupHeader(
+		SearchSectionHeader(
 			title = stringResource(Res.string.search_not_in_library),
-			modifier = Modifier.animateItem().padding(horizontal = 16.dp)
+			modifier = Modifier.animateItem()
 		) {
 			if (looking) SearchPill(stringResource(Res.string.search_looking), busy = true)
 		}
