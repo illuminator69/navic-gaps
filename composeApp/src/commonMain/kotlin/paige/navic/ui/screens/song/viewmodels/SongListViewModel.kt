@@ -18,12 +18,15 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.toBitmask
 import paige.navic.domain.models.toDomainFilters
+import paige.navic.domain.repositories.SongListArtist
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.UiState
 
 class SongListViewModel(
 	initialListType: DomainSongListType = DomainSongListType.FrequentlyPlayed,
 	initialFilters: Set<DomainFilter>? = null,
+	/** One artist's songs; null for the library's. */
+	private val artist: SongListArtist? = null,
 	private val repository: SongRepository,
 	private val downloadManager: DownloadManager,
 	private val sessionManager: SessionManager,
@@ -57,7 +60,8 @@ class SongListViewModel(
 
 	val selectedFilters: StateFlow<Set<DomainFilter>>
 		field = MutableStateFlow(
-			initialFilters ?: preferenceManager.songFilters.toDomainFilters()
+			// An artist's songs start unfiltered: the Songs tab's saved filter is not this list's.
+			initialFilters ?: if (artist != null) emptySet() else preferenceManager.songFilters.toDomainFilters()
 		)
 
 	val isOnline = connectivityManager.isOnline
@@ -86,7 +90,8 @@ class SongListViewModel(
 				fullRefresh,
 				selectedSorting.value,
 				selectedReversed.value,
-				selectedFilters.value
+				selectedFilters.value,
+				artist
 			).collect {
 				songsState.value = it
 			}
@@ -136,7 +141,7 @@ class SongListViewModel(
 			current + filter
 		}
 		selectedFilters.value = newFilters
-		preferenceManager.songFilters = newFilters.toBitmask()
+		if (artist == null) preferenceManager.songFilters = newFilters.toBitmask()
 		refreshSongs(false)
 	}
 

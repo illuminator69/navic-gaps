@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
+import paige.navic.data.database.entities.SongEntity
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import paige.navic.data.database.dao.AlbumDao
@@ -27,6 +29,13 @@ import kotlin.time.Clock
 
 /** A song was starred ([starred]) or unstarred on this device. */
 data class StarChange(val songId: String, val starred: Boolean)
+
+/**
+ * The artist a song list is scoped to. Upstream's paging revert (d6671510) dropped the artist from
+ * the song list, so an artist's "see all" songs opened the whole library; it is a type of its own
+ * so Koin can tell it from the other parameters.
+ */
+data class SongListArtist(val id: String, val name: String = "")
 
 class SongRepository(
 	private val songDao: SongDao,
@@ -54,10 +63,10 @@ class SongRepository(
 	private suspend fun getLocalData(
 		listType: DomainSongListType,
 		reversed: Boolean,
-		filters: Set<DomainFilter> = emptySet()
+		filters: Set<DomainFilter> = emptySet(),
+		artist: SongListArtist? = null
 	): ImmutableList<DomainSong> {
-		val songs = songDao
-			.getAllSongs()
+		val songs = (if (artist == null) songDao.getAllSongs() else artistSongs(artist))
 			.map { it.toDomainModel() }
 
 		val downloadedIds = if (filters.contains(DomainFilter.Downloaded)) {
@@ -90,26 +99,41 @@ class SongRepository(
 		}
 	}
 
+	/**
+	 * The songs on [artist]'s albums, as the artist page's Frequently played picks them (by the
+	 * album's artist id, else by name for an album filed under another spelling).
+	 */
+	private suspend fun artistSongs(artist: SongListArtist): List<SongEntity> {
+		val byId = albumDao.getAlbumsByArtist(artist.id).first()
+		val albums = byId.ifEmpty {
+			artist.name.takeIf { it.isNotBlank() }?.let { albumDao.getAlbumsByArtistName(it).first() }.orEmpty()
+		}
+		return albums.flatMap { it.songs }
+	}
+
 	private suspend fun refreshLocalData(
 		listType: DomainSongListType,
 		reversed: Boolean,
-		filters: Set<DomainFilter>
+		filters: Set<DomainFilter>,
+		artist: SongListArtist?
 	): ImmutableList<DomainSong> {
 		dbRepository.syncLibrarySongs().getOrThrow()
-		return getLocalData(listType, reversed, filters)
+		return getLocalData(listType, reversed, filters, artist)
 	}
 
 	fun getSongsFlow(
 		fullRefresh: Boolean,
 		listType: DomainSongListType,
 		reversed: Boolean,
-		filters: Set<DomainFilter>
+		filters: Set<DomainFilter>,
+		/** One artist's songs (an artist page's "See more"); null for the whole library. */
+		artist: SongListArtist? = null
 	): Flow<UiState<ImmutableList<DomainSong>>> = flow {
-		val localData = getLocalData(listType, reversed, filters)
+		val localData = getLocalData(listType, reversed, filters, artist)
 		if (fullRefresh) {
 			emit(UiState.Loading(data = localData))
 			try {
-				emit(UiState.Success(data = refreshLocalData(listType, reversed, filters)))
+				emit(UiState.Success(data = refreshLocalData(listType, reversed, filters, artist)))
 			} catch (error: Exception) {
 				emit(UiState.Error(error = error, data = localData))
 			}

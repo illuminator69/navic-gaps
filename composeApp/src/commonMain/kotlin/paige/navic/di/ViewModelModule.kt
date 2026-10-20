@@ -48,6 +48,7 @@ import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareListViewModel
 import paige.navic.ui.screens.song.viewmodels.SongDetailViewModel
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
+import paige.navic.domain.repositories.SongListArtist
 import paige.navic.ui.screens.stats.viewmodels.StatisticsViewModel
 import paige.navic.ui.viewmodel.RootViewModel
 
@@ -82,6 +83,8 @@ val viewModelModule = module {
 			artistId = artistId,
 			title = title,
 			artistDao = get(),
+			albumDao = get(),
+			dbRepository = get(),
 			lbBotManager = get(),
 			lbIndexSync = get(),
 			previewManager = get(),
@@ -120,6 +123,7 @@ val viewModelModule = module {
 		SongListViewModel(
 			initialListType = params.getOrNull<DomainSongListType>() ?: DomainSongListType.FrequentlyPlayed,
 			initialFilters = params.getOrNull<Set<DomainFilter>>(),
+			artist = params.getOrNull<SongListArtist>(),
 			repository = get(),
 			downloadManager = get(),
 			sessionManager = get(),

@@ -48,6 +48,7 @@ import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.screens.song.components.SongListScreenSortButton
 import paige.navic.ui.screens.song.components.songListScreenContent
+import paige.navic.domain.repositories.SongListArtist
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
 import paige.navic.ui.util.withoutTop
 import paige.navic.ui.viewmodel.RootViewModel
@@ -65,7 +66,10 @@ fun SongListScreen(
 	// with its entry.
 	val viewModel = koinViewModel<SongListViewModel>(
 		key = artistId,
-		parameters = { parametersOf(listType, artistId) },
+		parameters = {
+			val artist = artistId?.ifBlank { null }?.let { SongListArtist(it, artistName.orEmpty()) }
+			if (artist != null) parametersOf(listType, artist) else parametersOf(listType)
+		},
 		viewModelStoreOwner = if (nested) {
 			LocalViewModelStoreOwner.current!!
 		} else {
