@@ -44,7 +44,8 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Discover | `ui/screens/discover/*` — `DiscoverRows.kt` (the row catalogue, **duplicated in Feishin**; see below), `DiscoverScreen.kt`, `viewmodels/DiscoverViewModel.kt` |
 | Saved queues | `domain/repositories/SavedQueueRepository.kt`, `ui/screens/savedqueues/*` |
 | Downloads | `domain/manager/{DownloadManager,PlaylistDownloadManager,DownloadForegroundController}.kt`, `androidMain/.../shared/DownloadService.kt`, `ui/screens/downloads/*` (`DownloadsScreen` with `WishlistSection` and `PasteLinkSheet`: one library-home page, chips for this device's downloads, lb-bot's fills and the wishlist; it was Settings' Download Center plus a Wishlist page, I-039). What holds downloads back (Wi-Fi only, charging only, how many at once) is in Settings › Data & storage |
-| Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixFormSheet`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
+| Mixed for You | `domain/models/Mix.kt`, `ui/screens/mixes/*` (`MixListScreen`, `MixPreviewSheet`, `MixArtwork`, `MixFormat`), `RadioManager.generate`/`regenerate`/`currentRecipe` |
+| Custom radio (P5) | `ui/screens/radio/custom/*`: `CustomRadioScreen` (two steps, `PickArtistsStep` and `TuneStep`), `CustomRadioViewModel` (the picks, the character, the variety, the debounced count, Done), every rule pure in `CustomRadioModel.kt` (`radioTitle`, `CountState`, `CountKey`, `reduceCount`, `canFinish`, `customRadioRecipe`; `CustomRadioModelTest`); the seed rules and the hub's count answer in `StationModels.kt` (`seedsPerArtist`, `interleaveSeeds`, `customRadioPlan`, `parseStationCount`; `CustomRadioPlumbingTest`); `StationManager.count`; the started snackbar in `NewSheetHost` through `ShellController.customRadioDone` (§4) |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
 | Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
@@ -685,6 +686,27 @@ Rules, each with a reason:
   `mixBuiltByAudioMuse`). Navidrome's similar songs and a genre's random draw are credited to
   nobody. The mini player's AudioMuse colour follows the same credit (`wearsAudioMuseColour`).
   It used to say "AudioMuse mix" over every one of them (`QueueGeneratorLineTest`).
+- **A custom radio is an `artist` mix of several artists (P5).** New › Custom radio (and the Mixes
+  page's +) opens `Screen.CustomRadio`: Pick (the library's artists, most played first by their albums'
+  play counts, `ArtistDao.getArtistsMostPlayed`; up to `CUSTOM_RADIO_MAX_ARTISTS` 8), then Tune (Artist
+  variety, the character as three dials, the count, Done). The recipe is `kind: "artist"` with every
+  artist in `Mix.seedIds` and the first in `seedId` (PROTOCOL §17.1), so an older client plays the first
+  artist; `actSaveMix` writes `seedIds` and `variety` only when there are any. It plays as a `tracks`
+  station of `seedsPerArtist` (12 shared, one to five each) of each held artist's `artistSeedSongs`,
+  dealt in turn (`customRadioPlan`; one artist is exactly `artistRadioPlan`), and without the engine as
+  their seeds then their similar songs, dealt in turn. **Variety and the count are drawn only when the
+  probe lists them** (`StationCatalogue.varieties`, `.count`; `takesVariety`); `start` sends `variety`
+  only then, and a hub without them shows no control and "Count unavailable". The count is per artist
+  set and character (`CountKey`), asked 250 ms after a change, never for a variety tap, and an answer
+  for any other key is dropped (`reduceCount`). Done is disabled only by `Known(0)` and `Unknown`
+  (`canFinish`). Done mints the id (the hub takes a client-minted one), saves, waits up to 6 s for the
+  `mixes` broadcast to hold it, then `regenerate`s it; the page has gone by the time it is said, so
+  `NewSheetHost` shows the snackbar, whose Undo deletes the mix and leaves the radio playing. Leaving the
+  flow saves nothing. **The words are Familiar / Blend / Discover** (`StationCharacter.label`, the
+  bundled catalogue); a catalogue that still says Close / Balanced / Explore (an older hub, or one stored
+  before) reads as the new words in `StationCatalogue.infoFor`; ids, legacy names and ordinals did not
+  move. The old new-mix form (`MixFormSheet`, `MixFormKind`) is gone: a Genre mix can no longer be made,
+  and an existing one still plays.
 - **Preferences.** Autoplay is a Boolean (`autoplayOn`); the four-way `AutoplayMode` it replaces
   was read once as a raw int at "autoplayMode" (0 off, 1–3 on) and removed, behind
   `autoplayMigrated` (`AutoplayPrefMigrationTest`). `StationCharacter` (Close, Balanced, Explore)
@@ -1526,7 +1548,8 @@ playing", whose recipe comes from `RadioManager.currentRecipe` — i.e. from whi
 autoplay mode happens to be on — so `MixKind.GENRE` and `MixKind.ARTIST` were
 **unreachable from this client entirely**. `regenerate` could play them, `MixFormat`
 could label them and the hub validated them; they could only arrive from Feishin.
-`ui/screens/mixes/MixFormSheet.kt` is the general path: name, kind, and a seed
+`ui/screens/mixes/MixFormSheet.kt` was the general path until P5 replaced it with the custom
+radio (§4; the paragraph below is its history): name, kind, and a seed
 picker that fits the kind. It makes four, **in Feishin's order and with Feishin's words**
 (B-150, `MixFormKind` in `MixFormKind.kt`; `MixRecipesTest`, `MixFormWordsTest`): Radio
 ("Around a song, steered by your skips and likes": a `station` recipe on the playing track),
