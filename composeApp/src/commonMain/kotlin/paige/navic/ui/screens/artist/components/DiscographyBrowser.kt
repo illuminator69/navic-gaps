@@ -24,6 +24,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -131,37 +132,43 @@ fun DiscographyBrowser(
 				if (onRescan != null) RescanChip(rescanning, onRescan)
 			}
 		}
-		when {
-			view.flat && view.sections.isEmpty() -> Text(
-				stringResource(Res.string.discography_none_match),
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.padding(horizontal = 20.dp)
-			)
-			view.flat -> {
-				val types = remember(sections) { entryTypes(sections) }
-				Column {
-					MatchedHeading(filter.ownership, view.matched, view.total)
-					ReleaseRows(
-						sections = view.sections,
-						sectionTitle = { sectionTitle(it) },
-						onOpenEntry = onOpenEntry,
-						onLongClick = onLongClick,
-						headings = false,
-						typeOf = { types[it.key] ?: "album" },
-						pills = pills
-					)
+		// Every change of chip or sort plays the rows' arrival again (the owner's note on round 2):
+		// the ownership menu already did, by swapping between the flat list and the sections, and
+		// the type chips and the sort changed the rows in place with no motion at all. A new filter
+		// is a new composition of the list, so its arrival gate starts empty.
+		key(filter) {
+			when {
+				view.flat && view.sections.isEmpty() -> Text(
+					stringResource(Res.string.discography_none_match),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(horizontal = 20.dp)
+				)
+				view.flat -> {
+					val types = remember(sections) { entryTypes(sections) }
+					Column {
+						MatchedHeading(filter.ownership, view.matched, view.total)
+						ReleaseRows(
+							sections = view.sections,
+							sectionTitle = { sectionTitle(it) },
+							onOpenEntry = onOpenEntry,
+							onLongClick = onLongClick,
+							headings = false,
+							typeOf = { types[it.key] ?: "album" },
+							pills = pills
+						)
+					}
 				}
+				else -> ReleaseRows(
+					sections = view.sections,
+					sectionTitle = { sectionTitle(it) },
+					onOpenEntry = onOpenEntry,
+					onLongClick = onLongClick,
+					tapHint = tapHint,
+					countInHeading = !tapHint,
+					pills = pills
+				)
 			}
-			else -> ReleaseRows(
-				sections = view.sections,
-				sectionTitle = { sectionTitle(it) },
-				onOpenEntry = onOpenEntry,
-				onLongClick = onLongClick,
-				tapHint = tapHint,
-				countInHeading = !tapHint,
-				pills = pills
-			)
 		}
 	}
 }
