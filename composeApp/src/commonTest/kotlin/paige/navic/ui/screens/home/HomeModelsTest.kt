@@ -4,6 +4,10 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.LbFreshFeed
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.fresh.viewmodels.FreshFilters
+import paige.navic.ui.screens.fresh.viewmodels.FreshScope
+import paige.navic.ui.screens.fresh.viewmodels.FreshSort
+import paige.navic.ui.screens.fresh.viewmodels.FreshType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,7 +29,9 @@ class HomeModelsTest {
 		releaseOwned: Boolean = false,
 		albumId: String = "",
 		title: String = "Title $rgid",
-		cover: String = "https://caa/$rgid"
+		cover: String = "https://caa/$rgid",
+		date: String = "",
+		type: String = ""
 	) = LbFreshRelease(
 		releaseName = title,
 		artist = "Artist of $rgid",
@@ -35,7 +41,9 @@ class HomeModelsTest {
 		artistOwned = artistOwned,
 		artistId = if (artistOwned) "nd-ar-$rgid" else "",
 		releaseOwned = releaseOwned,
-		releaseAlbumId = albumId
+		releaseAlbumId = albumId,
+		releaseDate = date,
+		type = type
 	)
 
 	private fun feed(vararg rows: LbFreshRelease) = LbFreshFeed(releases = rows.toList(), total = rows.size)
@@ -52,7 +60,41 @@ class HomeModelsTest {
 	}
 
 	@Test
-	fun freshKeepsLbBotsOrder() {
+	fun freshFollowsThePagesTypeFilter() {
+		val shelf = freshShelf(
+			feed(release("a", type = "Album"), release("b", type = "Single"), release("c", type = "Album")),
+			filters = FreshFilters(FreshScope.YOURS, FreshSort.DATE, FreshType.SINGLE)
+		)
+		assertEquals(listOf("b"), shelf.map { it.rgid })
+	}
+
+	@Test
+	fun freshFollowsThePagesScope() {
+		val rows = feed(release("a"), release("b", artistOwned = false))
+		assertEquals(listOf("a"), freshShelf(rows).map { it.rgid })
+		assertEquals(
+			listOf("a", "b"),
+			freshShelf(rows, filters = FreshFilters(FreshScope.ALL, FreshSort.DATE, FreshType.ALL)).map { it.rgid }
+		)
+	}
+
+	@Test
+	fun freshIsInThePagesOrderNewestFirst() {
+		val shelf = freshShelf(feed(release("old", date = "2026-01-02"), release("new", date = "2026-10-01"), release("mid", date = "2026-05-05")))
+		assertEquals(listOf("new", "mid", "old"), shelf.map { it.rgid })
+	}
+
+	@Test
+	fun freshSortedByArtistIsTheirOrder() {
+		val shelf = freshShelf(
+			feed(release("z"), release("a")),
+			filters = FreshFilters(FreshScope.YOURS, FreshSort.ARTIST, FreshType.ALL)
+		)
+		assertEquals(listOf("a", "z"), shelf.map { it.rgid })
+	}
+
+	@Test
+	fun freshKeepsLbBotsOrderWithinADate() {
 		val shelf = freshShelf(feed(release("z"), release("m"), release("a")))
 		assertEquals(listOf("z", "m", "a"), shelf.map { it.rgid })
 	}

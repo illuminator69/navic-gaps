@@ -89,7 +89,9 @@ class SongRepository(
 			.toImmutableList()
 			.sortedByListType(
 				listType,
-				albums = albumDao.getAllAlbumsList().map { it.toDomainModel() }
+				albumAddedAt = if (listType == DomainSongListType.Newest) {
+					albumDao.getAlbumAddedTimes().associate { it.albumId to it.createdAt }
+				} else emptyMap()
 			)
 
 		return if (reversed) {

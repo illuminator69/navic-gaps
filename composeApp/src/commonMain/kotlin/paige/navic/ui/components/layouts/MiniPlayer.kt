@@ -1,5 +1,9 @@
 package paige.navic.ui.components.layouts
 
+import navic.composeapp.generated.resources.action_devices
+import paige.navic.ui.components.sheets.DevicePickerSheet
+import paige.navic.icons.outlined.Devices
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -93,7 +97,6 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
-import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
@@ -102,7 +105,6 @@ import paige.navic.ui.components.common.blur.expressiveBlurEffect
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.heldWhileCoveredBySheet
 import paige.navic.ui.navigation.rememberCoveredBySheet
-import paige.navic.ui.util.playPauseIconPainter
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 import paige.navic.domain.models.creditText
@@ -154,12 +156,15 @@ fun MiniPlayer(
 	val detached = preferenceManager.miniPlayerStyle == MiniPlayerStyle.Detached
 
 	val outerPadding = if (detached) 12.dp else 0.dp
+	// Now Playing's mini header (the queue fully open) is the one mini player (P5 round 3, the
+	// owner's note): its 56 dp cover rounded 10 dp, its title and line, Devices and a filled
+	// play / pause. Swipes still skip either way.
 	val coverRounding by animateDpAsState(
 		if (playerState.isLoading)
 			46.dp
-		else 8.dp
+		else 10.dp
 	)
-	val iconSize = if (detached) 24.dp else 32.dp
+	var showDevicePicker by remember { mutableStateOf(false) }
 
 	val shape = ContinuousRoundedRectangle(
 		if (detached) 16.dp else 0.dp
@@ -290,7 +295,7 @@ fun MiniPlayer(
 							contentDescription = null,
 							contentScale = ContentScale.Fit,
 							modifier = Modifier
-								.size(if (detached) 48.dp else 50.dp)
+								.size(if (detached) 48.dp else 56.dp)
 								.padding(if (playerState.isLoading) 8.dp else 0.dp)
 								.clip(
 									ContinuousRoundedRectangle(coverRounding)
@@ -320,13 +325,17 @@ fun MiniPlayer(
 					}
 				},
 				trailingContent = {
-					Row(
-						horizontalArrangement = Arrangement.spacedBy(
-							if (detached) 8.dp else 12.dp
-						)
-					) {
-						val colors = IconButtonDefaults.iconButtonVibrantColors()
+					Row(verticalAlignment = Alignment.CenterVertically) {
 						IconButton(
+							onClick = {
+								platformContext.clickSound()
+								showDevicePicker = true
+							},
+							enabled = enabled
+						) {
+							Icon(Icons.Outlined.Devices, contentDescription = stringResource(Res.string.action_devices))
+						}
+						FilledIconButton(
 							onClick = {
 								platformContext.clickSound()
 								if (isRemoteActive) {
@@ -337,50 +346,20 @@ fun MiniPlayer(
 									player.pause()
 								}
 							},
-							enabled = isInteractive,
-							colors = colors
-						) {
-							val painter = playPauseIconPainter(playerState.isPaused)
-							val description = stringResource(
-								if (playerState.isPaused)
-									Res.string.action_play
-								else Res.string.action_pause
-							)
-							if (painter != null) {
-								Icon(
-									painter = painter,
-									contentDescription = description,
-									modifier = Modifier.size(iconSize)
-								)
-							} else {
-								Icon(
-									imageVector = if (playerState.isPaused)
-										Icons.Filled.Play
-									else Icons.Filled.Pause,
-									contentDescription = description,
-									modifier = Modifier.size(iconSize)
-								)
-							}
-						}
-						IconButton(
-							onClick = {
-								platformContext.clickSound()
-								if (isRemoteActive) hubManager.actNext() else player.next()
-							},
-							enabled = isInteractive,
-							colors = colors
+							enabled = isInteractive
 						) {
 							Icon(
-								imageVector = Icons.Filled.SkipNext,
-								contentDescription = stringResource(Res.string.action_next_song),
-								modifier = Modifier.size(iconSize)
+								imageVector = if (playerState.isPaused) Icons.Filled.Play else Icons.Filled.Pause,
+								contentDescription = stringResource(
+									if (playerState.isPaused) Res.string.action_play else Res.string.action_pause
+								)
 							)
 						}
 					}
 				},
 				content = {
 					song?.title?.let { title ->
-						MarqueeText(title)
+						MarqueeText(title, style = MaterialTheme.typography.titleMedium)
 					}
 				},
 				supportingContent = {
@@ -402,7 +381,10 @@ fun MiniPlayer(
 							)
 						)
 					} else if (song != null) {
-						MarqueeText(song.creditText)
+						MarqueeText(
+							song.creditText,
+							style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+						)
 					} else {
 						MarqueeText(stringResource(Res.string.info_not_playing))
 					}
@@ -423,6 +405,9 @@ fun MiniPlayer(
 			}
 		}
 	}
+	}
+	if (showDevicePicker) {
+		DevicePickerSheet(onDismissRequest = { showDevicePicker = false })
 	}
 }
 

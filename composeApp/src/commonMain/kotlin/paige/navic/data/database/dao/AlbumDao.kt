@@ -26,6 +26,10 @@ interface AlbumDao {
 	@Query("SELECT * FROM AlbumEntity ORDER BY name ASC")
 	suspend fun getAllAlbumsList(): List<AlbumWithSongs>
 
+	/** When each album was added, alone: the songs' "Recently added" order needs nothing else. */
+	@Query("SELECT albumId, createdAt FROM AlbumEntity")
+	suspend fun getAlbumAddedTimes(): List<AlbumAddedAt>
+
 	// @Transaction is mandatory, not tidiness: AlbumWithSongs makes Room walk the cursor twice —
 	// once to collect albumIds, then again to attach the songs it fetched for them. Without a
 	// transaction a concurrent sync can insert an album between the passes, and the second pass
@@ -174,3 +178,6 @@ data class AlbumFingerprint(
 	val songCount: Int,
 	val coverArtId: String
 )
+
+/** An album's id and when it was added ([AlbumDao.getAlbumAddedTimes]). */
+data class AlbumAddedAt(val albumId: String, val createdAt: kotlin.time.Instant)

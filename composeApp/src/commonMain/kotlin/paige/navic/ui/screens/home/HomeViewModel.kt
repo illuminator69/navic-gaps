@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.home
 
+import paige.navic.ui.screens.fresh.viewmodels.FreshFilters
+import paige.navic.domain.manager.LbFreshFeed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
@@ -163,9 +165,14 @@ class HomeViewModel(
 		}
 	}
 
+	/** The last Fresh feed read, so a visit can redraw the shelf under the page's filters as they are now. */
+	private var lastFeed: LbFreshFeed? = null
+
 	/** Every visit. A Room read, and one cached-or-revalidated Fresh read where lb-bot is there. */
 	fun revalidate() {
 		loadRecent()
+		// The Fresh page's scope, type or sort may have changed since: the shelf follows at once.
+		lastFeed?.let { _fresh.value = freshShelf(it, filters = FreshFilters.of(preferenceManager)) }
 		viewModelScope.launch {
 			if (lbBotManager.ensureAvailability()) loadFresh()
 		}
@@ -197,7 +204,8 @@ class HomeViewModel(
 			val policy = if (isOnline.value) LbCachePolicy.NORMAL else LbCachePolicy.CACHE_ONLY
 			try {
 				lbBotManager.freshReleases(preferenceManager.freshDays, policy = policy).collect { feed ->
-					_fresh.value = freshShelfAfterRead(_fresh.value, feed)
+					if (feed != null) lastFeed = feed
+					_fresh.value = freshShelfAfterRead(_fresh.value, feed, filters = FreshFilters.of(preferenceManager))
 				}
 			} catch (e: CancellationException) {
 				throw e

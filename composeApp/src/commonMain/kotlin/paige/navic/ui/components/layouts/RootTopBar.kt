@@ -8,6 +8,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
 import paige.navic.ui.components.common.AvatarButton
 
@@ -31,7 +34,9 @@ fun RootTopBar(
 		// P1: the account's avatar leads every root page; it opens the one menu that holds the rare
 		// tools, Settings and Log out. Search is a bar button now, so the page keeps only its own
 		// actions (sort, view mode...).
-		navigationIcon = { AvatarButton() },
+		// The bar puts its navigation slot 4 dp in, so the 40 dp avatar centred in its 48 dp target
+		// started at 8 dp while the title starts at 16 dp: 8 dp more lines its edge up with the title's.
+		navigationIcon = { AvatarButton(Modifier.padding(start = 8.dp)) },
 		actions = actions,
 		scrollBehavior = scrollBehavior,
 		// TRANSPARENT at rest, so the page's cover gradient runs unbroken up under the status

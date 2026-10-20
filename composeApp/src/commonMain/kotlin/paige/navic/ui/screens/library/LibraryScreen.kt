@@ -40,7 +40,6 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_search
 import navic.composeapp.generated.resources.library_add_radio
-import navic.composeapp.generated.resources.library_chip_downloaded
 import navic.composeapp.generated.resources.library_chip_mixes
 import navic.composeapp.generated.resources.library_recents
 import navic.composeapp.generated.resources.title_albums
@@ -51,7 +50,6 @@ import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_radios
 import navic.composeapp.generated.resources.title_rename_mix
 import navic.composeapp.generated.resources.title_songs
-import navic.composeapp.generated.resources.action_repair_downloads
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.count_albums
 import navic.composeapp.generated.resources.count_artists
@@ -97,9 +95,6 @@ import paige.navic.ui.screens.album.albumListViewModel
 import paige.navic.ui.screens.artist.ArtistListBody
 import paige.navic.ui.screens.artist.ArtistListSortAction
 import paige.navic.ui.screens.artist.artistListViewModel
-import paige.navic.ui.screens.downloads.DeviceDownloadsBody
-import paige.navic.ui.screens.downloads.formatSize
-import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.screens.library.viewmodels.LibraryViewModel
 import paige.navic.ui.screens.mixes.MixListBody
 import paige.navic.ui.screens.mixes.MixNameDialog
@@ -123,7 +118,8 @@ import kotlin.time.Clock
 
 /*
  * The Library (P5, board Library): the avatar, "Library", Search and New; one row of chips
- * (Playlists, Albums, Artists, Mixes, Downloaded, Songs, Radios); a sort row; and one list. With no
+ * (Playlists, Albums, Artists, Mixes, Songs, Radios); a sort row; and one list. What is downloaded
+ * is the avatar menu's Downloads page (P5 round 3: as a chip it was one long song list, unsortable). With no
  * chip it is Recents, Liked pinned above it; each chip is that list's own body (the pushed pages'
  * bodies, so sort, filters, view mode, sheets and the scroller are theirs), under its sort menu.
  * Tapping the chosen chip clears it. The old home's carousels, statistics card and buttons are gone:
@@ -231,10 +227,6 @@ fun LibraryScreen() {
 					LibraryChip.Mixes -> MixListBody(
 						mixListViewModel(false), inner, LocalSnackBarState.current, scrollConnection = connection
 					)
-					LibraryChip.Downloaded -> DeviceDownloadsBody(
-						koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = persistent), inner,
-						scrollConnection = connection, inLibrary = true
-					)
 					LibraryChip.Songs -> SongListBody(
 						songListViewModel(false, LIBRARY_SONGS), inner, scrollConnection = connection,
 						listState = songsState
@@ -259,7 +251,6 @@ private val LibraryChip.label: StringResource
 		LibraryChip.Albums -> Res.string.title_albums
 		LibraryChip.Artists -> Res.string.title_artists
 		LibraryChip.Mixes -> Res.string.library_chip_mixes
-		LibraryChip.Downloaded -> Res.string.library_chip_downloaded
 		LibraryChip.Songs -> Res.string.title_songs
 		LibraryChip.Radios -> Res.string.title_radios
 	}
@@ -277,8 +268,8 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 		// The board's glyph for Recents' order; a chip has its own sort button at the end instead.
 		if (chip == null) Icon(Icons.Outlined.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
 		Text(
-			// How many the chip holds, not its name again (the owner's note: "Downloaded" three
-			// times); the name until the list has been read.
+			// How many the chip holds, not its name again (the owner's note); the name until the
+			// list has been read.
 			if (chip == null) stringResource(Res.string.library_recents) else chipSummary(chip) ?: stringResource(chip.label),
 			style = MaterialTheme.typography.titleSmall,
 			fontWeight = FontWeight.Bold,
@@ -286,21 +277,13 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 		)
 		Spacer(Modifier.weight(1f))
 		when (chip) {
-			LibraryChip.Playlists -> PlaylistListSortAction(playlistListViewModel(false), nested = true)
-			LibraryChip.Albums -> AlbumListSortAction(albumListViewModel(false, LIBRARY_ALBUMS), nested = true)
-			LibraryChip.Artists -> ArtistListSortAction(artistListViewModel(false, LIBRARY_ARTISTS), nested = true)
-			LibraryChip.Songs -> SongListSortAction(songListViewModel(false, LIBRARY_SONGS), nested = true)
+			LibraryChip.Playlists -> PlaylistListSortAction(playlistListViewModel(false), nested = false)
+			LibraryChip.Albums -> AlbumListSortAction(albumListViewModel(false, LIBRARY_ALBUMS), nested = false)
+			LibraryChip.Artists -> ArtistListSortAction(artistListViewModel(false, LIBRARY_ARTISTS), nested = false)
+			LibraryChip.Songs -> SongListSortAction(songListViewModel(false, LIBRARY_SONGS), nested = false)
 			LibraryChip.Radios -> TextButton(onClick = onAddRadio) {
 				Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
 				Text(stringResource(Res.string.library_add_radio), modifier = Modifier.padding(start = 6.dp))
-			}
-			LibraryChip.Downloaded -> {
-				val downloads = koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())
-				// Re-verifies the files still exist and fetches any that vanished (the group header's,
-				// which this chip leaves out).
-				TextButton(onClick = downloads::repairMissing) {
-					Text(stringResource(Res.string.action_repair_downloads))
-				}
 			}
 			LibraryChip.Mixes, null -> Unit
 		}
@@ -308,7 +291,7 @@ private fun SortRow(chip: LibraryChip?, onAddRadio: () -> Unit) {
 }
 
 /**
- * What [chip] holds, as its sort row says it: "2,474 artists", "77 songs · 412 MB". The lists' own
+ * What [chip] holds, as its sort row says it: "2474 artists". The lists' own
  * view models (the bodies'), so the number is the list's, filters included. Null before a read.
  */
 @Composable
@@ -337,12 +320,6 @@ private fun chipSummary(chip: LibraryChip): String? {
 		LibraryChip.Radios -> {
 			val state by radioListViewModel(false).radiosState.collectAsStateWithLifecycle()
 			state.data?.size?.let { pluralStringResource(Res.plurals.count_radios, it, it) }
-		}
-		LibraryChip.Downloaded -> {
-			val downloads = koinViewModel<DownloadCenterViewModel>(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())
-			val state by downloads.state.collectAsStateWithLifecycle()
-			val count = state.completed.size
-			pluralStringResource(Res.plurals.count_songs, count, count) + " · " + formatSize(state.totalSize)
 		}
 	}
 }

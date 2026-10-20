@@ -235,35 +235,14 @@ class FreshViewModel(
 		val counts = FreshType.entries.associateWith { bucket ->
 			if (bucket == FreshType.ALL) scoped.size else scoped.count { typeOf(it) == bucket }
 		}
-		val shown = if (ui.type == FreshType.ALL) scoped else scoped.filter { typeOf(it) == ui.type }
 		return ui.copy(
 			scope = scope,
 			ownedArtistCount = ui.all.count { it.artistOwned },
 			playedOffered = playedOffered,
 			playedCount = ui.all.count { (it.artistPlays ?: 0) > 0 },
 			typeCounts = counts,
-			// "Artists you play" is one flat list in [freshScoped]'s own order, most played
-			// first. The sort control does not apply there, and the screen hides it.
-			groups = if (scope == FreshScope.PLAYED) {
-				if (shown.isEmpty()) emptyList() else listOf(FreshGroup(null, shown))
-			} else {
-				group(shown, ui.sort)
-			}
+			groups = freshGroups(ui.all, chosenScope, ui.sort, ui.type)
 		)
-	}
-
-	private fun group(rows: List<LbFreshRelease>, sort: FreshSort): List<FreshGroup> {
-		if (sort == FreshSort.ARTIST) {
-			val sorted = rows.sortedWith(
-				compareBy({ it.artist.lowercase() }, { it.releaseName.lowercase() })
-			)
-			return if (sorted.isEmpty()) emptyList() else listOf(FreshGroup(null, sorted))
-		}
-		return rows.groupBy { ageBucket(it.releaseDate) }
-			.toSortedMap()
-			.map { (bucket, items) ->
-				FreshGroup(bucket, items.sortedByDescending { it.releaseDate })
-			}
 	}
 
 	companion object {
@@ -301,5 +280,50 @@ class FreshViewModel(
 			val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
 			return date.daysUntil(today)
 		}
+	}
+}
+
+/**
+ * What the page shows, grouped as it shows it: [all] in the scope chosen ([freshEffectiveScope]),
+ * of [type], by [sort] (weekly date groups, newest first, or one list by artist). "Artists you play"
+ * is one flat list in [freshScoped]'s own order, most played first: the sort does not apply there,
+ * and the page hides it. Home's Fresh shelf reads the same (P5 round 3, the owner's note: the shelf
+ * and the page showed different releases), through [freshOrdered].
+ */
+internal fun freshGroups(
+	all: List<LbFreshRelease>,
+	chosenScope: FreshScope,
+	sort: FreshSort,
+	type: FreshType
+): List<FreshGroup> {
+	val scope = freshEffectiveScope(chosenScope, freshPlayedOffered(all))
+	val scoped = freshScoped(all, scope)
+	val shown = if (type == FreshType.ALL) scoped else scoped.filter { FreshViewModel.typeOf(it) == type }
+	if (shown.isEmpty()) return emptyList()
+	if (scope == FreshScope.PLAYED) return listOf(FreshGroup(null, shown))
+	if (sort == FreshSort.ARTIST) {
+		return listOf(FreshGroup(null, shown.sortedWith(compareBy({ it.artist.lowercase() }, { it.releaseName.lowercase() }))))
+	}
+	return shown.groupBy { FreshViewModel.ageBucket(it.releaseDate) }
+		.toSortedMap()
+		.map { (bucket, items) -> FreshGroup(bucket, items.sortedByDescending { it.releaseDate }) }
+}
+
+/** The page's releases in the order it shows them, top to bottom ([freshGroups]). */
+internal fun freshOrdered(
+	all: List<LbFreshRelease>,
+	chosenScope: FreshScope,
+	sort: FreshSort,
+	type: FreshType
+): List<LbFreshRelease> = freshGroups(all, chosenScope, sort, type).flatMap { it.items }
+
+/** The page's scope, sort and type as stored, each falling back to the page's own default. */
+internal data class FreshFilters(val scope: FreshScope, val sort: FreshSort, val type: FreshType) {
+	companion object {
+		fun of(preferenceManager: PreferenceManager) = FreshFilters(
+			scope = runCatching { FreshScope.valueOf(preferenceManager.freshScope) }.getOrDefault(FreshScope.YOURS),
+			sort = runCatching { FreshSort.valueOf(preferenceManager.freshSort) }.getOrDefault(FreshSort.DATE),
+			type = runCatching { FreshType.valueOf(preferenceManager.freshType) }.getOrDefault(FreshType.ALL)
+		)
 	}
 }

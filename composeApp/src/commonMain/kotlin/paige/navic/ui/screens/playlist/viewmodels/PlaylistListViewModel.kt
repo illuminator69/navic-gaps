@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
@@ -54,8 +55,12 @@ class PlaylistListViewModel(
 		selectedPlaylist.value = null
 	}
 
+	/** The read in flight: a newer sort or filter cancels it, so a slow older one never lands last. */
+	private var refreshing: Job? = null
+
 	fun refreshPlaylists(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshing?.cancel()
+		refreshing = viewModelScope.launch {
 			repository.getPlaylistsFlow(
 				fullRefresh,
 				selectedSorting.value,

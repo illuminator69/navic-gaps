@@ -3,23 +3,23 @@ package paige.navic.util
 import androidx.room3.RoomRawQuery
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 
 // TODO: sort with sql instead
+/**
+ * [albumAddedAt] is when each album was added, by id, read only for [DomainSongListType.Newest]. It
+ * was every album with its songs, searched once per comparison: some two billion steps over the
+ * VM's 15,679 songs, the long wait on "Recently added" (P5 round 3).
+ */
 fun ImmutableList<DomainSong>.sortedByListType(
 	listType: DomainSongListType,
-	albums: List<DomainAlbum>
+	albumAddedAt: Map<String, kotlin.time.Instant> = emptyMap()
 ): ImmutableList<DomainSong> {
 	return when (listType) {
 		DomainSongListType.FrequentlyPlayed -> sortedByDescending { it.playCount }
-		DomainSongListType.Newest -> sortedByDescending {
-			albums
-				.firstOrNull { album -> album.id == it.albumId }
-				?.createdAt
-		}
+		DomainSongListType.Newest -> sortedByDescending { song -> song.albumId?.let { albumAddedAt[it] } }
 
 		DomainSongListType.Random -> shuffled()
 

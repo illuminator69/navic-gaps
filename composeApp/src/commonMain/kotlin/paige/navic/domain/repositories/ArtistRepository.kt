@@ -60,20 +60,33 @@ class ArtistRepository(
 			DomainArtistListType.Random -> artistDao.getArtistsRandom()
 		}.map { it.toDomainModel() }
 
+		// Read once for the whole list, not per artist: the per-song lookups made a Downloaded filter
+		// over 2,474 artists some 15,000 queries, slow enough that a later tap finished first (P5
+		// round 3, seen on the AVD).
+		val withDownloads = if (DomainFilter.Downloaded in filters) downloadedArtistIds() else emptySet()
 		return artists.filter { artist ->
 			filters.all { filter ->
 				when (filter) {
 					DomainFilter.Starred -> artist.starredAt != null
-					DomainFilter.Downloaded -> songDao
-						.getSongsByArtistId(artist.id)
-						.takeIf { it.isNotEmpty() }
-						?.all {
-							val download = downloadDao.getDownloadById(it.songId)
-							return@all download?.status == DownloadStatus.DOWNLOADED
-						} ?: false
+					DomainFilter.Downloaded -> artist.id in withDownloads
 				}
 			}
 		}.toImmutableList()
+	}
+
+	/**
+	 * Every artist credited on a downloaded song: the song's artist, its artists and its album's
+	 * artists. An artist is "downloaded" when anything of theirs is on the device (it used to need
+	 * every song of theirs, which almost no artist meets, so the filter showed nothing).
+	 */
+	private suspend fun downloadedArtistIds(): Set<String> {
+		val ids = downloadDao.getAllDownloadsList()
+			.filter { it.status == DownloadStatus.DOWNLOADED }
+			.map { it.songId }
+		return ids.chunked(SQL_CHUNK).flatMap { chunk -> songDao.getSongsByIds(chunk) }
+			.flatMapTo(HashSet()) { song ->
+				creditedArtistIds(song.artistId, song.artists.map { it.id }, song.albumArtists.map { it.id })
+			}
 	}
 
 	private suspend fun refreshLocalData(
@@ -120,3 +133,10 @@ class ArtistRepository(
 		syncManager.enqueueAction(SyncActionType.UNSTAR, artist.id)
 	}
 }
+
+/** A song's credited artist ids, blanks left out (`downloadedArtistIds`). */
+internal fun creditedArtistIds(artistId: String, artists: List<String>, albumArtists: List<String>): Set<String> =
+	(listOf(artistId) + artists + albumArtists).filterTo(LinkedHashSet()) { it.isNotBlank() }
+
+/** SQLite's bound-variable limit is 999 on older Androids: an IN list goes in chunks below it. */
+private const val SQL_CHUNK = 500

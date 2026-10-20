@@ -9,6 +9,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.mappers.toDomainModel
@@ -60,8 +61,12 @@ class ArtistListViewModel(
 		}
 	}
 
+	/** The read in flight: a newer sort or filter cancels it, so a slow older one never lands last. */
+	private var refreshing: Job? = null
+
 	fun refreshArtists(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshing?.cancel()
+		refreshing = viewModelScope.launch {
 			repository.getArtistsFlow(fullRefresh, listType.value, selectedFilters.value)
 				.collect {
 					artistsState.value = it

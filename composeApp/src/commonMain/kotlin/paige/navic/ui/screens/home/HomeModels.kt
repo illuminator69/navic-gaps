@@ -1,5 +1,10 @@
 package paige.navic.ui.screens.home
 
+import paige.navic.ui.screens.fresh.viewmodels.FreshFilters
+import paige.navic.ui.screens.fresh.viewmodels.FreshScope
+import paige.navic.ui.screens.fresh.viewmodels.FreshSort
+import paige.navic.ui.screens.fresh.viewmodels.FreshType
+import paige.navic.ui.screens.fresh.viewmodels.freshOrdered
 import androidx.compose.runtime.Immutable
 import androidx.navigation3.runtime.NavKey
 import paige.navic.data.database.entities.SavedQueueEntity
@@ -34,14 +39,19 @@ data class FreshTile(
 }
 
 /**
- * The Fresh shelf: lb-bot's feed narrowed to artists the library holds, in lb-bot's own order, one tile
- * per release group, at most [limit]. A row with neither a release group nor a library album has
- * nowhere to go and is left out. A null feed (nothing cached, nothing answered) is an empty shelf.
+ * The Fresh shelf: the first releases the Fresh page shows under its stored scope, type and sort
+ * ([filters]; `freshOrdered`), one tile per release group, at most [limit]. It was the artists the
+ * library holds in lb-bot's own order, whatever the page was set to, so the two showed different
+ * releases (P5 round 3, the owner's note). A row with neither a release group nor a library album
+ * has nowhere to go and is left out. A null feed (nothing cached, nothing answered) is an empty shelf.
  */
-fun freshShelf(feed: LbFreshFeed?, limit: Int = 12): List<FreshTile> {
+internal fun freshShelf(
+	feed: LbFreshFeed?,
+	limit: Int = 12,
+	filters: FreshFilters = FreshFilters(FreshScope.YOURS, FreshSort.DATE, FreshType.ALL)
+): List<FreshTile> {
 	val rows = feed?.releases ?: return emptyList()
-	return rows.asSequence()
-		.filter { it.artistOwned }
+	return freshOrdered(rows, filters.scope, filters.sort, filters.type).asSequence()
 		.filter { it.releaseGroupMbid.isNotBlank() || it.releaseAlbumId.isNotBlank() }
 		.distinctBy { it.releaseGroupMbid.ifBlank { it.releaseAlbumId } }
 		.take(limit)
@@ -65,8 +75,13 @@ fun freshShelf(feed: LbFreshFeed?, limit: Int = 12): List<FreshTile> {
  * did answer). `null` is "nothing cached and nothing came back", which may only stand in for an empty
  * shelf: a failed read never takes away the shelf that is on screen.
  */
-fun freshShelfAfterRead(current: List<FreshTile>, feed: LbFreshFeed?, limit: Int = 12): List<FreshTile> =
-	if (feed != null || current.isEmpty()) freshShelf(feed, limit) else current
+internal fun freshShelfAfterRead(
+	current: List<FreshTile>,
+	feed: LbFreshFeed?,
+	limit: Int = 12,
+	filters: FreshFilters = FreshFilters(FreshScope.YOURS, FreshSort.DATE, FreshType.ALL)
+): List<FreshTile> =
+	if (feed != null || current.isEmpty()) freshShelf(feed, limit, filters) else current
 
 /**
  * Where a tapped Fresh tile goes: the Fresh page's own rule (`freshAlbumTarget`), not a copy of it.

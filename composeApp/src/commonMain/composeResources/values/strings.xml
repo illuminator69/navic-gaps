@@ -362,6 +362,7 @@
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_like">Like</string>
+	<string name="action_devices">Devices</string>
 	<string name="action_unlike">Unlike</string>
 	<string name="action_download">Download</string>
 	<string name="action_delete_download">Delete download</string>
@@ -1289,7 +1290,6 @@
 	<string name="mix_custom_radio">Custom radio</string>
 	<!-- P5: the Library, one list under chips. -->
 	<string name="library_chip_mixes">Mixes</string>
-	<string name="library_chip_downloaded">Downloaded</string>
 	<string name="library_recents">Recents</string>
 	<string name="library_liked">Liked</string>
 	<string name="library_pinned">Pinned · %1$s</string>

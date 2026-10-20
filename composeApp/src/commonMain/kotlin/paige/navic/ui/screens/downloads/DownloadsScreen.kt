@@ -315,52 +315,11 @@ internal fun downloadsRowColors() = ListItemDefaults.colors(
  * accepted but waiting on a permit, failed (with the reason, and a retry that reuses the original
  * quality/format), and completed.
  */
-/**
- * This device's downloads alone (P5): the Library's Downloaded chip. The Downloads page itself keeps
- * all three sections (this one, lb-bot's fills and the wishlist).
- */
-@Composable
-fun DeviceDownloadsBody(
-	viewModel: DownloadCenterViewModel,
-	contentPadding: PaddingValues,
-	modifier: Modifier = Modifier,
-	scrollConnection: NestedScrollConnection? = null,
-	/**
-	 * The Library's Downloaded chip (P5 round 2, the owner's note: "Downloaded" three times): the
-	 * chip names the list and its sort row carries the size and Repair, so the finished downloads
-	 * have no header of their own unless another group (downloading, queued, failed) is above them.
-	 */
-	inLibrary: Boolean = false
-) {
-	val state by viewModel.state.collectAsStateWithLifecycle()
-	val constrained by viewModel.constrained.collectAsStateWithLifecycle()
-	val backStack = LocalNavStack.current
-	LazyColumn(
-		modifier = modifier
-			.padding(top = contentPadding.calculateTopPadding())
-			.fillMaxSize()
-			.then(if (scrollConnection != null) Modifier.nestedScroll(scrollConnection) else Modifier)
-			.padding(horizontal = 16.dp),
-		contentPadding = contentPadding.withoutTop() + PaddingValues(top = 8.dp, bottom = 24.dp),
-		verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
-	) {
-		deviceSection(
-			state = state,
-			constrained = constrained,
-			viewModel = viewModel,
-			onOpenSettings = { backStack.add(Screen.Settings.DataStorage) },
-			completedHeader = !inLibrary ||
-				state.active.isNotEmpty() || state.queued.isNotEmpty() || state.failed.isNotEmpty()
-		)
-	}
-}
-
 private fun LazyListScope.deviceSection(
 	state: DownloadCenterState,
 	constrained: Boolean,
 	viewModel: DownloadCenterViewModel,
-	onOpenSettings: () -> Unit,
-	completedHeader: Boolean = true
+	onOpenSettings: () -> Unit
 ) {
 	// Kept at the top so the "why is my queue stuck?" answer is right above the (possibly
 	// stalled) groups below, with the way to the settings that hold them.
@@ -462,7 +421,6 @@ private fun LazyListScope.deviceSection(
 		title = Res.string.section_downloads_completed,
 		items = state.completed,
 		subtitle = formatSize(state.totalSize),
-		header = completedHeader,
 		actions = {
 			// Re-verifies files still exist and re-fetches any that vanished.
 			TextButton(onClick = viewModel::repairMissing) {
@@ -495,12 +453,11 @@ private fun LazyListScope.downloadGroup(
 	title: StringResource,
 	items: List<DownloadCenterItem>,
 	subtitle: String? = null,
-	header: Boolean = true,
 	actions: @Composable RowScope.() -> Unit = {},
 	row: @Composable (DownloadCenterItem, ListItemShapes) -> Unit
 ) {
 	if (items.isEmpty()) return
-	if (header) item(key = "header-$key") {
+	item(key = "header-$key") {
 		GroupHeader(
 			title = stringResource(title),
 			count = items.size,
@@ -863,7 +820,7 @@ private fun sourceLabel(source: String): String = when (source) {
 }
 
 /** Bytes as MB/GB: the same rounding the storage settings row uses. */
-internal fun formatSize(bytes: Long): String {
+private fun formatSize(bytes: Long): String {
 	val mb = bytes.toDouble() / (1024 * 1024)
 	return if (mb > 1024) {
 		"${((mb / 1024) * 100).toInt() / 100.0} GB"

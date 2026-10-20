@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -84,8 +85,12 @@ class SongListViewModel(
 		selectedSong.value = null
 	}
 
+	/** The read in flight: a newer sort or filter cancels it, so a slow older one never lands last. */
+	private var refreshing: Job? = null
+
 	fun refreshSongs(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshing?.cancel()
+		refreshing = viewModelScope.launch {
 			repository.getSongsFlow(
 				fullRefresh,
 				selectedSorting.value,

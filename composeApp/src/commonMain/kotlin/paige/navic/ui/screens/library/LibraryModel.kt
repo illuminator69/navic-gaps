@@ -17,7 +17,7 @@ import paige.navic.domain.models.isCustomRadio
  */
 
 /** The chips, in the board's order. Radios is last and always shown. */
-enum class LibraryChip { Playlists, Albums, Artists, Mixes, Downloaded, Songs, Radios }
+enum class LibraryChip { Playlists, Albums, Artists, Mixes, Songs, Radios }
 
 enum class EntryKind { Liked, Mix, CustomRadio, SavedQueue, Artist, Album, Playlist }
 
