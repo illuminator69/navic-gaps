@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.home
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,8 +72,14 @@ fun <T> HomeShelf(
 ) {
 	Column(modifier) {
 		HomeShelfHeader(title, moreLabel, more, onMore)
+		// The row is as tall as the cards in view, so scrolling past two-line titles changes its
+		// height: it eases, as `ArtCarousel`'s does (B-134), instead of moving everything under it
+		// at once (P6). Same modifier, same spec, same place before the padding.
 		LazyRow(
-			modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp),
+			modifier = Modifier
+				.fillMaxWidth()
+				.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())
+				.padding(top = 8.dp, bottom = 16.dp),
 			horizontalArrangement = Arrangement.spacedBy(12.dp),
 			contentPadding = PaddingValues(horizontal = 16.dp)
 		) {
