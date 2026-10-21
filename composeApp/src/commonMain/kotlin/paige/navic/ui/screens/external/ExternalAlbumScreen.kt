@@ -85,6 +85,7 @@ import navic.composeapp.generated.resources.info_external_album_index_failed
 import navic.composeapp.generated.resources.title_missing_album
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.compose.runtime.saveable.rememberSaveable
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
@@ -139,12 +140,22 @@ fun ExternalAlbumScreen(
 	title: String,
 	artistId: String = "",
 	/** Reached from a pasted link: the heading says so. */
-	fromLink: Boolean = false
+	fromLink: Boolean = false,
+	/** P6: Statistics' "Find sources" asked for the source search on arrival, once per visit. */
+	findSources: Boolean = false
 ) {
 	val viewModel = koinViewModel<ExternalAlbumViewModel>(
 		key = rgid,
 		parameters = { parametersOf(rgid, artistMbid, artistName, artistId, title) }
 	)
+	// Saved with the entry, so coming back to this page (or a restored stack) does not ask again.
+	var arrivalSearchAsked by rememberSaveable { mutableStateOf(false) }
+	LaunchedEffect(findSources) {
+		if (findSources && !arrivalSearchAsked) {
+			arrivalSearchAsked = true
+			viewModel.findSourcesOnArrival()
+		}
+	}
 	val backStack = LocalNavStack.current
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val previewsAvailable by viewModel.previewsAvailable.collectAsStateWithLifecycle()

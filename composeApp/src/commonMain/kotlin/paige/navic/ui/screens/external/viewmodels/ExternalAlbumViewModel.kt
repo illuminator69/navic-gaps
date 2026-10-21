@@ -49,6 +49,19 @@ import paige.navic.util.Logger
 const val SOURCES_AUTO_START = false
 
 /**
+ * P6: whether the search Statistics' "Find sources" asked for starts now: asked, not yet done, the
+ * edition known, nothing searching or filling for it already, and a hub that carries the route.
+ */
+internal fun arrivalSearchShouldStart(
+	wanted: Boolean,
+	done: Boolean,
+	editionKnown: Boolean,
+	searching: Boolean,
+	fillRunning: Boolean,
+	supported: Boolean
+): Boolean = wanted && !done && editionKnown && !searching && !fillRunning && supported
+
+/**
  * The request box's own state (P4): what used to live in `MissingAlbumSheet`'s `remember`s, moved
  * here so the box on the album page carries it and the page's tracklist and the box agree on the
  * edition. Which stage the box shows is `requestStage`'s, from this and the fill ledger.
@@ -339,6 +352,7 @@ class ExternalAlbumViewModel(
 					resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
 					refreshIndexRow()
 					if (SOURCES_AUTO_START && lbBotManager.supportsSourcePicker) findSources()
+					startArrivalSearchIfDue()
 				}
 			}
 		}
@@ -462,6 +476,35 @@ class ExternalAlbumViewModel(
 	 * hub caches it briefly, so asking again soon is cheap. An answer that comes back for an
 	 * edition no longer on screen is dropped: its sources are for the other pressing.
 	 */
+	/** P6: Statistics' "Find sources" asked for the search on arrival; [startArrivalSearchIfDue] runs it once. */
+	private var arrivalSearchWanted = false
+	private var arrivalSearchDone = false
+
+	/**
+	 * P6: Statistics' "Find sources" on a played album the library lacks. The tap is the consent the
+	 * search's cost asks for (P4), so the page starts the one search itself, once, when the edition
+	 * is known; never over a fill or a search already running for it.
+	 */
+	fun findSourcesOnArrival() {
+		arrivalSearchWanted = true
+		startArrivalSearchIfDue()
+	}
+
+	private fun startArrivalSearchIfDue() {
+		val request = _state.value.request
+		if (!arrivalSearchShouldStart(
+				wanted = arrivalSearchWanted,
+				done = arrivalSearchDone,
+				editionKnown = _state.value.detail != null && request.editionMbid.isNotBlank(),
+				searching = request.search is SourceSearch.Searching,
+				fillRunning = lbBotManager.isFilling(rgid),
+				supported = lbBotManager.supportsSourcePicker
+			)
+		) return
+		arrivalSearchDone = true
+		findSources()
+	}
+
 	fun findSources() {
 		val request = _state.value.request
 		val edition = request.editionMbid

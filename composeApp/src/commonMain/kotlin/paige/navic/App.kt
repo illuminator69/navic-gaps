@@ -685,7 +685,7 @@ private fun entryProvider(
 		}
 
 		entry<Screen.ExternalAlbum> { key ->
-			ExternalAlbumScreen(key.rgid, key.artistMbid, key.artistName, key.title, key.artistId, key.fromLink)
+			ExternalAlbumScreen(key.rgid, key.artistMbid, key.artistName, key.title, key.artistId, key.fromLink, key.findSources)
 		}
 
 		// settings

@@ -299,7 +299,12 @@ sealed interface Screen : NavKey {
 		 */
 		val artistId: String = "",
 		/** Opened from a pasted link (P4): the heading says "Found from your link". */
-		val fromLink: Boolean = false
+		val fromLink: Boolean = false,
+		/**
+		 * P6: start the source search once on arrival. Set only by Statistics' "Find sources" on a
+		 * played album the library lacks; every other way in leaves it off (P4: no search by itself).
+		 */
+		val findSources: Boolean = false
 	) : Screen
 
 	// settings

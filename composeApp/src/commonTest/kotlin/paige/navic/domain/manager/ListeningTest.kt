@@ -784,4 +784,46 @@ class ListeningTest {
 		assertEquals(HistoryRowGesture.MENU_ONLY, historyRowGesture(hasTarget = false, hasMenu = true))
 		assertEquals(HistoryRowGesture.NONE, historyRowGesture(hasTarget = false, hasMenu = false))
 	}
+
+	// ----- P6: "Find sources" on Not in library ----------------------------------------------------
+
+	private fun unowned(kind: String, rgid: String = "", artistMbid: String = "mb-a", title: String = "") =
+		LbUnownedRow(kind = kind, title = title, artist = "Artist", artistMbid = artistMbid, rgid = rgid, plays = 9)
+
+	@Test
+	fun anAlbumRowFindsSourcesAndAnArtistRowDoesNot() {
+		val album = unownedRowAction(unowned(LISTENING_KIND_ALBUM, rgid = "rg-1", title = "Record"), emptySet())
+		assertEquals("rg-1", album?.rgid)
+		assertTrue(album?.findSources == true)
+		assertNull(unownedRowAction(unowned(LISTENING_KIND_ARTIST), emptySet()))
+		// the artist row still opens its artist page, without a search
+		assertTrue(unownedTarget(unowned(LISTENING_KIND_ARTIST), emptySet()) is ListeningTarget.ExternalArtist)
+	}
+
+	@Test
+	fun anAlbumWithNoReleaseGroupHasNoButton() {
+		assertNull(unownedRowAction(unowned(LISTENING_KIND_ALBUM, rgid = "", artistMbid = ""), emptySet()))
+		assertNull(unownedRowAction(unowned(LISTENING_KIND_ALBUM, rgid = "", artistMbid = "mb-a"), emptySet()))
+	}
+
+	@Test
+	fun theOrdinaryTargetNeverAsksForASearch() {
+		val target = unownedTarget(unowned(LISTENING_KIND_ALBUM, rgid = "rg-1"), emptySet())
+		assertFalse((target as ListeningTarget.ExternalAlbum).findSources)
+	}
+
+	@Test
+	fun theArrivalSearchStartsOnceWhenTheEditionIsKnownAndNothingRuns() {
+		fun go(
+			wanted: Boolean = true, done: Boolean = false, edition: Boolean = true,
+			searching: Boolean = false, filling: Boolean = false, supported: Boolean = true
+		) = paige.navic.ui.screens.external.viewmodels.arrivalSearchShouldStart(wanted, done, edition, searching, filling, supported)
+		assertTrue(go())
+		assertFalse(go(wanted = false), "only Find sources asks")
+		assertFalse(go(done = true), "once per visit")
+		assertFalse(go(edition = false), "waits for the edition")
+		assertFalse(go(searching = true))
+		assertFalse(go(filling = true), "never over a running fill")
+		assertFalse(go(supported = false))
+	}
 }
