@@ -7,6 +7,7 @@ import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.ui.screens.downloads.DownloadsSection
+import paige.navic.domain.manager.SourceHistorySection
 
 @Immutable
 @Serializable
@@ -174,6 +175,24 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data class Downloads(val section: DownloadsSection = DownloadsSection.Device) : Screen
+
+	/**
+	 * Needs attention (P6): lb-bot's own "to fix" (failed albums and requests, albums waiting on a
+	 * pick, folders waiting to be filed), the count behind the avatar's dot. A pushed page, from the
+	 * avatar menu's Library tools.
+	 */
+	@Immutable
+	@Serializable
+	data object Attention : Screen
+
+	/**
+	 * Source history (P6): the requests lb-bot and this device know of, Running over Earlier, the
+	 * file transfers and the wishlist, one chip each. It was the Downloads page's Fills and Wishlist
+	 * chips ("Activity" in the avatar menu); [section] is the chip it opens on.
+	 */
+	@Immutable
+	@Serializable
+	data class SourceHistory(val section: SourceHistorySection = SourceHistorySection.Requests) : Screen
 
 	/**
 	 * Library Matches (I-026): which MusicBrainz artist and release the library's artists and

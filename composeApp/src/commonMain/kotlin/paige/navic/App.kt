@@ -139,6 +139,10 @@ import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.downloads.DownloadsScreen
+import paige.navic.ui.screens.downloads.DownloadsSection
+import paige.navic.ui.screens.attention.AttentionScreen
+import paige.navic.ui.screens.sourcehistory.SourceHistoryScreen
+import paige.navic.domain.manager.SourceHistorySection
 import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
@@ -631,7 +635,21 @@ private fun entryProvider(
 			Washed { LibraryMatchesScreen() }
 		}
 		entry<Screen.Downloads> { key ->
-			Washed { DownloadsScreen(key.section) }
+			// P6: the page is this device's downloads; a saved stack or an old link that names
+			// lb-bot's fills or the wishlist opens Source history on the matching chip.
+			Washed {
+				when (key.section) {
+					DownloadsSection.Device -> DownloadsScreen()
+					DownloadsSection.Fills -> SourceHistoryScreen(SourceHistorySection.Requests)
+					DownloadsSection.Wishlist -> SourceHistoryScreen(SourceHistorySection.Wishlist)
+				}
+			}
+		}
+		entry<Screen.Attention> {
+			Washed { AttentionScreen() }
+		}
+		entry<Screen.SourceHistory> { key ->
+			Washed { SourceHistoryScreen(key.section) }
 		}
 		entry<Screen.SavedQueues> {
 			Washed { SavedQueuesScreen() }

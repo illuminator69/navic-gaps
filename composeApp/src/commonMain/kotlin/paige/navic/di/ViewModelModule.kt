@@ -44,6 +44,8 @@ import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
+import paige.navic.ui.screens.attention.AttentionViewModel
+import paige.navic.ui.screens.sourcehistory.SourceHistoryViewModel
 import paige.navic.ui.screens.matches.viewmodels.LibraryMatchesViewModel
 import paige.navic.ui.screens.settings.viewmodels.PendingActionsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
@@ -193,6 +195,8 @@ val viewModelModule = module {
 	viewModelOf(::PendingActionsViewModel)
 	viewModelOf(::LibraryMatchesViewModel)
 	viewModelOf(::DownloadCenterViewModel)
+	viewModelOf(::AttentionViewModel)
+	viewModelOf(::SourceHistoryViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->
 		NowPlayingViewModel(
