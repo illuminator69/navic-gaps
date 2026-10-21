@@ -29,7 +29,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.ShellController
-import paige.navic.domain.manager.needsAttentionCount
+import paige.navic.domain.manager.attentionBadge
 import paige.navic.ui.theme.warning
 
 /**
@@ -47,9 +47,9 @@ fun AvatarButton(modifier: Modifier = Modifier) {
 	val shell = koinInject<ShellController>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val lbBot = koinInject<LbBotManager>()
-	val ledger by lbBot.ledger.collectAsState()
+	val badge by lbBot.attentionBadge.collectAsState()
 
-	val attention = needsAttentionCount(ledger) > 0 && preferenceManager.showAttentionDot
+	val attention = badge > 0 && preferenceManager.showAttentionDot
 	val label = stringResource(
 		if (attention) Res.string.info_open_menu_attention else Res.string.action_open_menu
 	)

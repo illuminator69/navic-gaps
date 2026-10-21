@@ -10,8 +10,8 @@ package paige.navic.domain.manager
  * either.
  *
  * It reads only the ledger, which a failed poll leaves alone (CLAUDE.md §5: a failed poll is not an
- * answer), so the dot does not flicker with lb-bot's reachability. The hub's wider count (every
- * review lb-bot is holding) comes with P6.
+ * answer), so the dot does not flicker with lb-bot's reachability. Since P6 it is the fallback:
+ * where the hub answers `/lb/attention` the dot shows lb-bot's own to-fix number ([attentionBadge]).
  */
 fun needsAttentionCount(ledger: List<LbFillEntry>): Int = ledger.count {
 	it.settled && (it.outcome == LbBotManager.OUTCOME_FAILED || it.outcome == LbBotManager.OUTCOME_NEEDS_PICK)
