@@ -32,7 +32,16 @@ shared playback session across devices, like Spotify Connect over your own Navid
 end for **[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is
 missing. Without either, it is still an ordinary Navidrome client.
 
-<!-- Screenshots go here. -->
+<p align="center">
+  <img src="docs/screenshots/navic-home.webp" width="190"
+       alt="Home: mood chips, a Continue listening pill over 20 saved queues, Recently added and Fresh rows, and a mini-player reading Playing on Feishin" />
+  <img src="docs/screenshots/navic-discography.webp" width="190"
+       alt="An artist's discography: filters by release type and ownership, each album marked Owned, Partly owned with a progress bar, or Missing" />
+  <img src="docs/screenshots/navic-album.webp" width="190"
+       alt="A partly owned album washed in its cover's colours, with an 8 tracks missing card and a Fill gaps button" />
+  <img src="docs/screenshots/navic-album-missing-tracks.webp" width="190"
+       alt="The same card unfolded: the eight missing tracks listed, the release they were measured against, and Re-check and Open in lb-bot" />
+</p>
 
 - **A rebuilt UI.** Three tabs and a **+** button. **Home** has a pill to resume a saved queue,
   mood chips and your mixes. **Search** also holds the discovery rows. **Library** is reorganised.
