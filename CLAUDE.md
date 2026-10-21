@@ -1942,7 +1942,8 @@ true of invented *album art*, and not of an icon naming the kind.
   menu's Autoplay switch goes through `RadioManager.setAutoplayOn` (the manager keeps its own flow: writing the
   preference alone would not reach the driver).
 - **Arrival: `rememberArrivalGate()` per page visit, `Modifier.arrive(gate, key, index)` per tile (P1).** The gate is
-  saved with the entry (so Back does not replay it; a tab switch clears the stack and starts a new visit) and a tile is
+  saved with the entry (so Back does not replay it; a switch to Search or the Library starts a new visit of it, and Home,
+  kept under them since P6, keeps its visit) and a tile is
   its key, never its position. Rise 8 dp and fade over 240 ms, the first five 30 ms apart, the rest together at 150 ms;
   the stagger is stretched by `animator_duration_scale` like the durations. **Reduced motion is the system animation
   scale and needs no flag** (measured: at scale 0 no in-between frame and no blank frame; the tile reads the scale from
