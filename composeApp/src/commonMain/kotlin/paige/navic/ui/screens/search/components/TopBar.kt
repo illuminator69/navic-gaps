@@ -38,7 +38,7 @@ import paige.navic.di.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Close
-import paige.navic.ui.components.common.AvatarButton
+import paige.navic.ui.components.common.SearchHeaderAvatar
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -93,12 +93,9 @@ fun SearchScreenTopBar(
 				}
 			}
 		} else if (!nested) {
-			Box(
-				modifier = Modifier.size(56.dp),
-				contentAlignment = Alignment.Center
-			) {
-				AvatarButton()
-			}
+			// The same slot as every other root page's (HeaderAvatar, P6), not centred in a 56 dp box:
+			// that put the monogram 8 dp left of the other pages'.
+			SearchHeaderAvatar()
 		} else {
 			Box(
 				modifier = Modifier.size(56.dp),
