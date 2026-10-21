@@ -119,7 +119,9 @@ fun SearchScreenTopBar(
 			state = query,
 			modifier = Modifier
 				.weight(1f)
-				.height(72.dp)
+				// The top app bar's row height (P6): the avatar centred on the field sits where every
+				// other root page's does; at 72 dp it was 4 dp lower.
+				.height(64.dp)
 				.focusRequester(focusRequester),
 			lineLimits = TextFieldLineLimits.SingleLine,
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
