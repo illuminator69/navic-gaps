@@ -419,7 +419,9 @@ sealed interface ListeningTarget {
 		val artist: String,
 		val title: String,
 		/** The Navidrome artist id when the artist is in the library, for the page's artist link. */
-		val artistId: String = ""
+		val artistId: String = "",
+		/** P6: the page starts the source search once on arrival (Not in library's "Find sources"). */
+		val findSources: Boolean = false
 	) : ListeningTarget
 	data class LibraryArtist(val artistId: String) : ListeningTarget
 	data class ExternalArtist(val mbid: String, val name: String) : ListeningTarget
@@ -510,6 +512,16 @@ internal fun unownedTarget(row: LbUnownedRow, knownArtistIds: Set<String>): List
 	} else {
 		ListeningTarget.None
 	}
+
+/**
+ * P6: an album row on Not in library has a **Find sources** button: the album's page, with the
+ * source search started once on arrival (the tap is the consent the search's cost asks for, P4's
+ * rule). An artist row has none (it opens the artist page), and neither has an album with no
+ * release-group id, which has nowhere to go.
+ */
+internal fun unownedRowAction(row: LbUnownedRow, knownArtistIds: Set<String>): ListeningTarget.ExternalAlbum? =
+	if (row.kind == LISTENING_KIND_ARTIST) null
+	else (unownedTarget(row, knownArtistIds) as? ListeningTarget.ExternalAlbum)?.copy(findSources = true)
 
 // ----- the page, in tabs (I-026) -------------------------------------------------------------------
 // The listening history is four tabs, the same four under the same names as Feishin's page: what

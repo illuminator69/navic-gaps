@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.collapse
 import androidx.compose.ui.semantics.expand
@@ -63,10 +64,13 @@ import navic.composeapp.generated.resources.action_view_shares
 import navic.composeapp.generated.resources.option_attention_dot
 import navic.composeapp.generated.resources.option_autoplay_default
 import navic.composeapp.generated.resources.title_about
-import navic.composeapp.generated.resources.title_activity
 import navic.composeapp.generated.resources.title_app
 import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_downloads
+import navic.composeapp.generated.resources.title_duplicates_trash
+import navic.composeapp.generated.resources.title_lbbot_logs
+import navic.composeapp.generated.resources.title_source_history
+import navic.composeapp.generated.resources.title_source_rules
 import navic.composeapp.generated.resources.title_library_matches
 import navic.composeapp.generated.resources.title_library_tools
 import navic.composeapp.generated.resources.title_listening
@@ -85,15 +89,18 @@ import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.domain.manager.canUserShare
-import paige.navic.domain.manager.needsAttentionCount
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
 import paige.navic.icons.filled.Palette
 import paige.navic.icons.filled.Settings
+import paige.navic.icons.outlined.Code
+import paige.navic.icons.outlined.Copy
 import paige.navic.icons.outlined.Download
+import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.Error
 import paige.navic.icons.outlined.Info
 import paige.navic.icons.outlined.KeyboardArrowDown
+import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Logout
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Queue
@@ -102,7 +109,6 @@ import paige.navic.icons.outlined.Sort
 import paige.navic.icons.outlined.Statistics
 import paige.navic.ui.components.common.Monogram
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.ui.theme.NavicTheme
 import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.theme.warning
@@ -111,9 +117,9 @@ import paige.navic.ui.util.rememberFoldMotion
 import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 
 /*
- * navi-connect P1: the avatar menu. It holds what the four-button bar does not: lb-bot's two entries
- * (what needs a person, what is going on), the groups, Settings, Shares where the user may make them,
- * and Log out. What is in it, in what order, where each row goes and which groups fold is decided as
+ * navi-connect P1: the avatar menu. It holds what the four-button bar does not: the groups (since P6
+ * lb-bot's Needs attention and Source history are the first rows of Library tools), Settings, Shares
+ * where the user may make them, and Log out. What is in it, in what order, where each row goes and which groups fold is decided as
  * data by [avatarMenuItems] (`AvatarMenuItemsTest`); [AvatarMenuDrawer] only draws it.
  *
  * Hosted once, in App.kt, and opened from any header avatar through [ShellController]. It replaces
@@ -123,12 +129,15 @@ import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 /** Row and group ids, so the data and its test name the same things. */
 internal object AvatarMenuIds {
 	const val ATTENTION = "attention"
-	const val ACTIVITY = "activity"
+	const val SOURCE_HISTORY = "sourceHistory"
 	const val LISTENING = "listening"
 	const val STATISTICS = "statistics"
 	const val SAVED_QUEUES = "savedQueues"
 	const val LIBRARY_TOOLS = "libraryTools"
 	const val LIBRARY_MATCHES = "libraryMatches"
+	const val DUPLICATES = "duplicates"
+	const val SOURCE_RULES = "sourceRules"
+	const val LOGS = "logs"
 	const val APP = "app"
 	const val AUTOPLAY = "autoplay"
 	const val DOWNLOADS = "downloads"
@@ -162,6 +171,17 @@ internal sealed interface AvatarMenuEntry {
 		val label: StringResource
 	) : AvatarMenuEntry
 
+	/**
+	 * A row that opens lb-bot's own web UI at [path] (`webUrl + "/#/" + path`): the rare tools that
+	 * have no screen here (P6). Drawn only while the hub advertises a `webUrl`.
+	 */
+	data class External(
+		override val id: String,
+		val icon: ImageVector,
+		val label: StringResource,
+		val path: String
+	) : AvatarMenuEntry
+
 	/** A row that does something rather than going somewhere: Log out. */
 	data class Action(
 		override val id: String,
@@ -178,30 +198,18 @@ internal sealed interface AvatarMenuEntry {
 }
 
 /**
- * The menu, top to bottom. Nothing is drawn for a screen that does not exist yet (Artist matching,
- * Overrides, Duplicates and trash, Source rules, Logs: P6), and nothing that needs lb-bot without it,
- * so there is no gap and no dead row. **Needs attention** and **Activity** both open the fills list
- * until P6 builds their screens; **Library Matches** is the one Library tools row today.
+ * The menu, top to bottom (P6, the owner's ruling of 2026-10-21). lb-bot's operator half lives in
+ * **Library tools**: Needs attention (with lb-bot's to-fix count), Source history (requests,
+ * transfers, the wishlist), Library Matches (which holds artist matching and the overrides), then
+ * the rare tools that open lb-bot's web UI, drawn only when the hub says where it is ([webUrl]).
+ * Nothing that needs lb-bot is drawn without it, so there is no gap and no dead row.
  */
 internal fun avatarMenuItems(
 	lbConfigured: Boolean,
 	canShare: Boolean,
-	attentionCount: Int
+	attentionCount: Int,
+	webUrl: String = ""
 ): List<AvatarMenuEntry> = buildList {
-	if (lbConfigured) {
-		add(
-			AvatarMenuEntry.Link(
-				AvatarMenuIds.ATTENTION, Icons.Outlined.Error, Res.string.title_needs_attention,
-				Screen.Downloads(DownloadsSection.Fills), badge = attentionCount.takeIf { it > 0 }
-			)
-		)
-		add(
-			AvatarMenuEntry.Link(
-				AvatarMenuIds.ACTIVITY, Icons.Outlined.Sort, Res.string.title_activity,
-				Screen.Downloads(DownloadsSection.Fills)
-			)
-		)
-	}
 	add(
 		AvatarMenuEntry.Group(
 			AvatarMenuIds.LISTENING, Res.string.title_listening,
@@ -219,14 +227,35 @@ internal fun avatarMenuItems(
 		)
 	)
 	if (lbConfigured) {
+		val web = webUrl.isNotBlank()
 		add(
 			AvatarMenuEntry.Group(
 				AvatarMenuIds.LIBRARY_TOOLS, Res.string.title_library_tools,
-				listOf(
+				listOfNotNull(
+					AvatarMenuEntry.Link(
+						AvatarMenuIds.ATTENTION, Icons.Outlined.Error, Res.string.title_needs_attention,
+						Screen.Attention, badge = attentionCount.takeIf { it > 0 }
+					),
+					AvatarMenuEntry.Link(
+						AvatarMenuIds.SOURCE_HISTORY, Icons.Outlined.History, Res.string.title_source_history,
+						Screen.SourceHistory()
+					),
 					AvatarMenuEntry.Link(
 						AvatarMenuIds.LIBRARY_MATCHES, Icons.Brand.Musicbrainz,
 						Res.string.title_library_matches, Screen.LibraryMatches
-					)
+					),
+					if (web) AvatarMenuEntry.External(
+						AvatarMenuIds.DUPLICATES, Icons.Outlined.Copy, Res.string.title_duplicates_trash,
+						"library/cleanup"
+					) else null,
+					if (web) AvatarMenuEntry.External(
+						AvatarMenuIds.SOURCE_RULES, Icons.Outlined.Sort, Res.string.title_source_rules,
+						"system/sources"
+					) else null,
+					if (web) AvatarMenuEntry.External(
+						AvatarMenuIds.LOGS, Icons.Outlined.Code, Res.string.title_lbbot_logs,
+						"system/logs"
+					) else null
 				),
 				GroupFold.StartsOpen
 			)
@@ -288,8 +317,14 @@ fun AvatarMenuDrawer(content: @Composable () -> Unit) {
 	val open by shell.avatarMenuOpen.collectAsState()
 	val drawerState = rememberDrawerState(DrawerValue.Closed)
 
+	val lbBot = koinInject<LbBotManager>()
 	LaunchedEffect(open) {
 		if (open) drawerState.open() else drawerState.close()
+	}
+	// P6: opening the menu is one of the moments the hub-wide count is read again (at most every
+	// 30 s). The drawer's content is composed while closed too, so it is the open state that asks.
+	LaunchedEffect(open) {
+		if (open) lbBot.refreshAttention()
 	}
 	// The other way: the scrim, a drag or Back closing the drawer says so to the controller. The
 	// TARGET, not the current value, so a drawer on its way open is not read as closed.
@@ -347,20 +382,26 @@ private fun AvatarMenuContent() {
 	val radioManager = koinInject<RadioManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 
-	val ledger by lbBot.ledger.collectAsState()
+	val attention by lbBot.attentionBadge.collectAsState()
+	val webUrl by lbBot.webUrl.collectAsState()
 	val autoplayOn by radioManager.autoplayOn.collectAsState()
-	val attention = needsAttentionCount(ledger)
 	val lbConfigured = lbBot.isConfigured
 	val canShare = sessionManager.canUserShare()
-	val items = remember(lbConfigured, canShare, attention) {
-		avatarMenuItems(lbConfigured, canShare, attention)
+	val items = remember(lbConfigured, canShare, attention, webUrl) {
+		avatarMenuItems(lbConfigured, canShare, attention, webUrl)
 	}
+	val uriHandler = LocalUriHandler.current
 
 	// Navigating from a row closes the menu first, then pushes the page; the double-tap guard is the
 	// bars': a page already on top is not pushed again.
 	val go = { destination: NavKey ->
 		shell.closeAvatarMenu()
 		if (backStack.lastOrNull() != destination) backStack.add(destination)
+	}
+	// The rare tools open lb-bot's own web UI; the menu closes first, as for a page.
+	val openExternal = { path: String ->
+		shell.closeAvatarMenu()
+		if (webUrl.isNotBlank()) runCatching { uriHandler.openUri("$webUrl/#/$path") }
 	}
 	val toggles = { id: String ->
 		when (id) {
@@ -387,8 +428,8 @@ private fun AvatarMenuContent() {
 		)
 		items.forEach { entry ->
 			when (entry) {
-				is AvatarMenuEntry.Group -> MenuGroup(entry, go, toggles)
-				else -> MenuEntry(entry, onNavigate = go, toggles = toggles, onAction = logOut, inFold = false)
+				is AvatarMenuEntry.Group -> MenuGroup(entry, go, toggles, openExternal)
+				else -> MenuEntry(entry, onNavigate = go, toggles = toggles, onAction = logOut, onExternal = openExternal, inFold = false)
 			}
 		}
 	}
@@ -432,6 +473,7 @@ private fun MenuEntry(
 	onNavigate: (NavKey) -> Unit,
 	toggles: (String) -> Pair<Boolean, (Boolean) -> Unit>,
 	onAction: () -> Unit,
+	onExternal: (String) -> Unit,
 	inFold: Boolean
 ) {
 	when (entry) {
@@ -444,6 +486,20 @@ private fun MenuEntry(
 			inFold = inFold,
 			onClick = dropUnlessResumed { onNavigate(entry.destination) },
 			trailing = entry.badge?.let { count -> { CountPill(count) } }
+		)
+		is AvatarMenuEntry.External -> MenuRow(
+			icon = entry.icon,
+			label = stringResource(entry.label),
+			iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+			inFold = inFold,
+			onClick = dropUnlessResumed { onExternal(entry.path) },
+			trailing = {
+				// It leaves the app: say so where the row ends, as a link out does.
+				Icon(
+					Icons.Outlined.Link, contentDescription = null,
+					tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)
+				)
+			}
 		)
 		is AvatarMenuEntry.Action -> MenuRow(
 			icon = entry.icon,
@@ -524,7 +580,8 @@ private fun CountPill(count: Int) {
 private fun MenuGroup(
 	group: AvatarMenuEntry.Group,
 	onNavigate: (NavKey) -> Unit,
-	toggles: (String) -> Pair<Boolean, (Boolean) -> Unit>
+	toggles: (String) -> Pair<Boolean, (Boolean) -> Unit>,
+	onExternal: (String) -> Unit
 ) {
 	val folds = group.fold != GroupFold.Never
 	var open by rememberSaveable(group.id) { mutableStateOf(group.fold != GroupFold.StartsClosed) }
@@ -586,7 +643,7 @@ private fun MenuGroup(
 			) {
 				Column(Modifier.padding(vertical = 2.dp)) {
 					group.entries.forEach { entry ->
-						MenuEntry(entry, onNavigate = onNavigate, toggles = toggles, onAction = {}, inFold = true)
+						MenuEntry(entry, onNavigate = onNavigate, toggles = toggles, onAction = {}, onExternal = onExternal, inFold = true)
 					}
 				}
 			}

@@ -65,6 +65,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -141,6 +142,7 @@ import navic.composeapp.generated.resources.listening_time_m
 import navic.composeapp.generated.resources.listening_top_albums
 import navic.composeapp.generated.resources.listening_top_artists
 import navic.composeapp.generated.resources.listening_top_tracks
+import navic.composeapp.generated.resources.action_find_sources
 import navic.composeapp.generated.resources.listening_unowned_albums
 import navic.composeapp.generated.resources.listening_unowned_artists
 import navic.composeapp.generated.resources.listening_unowned_empty
@@ -190,6 +192,9 @@ import paige.navic.domain.manager.listeningTimeCoverage
 import paige.navic.domain.manager.recentPlayKey
 import paige.navic.domain.manager.recentPlayTarget
 import paige.navic.domain.manager.unownedTarget
+import paige.navic.domain.manager.unownedRowAction
+import paige.navic.domain.manager.LbUnownedRow
+import androidx.compose.foundation.shape.CircleShape
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Headphones
 import paige.navic.ui.components.common.ContentUnavailable
@@ -439,7 +444,8 @@ private fun openTarget(backStack: MutableList<NavKey>, target: ListeningTarget) 
 				artistMbid = target.artistMbid,
 				artistName = target.artist,
 				title = target.title,
-				artistId = target.artistId
+				artistId = target.artistId,
+				findSources = target.findSources
 			)
 		)
 		is ListeningTarget.LibraryArtist -> backStack.add(Screen.ArtistDetail(target.artistId))
@@ -1043,23 +1049,22 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 			val failure = state.unownedFailure
 			val artists = state.unownedKind == LISTENING_KIND_ARTIST
 			when {
-				// Cover cards, in one horizontally scrollable row. They open the external album
-				// or artist page, which offers the reviewed acquire flow; a card downloads nothing.
-				state.unowned.isNotEmpty() -> LazyRow(
-					modifier = Modifier.graphicsLayer { alpha = dim() }.fullBleed()
-						.padding(top = 8.dp, bottom = 16.dp),
-					horizontalArrangement = Arrangement.spacedBy(12.dp),
-					contentPadding = PaddingValues(horizontal = 16.dp)
+				// P6, the StatsMissing board: rows, most played first. A row opens the external album
+				// or artist page, which offers the reviewed acquire flow; an album row's "Find sources"
+				// opens it with the one source search started (the tap is the consent). Nothing here
+				// downloads.
+				state.unowned.isNotEmpty() -> Column(
+					modifier = Modifier.graphicsLayer { alpha = dim() }.padding(top = 4.dp, bottom = 16.dp),
+					verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 				) {
-					items(state.unowned) { row ->
-						RankCard(
+					state.unowned.forEachIndexed { index, row ->
+						UnownedRow(
+							row = row,
 							art = unownedCardArt(artists, row, state.artistArt),
-							// An artist row has no title; the artist is then the card.
-							title = row.title.ifBlank { row.artist },
-							subtitle = row.artist.takeIf { row.title.isNotBlank() },
-							plays = row.plays,
 							isArtist = artists,
-							onClick = clickFor(unownedTarget(row, state.knownArtistIds), open)
+							shapes = segmentedShapes(index, state.unowned.size),
+							onClick = clickFor(unownedTarget(row, state.knownArtistIds), open),
+							findSources = unownedRowAction(row, state.knownArtistIds)?.let { target -> { open(target) } }
 						)
 					}
 				}
@@ -1074,6 +1079,58 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 				else -> Caption(stringResource(Res.string.listening_unowned_empty), Modifier.padding(bottom = 24.dp))
 			}
 		}
+	}
+}
+
+/** One played album or artist the library lacks: picture, name, "artist · N plays", Find sources. */
+@Composable
+private fun UnownedRow(
+	row: LbUnownedRow,
+	art: LbArt,
+	isArtist: Boolean,
+	shapes: ListItemShapes,
+	onClick: (() -> Unit)?,
+	findSources: (() -> Unit)?
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val title = row.title.ifBlank { row.artist }
+	val plays = pluralStringResource(Res.plurals.listening_plays, row.plays, row.plays)
+	SegmentedListItem(
+		onClick = onClick ?: {},
+		enabled = onClick != null || findSources != null,
+		shapes = shapes,
+		colors = SegmentedListItemDefaults.segmentedColors(
+			containerColor = SongRowDefaults.containerColor(false)
+		),
+		contentPadding = SongRowDefaults.ContentPadding,
+		verticalAlignment = Alignment.CenterVertically,
+		leadingContent = {
+			LbArtImage(
+				art,
+				Modifier.size(50.dp),
+				contentDescription = null,
+				shape = if (isArtist) CircleShape else preferenceManager.coverArtShape.decreasedShape
+			)
+		},
+		supportingContent = {
+			Text(
+				listOfNotNull(row.artist.takeIf { row.title.isNotBlank() && it.isNotBlank() }, plays).joinToString(" · "),
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		},
+		trailingContent = findSources?.let { go ->
+			{
+				FilledTonalButton(
+					onClick = go,
+					contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+				) {
+					Text(stringResource(Res.string.action_find_sources), style = MaterialTheme.typography.labelLarge)
+				}
+			}
+		}
+	) {
+		Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }
 

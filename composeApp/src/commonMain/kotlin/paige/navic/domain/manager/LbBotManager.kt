@@ -36,6 +36,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onSubscription
@@ -264,6 +267,77 @@ class LbBotManager(
 	 */
 	private val _fillEvents = MutableSharedFlow<LbFillEvent>(extraBufferCapacity = 8)
 	val fillEvents: SharedFlow<LbFillEvent> = _fillEvents.asSharedFlow()
+
+	// ----- P6: Needs attention and Source history (PROTOCOL §15.6) ---------- //
+
+	/**
+	 * lb-bot's own "to fix" as last read through `GET /lb/attention`: the last good answer, when,
+	 * and how the last read went (`Attention.kt`). In memory: the next welcome reads it again.
+	 */
+	private val _attention = MutableStateFlow(AttentionState())
+	val attention: StateFlow<AttentionState> = _attention.asStateFlow()
+
+	/** One attention read at a time; a second asker waits for that one's answer. */
+	private val attentionLock = Mutex()
+	@Volatile
+	private var attentionInFlight = false
+
+	/**
+	 * The number behind the avatar's dot and the menu's badge: lb-bot's to-fix count while an
+	 * answer is known, else P1's count of this device's own ledger ([attentionBadge]).
+	 */
+	val attentionBadge: StateFlow<Int> = combine(_attention, _ledger) { state, ledger ->
+		attentionBadge(state.last, needsAttentionCount(ledger))
+	}.stateIn(scope, SharingStarted.Eagerly, 0)
+
+	/** Whether the hub carries the attention route: an older one is "older", not "nothing to fix". */
+	val supportsAttention: Boolean
+		get() = advertisesRoute("GET /lb/attention")
+
+	/** As [supportsAttention], for Source history's server half. */
+	val supportsActivity: Boolean
+		get() = advertisesRoute("GET /lb/activity")
+
+	/**
+	 * Read `/lb/attention` if [shouldRefreshAttention] says so: never while one is out, at most
+	 * every 30 s unless [force]d. Called on a hub `welcome` or `lb` frame, on a `fill` frame (forced
+	 * when it names a failure or a pick), when the avatar menu opens and when either page appears;
+	 * never from a composable's body, and never on a timer of its own (nobody watching, no read).
+	 */
+	suspend fun refreshAttention(force: Boolean = false) {
+		if (!isConfigured) return
+		if (!shouldRefreshAttention(nowMs(), _attention.value.readAt, force, attentionInFlight)) return
+		attentionLock.withLock {
+			if (attentionInFlight) return
+			attentionInFlight = true
+		}
+		try {
+			val read = if (!supportsAttention) AttentionRead.Older else when (
+				val raw = rawGet("/lb/attention", emptyList(), timeoutMs = ATTENTION_TIMEOUT_MS)
+			) {
+				is LbResult.Ok -> attentionRead(raw.value.status, raw.value.text)
+				is LbResult.Failed -> AttentionRead.Unavailable
+			}
+			_attention.update { nextAttentionState(it, read, nowMs()) }
+		} finally {
+			attentionInFlight = false
+		}
+	}
+
+	/** [refreshAttention] from somewhere that is not a coroutine (a frame, a tap). */
+	fun requestAttentionRefresh(force: Boolean = false) {
+		scope.launch { refreshAttention(force) }
+	}
+
+	/** `GET /lb/activity`: every request lb-bot's ledger still holds, and the transfers. */
+	suspend fun activity(): ActivityRead {
+		if (!isConfigured) return ActivityRead.Unavailable
+		if (!supportsActivity) return ActivityRead.Older
+		return when (val raw = rawGet("/lb/activity", emptyList(), timeoutMs = ATTENTION_TIMEOUT_MS)) {
+			is LbResult.Ok -> activityRead(raw.value.status, raw.value.text)
+			is LbResult.Failed -> ActivityRead.Unavailable
+		}
+	}
 
 	/** The user's sticky quality preference. Empty means "lb-bot's own default". */
 	var preferredQuality: String
@@ -845,6 +919,8 @@ class LbBotManager(
 		publishMergeSupport()
 		if (available) requestArtistOverridesRefresh()
 		publishListeningSupport()
+		// P6: a new advert (welcome, or an `lb` frame) is when the count may have moved unseen.
+		if (available) requestAttentionRefresh(force = true)
 	}
 
 	/**
@@ -3084,6 +3160,8 @@ class LbBotManager(
 	 */
 	fun onFillFrame(frame: JsonObject) {
 		lastPushAt = nowMs()
+		// P6: a failure or a pick may have changed lb-bot's count; progress only asks within the 30 s.
+		requestAttentionRefresh(force = fillFrameForcesAttention(frame))
 		fun str(key: String): String =
 			(frame[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
 		val kind = str("kind")
@@ -3838,6 +3916,9 @@ class LbBotManager(
 		 *  row settles `gave_up`. Measured from the last progress, not from the tap: a
 		 *  slow peer is not a dead fill. */
 		private const val WATCH_TIMEOUT_MS = 20 * 60 * 1000L
+
+		/** The two screen reads of §15.6: lb-bot answers in about a second; the fast pool queues 10 s. */
+		private const val ATTENTION_TIMEOUT_MS = 15_000L
 
 		/** How long a *finished* row stays readable, and how many are kept at all.
 		 *  Running rows are still bounded by WATCH_TIMEOUT_MS — different question. */

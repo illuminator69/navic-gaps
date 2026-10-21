@@ -28,6 +28,7 @@ class WashedBrowsingTest {
 			Screen.ArtistList(), Screen.GenreList(), Screen.SongList(), Screen.RadioList(),
 			Screen.Fresh(), Screen.Discover(), Screen.MixList(), Screen.Search(), Screen.Statistics(),
 			Screen.Downloads(), Screen.Downloads(DownloadsSection.Wishlist), Screen.SavedQueues,
+			Screen.Attention, Screen.SourceHistory(),
 			// P4: an unowned artist has no cover of its own and wears the playing song's.
 			Screen.ExternalArtist("mb-1"),
 			// P4 round 2: the artist's discography page, a sibling of its Songs page.

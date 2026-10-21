@@ -25,6 +25,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	// The fork's pushed pages (I-026, I-039): not tabs, washed like the tabs are.
 	Screen.LibraryMatches::class, Screen.Downloads::class,
 	Screen.SavedQueues::class,
+	// P6: Library tools' two pages.
+	Screen.Attention::class, Screen.SourceHistory::class,
 	// P3: Search's two Deezer pages.
 	Screen.Charts::class, Screen.EditorsPicks::class,
 	// P4: an unowned artist has no cover of its own, so it wears the playing song's.

@@ -7,6 +7,7 @@ import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.ui.screens.downloads.DownloadsSection
+import paige.navic.domain.manager.SourceHistorySection
 
 @Immutable
 @Serializable
@@ -176,6 +177,24 @@ sealed interface Screen : NavKey {
 	data class Downloads(val section: DownloadsSection = DownloadsSection.Device) : Screen
 
 	/**
+	 * Needs attention (P6): lb-bot's own "to fix" (failed albums and requests, albums waiting on a
+	 * pick, folders waiting to be filed), the count behind the avatar's dot. A pushed page, from the
+	 * avatar menu's Library tools.
+	 */
+	@Immutable
+	@Serializable
+	data object Attention : Screen
+
+	/**
+	 * Source history (P6): the requests lb-bot and this device know of, Running over Earlier, the
+	 * file transfers and the wishlist, one chip each. It was the Downloads page's Fills and Wishlist
+	 * chips ("Activity" in the avatar menu); [section] is the chip it opens on.
+	 */
+	@Immutable
+	@Serializable
+	data class SourceHistory(val section: SourceHistorySection = SourceHistorySection.Requests) : Screen
+
+	/**
 	 * Library Matches (I-026): which MusicBrainz artist and release the library's artists and
 	 * albums are, as lb-bot holds it — the artists to check, the artist overrides, the albums it
 	 * retagged and the names it merged. A pushed page, reached from the library home; it was the
@@ -280,7 +299,12 @@ sealed interface Screen : NavKey {
 		 */
 		val artistId: String = "",
 		/** Opened from a pasted link (P4): the heading says "Found from your link". */
-		val fromLink: Boolean = false
+		val fromLink: Boolean = false,
+		/**
+		 * P6: start the source search once on arrival. Set only by Statistics' "Find sources" on a
+		 * played album the library lacks; every other way in leaves it off (P4: no search by itself).
+		 */
+		val findSources: Boolean = false
 	) : Screen
 
 	// settings
