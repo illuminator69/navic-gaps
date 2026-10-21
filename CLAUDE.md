@@ -180,8 +180,9 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     — every artist page ever opened stayed alive and re-read on every library bump. It was found by
     an audit, not a symptom. After a merge touching `App.kt`, grep for
     `rememberViewModelStoreNavEntryDecorator`. With it in place a ViewModel dies when its entry is
-    popped — and **a tab switch clears the whole back stack** (`BottomBar` / `SideBar`), so every
-    root tab loses its ViewModel on every switch unless it opts out through
+    popped — and **a tab switch replaces the tab page above Home** (`BottomBar` / `SideBar`; since P6 the
+    stack is `[Home]` or `[Home, tab]`, it used to be cleared), so every root tab but Home loses its
+    ViewModel on every switch unless it opts out through
     `koinViewModel(viewModelStoreOwner = koinInject<PersistentViewModelStoreOwner>())`. The
     decorator and the opt-outs are ONE change upstream (`bbda3447`); restoring one without the
     other is how this fork briefly re-fetched Discover and Fresh over the network on every tab
@@ -1921,7 +1922,7 @@ true of invented *album art*, and not of an icon naming the kind.
   10 dp, title and line, Devices, a filled play / pause; swipes still skip.
 - **The shell (P1): a fixed bar of four, one avatar menu, one New sheet.** The bar and the tablet's rail are
   Home, Search, Library and New (`ShellTab`), and a tap is `onShellTabTapped` for both (the selected tab scrolls to
-  top, another tab clears the stack to its page, New opens a sheet and never touches the stack or the selection).
+  top, another tab leaves `[Home]` or `[Home, tab]` (P6, below), New opens a sheet and never touches the stack or the selection).
   **The user-arranged tab list is gone from the UI**: `NavigationTab`, `NavbarConfig` (and its persisted key),
   `NavtabsViewModel`, `NavtabsDialog` and `rememberVisibleNavigationTabs` stay in the tree, **unread**, so the diff
   against upstream stays small; the Settings editor is removed. Albums, Playlists and Artists are three always-present
@@ -1950,6 +1951,26 @@ true of invented *album art*, and not of an icon naming the kind.
   Quick; the capsule's corners and chevron move with it); `CoverArt`/`RemoteCoverArt`/`ArtGridItem` take `placeholderName` for a tinted box the cover fades in over.
   The arrival's own timings do not follow `AnimationStyle`. A shelf calls `gate.claimAll` after its first frame so a tile scrolled in later
   does not arrive on its own.
+- **Home and the shell (P6).** Home is Continue listening, Recently added, Fresh, **Recently played**, **Frequently
+  played** (Navidrome's recent and frequent lists from Room, twelve each, a never-played album left out of "recently
+  played": the recent order has no filter of its own) and **Your mixes** (`mixTiles`: Your mix first while the station
+  engine is there, then every hub mix by last played, a mix never played by last changed, at most 30; a tile OPENS the
+  mix's page, never plays it; "See all" is the Library tab on its Mixes chip), each absent when empty (`homeSections`).
+  An album can be on three shelves: the open sheet is the shelf's whose tile was pressed. `HomeShelf`'s row has
+  `ArtCarousel`'s `animateContentSize` (B-134). Measured on the VM AVD (frames, 360x800): the header under a shelf moved
+  over 7 to 11 in-between frames with it, and over 6 to 8 WITHOUT it, because the shelf item's own `animateItem()`
+  already animates the next item's placement; the snap the owner saw was not reproduced here, so judge it on the phone.
+  **One avatar slot** (`HeaderAvatar`, `SearchHeaderAvatar`): the monogram's edge is the title's, 16 dp in, and Search's
+  header row is the app bar's 64 dp so the avatar is at the same height (uiautomator: node (36,175)-(180,319) px on all
+  three pages at density 3). **Back goes Home**: a tab tap leaves `[Home]` or `[Home, tab]` (`stackAfterTap`, applied by
+  `becomeStack`, the smallest edits, never `clear()` then add), `NavDisplay`'s own pop does the rest (so Back on Search or
+  the Library is the ordinary pop with its predictive animation, and only Home leaves the app); a tab's own page is still
+  a root for the transitions (`isRootPage`); a restored stack that starts with Search or the Library gets Home put under
+  it once (`normalizedStack`, before anything reads it). **Anything outside `NavDisplay` that takes Back must be added
+  AFTER it**: the dispatcher asks the last-added handler, and with Home under them `NavDisplay`'s handler is enabled on
+  Search and the Library, so the avatar menu's handler, composed for the drawer's whole life, lost to it (one Back popped
+  the page under the open menu; measured). It is composed only while the menu is open now. The fallback the plan named (a
+  Back handler that switches to Home) was not needed: the walk passed on the AVD in portrait and landscape (rail).
 - **The cover ambient under the bottom bar lives in `RootBottomBar`, not in `BottomBar`.**
   `scrimColor ?: LocalCoverAmbientBottom.current ?: colorScheme.surface`, a deferred-read
   `shadowFadeProgress` gradient in `drawBehind`, `expressiveBlurEffect`, and a three-way
