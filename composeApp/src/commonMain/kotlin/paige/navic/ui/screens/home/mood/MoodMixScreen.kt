@@ -24,12 +24,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -126,10 +128,24 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 	var addingToPlaylist by remember { mutableStateOf<DomainSong?>(null) }
 	val listState = rememberLazyListState()
 	val title = variant?.title.orEmpty()
+	// The bar's title comes in as the heading scrolls away, as on the mix page: at rest the art and
+	// the heading already say it.
+	val titleAlpha by remember {
+		derivedStateOf {
+			if (listState.firstVisibleItemIndex >= 1) return@derivedStateOf 1f
+			val height = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == 0 }?.size?.toFloat() ?: 0f
+			if (height <= 0f) 0f
+			else ((listState.firstVisibleItemScrollOffset - height * 0.4f) / (height * 0.6f)).coerceIn(0f, 1f)
+		}
+	}
 
 	Scaffold(
 		topBar = {
-			NestedTopBar(title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+			NestedTopBar(
+				title = {
+					Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(titleAlpha))
+				}
+			)
 		},
 		bottomBar = {
 			val scrollManager = LocalBottomBarScrollManager.current
