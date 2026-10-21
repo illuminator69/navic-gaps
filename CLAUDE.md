@@ -2102,6 +2102,23 @@ true of invented *album art*, and not of an icon naming the kind.
     the whole library. The Songs lists (the artist's and the library's, `SongListScreenItem`) draw the artist page's
     rows: rounded segments in a 16 dp gutter, 2 dp apart, on `SongRowDefaults.frostedContainerColor()`.
 
+- **Moods (P7, PROTOCOL §18.5): the catalogue is the hub's, the draw is Navic's.** `MoodManager` reads
+  `GET /sonic/mood/catalogue` (cached in `moodCatalogue`, shown at once, refreshed on every Home visit and every
+  `welcome`; a 404 hub offers no chips, a hub that does not answer keeps the cache) and a tile's ranked ids
+  (`POST /sonic/mood/list`, one request per tile however many ask, `SingleFlight`). Home draws the hub's ten Home
+  moods as chips under the header only while `chipsVisible()` (AudioMuse there, CLAP loaded): otherwise no row and
+  no gap. A chip folds the shelves away and the mood's body in (four tiles, then the saved queues its tiles played,
+  matched on `sourceName` = the tile title, `queuesFromMood`; a renamed queue drops out); Back clears the chip; the
+  selection lives in the persistent `HomeViewModel` only. A tile opens `Screen.MoodMix` (washed, in
+  `WashedBrowsingScreens`): its ids resolved in Room, the mood's `maxSeconds` (inclusive; null = any length) and
+  `depth` applied, 50 drawn uniformly with no artist twice within 4 (`drawMix`, pure, `MoodModelsTest`), a NEW draw
+  on every opening, Play playing exactly what is shown (`RadioManager.playMoodTile`, `GeneratedQueue.ofMoodTile`,
+  which carries the mood id). Under 20 of the tile's songs in the library is Short, a failed read is Unavailable,
+  both with Retry; never a short mix shown as 50. The tile play button draws and plays in place. Names: "Mood"
+  already means `StationCharacter` (stored as `moodCharacter`), the free-text Mood search and Mood Flow; the new
+  code is `MoodCatalogue`, `MoodEntry`, `MoodVariant`, `MoodManager`, `MoodMix*`, `drawMix`, and renames nothing.
+  Tile art is generated from the hub's hue pair and tested for a white title at 4.5:1 (`tileColors`).
+
 ---
 
 ## 8. Publishing
