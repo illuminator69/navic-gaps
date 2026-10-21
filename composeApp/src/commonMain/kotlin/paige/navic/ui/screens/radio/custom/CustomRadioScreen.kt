@@ -19,6 +19,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.ui.screens.library.LibraryChip
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.becomeStack
 import paige.navic.ui.util.Material3Transitions
 import paige.navic.ui.util.pageMotionOf
 import org.koin.compose.koinInject
@@ -82,12 +83,11 @@ fun CustomRadioScreen() {
 				onClose = { close() },
 				onDone = { mixId ->
 					// The radio opens as its own page (P5 round 2), over the Library's Mixes chip where it
-					// is kept: the Library tab as a tab tap opens it (the stack cleared to it), on that chip,
+					// is kept: the Library tab as a tab tap opens it, on that chip,
 					// and the mix's page on top. It is built there, not played.
 					shell.showLibraryChip(LibraryChip.Mixes.name)
-					backStack.clear()
-					backStack.add(Screen.Library())
-					backStack.add(Screen.MixDetail(mixId))
+					// Home under the Library, as a tab tap leaves it (P6): Back goes Library, then Home.
+					backStack.becomeStack(listOf(Screen.Home, Screen.Library(), Screen.MixDetail(mixId)))
 				}
 			)
 		}

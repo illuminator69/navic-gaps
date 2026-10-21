@@ -88,4 +88,101 @@ class ShellTabTest {
 		pages.forEach { assertEquals(ShellTap.OpenNew, shellTap(ShellTab.New, it), "on $it") }
 		assertEquals(ShellTap.OpenNew, shellTap(ShellTab.New, null))
 	}
+
+	// --- P6: Back from Search or Library goes Home ----------------------------------------------
+
+	private val home: NavKey = Screen.Home
+	private val search: NavKey = Screen.Search()
+	private val library: NavKey = Screen.Library()
+	private val album: NavKey = Screen.CollectionDetail("al-1", "")
+
+	@Test
+	fun aTabTapLeavesHomeUnderSearchAndLibrary() {
+		assertEquals(listOf(home, search), stackAfterTap(listOf(home), ShellTab.Search))
+		assertEquals(listOf(home, library), stackAfterTap(listOf(home), ShellTab.Library))
+	}
+
+	@Test
+	fun searchToLibraryReplacesRatherThanPushes() {
+		assertEquals(listOf(home, library), stackAfterTap(listOf(home, search), ShellTab.Library))
+		assertEquals(listOf(home, search), stackAfterTap(listOf(home, library), ShellTab.Search))
+	}
+
+	@Test
+	fun aTapFromAPushedPageIsTheTabsOwnPageAgain() {
+		assertEquals(listOf(home, library), stackAfterTap(listOf(home, library, album), ShellTab.Library))
+		assertEquals(listOf(home, search), stackAfterTap(listOf(home, library, album), ShellTab.Search))
+	}
+
+	@Test
+	fun homeIsHomeAloneFromAnywhere() {
+		listOf(listOf(home), listOf(home, search), listOf(home, library, album), listOf(search)).forEach {
+			assertEquals(listOf(home), stackAfterTap(it, ShellTab.Home), "from $it")
+		}
+	}
+
+	@Test
+	fun theSelectedTabStillScrollsToTopAndNewTouchesNothing() {
+		assertEquals(ShellTap.ScrollToTop, shellTap(ShellTab.Search, search))
+		assertNull(stackAfterTap(listOf(home, search), ShellTab.New))
+	}
+
+	/** A back stack that records its edits: what was removed (by index) and what was added. */
+	private class RecordingStack(vararg keys: NavKey) : ArrayList<NavKey>(keys.toList()) {
+		val removedAt = mutableListOf<Int>()
+		val added = mutableListOf<NavKey>()
+		override fun removeAt(index: Int): NavKey = super.removeAt(index).also { removedAt += index }
+		override fun add(element: NavKey): Boolean = super.add(element).also { added += element }
+		override fun clear() {
+			removedAt += indices.reversed()
+			super.clear()
+		}
+	}
+
+	@Test
+	fun theSmallestEditsKeepHomesEntry() {
+		val stack = RecordingStack(home, library, album)
+		stack.becomeStack(listOf(home, search))
+		assertEquals(listOf(home, search), stack.toList())
+		assertFalse(0 in stack.removedAt, "Home's entry is never removed (its saved state goes with it)")
+		assertEquals(listOf(search), stack.added)
+
+		val back = RecordingStack(home, search)
+		back.becomeStack(listOf(home))
+		assertEquals(listOf(home), back.toList())
+		assertEquals(listOf(1), back.removedAt)
+		assertTrue(back.added.isEmpty())
+
+		val legacy = RecordingStack(search)
+		legacy.becomeStack(listOf(home, library))
+		assertEquals(listOf(home, library), legacy.toList())
+	}
+
+	@Test
+	fun aLegacyStackGetsHomeUnderItOnce() {
+		assertEquals(listOf(home, search), normalizedStack(listOf(search)))
+		assertEquals(listOf(home, library, album), normalizedStack(listOf(library, album)))
+		assertEquals(listOf(home, search), normalizedStack(listOf(home, search)))
+		assertEquals(listOf(home), normalizedStack(listOf(home)))
+		assertEquals(listOf(home, search), normalizedStack(normalizedStack(listOf(search))), "once")
+	}
+
+	@Test
+	fun aStackThatStartsWithAnotherPageIsUnchanged() {
+		assertEquals(listOf<NavKey>(Screen.Login), normalizedStack(listOf(Screen.Login)))
+		assertEquals(listOf(album), normalizedStack(listOf(album)))
+		assertEquals(listOf<NavKey>(Screen.Search(nested = true)), normalizedStack(listOf(Screen.Search(nested = true))))
+		assertEquals(emptyList(), normalizedStack(emptyList()))
+	}
+
+	@Test
+	fun aRootPageIsATabsOwnPage() {
+		assertTrue(isRootPage(home))
+		assertTrue(isRootPage(search))
+		assertTrue(isRootPage(library))
+		assertFalse(isRootPage(album))
+		assertFalse(isRootPage(Screen.Search(nested = true)), "a nested Search is not the tab's page")
+		assertFalse(isRootPage(Screen.Library(nested = true)))
+		assertFalse(isRootPage(null))
+	}
 }

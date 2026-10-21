@@ -139,6 +139,8 @@ import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.downloads.DownloadsScreen
+import paige.navic.ui.navigation.isRootPage
+import paige.navic.ui.navigation.normalizedStack
 import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
@@ -216,6 +218,12 @@ fun App() {
 			Screen.Login
 		}
 	)
+	// P6: a stack restored from before Back went Home ([Search], [Library, …]) gets Home put under it,
+	// once, before anything reads it, so Back from it goes Home as from a new one.
+	remember(backStack) {
+		val normalized = normalizedStack(backStack.toList())
+		if (normalized.size != backStack.size) backStack.add(0, normalized.first())
+	}
 	val snackBarState = remember { SnackbarHostState() }
 	val snackBarManager = koinInject<SnackBarManager>()
 
@@ -250,7 +258,9 @@ fun App() {
 	// couldn't skip, and re-running NavicTheme over the entire tree — all while the 450 ms
 	// SharedXAxis transition was animating. Behind `derivedStateOf`, App is invalidated only when
 	// the root/non-root boundary is actually crossed.
-	val isRoot by remember(backStack) { derivedStateOf { backStack.size == 1 } }
+	// A tab's own page is a root (P6: Home stays under Search and the Library, so it is no longer
+	// "the stack holds one entry"). Back on one still pops only at two entries or more, below.
+	val isRoot by remember(backStack) { derivedStateOf { isRootPage(backStack.lastOrNull()) } }
 	val entries = remember(backStack, isRoot) { entryProvider(isRoot) }
 
 	// The individual strategies were already remembered; the enclosing list was not, so
