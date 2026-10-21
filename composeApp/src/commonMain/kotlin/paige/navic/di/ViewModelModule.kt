@@ -21,6 +21,7 @@ import paige.navic.ui.screens.browse.BrowseKind
 import paige.navic.ui.screens.discover.viewmodels.DiscoverViewModel
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
 import paige.navic.ui.screens.home.HomeViewModel
+import paige.navic.ui.screens.home.mood.MoodMixViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixListViewModel
 import paige.navic.ui.screens.radio.custom.CustomRadioViewModel
 import paige.navic.ui.screens.mixes.viewmodels.MixDetailViewModel
@@ -70,6 +71,18 @@ val viewModelModule = module {
 		MixDetailViewModel(
 			mixId = params.get(),
 			hubManager = get(),
+			radioManager = get(),
+			songRepository = get(),
+			downloadManager = get()
+		)
+	}
+	// P7: a Home mood tile's mix page, keyed by the mood and the tile.
+	viewModel { (moodId: String, variantId: String) ->
+		MoodMixViewModel(
+			moodId = moodId,
+			variantId = variantId,
+			moodManager = get(),
+			songDao = get(),
 			radioManager = get(),
 			songRepository = get(),
 			downloadManager = get()

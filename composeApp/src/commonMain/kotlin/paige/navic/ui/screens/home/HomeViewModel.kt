@@ -15,7 +15,23 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.mood_play_short
+import navic.composeapp.generated.resources.mood_unavailable_title
+import paige.navic.data.database.dao.SongDao
+import paige.navic.domain.manager.HomeMoodSelection
+import paige.navic.domain.manager.MixState
+import paige.navic.domain.manager.MoodCatalogue
+import paige.navic.domain.manager.MoodEntry
+import paige.navic.domain.manager.MoodManager
+import paige.navic.domain.manager.MoodVariant
+import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.clear
+import paige.navic.domain.manager.tap
+import paige.navic.ui.screens.home.mood.drawMoodMix
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.HubManager
@@ -50,7 +66,11 @@ class HomeViewModel(
 	private val preferenceManager: PreferenceManager,
 	hubManager: HubManager,
 	private val player: MediaPlayerViewModel,
-	connectivityManager: ConnectivityManager
+	connectivityManager: ConnectivityManager,
+	private val moodManager: MoodManager,
+	private val songDao: SongDao,
+	private val radioManager: RadioManager,
+	private val snackBarManager: SnackBarManager
 ) : ViewModel() {
 	private val isOnline = connectivityManager.isOnline
 
@@ -125,6 +145,50 @@ class HomeViewModel(
 		.distinctUntilChanged()
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), syncManager.syncState.value.isSyncing)
 
+	// --- Moods (P7) --------------------------------------------------------------------------------
+
+	/** The hub's mood catalogue (cached, then the hub's answer on each visit). */
+	val moodCatalogue: StateFlow<MoodCatalogue> = moodManager.catalogue
+
+	private val _moodSelection = MutableStateFlow(HomeMoodSelection())
+
+	/** The selected chip. In this view model only, so a tab switch keeps it and a restart forgets it. */
+	val moodSelection: StateFlow<HomeMoodSelection> = _moodSelection.asStateFlow()
+
+	fun tapMood(id: String) = _moodSelection.update { it.tap(id) }
+
+	fun clearMood() = _moodSelection.update { it.clear() }
+
+	private val _moodBusy = MutableStateFlow<String?>(null)
+
+	/** The tile ("<mood>/<tile>") whose play button is drawing its mix. */
+	val moodBusy: StateFlow<String?> = _moodBusy.asStateFlow()
+
+	/**
+	 * A tile's play button: one draw, played as the page would have played it, without opening the
+	 * page. A draw the library cannot fill, or a hub that could not search, is said in a snackbar.
+	 */
+	fun playMoodTile(mood: MoodEntry, variant: MoodVariant) {
+		if (_moodBusy.value != null) return
+		_moodBusy.value = "${mood.id}/${variant.id}"
+		viewModelScope.launch {
+			try {
+				val draw = drawMoodMix(moodManager, songDao, mood, variant.id)
+				when (val state = draw.state) {
+					is MixState.Ready -> radioManager.playMoodTile(draw.songs, variant.title, mood.id, shuffle = false)
+					is MixState.Short -> snackBarManager.notify(Res.string.mood_play_short, state.found)
+					MixState.Unavailable, MixState.Loading -> snackBarManager.notify(Res.string.mood_unavailable_title)
+				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (_: Exception) {
+				snackBarManager.notify(Res.string.mood_unavailable_title)
+			} finally {
+				_moodBusy.value = null
+			}
+		}
+	}
+
 	// --- An album's long-press sheet --------------------------------------------------------------
 
 	private val _selectedAlbum = MutableStateFlow<DomainAlbum?>(null)
@@ -187,6 +251,7 @@ class HomeViewModel(
 	fun revalidate() {
 		loadRecent()
 		loadPlayed()
+		viewModelScope.launch { moodManager.refresh() }
 		// The Fresh page's scope, type or sort may have changed since: the shelf follows at once.
 		lastFeed?.let { _fresh.value = freshShelf(it, filters = FreshFilters.of(preferenceManager)) }
 		viewModelScope.launch {

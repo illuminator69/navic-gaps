@@ -152,4 +152,86 @@ class CustomRadioModelTest {
 	@Test
 	fun theVarietyWireValuesAreTheHubs() =
 		assertEquals(listOf("low", "medium", "high"), Variety.entries.map { it.wire })
+
+	// ---- P7: the mood filter ------------------------------------------------------------------ //
+
+	private val moods = paige.navic.domain.manager.MoodCatalogue(
+		configured = true, available = true, ready = true,
+		moods = listOf(
+			paige.navic.domain.manager.MoodEntry("relax", "Relax", filter = true),
+			paige.navic.domain.manager.MoodEntry("sleep", "Sleep", filter = false),
+			paige.navic.domain.manager.MoodEntry("energize", "Energize", filter = true),
+			paige.navic.domain.manager.MoodEntry("feel-good", "Feel good", filter = true),
+			paige.navic.domain.manager.MoodEntry("sad", "Sad", filter = true),
+			paige.navic.domain.manager.MoodEntry("focus", "Focus", filter = true),
+			paige.navic.domain.manager.MoodEntry("pump-up", "Pump-up", "extra", filter = true),
+			paige.navic.domain.manager.MoodEntry("upbeat", "Upbeat", "extra", filter = true),
+			paige.navic.domain.manager.MoodEntry("downbeat", "Downbeat", "extra", filter = true)
+		)
+	)
+	private val probe = paige.navic.domain.manager.StationCatalogue(filters = listOf("mood"), moods = true)
+
+	@Test
+	fun aMoodFilterIsACountKey() {
+		val plain = CountKey.of(listOf("b", "a"), StationCharacter.Balanced)
+		val filtered = CountKey.of(listOf("a", "b"), StationCharacter.Balanced, "pump-up")
+		kotlin.test.assertNotEquals(plain, filtered)
+		assertEquals(filtered, CountKey.of(listOf("b", "a"), StationCharacter.Balanced, "pump-up"))
+		// An answer for the key before the filter changed is dropped.
+		val shown = reduceCount(CountState.Known(400), plain, filtered, StationCountAnswer.Counted(400, false))
+		assertEquals(CountState.Known(400), shown)
+		assertEquals(CountState.Known(25), reduceCount(CountState.Counting(400), filtered, filtered, StationCountAnswer.Counted(25, false)))
+	}
+
+	@Test
+	fun oneFilterAtATimeAndTappingItClearsIt() {
+		assertEquals("relax", nextMoodFilter(null, "relax"))
+		kotlin.test.assertNull(nextMoodFilter("relax", "relax"))
+		assertEquals("upbeat", nextMoodFilter("relax", "upbeat"))
+	}
+
+	@Test
+	fun theRecipeCarriesTheFilterOnlyWhenSet() {
+		val with = customRadioRecipe("mx_1", "Moth Season", listOf(moth), StationCharacter.Close, Variety.Medium, moodFilter = "pump-up")
+		assertEquals("pump-up", with.moodFilter)
+		val without = customRadioRecipe("mx_2", "Moth Season", listOf(moth), StationCharacter.Close, Variety.Medium)
+		assertEquals("", without.moodFilter)
+	}
+
+	@Test
+	fun theFilterWordsAreHomesFiveThenTheExtraThree() {
+		val words = filterWords(moods, probe)
+		// The board's order, not the catalogue's (Relax, Energize, ... in the hub).
+		assertEquals(listOf("Energize", "Relax", "Feel good", "Sad", "Focus"), words.home.map { it.label })
+		assertEquals(listOf("Pump-up", "Upbeat", "Downbeat"), words.extra.map { it.label })
+		assertTrue(filterWords(moods, probe.copy(filters = emptyList())).isEmpty)
+		assertTrue(filterWords(moods.copy(available = false), probe).isEmpty)
+	}
+
+	@Test
+	fun underThirtyTheFooterWarns() {
+		assertTrue(filterWarning(CountState.Known(29)))
+		assertFalse(filterWarning(CountState.Known(30)))
+		assertFalse(filterWarning(CountState.Counting(10)))
+		assertFalse(filterWarning(CountState.Unknown))
+		assertFalse(filterWarning(CountState.Unavailable))
+		// Done stays enabled with a low count; 0 is P5's rule.
+		assertTrue(canFinish(1, CountState.Known(12)))
+	}
+
+	@Test
+	fun aMixRoundTripsItsMoodFilter() {
+		val act = paige.navic.domain.manager.saveMixAct(
+			"Moth Season", MixKind.ARTIST, "mx_1", "ar-moth", "Moth Season", "EchoMatch", 50, "", "close",
+			listOf("ar-moth", "ar-b"), "", "pump-up"
+		)
+		assertEquals("\"pump-up\"", act["moodFilter"].toString())
+		val record = kotlinx.serialization.json.JsonObject(act.filterKeys { it != "t" && it != "action" })
+		assertEquals("pump-up", paige.navic.domain.manager.mixFromRecord(record)?.moodFilter)
+		val plain = paige.navic.domain.manager.saveMixAct(
+			"X", MixKind.ARTIST, "mx_2", "ar", "X", "", 50, "", "", emptyList(), "", ""
+		)
+		assertFalse("moodFilter" in plain)
+		assertEquals("", paige.navic.domain.manager.mixFromRecord(kotlinx.serialization.json.JsonObject(plain))?.moodFilter)
+	}
 }

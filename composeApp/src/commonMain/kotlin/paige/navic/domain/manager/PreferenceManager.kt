@@ -200,6 +200,10 @@ class PreferenceManager(
 	// and descriptions are the hub's on a cold start too. "" until a hub has answered.
 	var stationCatalogue by preference("")
 
+	// The hub's last mood catalogue (`GET /sonic/mood/catalogue`, P7), JSON, so Home's chips show at
+	// once on a cold start. "" until a hub has answered.
+	var moodCatalogue by preference("")
+
 	/**
 	 * Carry the old four-way autoplay mode over to [autoplayOn], once. Read as a raw int: the enum
 	 * it was stored from is gone, and reading it through one with fewer entries would have thrown

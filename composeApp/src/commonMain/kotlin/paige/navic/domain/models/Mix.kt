@@ -65,6 +65,8 @@ data class Mix(
 	val seedIds: List<String> = emptyList(),
 	/** A custom radio's Artist variety (`low|medium|high`); "" = the character's own spacing. */
 	val variety: String = "",
+	/** A custom radio's mood filter (P7, PROTOCOL §18.5): a mood id; "" = none. */
+	val moodFilter: String = "",
 	val createdAt: Long = 0L,
 	val updatedAt: Long = 0L,
 	val lastPlayedAt: Long = 0L

@@ -89,6 +89,17 @@ import paige.navic.ui.util.COVER_FADE_MS
 import paige.navic.ui.util.rememberArrivalGate
 import paige.navic.ui.util.rememberPlayerRestored
 import paige.navic.ui.util.withoutTop
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
+import paige.navic.domain.manager.MoodEntry
+import paige.navic.domain.manager.MoodVariant
+import paige.navic.domain.manager.chipsVisible
+import paige.navic.domain.manager.homeMoods
+import paige.navic.domain.manager.queuesFromMood
+import paige.navic.ui.util.Fold
 import paige.navic.ui.viewmodel.RootViewModel
 
 /** How many tinted boxes a shelf shows while its first read is out. */
@@ -142,6 +153,9 @@ fun HomeScreen() {
 	val shell = koinInject<ShellController>()
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
+	val moodCatalogue by viewModel.moodCatalogue.collectAsStateWithLifecycle()
+	val moodSelection by viewModel.moodSelection.collectAsStateWithLifecycle()
+	val moodBusy by viewModel.moodBusy.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
 	// Which shelf's tile the open album sheet belongs to: an album can be on three shelves at once,
@@ -191,6 +205,22 @@ fun HomeScreen() {
 	val yourMixesTitle = stringResource(Res.string.home_your_mixes)
 	val playedTitle = stringResource(Res.string.home_recently_played)
 	val frequentTitle = stringResource(Res.string.home_frequently_played)
+	// Moods (P7): the chip row only where AudioMuse is there; a chip selected folds the shelves away
+	// and the mood's body in. The body keeps the last mood while it folds out.
+	val chipsVisible = moodCatalogue.chipsVisible()
+	val homeMoods = remember(moodCatalogue) { moodCatalogue.homeMoods() }
+	val selectedMood = if (chipsVisible) homeMoods.firstOrNull { it.id == moodSelection.moodId } else null
+	var shownMood by remember { mutableStateOf<MoodEntry?>(null) }
+	if (selectedMood != null && selectedMood != shownMood) shownMood = selectedMood
+	val shelves = selectedMood == null
+	val lifecycle = LocalLifecycleOwner.current.lifecycle
+	// System Back clears the chip before it leaves Home (P7 call 9).
+	NavigationBackHandler(
+		state = rememberNavigationEventState(NavigationEventInfo.None),
+		isBackEnabled = selectedMood != null,
+		onBackCompleted = { viewModel.clearMood() }
+	)
+
 	// The first shelf drawn staggers its first five tiles; the ones after it arrive together.
 	val freshShelfIndex = if (showRecent) 1 else 0
 	val laterShelfIndex = if (showRecent || showFresh) 1 else 0
@@ -247,8 +277,45 @@ fun HomeScreen() {
 			state = listState,
 			contentPadding = innerPadding.withoutTop()
 		) {
+			if (chipsVisible) {
+				item(key = "moods") {
+					MoodChipRow(
+						modifier = Modifier.animateItem(),
+						moods = homeMoods,
+						selected = selectedMood?.id,
+						onTap = { viewModel.tapMood(it) },
+						onClear = { viewModel.clearMood() }
+					)
+				}
+			}
+
+			item(key = "mood-body") {
+				Fold(visible = selectedMood != null, tall = true) {
+					shownMood?.let { mood ->
+						MoodBody(
+							mood = mood,
+							queues = remember(queues, mood) { queuesFromMood(queues, mood) },
+							playingQueueId = playingQueueId,
+							busy = moodBusy?.takeIf { it.startsWith("${mood.id}/") }?.substringAfter('/'),
+							gate = gate,
+							// dropUnlessResumed's rule, for a tap that names its tile: a second tap
+							// during the push does not push twice.
+							onOpen = { variant: MoodVariant ->
+								if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+									backStack.add(Screen.MoodMix(mood.id, variant.id))
+								}
+							},
+							onPlay = { variant -> viewModel.playMoodTile(mood, variant) },
+							onResume = { savedQueueActions.resume(it) },
+							onMenu = { menuQueue = it }
+						)
+					}
+				}
+			}
+
 			if (HomeSection.ContinueListening in sections) {
 				item(key = "continue") {
+					Fold(visible = shelves) {
 					ContinueListeningPill(
 						modifier = Modifier.animateItem(),
 						queues = continueQueues,
@@ -260,11 +327,13 @@ fun HomeScreen() {
 						onMenu = { menuQueue = it },
 						onSeeAll = dropUnlessResumed { backStack.add(Screen.SavedQueues) }
 					)
+					}
 				}
 			}
 
 			if (showRecent) {
 				item(key = "recent") {
+					Fold(visible = shelves, tall = true) {
 					if (recentAlbums.isNotEmpty()) {
 						albumShelf(
 							Modifier.animateItem(), recentTitle, recentAlbums, RECENT_TAB, 0,
@@ -278,11 +347,13 @@ fun HomeScreen() {
 							seed = "recent"
 						)
 					}
+					}
 				}
 			}
 
 			if (showFresh) {
 				item(key = "fresh") {
+					Fold(visible = shelves, tall = true) {
 					if (fresh.isNotEmpty()) {
 						HomeShelf(
 							modifier = Modifier.animateItem(),
@@ -308,29 +379,35 @@ fun HomeScreen() {
 							seed = "fresh"
 						)
 					}
+					}
 				}
 			}
 
 			if (HomeSection.RecentlyPlayed in sections) {
 				item(key = "played") {
+					Fold(visible = shelves, tall = true) {
 					albumShelf(
 						Modifier.animateItem(), playedTitle, played, PLAYED_TAB, laterShelfIndex,
 						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Recent)
 					)
+					}
 				}
 			}
 
 			if (HomeSection.FrequentlyPlayed in sections) {
 				item(key = "frequent") {
+					Fold(visible = shelves, tall = true) {
 					albumShelf(
 						Modifier.animateItem(), frequentTitle, frequent, FREQUENT_TAB, laterShelfIndex,
 						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Frequent)
 					)
+					}
 				}
 			}
 
 			if (HomeSection.YourMixes in sections) {
 				item(key = "mixes") {
+					Fold(visible = shelves, tall = true) {
 					YourMixesShelf(
 						modifier = Modifier.animateItem(),
 						title = yourMixesTitle,
@@ -347,10 +424,11 @@ fun HomeScreen() {
 						// A tile opens the mix's page (P5 round 2); it never starts the mix.
 						onOpen = { tile -> backStack.add(Screen.MixDetail(tile.key)) }
 					)
+					}
 				}
 			}
 
-			if (showEmptyLine) {
+			if (showEmptyLine && shelves) {
 				item(key = "empty") {
 					Text(
 						text = stringResource(

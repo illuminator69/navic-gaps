@@ -35,6 +35,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	Screen.ArtistDiscography::class,
 	// P5: the custom radio's pick and tune steps.
 	Screen.CustomRadio::class,
+	// P7: a Home mood tile's mix page (its art is generated, not a cover).
+	Screen.MoodMix::class,
 	// P1 round 2: every surface wears the playing song's colours but the artist and album pages, so
 	// Settings and its pages, the smart playlist form, shares and a genre's albums are washed too.
 	Screen.Settings.Root::class, Screen.Settings.Appearance::class, Screen.Settings.BottomAppBar::class,

@@ -18,6 +18,8 @@ import navic.composeapp.generated.resources.queue_your_mix
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.StationManager
+import paige.navic.domain.manager.MoodManager
+import paige.navic.domain.manager.find
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
 import paige.navic.domain.models.isCustomRadio
@@ -57,6 +59,16 @@ fun mixKindName(kind: String): String = when (kind) {
  */
 @Composable
 fun mixKindLabel(mix: Mix): String {
+	val base = mixKindBase(mix)
+	// A custom radio's mood filter (P7): its line says it, in the catalogue's words.
+	if (mix.moodFilter.isBlank()) return base
+	val moods by koinInject<MoodManager>().catalogue.collectAsState()
+	val label = moods.find(mix.moodFilter)?.label ?: return base
+	return "$base · $label"
+}
+
+@Composable
+private fun mixKindBase(mix: Mix): String {
 	val seed = mix.seedName.ifBlank { mix.seedId }
 	val character = StationCharacter.fromWire(mix.character) ?: StationCharacter.fromWire(mix.moodCharacter)
 	// A custom radio (P5): its name already lists the artists, so the line says what it is.

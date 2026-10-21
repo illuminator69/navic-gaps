@@ -224,6 +224,14 @@ sealed interface Screen : NavKey {
 	data class MixDetail(val mixId: String) : Screen
 
 	/**
+	 * A Home mood tile's mix page (P7): about 50 of the library's songs drawn from the tile's list on
+	 * each opening. Ids are the hub's catalogue slugs (PROTOCOL §18.5).
+	 */
+	@Immutable
+	@Serializable
+	data class MoodMix(val moodId: String, val variantId: String) : Screen
+
+	/**
 	 * An owned artist's whole discography behind chips (P4 round 2): the artist page shows a few
 	 * releases and "See discography" opens this.
 	 */

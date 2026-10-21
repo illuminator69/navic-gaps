@@ -1362,6 +1362,32 @@
 	<string name="home_your_mix_line">Made from what you play</string>
 	<string name="home_library_empty">Nothing in your library yet</string>
 	<string name="home_library_error">Couldn't read your library</string>
+	<!-- navi-connect P7: Home's moods. A mood's words are the hub's catalogue, never these. -->
+	<string name="home_moods_clear">Clear the mood</string>
+	<string name="home_mood_from_library">From your library</string>
+	<string name="home_mood_songs_approx">~%1$d songs</string>
+	<string name="home_mood_opening">Opening…</string>
+	<string name="home_mood_play">Play %1$s</string>
+	<string name="home_mood_saved_queues">Saved queues from these mixes</string>
+	<string name="mood_mix_kind">%1$s mix</string>
+	<plurals name="mood_mix_songs">
+		<item quantity="one">%1$d song</item>
+		<item quantity="other">%1$d songs</item>
+	</plurals>
+	<string name="mood_mix_hours_minutes">%1$d h %2$d min</string>
+	<string name="mood_mix_minutes">%1$d min</string>
+	<string name="mood_mix_from_library">from your library</string>
+	<string name="mood_mix_fresh">A new draw from your library each time you open it.</string>
+	<plurals name="mood_mix_short">
+		<item quantity="one">Only %1$d song of this mix is in your library yet.</item>
+		<item quantity="other">Only %1$d songs of this mix are in your library yet.</item>
+	</plurals>
+	<string name="queue_mood_all">All</string>
+	<string name="custom_radio_filters">Filters</string>
+	<string name="custom_radio_count_low">%1$s songs to draw from. This radio will run out quickly.</string>
+	<string name="mood_play_short">Only %1$d of this mix's songs are in your library yet.</string>
+	<string name="mood_unavailable_title">Mood search is not available right now</string>
+	<string name="mood_unavailable_body">Navic could not reach the server that finds songs by mood. Your library and everything else still work.</string>
 	<!-- navi-connect P2: the staged queue inside the player (portrait phones). -->
 	<string name="staged_playing_from">Playing from</string>
 	<string name="staged_playing_from_album">Playing from album</string>

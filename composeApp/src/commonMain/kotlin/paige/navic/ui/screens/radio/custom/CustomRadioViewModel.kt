@@ -22,6 +22,7 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.CustomRadioDone
 import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.MoodManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.domain.manager.StationCatalogue
@@ -46,7 +47,8 @@ class CustomRadioViewModel(
 	private val stationManager: StationManager,
 	private val hubManager: HubManager,
 	private val shell: ShellController,
-	preferenceManager: PreferenceManager
+	preferenceManager: PreferenceManager,
+	private val moodManager: MoodManager
 ) : ViewModel() {
 
 	/** Every artist in the library, the most played first; null until read. */
@@ -62,6 +64,15 @@ class CustomRadioViewModel(
 
 	private val _variety = MutableStateFlow(Variety.Medium)
 	val variety: StateFlow<Variety> = _variety.asStateFlow()
+
+	/** The mood filter (P7), one at a time; null = none. */
+	private val _moodFilter = MutableStateFlow<String?>(null)
+	val moodFilter: StateFlow<String?> = _moodFilter.asStateFlow()
+
+	/** The Filters row: empty (no section) unless the hub's probe lists the mood filter. */
+	val filterWords: StateFlow<FilterWords> = combine(moodManager.catalogue, stationManager.catalogue) { moods, probe ->
+		filterWords(moods, probe)
+	}.stateIn(viewModelScope, SharingStarted.Eagerly, FilterWords(emptyList(), emptyList()))
 
 	private val _count = MutableStateFlow<CountState>(CountState.Idle)
 	val count: StateFlow<CountState> = _count.asStateFlow()
@@ -83,7 +94,9 @@ class CustomRadioViewModel(
 		// One count per artist set and character, never per tap: the spinner at once, the request
 		// 250 ms after the last change, and an answer only for the key still on screen.
 		viewModelScope.launch {
-			combine(_picked, _character) { picked, character -> CountKey.of(picked.map { it.id }, character) }
+			combine(_picked, _character, _moodFilter) { picked, character, mood ->
+				CountKey.of(picked.map { it.id }, character, mood)
+			}
 				.distinctUntilChanged()
 				.collectLatest { key ->
 					if (key.artistIds.isEmpty()) {
@@ -98,7 +111,7 @@ class CustomRadioViewModel(
 		}
 	}
 
-	private fun currentKey(): CountKey = CountKey.of(_picked.value.map { it.id }, _character.value)
+	private fun currentKey(): CountKey = CountKey.of(_picked.value.map { it.id }, _character.value, _moodFilter.value)
 
 	private suspend fun askCount(key: CountKey): StationCountAnswer {
 		val character = StationCharacter.fromWire(key.character) ?: return StationCountAnswer.Failed
@@ -106,7 +119,7 @@ class CustomRadioViewModel(
 		// The seeds the radio would start from, so the count is of the radio that Done plays.
 		val seed = customRadioPlan(engine = true, name = null, songsPerArtist = songs).station
 			?: return StationCountAnswer.Unavailable
-		return stationManager.count(seed, character)
+		return stationManager.count(seed, character, key.moodFilter)
 	}
 
 	/** Pick or unpick [artist]; at [CUSTOM_RADIO_MAX_ARTISTS] an unpicked one is not added. */
@@ -122,6 +135,11 @@ class CustomRadioViewModel(
 
 	fun setCharacter(character: StationCharacter) {
 		_character.value = character
+	}
+
+	/** A mood filter word: a count key, asked again like an artist change. */
+	fun tapMoodFilter(moodId: String) {
+		_moodFilter.value = nextMoodFilter(_moodFilter.value, moodId)
 	}
 
 	/** Not a count key: tapping it asks the hub nothing. */
@@ -144,7 +162,8 @@ class CustomRadioViewModel(
 				id = mintMixId(), name = radioTitle(artists), artists = artists,
 				character = _character.value,
 				// Medium is what an absent value means, so it is not written.
-				variety = _variety.value
+				variety = _variety.value,
+				moodFilter = _moodFilter.value
 			).let { if (it.variety == Variety.Medium.wire) it.copy(variety = "") else it }
 			val saved = withContext(NonCancellable) { save(recipe) }
 			_finishing.value = false

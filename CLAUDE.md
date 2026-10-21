@@ -713,6 +713,22 @@ Rules, each with a reason:
   before) reads as the new words in `StationCatalogue.infoFor`; ids, legacy names and ordinals did not
   move. The old new-mix form (`MixFormSheet`, `MixFormKind`) is gone: a Genre mix can no longer be made,
   and an existing one still plays.
+- **A mood steers a station (P7, PROTOCOL §18.5): as its source on the queue, as a filter on a custom radio.**
+  With `moods` on the station probe the queue's chip row is All, up to three moods that suit the playing song
+  (`MoodManager.forSong`, `POST /sonic/mood/for`, asked when the queue shows and the song changes, kept for the
+  session; the selected mood stays in the row even when the song is not one of its own), a thin divider, then the
+  characters. A mood tap is `onChipTap`'s sibling (`onMoodTap`, the same `stationOps` lock, hub-edit rule and
+  record-first update; a refusal puts the chip back): on a bound station it is `signal {kind: "mood"}` and the hub
+  makes the mood the station's gate (the character says how deep: 150 / 400 / 1000); again, or All, is `""`. With no
+  station it waits for this queue's continuation (`PendingMood`, keyed by the queue id, `""` = All picked), and a
+  queue a Home tile made is in that tile's mood until a chip says otherwise (`unboundMood`); the continuation
+  `start` carries `mood`, and is asked again without it on `409 mood_unavailable`. A station brought back
+  (`stationRestart`) keeps its mood and filter. A radio with a `moodFilter` shows no mood chips. The custom
+  radio's Tune has Filters only when the probe lists `"mood"`: Home's five filter words in the board's order, a
+  divider, Pump-up, Upbeat, Downbeat, wrapping; one at a time; a count key; under 30 the footer warns, Done stays
+  enabled. The recipe carries `moodFilter` (`saveMixAct` / `mixFromRecord`, pure). Known: after a HUB edit (a mood
+  or a character chip) the swapped-in rows group as "Up next", not "Autoplay" (this device's `served` never learns
+  them; BACKLOG).
 - **Preferences.** Autoplay is a Boolean (`autoplayOn`); the four-way `AutoplayMode` it replaces
   was read once as a raw int at "autoplayMode" (0 off, 1–3 on) and removed, behind
   `autoplayMigrated` (`AutoplayPrefMigrationTest`). `StationCharacter` (Close, Balanced, Explore)
@@ -2146,6 +2162,23 @@ true of invented *album art*, and not of an icon naming the kind.
     the artist again (`SongListArtist`): upstream's paging revert (d6671510) had dropped the artist id, so it opened
     the whole library. The Songs lists (the artist's and the library's, `SongListScreenItem`) draw the artist page's
     rows: rounded segments in a 16 dp gutter, 2 dp apart, on `SongRowDefaults.frostedContainerColor()`.
+
+- **Moods (P7, PROTOCOL §18.5): the catalogue is the hub's, the draw is Navic's.** `MoodManager` reads
+  `GET /sonic/mood/catalogue` (cached in `moodCatalogue`, shown at once, refreshed on every Home visit and every
+  `welcome`; a 404 hub offers no chips, a hub that does not answer keeps the cache) and a tile's ranked ids
+  (`POST /sonic/mood/list`, one request per tile however many ask, `SingleFlight`). Home draws the hub's ten Home
+  moods as chips under the header only while `chipsVisible()` (AudioMuse there, CLAP loaded): otherwise no row and
+  no gap. A chip folds the shelves away and the mood's body in (four tiles, then the saved queues its tiles played,
+  matched on `sourceName` = the tile title, `queuesFromMood`; a renamed queue drops out); Back clears the chip; the
+  selection lives in the persistent `HomeViewModel` only. A tile opens `Screen.MoodMix` (washed, in
+  `WashedBrowsingScreens`): its ids resolved in Room, the mood's `maxSeconds` (inclusive; null = any length) and
+  `depth` applied, 50 drawn uniformly with no artist twice within 4 (`drawMix`, pure, `MoodModelsTest`), a NEW draw
+  on every opening, Play playing exactly what is shown (`RadioManager.playMoodTile`, `GeneratedQueue.ofMoodTile`,
+  which carries the mood id). Under 20 of the tile's songs in the library is Short, a failed read is Unavailable,
+  both with Retry; never a short mix shown as 50. The tile play button draws and plays in place. Names: "Mood"
+  already means `StationCharacter` (stored as `moodCharacter`), the free-text Mood search and Mood Flow; the new
+  code is `MoodCatalogue`, `MoodEntry`, `MoodVariant`, `MoodManager`, `MoodMix*`, `drawMix`, and renames nothing.
+  Tile art is generated from the hub's hue pair and tested for a white title at 4.5:1 (`tileColors`).
 
 ---
 

@@ -300,7 +300,9 @@ class StationManager(
 		exclude: List<String>,
 		bindSession: String?,
 		origin: String,
-		variety: String = ""
+		variety: String = "",
+		mood: String? = null,
+		moodFilter: String? = null
 	): StationResult = call("start") { base ->
 		client.post("$base/sonic/station/start") {
 			auth()
@@ -315,7 +317,10 @@ class StationManager(
 						bindSession = bindSession,
 						deviceId = hubManager.myDeviceId.value,
 						origin = origin,
-						variety = variety.takeIf { _catalogue.value.takesVariety(it) }
+						variety = variety.takeIf { _catalogue.value.takesVariety(it) },
+						// Only to a hub that says it steers by mood; an older one would drop the key.
+						mood = mood?.takeIf { _catalogue.value.moods },
+						moodFilter = moodFilter?.takeIf { _catalogue.value.moods && "mood" in _catalogue.value.filters }
 					)
 				)
 			)
@@ -327,14 +332,21 @@ class StationManager(
 	 * only; no station is made. [StationCountAnswer.Unavailable] without the engine or from a hub
 	 * whose probe does not list `count`, without asking.
 	 */
-	suspend fun count(seed: StationSeed, character: StationCharacter): StationCountAnswer {
+	suspend fun count(seed: StationSeed, character: StationCharacter, moodFilter: String? = null): StationCountAnswer {
 		val base = base() ?: return StationCountAnswer.Unavailable
 		if (!available.value || !_catalogue.value.count) return StationCountAnswer.Unavailable
 		return try {
 			val response = client.post("$base/sonic/station/count") {
 				auth()
 				contentType(ContentType.Application.Json)
-				setBody(json.encodeToString(StationCountBody(seed, character.wireId)))
+				setBody(
+					json.encodeToString(
+						StationCountBody(
+							seed, character.wireId,
+							moodFilter?.takeIf { _catalogue.value.moods && "mood" in _catalogue.value.filters }
+						)
+					)
+				)
 			}
 			val answer = parseStationCount(response.status.value, response.bodyAsText())
 			if (answer !is StationCountAnswer.Counted) Logger.w(TAG, "count -> HTTP ${response.status.value}: $answer")

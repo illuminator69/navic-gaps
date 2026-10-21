@@ -156,6 +156,7 @@ import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
 import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.radio.custom.CustomRadioScreen
 import paige.navic.ui.screens.mixes.MixDetailScreen
+import paige.navic.ui.screens.home.mood.MoodMixScreen
 import paige.navic.ui.screens.savedqueues.SavedQueuesScreen
 import paige.navic.ui.screens.matches.LibraryMatchesScreen
 import paige.navic.ui.screens.settings.SettingsThemesScreen
@@ -678,6 +679,10 @@ private fun entryProvider(
 		}
 
 		// P4 round 2: the whole discography behind chips; washed like the artist's Songs page.
+		// P7: a Home mood tile's mix, washed like every browsing page.
+		entry<Screen.MoodMix> { key ->
+			Washed { MoodMixScreen(key.moodId, key.variantId) }
+		}
 		entry<Screen.ArtistDiscography> { key ->
 			Washed { ArtistDiscographyScreen(key.artist) }
 		}

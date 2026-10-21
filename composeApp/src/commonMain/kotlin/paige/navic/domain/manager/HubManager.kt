@@ -275,7 +275,12 @@ class HubManager(
 			name = obj["name"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.name,
 			seed = seed ?: previous?.seed,
 			origin = obj["origin"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.origin,
-			stopped = obj["stopped"]?.jsonPrimitive?.booleanOrNull ?: previous?.stopped ?: false
+			stopped = obj["stopped"]?.jsonPrimitive?.booleanOrNull ?: previous?.stopped ?: false,
+			// P7: present (a mood id or null) on a hub with moods; absent keeps what was known.
+			mood = if ("mood" in obj) obj["mood"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+			else previous?.mood,
+			moodFilter = if ("moodFilter" in obj) obj["moodFilter"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+			else previous?.moodFilter
 		)
 		// Bounded: a station frame names one station, and only a handful are alive on a hub (8).
 		_stationFrames.update { frames -> (frames - id + (id to frame)).entries.toList().takeLast(16).associate { it.toPair() } }
@@ -1245,26 +1250,15 @@ class HubManager(
 		coverArtId: String = "",
 		character: String = "",
 		seedIds: List<String> = emptyList(),
-		variety: String = ""
+		variety: String = "",
+		moodFilter: String = ""
 	) {
-		sendAsync(buildJsonObject {
-			put("t", "act"); put("action", "saveMix")
-			id?.takeIf { it.isNotBlank() }?.let { put("id", it) }
-			put("name", name)
-			put("kind", kind)
-			if (seedId.isNotBlank()) put("seedId", seedId)
-			if (seedName.isNotBlank()) put("seedName", seedName)
-			if (moodCharacter.isNotBlank()) put("moodCharacter", moodCharacter)
-			// `close|balanced|explore` (PROTOCOL §17.1). A hub from before stations drops it and
-			// keeps the legacy name beside it, which is why both are sent.
-			if (character.isNotBlank()) put("character", character)
-			if (coverArtId.isNotBlank()) put("coverArtId", coverArtId)
-			// A custom radio's (P5, PROTOCOL §17.1); sent only when there is something to say, and
-			// dropped harmlessly by a hub whose sanitiser predates them.
-			if (seedIds.isNotEmpty()) putJsonArray("seedIds") { seedIds.forEach { add(it) } }
-			if (variety.isNotBlank()) put("variety", variety)
-			put("count", count)
-		})
+		sendAsync(
+			saveMixAct(
+				name, kind, id, seedId, seedName, moodCharacter, count, coverArtId, character,
+				seedIds, variety, moodFilter
+			)
+		)
 	}
 
 	fun actRenameMix(id: String, name: String) {
@@ -1302,25 +1296,7 @@ class HubManager(
 	 * to do with one it cannot regenerate.
 	 */
 	private fun applyMixes(records: List<JsonObject>) {
-		_mixes.value = records.mapNotNull { rec ->
-			val id = rec["id"]?.jsonPrimitive?.contentOrNullSafe() ?: return@mapNotNull null
-			Mix(
-				id = id,
-				name = rec["name"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				kind = rec["kind"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				seedId = rec["seedId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				seedName = rec["seedName"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				moodCharacter = rec["moodCharacter"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				character = rec["character"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				count = rec["count"]?.jsonPrimitive?.intOrNull ?: 50,
-				coverArtId = rec["coverArtId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				seedIds = mixSeedIds(rec["seedIds"]),
-				variety = rec["variety"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
-				createdAt = rec["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
-				updatedAt = rec["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
-				lastPlayedAt = rec["lastPlayedAt"]?.jsonPrimitive?.longOrNull ?: 0L
-			)
-		}
+		_mixes.value = records.mapNotNull { mixFromRecord(it) }
 	}
 
 	// ------------------------------------------------------------------ //
@@ -2707,3 +2683,60 @@ internal fun mixSeedIds(raw: JsonElement?): List<String> =
 	(raw as? JsonArray).orEmpty()
 		.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content?.takeIf { c -> c.isNotBlank() } }
 		.distinct()
+
+/** The `saveMix` act (PROTOCOL §17.2), every optional field sent only when there is something to say. */
+internal fun saveMixAct(
+	name: String,
+	kind: String,
+	id: String?,
+	seedId: String,
+	seedName: String,
+	moodCharacter: String,
+	count: Int,
+	coverArtId: String,
+	character: String,
+	seedIds: List<String>,
+	variety: String,
+	moodFilter: String
+): JsonObject = buildJsonObject {
+	put("t", "act"); put("action", "saveMix")
+	id?.takeIf { it.isNotBlank() }?.let { put("id", it) }
+	put("name", name)
+	put("kind", kind)
+	if (seedId.isNotBlank()) put("seedId", seedId)
+	if (seedName.isNotBlank()) put("seedName", seedName)
+	if (moodCharacter.isNotBlank()) put("moodCharacter", moodCharacter)
+	// `close|balanced|explore` (PROTOCOL §17.1). A hub from before stations drops it and
+	// keeps the legacy name beside it, which is why both are sent.
+	if (character.isNotBlank()) put("character", character)
+	if (coverArtId.isNotBlank()) put("coverArtId", coverArtId)
+	// A custom radio's (P5, PROTOCOL §17.1); sent only when there is something to say, and
+	// dropped harmlessly by a hub whose sanitiser predates them.
+	if (seedIds.isNotEmpty()) putJsonArray("seedIds") { seedIds.forEach { add(it) } }
+	if (variety.isNotBlank()) put("variety", variety)
+	// P7: a custom radio's mood filter; a hub that predates it drops it.
+	if (moodFilter.isNotBlank()) put("moodFilter", moodFilter)
+	put("count", count)
+}
+
+/** One record of the hub's `mixes` list as a [Mix]; null without an id. */
+internal fun mixFromRecord(rec: JsonObject): Mix? {
+	val id = rec["id"]?.jsonPrimitive?.contentOrNullSafe() ?: return null
+	return Mix(
+		id = id,
+		name = rec["name"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		kind = rec["kind"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		seedId = rec["seedId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		seedName = rec["seedName"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		moodCharacter = rec["moodCharacter"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		character = rec["character"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		count = rec["count"]?.jsonPrimitive?.intOrNull ?: 50,
+		coverArtId = rec["coverArtId"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		seedIds = mixSeedIds(rec["seedIds"]),
+		variety = rec["variety"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		moodFilter = rec["moodFilter"]?.jsonPrimitive?.contentOrNullSafe().orEmpty(),
+		createdAt = rec["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+		updatedAt = rec["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+		lastPlayedAt = rec["lastPlayedAt"]?.jsonPrimitive?.longOrNull ?: 0L
+	)
+}

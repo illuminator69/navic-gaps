@@ -1,5 +1,10 @@
 package paige.navic.ui.screens.radio.custom
 
+import paige.navic.domain.manager.MoodCatalogue
+import paige.navic.domain.manager.MoodEntry
+import paige.navic.domain.manager.MOOD_GROUP_EXTRA
+import paige.navic.domain.manager.MOOD_GROUP_HOME
+import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.manager.StationCountAnswer
 import paige.navic.domain.models.Mix
 import paige.navic.domain.models.MixKind
@@ -56,15 +61,47 @@ sealed interface CountState {
 }
 
 /**
- * What a count is asked for: the picked artists, in any order, and the character. Artist variety
- * is not in it: it changes how the pool is spaced, not what is in it, so tapping it asks nothing.
+ * What a count is asked for: the picked artists, in any order, the character, and the mood filter
+ * (P7). Artist variety is not in it: it changes how the pool is spaced, not what is in it, so
+ * tapping it asks nothing.
  */
-data class CountKey(val artistIds: List<String>, val character: String) {
+data class CountKey(val artistIds: List<String>, val character: String, val moodFilter: String? = null) {
 	companion object {
-		fun of(artistIds: List<String>, character: StationCharacter): CountKey =
-			CountKey(artistIds.distinct().sorted(), character.wireId)
+		fun of(artistIds: List<String>, character: StationCharacter, moodFilter: String? = null): CountKey =
+			CountKey(artistIds.distinct().sorted(), character.wireId, moodFilter)
 	}
 }
+
+/** The Filters row's words (P7, board RadioTune): Home's filter moods, a divider, then the extra ones. */
+data class FilterWords(val home: List<MoodEntry>, val extra: List<MoodEntry>) {
+	val isEmpty: Boolean get() = home.isEmpty() && extra.isEmpty()
+}
+
+/**
+ * The mood filters a custom radio offers: the catalogue's moods marked `filter`, in its order, Home's
+ * group then the extra one. None when the station probe does not list `"mood"` in its `filters` (a
+ * hub that would drop the key), so the section is absent with no gap.
+ */
+fun filterWords(moods: MoodCatalogue, probe: StationCatalogue): FilterWords {
+	if ("mood" !in probe.filters || !moods.available) return FilterWords(emptyList(), emptyList())
+	val offered = moods.moods.filter { it.filter }
+	// The board's order for Home's words; a word the board does not name follows, in the hub's order.
+	val home = offered.filter { it.group == MOOD_GROUP_HOME }
+		.sortedBy { FILTER_HOME_ORDER.indexOf(it.id).let { i -> if (i < 0) FILTER_HOME_ORDER.size else i } }
+	return FilterWords(home = home, extra = offered.filter { it.group == MOOD_GROUP_EXTRA })
+}
+
+/** Home's filter words as board RadioTune orders them (P7 call 8). */
+private val FILTER_HOME_ORDER = listOf("energize", "relax", "feel-good", "sad", "focus")
+
+/** Tapping the chosen filter clears it; any other chooses it (one at a time). */
+fun nextMoodFilter(current: String?, tapped: String): String? = if (current == tapped) null else tapped
+
+/** Below this many songs to draw from, a filtered radio will run out soon: the footer says so. */
+const val FILTER_WARN_BELOW = 30
+
+/** Whether the count line warns that the radio will run out quickly: a known count under 30. */
+fun filterWarning(state: CountState): Boolean = state is CountState.Known && state.count < FILTER_WARN_BELOW
 
 /**
  * The count line after an event about [key]. [answer] null means a count for [key] went out.
@@ -113,7 +150,8 @@ fun customRadioRecipe(
 	artists: List<PickedArtist>,
 	character: StationCharacter,
 	variety: Variety,
-	count: Int = CUSTOM_RADIO_COUNT
+	count: Int = CUSTOM_RADIO_COUNT,
+	moodFilter: String? = null
 ): Mix {
 	val first = artists.firstOrNull()
 	return Mix(
@@ -127,6 +165,7 @@ fun customRadioRecipe(
 		character = character.wireId,
 		moodCharacter = character.legacyName,
 		count = count,
-		coverArtId = first?.coverArtId.orEmpty()
+		coverArtId = first?.coverArtId.orEmpty(),
+		moodFilter = moodFilter.orEmpty()
 	)
 }
