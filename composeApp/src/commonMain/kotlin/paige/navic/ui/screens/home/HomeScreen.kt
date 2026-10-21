@@ -1,16 +1,11 @@
 package paige.navic.ui.screens.home
 
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,22 +19,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
-import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
 import navic.composeapp.generated.resources.home_fresh
@@ -51,6 +41,21 @@ import navic.composeapp.generated.resources.home_owned
 import navic.composeapp.generated.resources.home_recently_added
 import navic.composeapp.generated.resources.home_your_mix
 import navic.composeapp.generated.resources.home_your_mix_line
+import navic.composeapp.generated.resources.home_your_mixes
+import navic.composeapp.generated.resources.home_recently_played
+import navic.composeapp.generated.resources.home_frequently_played
+import androidx.navigation3.runtime.NavKey
+import paige.navic.domain.manager.ShellController
+import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.Mix
+import paige.navic.domain.models.MixKind
+import paige.navic.domain.models.YOUR_MIX_ID
+import paige.navic.ui.navigation.ShellTab
+import paige.navic.ui.navigation.onShellTabTapped
+import paige.navic.ui.screens.library.LibraryChip
+import paige.navic.ui.screens.mixes.MixArtwork
+import paige.navic.ui.screens.mixes.mixKindLabel
+import paige.navic.ui.util.ArrivalGate
 import navic.composeapp.generated.resources.title_home
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -59,13 +64,11 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LbBotManager
-import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Download
-import paige.navic.icons.outlined.Person
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
@@ -82,9 +85,7 @@ import paige.navic.ui.screens.savedqueues.components.SavedQueueSheet
 import paige.navic.ui.screens.savedqueues.rememberSavedQueueActions
 import paige.navic.ui.screens.savedqueues.savedQueueSubtitle
 import paige.navic.ui.screens.savedqueues.viewmodels.SavedQueuesViewModel
-import paige.navic.ui.theme.defaultFont
 import paige.navic.ui.util.COVER_FADE_MS
-import paige.navic.ui.util.placeholderBrush
 import paige.navic.ui.util.rememberArrivalGate
 import paige.navic.ui.util.rememberPlayerRestored
 import paige.navic.ui.util.withoutTop
@@ -95,9 +96,9 @@ private const val RECENT_PLACEHOLDERS = 5
 private const val FRESH_PLACEHOLDERS = 4
 
 /**
- * Home (P1): where the app opens. Under the root bars, in this order: Continue listening (a capsule
- * that rolls out into the saved queues), Recently added, Fresh (where lb-bot is on), Your mix (where
- * the station engine is). A root page shaped like `AlbumListScreen`: `Washed` by App.kt and named in
+ * Home (P1, P6): where the app opens. Under the root bars, in this order: Continue listening (a capsule
+ * that rolls out into the saved queues), Recently added, Fresh (where lb-bot is on), Recently played,
+ * Frequently played, Your mixes (Your mix where the station engine is, then every hub mix). A root page shaped like `AlbumListScreen`: `Washed` by App.kt and named in
  * `WashedBrowsingScreens`, its ViewModel in the persistent store.
  *
  * Every sentence on it is true: a section with nothing to say is absent and leaves no gap, a failed
@@ -126,8 +127,6 @@ fun HomeScreen() {
 
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
-	val radioManager = koinInject<RadioManager>()
-	val scope = rememberCoroutineScope()
 	val gate = rememberArrivalGate()
 
 	val recent by viewModel.recent.collectAsStateWithLifecycle()
@@ -137,11 +136,17 @@ fun HomeScreen() {
 	val queues by viewModel.queues.collectAsStateWithLifecycle()
 	val playingQueueId by viewModel.playingQueueId.collectAsStateWithLifecycle()
 	val nothingPlaying by viewModel.nothingPlaying.collectAsStateWithLifecycle()
-	val yourMixAvailable by viewModel.yourMixAvailable.collectAsStateWithLifecycle()
+	val played by viewModel.played.collectAsStateWithLifecycle()
+	val frequent by viewModel.frequent.collectAsStateWithLifecycle()
+	val mixTiles by viewModel.mixTiles.collectAsStateWithLifecycle()
+	val shell = koinInject<ShellController>()
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
+	// Which shelf's tile the open album sheet belongs to: an album can be on three shelves at once,
+	// and only the one long-pressed opens its sheet.
+	var selectedShelf by remember { mutableStateOf<String?>(null) }
 	var shareId by remember { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
@@ -152,7 +157,9 @@ fun HomeScreen() {
 		recentCount = recentAlbums.size,
 		freshAvailable = freshAvailable,
 		freshCount = fresh.size,
-		yourMixAvailable = yourMixAvailable
+		playedCount = played.size,
+		frequentCount = frequent.size,
+		mixTileCount = mixTiles.size
 	)
 	// Waiting is not empty: a section whose first read is out shows tinted boxes of its final size.
 	val recentWaiting = recentAlbums.isEmpty() && (recent is UiState.Loading || syncing)
@@ -181,8 +188,48 @@ fun HomeScreen() {
 	val seeAll = stringResource(Res.string.action_see_all)
 	val newReleases = stringResource(Res.string.home_fresh_new_releases)
 	val yourMixTitle = stringResource(Res.string.home_your_mix)
-	// The first shelf drawn staggers its first five tiles; the next arrives together.
+	val yourMixesTitle = stringResource(Res.string.home_your_mixes)
+	val playedTitle = stringResource(Res.string.home_recently_played)
+	val frequentTitle = stringResource(Res.string.home_frequently_played)
+	// The first shelf drawn staggers its first five tiles; the ones after it arrive together.
 	val freshShelfIndex = if (showRecent) 1 else 0
+	val laterShelfIndex = if (showRecent || showFresh) 1 else 0
+
+	// One album shelf: the library's own tile and long-press sheet, as Recently added has (P6).
+	val albumShelf: @Composable (Modifier, String, List<DomainAlbum>, String, Int, NavKey) -> Unit =
+		{ modifier, title, albums, tab, shelfIndex, more ->
+			HomeShelf(
+				modifier = modifier,
+				title = title,
+				items = albums,
+				key = { it.id },
+				gate = gate,
+				shelfIndex = shelfIndex,
+				moreLabel = seeAll,
+				more = more
+			) { album, arrival ->
+				AlbumListScreenGridItem(
+					modifier = arrival,
+					tab = tab,
+					album = album,
+					selected = album == selectedAlbum && selectedShelf == tab,
+					starred = starred,
+					rating = rating,
+					onSelect = {
+						selectedShelf = tab
+						viewModel.selectAlbum(album)
+					},
+					onDeselect = { viewModel.clearSelection() },
+					onSetStarred = { viewModel.starAlbum(it) },
+					onSetShareId = { shareId = it },
+					onPlayNext = { selectedAlbum?.let { player.playNext(it as DomainSongCollection) } },
+					onAddToQueue = { selectedAlbum?.let { player.addToQueue(it as DomainSongCollection) } },
+					onSetRating = { viewModel.setRating(it) },
+					placeholderName = album.name ?: album.id,
+					crossfadeMs = COVER_FADE_MS
+				)
+			}
+		}
 
 	Scaffold(
 		topBar = {
@@ -219,35 +266,10 @@ fun HomeScreen() {
 			if (showRecent) {
 				item(key = "recent") {
 					if (recentAlbums.isNotEmpty()) {
-						HomeShelf(
-							modifier = Modifier.animateItem(),
-							title = recentTitle,
-							items = recentAlbums,
-							key = { it.id },
-							gate = gate,
-							shelfIndex = 0,
-							moreLabel = seeAll,
-							more = Screen.AlbumList(nested = true, listType = DomainAlbumListType.Newest)
-						) { album, arrival ->
-							// The library lists' own tile, so a long press opens the album's sheet as it does there.
-							AlbumListScreenGridItem(
-								modifier = arrival,
-								tab = RECENT_TAB,
-								album = album,
-								selected = album == selectedAlbum,
-								starred = starred,
-								rating = rating,
-								onSelect = { viewModel.selectAlbum(album) },
-								onDeselect = { viewModel.clearSelection() },
-								onSetStarred = { viewModel.starAlbum(it) },
-								onSetShareId = { shareId = it },
-								onPlayNext = { selectedAlbum?.let { player.playNext(it as DomainSongCollection) } },
-								onAddToQueue = { selectedAlbum?.let { player.addToQueue(it as DomainSongCollection) } },
-								onSetRating = { viewModel.setRating(it) },
-								placeholderName = album.name ?: album.id,
-								crossfadeMs = COVER_FADE_MS
-							)
-						}
+						albumShelf(
+							Modifier.animateItem(), recentTitle, recentAlbums, RECENT_TAB, 0,
+							Screen.AlbumList(nested = true, listType = DomainAlbumListType.Newest)
+						)
 					} else {
 						HomeShelfPlaceholder(
 							modifier = Modifier.animateItem(),
@@ -289,12 +311,41 @@ fun HomeScreen() {
 				}
 			}
 
-			if (HomeSection.YourMix in sections) {
-				item(key = "mix") {
-					YourMixSection(
+			if (HomeSection.RecentlyPlayed in sections) {
+				item(key = "played") {
+					albumShelf(
+						Modifier.animateItem(), playedTitle, played, PLAYED_TAB, laterShelfIndex,
+						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Recent)
+					)
+				}
+			}
+
+			if (HomeSection.FrequentlyPlayed in sections) {
+				item(key = "frequent") {
+					albumShelf(
+						Modifier.animateItem(), frequentTitle, frequent, FREQUENT_TAB, laterShelfIndex,
+						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Frequent)
+					)
+				}
+			}
+
+			if (HomeSection.YourMixes in sections) {
+				item(key = "mixes") {
+					YourMixesShelf(
 						modifier = Modifier.animateItem(),
-						title = yourMixTitle,
-						onClick = { scope.launch { radioManager.playYourMix(yourMixTitle) } }
+						title = yourMixesTitle,
+						tiles = mixTiles,
+						yourMixName = yourMixTitle,
+						gate = gate,
+						shelfIndex = laterShelfIndex,
+						seeAll = seeAll,
+						// "See all" is the Library on its Mixes chip: the Library tab, as a tab tap opens it.
+						onSeeAll = dropUnlessResumed {
+							shell.showLibraryChip(LibraryChip.Mixes.name)
+							onShellTabTapped(ShellTab.Library, backStack, rootViewModel, shell)
+						},
+						// A tile opens the mix's page (P5 round 2); it never starts the mix.
+						onOpen = { tile -> backStack.add(Screen.MixDetail(tile.key)) }
 					)
 				}
 			}
@@ -345,8 +396,10 @@ fun HomeScreen() {
 	}
 }
 
-/** The shared-element key's list part for Recently added, which the album page rebuilds from it. */
+/** The shared-element key's list part per shelf, which the album page rebuilds from it (unique per list). */
 private const val RECENT_TAB = "homeRecent"
+private const val PLAYED_TAB = "homePlayed"
+private const val FREQUENT_TAB = "homeFrequent"
 
 /**
  * A new release by an artist the library holds. The cover is Cover Art Archive's (a release nobody owns
@@ -404,52 +457,47 @@ private fun BoxScope.OwnedBadge(owned: Boolean) {
 	}
 }
 
-/** "Your mix": a wide card, a person on a tint (Your mix wears a person, not the clock), and one line. */
+/**
+ * Your mixes (P6): Your mix first while the engine is there, then every mix the hub holds, as a shelf
+ * of the mixes' own artwork (`MixArtwork`: a custom radio's first artist, a kind glyph over the tint
+ * for a mix with no cover, a person for Your mix), the name and the kind line. A tile opens the mix's
+ * page; "See all" opens the Library on its Mixes chip.
+ */
 @Composable
-private fun YourMixSection(title: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-	val line = stringResource(Res.string.home_your_mix_line)
-	Column(modifier) {
-		HomeShelfHeader(title, null, null)
-		Column(
-			modifier = Modifier
-				.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
-				.width(YOUR_MIX_WIDTH)
-				.clickable(role = Role.Button, onClick = onClick)
-				.semantics { contentDescription = "$title. $line" }
-		) {
-			Box(
-				modifier = Modifier
-					.fillMaxWidth()
-					.aspectRatio(1f)
-					.clip(MaterialTheme.shapes.large)
-					.background(placeholderBrush(title)),
-				contentAlignment = Alignment.Center
-			) {
-				Icon(
-					Icons.Outlined.Person,
-					contentDescription = null,
-					tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
-					modifier = Modifier.size(56.dp)
-				)
+private fun YourMixesShelf(
+	title: String,
+	tiles: List<MixTile>,
+	yourMixName: String,
+	gate: ArrivalGate,
+	shelfIndex: Int,
+	seeAll: String,
+	onSeeAll: () -> Unit,
+	onOpen: (MixTile) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	val yourMixLine = stringResource(Res.string.home_your_mix_line)
+	HomeShelf(
+		modifier = modifier,
+		title = title,
+		items = tiles,
+		key = { it.key },
+		gate = gate,
+		shelfIndex = shelfIndex,
+		moreLabel = seeAll,
+		onMore = onSeeAll
+	) { tile, arrival ->
+		val mix = tile.mix ?: Mix(id = YOUR_MIX_ID, name = yourMixName, kind = MixKind.STATION)
+		ArtGridItem(
+			modifier = arrival,
+			onClick = dropUnlessResumed { onOpen(tile) },
+			coverArtId = null,
+			title = if (tile.yourMix) yourMixName else mix.name,
+			subtitle = if (tile.yourMix) yourMixLine else mixKindLabel(mix),
+			id = tile.key,
+			tab = "homeMixes",
+			cover = { source ->
+				MixArtwork(mix = mix, modifier = Modifier.fillMaxWidth(), interactionSource = source)
 			}
-			Text(
-				text = title,
-				style = MaterialTheme.typography.titleSmallEmphasized,
-				modifier = Modifier.padding(top = 6.dp),
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			Text(
-				text = line,
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				fontFamily = defaultFont(),
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-		}
+		)
 	}
 }
-
-/** The board's wide tile (164 dp). */
-private val YOUR_MIX_WIDTH = 164.dp

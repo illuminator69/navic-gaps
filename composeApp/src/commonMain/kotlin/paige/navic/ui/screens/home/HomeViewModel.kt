@@ -36,8 +36,8 @@ import paige.navic.ui.core.UiState
  * `HomeScreen` obtains it through `PersistentViewModelStoreOwner` (CLAUDE.md §2 rule 14) and
  * [revalidate] runs on every visit: `init` alone would show the first answers of the session forever.
  *
- * It reads what already exists and adds no request of its own: the newest albums from Room, the saved
- * queues from Room, and Fresh from `LbBotManager.freshReleases`, the call (and the cache key) the Fresh
+ * It reads what already exists and adds no request of its own: the newest, recently played and most
+ * played albums from Room, the saved queues from Room, the hub's mixes, and Fresh from `LbBotManager.freshReleases`, the call (and the cache key) the Fresh
  * page makes, so opening Home and then Fresh costs lb-bot one read, not two. The pure decisions are
  * `HomeModels.kt`.
  */
@@ -60,6 +60,18 @@ class HomeViewModel(
 
 	/** The newest albums in the library (Room). Loading until the first read; an error keeps what was there. */
 	val recent: StateFlow<UiState<ImmutableList<DomainAlbum>>> = _recent.asStateFlow()
+
+	// --- Recently played and Frequently played (P6) -----------------------------------------------
+
+	private val _played = MutableStateFlow<List<DomainAlbum>>(emptyList())
+
+	/** Navidrome's recently played albums (Room). Room answers at once, so there is no placeholder. */
+	val played: StateFlow<List<DomainAlbum>> = _played.asStateFlow()
+
+	private val _frequent = MutableStateFlow<List<DomainAlbum>>(emptyList())
+
+	/** Navidrome's most played albums (Room). */
+	val frequent: StateFlow<List<DomainAlbum>> = _frequent.asStateFlow()
 
 	// --- Fresh ------------------------------------------------------------------------------------
 
@@ -101,8 +113,11 @@ class HomeViewModel(
 		.distinctUntilChanged()
 		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), player.steadyState.value.currentSong == null)
 
-	/** The station engine is there: Your mix can be made. */
-	val yourMixAvailable: StateFlow<Boolean> = stationManager.available
+
+	/** Your mixes (P6): Your mix while the engine is there, then every mix the hub holds ([mixTiles]). */
+	val mixTiles: StateFlow<List<MixTile>> = combine(hubManager.mixes, stationManager.available) { mixes, engine ->
+		mixTiles(mixes, engine)
+	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
 	/** The library is being pulled right now: a page with nothing in it yet is waiting, not empty. */
 	val syncing: StateFlow<Boolean> = syncManager.syncState
@@ -171,6 +186,7 @@ class HomeViewModel(
 	/** Every visit. A Room read, and one cached-or-revalidated Fresh read where lb-bot is there. */
 	fun revalidate() {
 		loadRecent()
+		loadPlayed()
 		// The Fresh page's scope, type or sort may have changed since: the shelf follows at once.
 		lastFeed?.let { _fresh.value = freshShelf(it, filters = FreshFilters.of(preferenceManager)) }
 		viewModelScope.launch {
@@ -190,6 +206,27 @@ class HomeViewModel(
 				UiState.Error(e, _recent.value.data)
 			}
 		}
+	}
+
+	/**
+	 * Recently played and Frequently played: what is on screen stays while the read runs, and a read
+	 * that fails keeps it (an empty answer is an answer: the shelf goes, leaving no gap).
+	 */
+	private fun loadPlayed() {
+		viewModelScope.launch {
+			// Navidrome's "recent" order has no filter of its own: an album never played sorts last
+			// but is still listed, and it is not "recently played".
+			readAlbums(DomainAlbumListType.Recent)?.let { albums -> _played.value = albums.filter { it.lastPlayedAt != null } }
+			readAlbums(DomainAlbumListType.Frequent)?.let { _frequent.value = it }
+		}
+	}
+
+	private suspend fun readAlbums(type: DomainAlbumListType): List<DomainAlbum>? = try {
+		albumRepository.getAlbumsLimited(type, HOME_ALBUMS_PER_SHELF)
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: Exception) {
+		null
 	}
 
 	/**

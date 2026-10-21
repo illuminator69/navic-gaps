@@ -10,6 +10,8 @@ import androidx.navigation3.runtime.NavKey
 import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.LbFreshFeed
 import paige.navic.ui.screens.fresh.freshAlbumTarget
+import paige.navic.domain.models.Mix
+import paige.navic.domain.models.YOUR_MIX_ID
 
 /*
  * navi-connect P1: what Home shows, as plain functions (`HomeModelsTest`). The page and its ViewModel
@@ -113,24 +115,58 @@ fun continueListening(
 	.take(limit)
 
 /** Home's sections, in the order the page draws them. */
-enum class HomeSection { ContinueListening, RecentlyAdded, Fresh, YourMix }
+enum class HomeSection { ContinueListening, RecentlyAdded, Fresh, RecentlyPlayed, FrequentlyPlayed, YourMixes }
+
+/** How many albums Recently played and Frequently played each read (P6). */
+const val HOME_ALBUMS_PER_SHELF = 12
+
+/** The hub keeps at most this many mixes (its `MIXES_MAX`); Your mixes shows every one of them. */
+const val MIXES_MAX = 30
 
 /**
- * Which sections the page draws. A section with nothing to say is absent and leaves no gap: no pill
- * without saved queues, no shelf without albums, Fresh only where the lb-bot layer is on AND it has
- * tiles, Your mix only with the station engine.
+ * Which sections the page draws (P6, the owner's ruling of 2026-10-21: Home is populated). A section
+ * with nothing to say is absent and leaves no gap: no pill without saved queues, no shelf without
+ * albums, Fresh only where the lb-bot layer is on AND it has tiles, Recently played and Frequently
+ * played (Navidrome's own lists) only with albums, Your mixes only with a tile to show.
  */
 fun homeSections(
 	queueCount: Int,
 	recentCount: Int,
 	freshAvailable: Boolean,
 	freshCount: Int,
-	yourMixAvailable: Boolean
+	playedCount: Int,
+	frequentCount: Int,
+	mixTileCount: Int
 ): List<HomeSection> = buildList {
 	if (queueCount > 0) add(HomeSection.ContinueListening)
 	if (recentCount > 0) add(HomeSection.RecentlyAdded)
 	if (freshAvailable && freshCount > 0) add(HomeSection.Fresh)
-	if (yourMixAvailable) add(HomeSection.YourMix)
+	if (playedCount > 0) add(HomeSection.RecentlyPlayed)
+	if (frequentCount > 0) add(HomeSection.FrequentlyPlayed)
+	if (mixTileCount > 0) add(HomeSection.YourMixes)
+}
+
+/**
+ * One tile of Your mixes: a hub mix, or Your mix itself ([yourMix], [mix] null), which is not stored
+ * and is named by `YOUR_MIX_ID`. A tile OPENS the mix's page (P5 round 2), it never starts it.
+ */
+@Immutable
+data class MixTile(val mix: Mix?, val yourMix: Boolean) {
+	val key: String get() = if (yourMix) YOUR_MIX_ID else mix?.id.orEmpty()
+}
+
+/**
+ * Your mixes: Your mix first while the station engine is there, then every mix the hub holds (at most
+ * [MIXES_MAX]) by when it was last played, a mix never played by when it last changed, newest first. A
+ * tie keeps the hub's order. Every kind is a tile, one this build cannot play included: its page says so.
+ */
+fun mixTiles(mixes: List<Mix>, yourMixAvailable: Boolean): List<MixTile> = buildList {
+	if (yourMixAvailable) add(MixTile(null, yourMix = true))
+	mixes.asSequence()
+		.filter { it.id.isNotBlank() && it.id != YOUR_MIX_ID }
+		.sortedByDescending { if (it.lastPlayedAt > 0L) it.lastPlayedAt else it.updatedAt }
+		.take(MIXES_MAX)
+		.forEach { add(MixTile(it, yourMix = false)) }
 }
 
 /**

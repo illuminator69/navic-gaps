@@ -1312,6 +1312,9 @@
 	<string name="home_owned">Owned</string>
 	<string name="home_not_owned">Not owned</string>
 	<string name="home_your_mix">Your mix</string>
+	<string name="home_your_mixes">Your mixes</string>
+	<string name="home_recently_played">Recently played</string>
+	<string name="home_frequently_played">Frequently played</string>
 	<string name="home_your_mix_line">Made from what you play</string>
 	<string name="home_library_empty">Nothing in your library yet</string>
 	<string name="home_library_error">Couldn't read your library</string>

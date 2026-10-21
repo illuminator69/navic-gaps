@@ -65,10 +65,12 @@ fun <T> HomeShelf(
 	modifier: Modifier = Modifier,
 	moreLabel: String? = null,
 	more: NavKey? = null,
+	/** "See all" that is not a page push (Your mixes opens the Library tab on its Mixes chip). */
+	onMore: (() -> Unit)? = null,
 	itemContent: @Composable (item: T, arrival: Modifier) -> Unit
 ) {
 	Column(modifier) {
-		HomeShelfHeader(title, moreLabel, more)
+		HomeShelfHeader(title, moreLabel, more, onMore)
 		LazyRow(
 			modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp),
 			horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -93,7 +95,7 @@ fun <T> HomeShelf(
 }
 
 @Composable
-internal fun HomeShelfHeader(title: String, moreLabel: String?, more: NavKey?) {
+internal fun HomeShelfHeader(title: String, moreLabel: String?, more: NavKey?, onMore: (() -> Unit)? = null) {
 	val backStack = LocalNavStack.current
 	Row(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 16.dp),
@@ -106,14 +108,14 @@ internal fun HomeShelfHeader(title: String, moreLabel: String?, more: NavKey?) {
 			fontWeight = FontWeight(600),
 			modifier = Modifier.heightIn(min = 32.dp).semantics { heading() }
 		)
-		if (more != null && moreLabel != null) {
+		if ((more != null || onMore != null) && moreLabel != null) {
 			Text(
 				text = moreLabel,
 				fontSize = 12.sp,
 				color = MaterialTheme.colorScheme.primary,
 				modifier = Modifier
 					.heightIn(min = 32.dp)
-					.clickable(onClick = dropUnlessResumed { backStack.add(more) })
+					.clickable(onClick = onMore ?: dropUnlessResumed { more?.let { backStack.add(it) } })
 			)
 		}
 	}

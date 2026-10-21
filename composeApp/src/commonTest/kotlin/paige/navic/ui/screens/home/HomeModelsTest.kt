@@ -4,6 +4,8 @@ import paige.navic.data.database.entities.SavedQueueEntity
 import paige.navic.domain.manager.LbFreshFeed
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.ui.navigation.Screen
+import paige.navic.domain.models.Mix
+import paige.navic.domain.models.YOUR_MIX_ID
 import paige.navic.ui.screens.fresh.viewmodels.FreshFilters
 import paige.navic.ui.screens.fresh.viewmodels.FreshScope
 import paige.navic.ui.screens.fresh.viewmodels.FreshSort
@@ -234,58 +236,88 @@ class HomeModelsTest {
 		assertEquals("q1", continueListening(queues, playingId = "q1").first().id)
 	}
 
-	// --- Sections --------------------------------------------------------------------------------
+	// --- Sections (P6) ------------------------------------------------------------------------------
+
+	private fun sections(
+		queues: Int = 3, recent: Int = 20, freshOn: Boolean = true, fresh: Int = 4,
+		played: Int = 12, frequent: Int = 12, mixes: Int = 5
+	) = homeSections(queues, recent, freshOn, fresh, played, frequent, mixes)
 
 	@Test
-	fun sectionsAreInTheBoardsOrder() {
+	fun sectionsAreInTheOwnersOrder() {
 		assertEquals(
-			listOf(HomeSection.ContinueListening, HomeSection.RecentlyAdded, HomeSection.Fresh, HomeSection.YourMix),
-			homeSections(
-				queueCount = 3, recentCount = 20, freshAvailable = true, freshCount = 4, yourMixAvailable = true
-			)
+			listOf(
+				HomeSection.ContinueListening, HomeSection.RecentlyAdded, HomeSection.Fresh,
+				HomeSection.RecentlyPlayed, HomeSection.FrequentlyPlayed, HomeSection.YourMixes
+			),
+			sections()
 		)
+	}
+
+	@Test
+	fun eachSectionIsAbsentAtZeroAndLeavesNoHole() {
+		assertEquals(
+			listOf(HomeSection.ContinueListening, HomeSection.RecentlyAdded, HomeSection.FrequentlyPlayed, HomeSection.YourMixes),
+			sections(fresh = 0, played = 0)
+		)
+		assertEquals(listOf(HomeSection.RecentlyPlayed), sections(queues = 0, recent = 0, freshOn = false, frequent = 0, mixes = 0))
+		assertFalse(HomeSection.YourMixes in sections(mixes = 0))
+		assertFalse(HomeSection.ContinueListening in sections(queues = 0))
 	}
 
 	@Test
 	fun noFreshWhenLbBotIsAbsent() {
-		val sections = homeSections(
-			queueCount = 3, recentCount = 20, freshAvailable = false, freshCount = 4, yourMixAvailable = true
-		)
-		assertFalse(HomeSection.Fresh in sections)
-		assertEquals(
-			listOf(HomeSection.ContinueListening, HomeSection.RecentlyAdded, HomeSection.YourMix), sections
-		)
-	}
-
-	@Test
-	fun noFreshWhenThereIsNothingNew() {
-		val sections = homeSections(
-			queueCount = 0, recentCount = 5, freshAvailable = true, freshCount = 0, yourMixAvailable = false
-		)
-		assertEquals(listOf(HomeSection.RecentlyAdded), sections)
-	}
-
-	@Test
-	fun noPillWithoutQueues() {
-		val sections = homeSections(
-			queueCount = 0, recentCount = 20, freshAvailable = true, freshCount = 4, yourMixAvailable = true
-		)
-		assertFalse(HomeSection.ContinueListening in sections)
-	}
-
-	@Test
-	fun yourMixOnlyWithTheEngine() {
-		assertTrue(
-			HomeSection.YourMix in homeSections(1, 1, true, 1, yourMixAvailable = true)
-		)
-		assertFalse(
-			HomeSection.YourMix in homeSections(1, 1, true, 1, yourMixAvailable = false)
-		)
+		assertFalse(HomeSection.Fresh in sections(freshOn = false, fresh = 4))
 	}
 
 	@Test
 	fun everythingAbsentIsNoSections() {
-		assertEquals(emptyList(), homeSections(0, 0, false, 0, false))
+		assertEquals(emptyList(), homeSections(0, 0, false, 0, 0, 0, 0))
+	}
+
+	// --- Your mixes (P6) -------------------------------------------------------------------------
+
+	private fun mix(id: String, lastPlayed: Long = 0, updated: Long = 0, kind: String = "station") =
+		Mix(id = id, name = id, kind = kind, lastPlayedAt = lastPlayed, updatedAt = updated)
+
+	@Test
+	fun yourMixIsFirstOnlyWithTheEngine() {
+		val mixes = listOf(mix("a", lastPlayed = 5))
+		assertEquals(listOf(YOUR_MIX_ID, "a"), mixTiles(mixes, yourMixAvailable = true).map { it.key })
+		assertEquals(listOf("a"), mixTiles(mixes, yourMixAvailable = false).map { it.key })
+		assertTrue(mixTiles(mixes, true).first().yourMix)
+	}
+
+	@Test
+	fun mixesByLastPlayedThenNeverPlayedByLastChange() {
+		val tiles = mixTiles(
+			listOf(mix("old", lastPlayed = 10), mix("never", updated = 50), mix("new", lastPlayed = 100)),
+			yourMixAvailable = false
+		)
+		assertEquals(listOf("new", "never", "old"), tiles.map { it.key })
+	}
+
+	@Test
+	fun aTieKeepsTheHubsOrder() {
+		val tiles = mixTiles(listOf(mix("x", lastPlayed = 7), mix("y", lastPlayed = 7), mix("z", lastPlayed = 7)), false)
+		assertEquals(listOf("x", "y", "z"), tiles.map { it.key })
+	}
+
+	@Test
+	fun everyKindIsATileUpToThirty() {
+		val kinds = listOf("artist", "genre", "station", "fingerprint", "some-future-kind")
+		val mixes = (1..40).map { mix("m$it", lastPlayed = it.toLong(), kind = kinds[it % kinds.size]) }
+		val tiles = mixTiles(mixes, yourMixAvailable = true)
+		assertEquals(1 + MIXES_MAX, tiles.size)
+		assertEquals("m40", tiles[1].key)
+		assertTrue(tiles.any { it.mix?.kind == "some-future-kind" })
+	}
+
+	@Test
+	fun noMixesAndNoEngineIsNoSection() {
+		val tiles = mixTiles(emptyList(), yourMixAvailable = false)
+		assertTrue(tiles.isEmpty())
+		assertFalse(HomeSection.YourMixes in sections(mixes = tiles.size))
 	}
 
 	// --- The pill's first state ------------------------------------------------------------------
