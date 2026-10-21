@@ -111,6 +111,15 @@ class AttentionTest {
 	}
 
 	@Test
+	fun aFolderRowIsItsIdentityOverItsCountAndFormat() {
+		val matched = AttentionFolder(id = "x", fileCount = 11, formats = "flac", matchLabel = "Band — Record", identified = true)
+		assertEquals("Band — Record", folderTitle(matched, "Unidentified folder"))
+		assertEquals("Unidentified folder", folderTitle(matched.copy(identified = false), "Unidentified folder"))
+		assertEquals("11 files · FLAC", folderDetail(matched, files))
+		assertEquals("1 file", folderDetail(matched.copy(fileCount = 1, formats = " "), files))
+	}
+
+	@Test
 	fun aFolderLineNeverCarriesAPath() {
 		// The folder type has no name or path at all, so the line is the identity and the count.
 		val line = folderLine(AttentionFolder(id = "abcdef012345", fileCount = 3), "Unidentified folder", files)

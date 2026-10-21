@@ -2,6 +2,7 @@ package paige.navic.ui.components.common
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,7 +46,8 @@ import kotlin.time.Clock
 /*
  * navi-connect P6: a fill's row, as the Downloads page drew it (I-039), now drawn by Source history
  * and Needs attention. Moved out of `DownloadsScreen.kt` without a change of behaviour; the one thing
- * added is [FillRow]'s `allowed`, which a row only lb-bot knows uses to keep Open album alone.
+ * added is [FillRow]'s `lbBotOnly` (a row only lb-bot knows offers Open album and nothing else) and
+ * its optional state [Pill] (Source history's Verified, Placed, Gave up, Cancelled, Failed).
  */
 
 /** The washed list colours the queue's rows use, so a row reads as a card over the cover. */
@@ -88,18 +91,23 @@ fun FillRow(
 	wishlistAvailable: Boolean,
 	onAction: (FillButton) -> Unit,
 	/**
-	 * Which of the vocabulary's buttons this row may draw. Every one on a row this device's ledger
-	 * holds; Open album alone on a row only lb-bot knows (P6: nothing here can retry, cancel or
-	 * dismiss what the ledger does not hold).
+	 * A row only lb-bot knows (P6): its words are the vocabulary's, its one button is Open album (when
+	 * it has a release group), and no line says what a retry would do. Nothing here can retry, cancel
+	 * or dismiss what this device's ledger does not hold.
 	 */
-	allowed: (FillButton) -> Boolean = { true },
+	lbBotOnly: Boolean = false,
+	/** A state pill at the row's end (Source history, the Activity board's), beside a Dismiss. */
+	pill: Pill? = null,
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	// Every word and every button comes from the shared vocabulary (PROTOCOL §15.2), the table
 	// Feishin renders from too.
 	val described = describeFill(fill, now.value, wishlistAvailable)
-	val view = described.copy(buttons = described.buttons.filter(allowed))
+	val view = if (lbBotOnly) described.copy(
+		buttons = listOfNotNull(FillButton.OPEN_ALBUM.takeIf { fill.rgid.isNotBlank() }),
+		explain = null
+	) else described
 	val failed = fill.settled && !fill.succeeded
 	SegmentedListItem(
 		onClick = {},
@@ -169,13 +177,18 @@ fun FillRow(
 				}
 			}
 		},
-		trailingContent = if (FillButton.DISMISS in view.buttons) {
+		trailingContent = if (FillButton.DISMISS in view.buttons || pill != null) {
 			{
-				IconButton(onClick = { onAction(FillButton.DISMISS) }) {
-					Icon(
-						Icons.Outlined.Close,
-						contentDescription = stringResource(Res.string.action_dismiss)
-					)
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					pill?.let { StatePill(it) }
+					if (FillButton.DISMISS in view.buttons) {
+						IconButton(onClick = { onAction(FillButton.DISMISS) }) {
+							Icon(
+								Icons.Outlined.Close,
+								contentDescription = stringResource(Res.string.action_dismiss)
+							)
+						}
+					}
 				}
 			}
 		} else null

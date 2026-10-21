@@ -87,6 +87,16 @@ import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
 import paige.navic.ui.screens.downloads.wishlistSection
 import paige.navic.ui.util.withoutTop
+import navic.composeapp.generated.resources.attention_failed
+import navic.composeapp.generated.resources.attention_needs_pick
+import navic.composeapp.generated.resources.source_history_gave_up
+import navic.composeapp.generated.resources.source_history_cancelled
+import navic.composeapp.generated.resources.source_history_verified
+import navic.composeapp.generated.resources.source_history_placed
+import paige.navic.domain.manager.LbBotManager
+import paige.navic.ui.components.common.FillText
+import paige.navic.ui.components.common.PillTone
+import paige.navic.ui.components.common.Pill
 
 /**
  * Source history (P6; it was the Downloads page's Fills and Wishlist chips, "Activity" in the avatar
@@ -269,7 +279,8 @@ private fun LazyListScope.historyGroup(
 			wishlistAvailable = mine && actions.wishlistSupported && entry.key !in wishlisted,
 			// A row only lb-bot knows is opened, never retried, cancelled or dismissed from here:
 			// it expires in lb-bot by itself, 6 to 24 hours on.
-			allowed = { mine || it == FillButton.OPEN_ALBUM },
+			lbBotOnly = !mine,
+			pill = historyPill(entry),
 			onAction = { button ->
 				when (button) {
 					FillButton.RETRY -> actions.retryFill(entry.key)
@@ -284,6 +295,20 @@ private fun LazyListScope.historyGroup(
 			modifier = Modifier.animateItem()
 		)
 	}
+}
+
+/** The Activity board's pill for a request that has ended; a running one has its bar instead. */
+private fun historyPill(entry: LbFillEntry): Pill? {
+	if (!entry.settled) return null
+	val (words, tone) = when {
+		entry.outcome == LbBotManager.OUTCOME_DONE && entry.verifyGaveUp -> Res.string.source_history_placed to PillTone.OK
+		entry.outcome == LbBotManager.OUTCOME_DONE -> Res.string.source_history_verified to PillTone.GOOD
+		entry.outcome == LbBotManager.OUTCOME_CANCELLED -> Res.string.source_history_cancelled to PillTone.MUTE
+		entry.outcome == LbBotManager.OUTCOME_GAVE_UP -> Res.string.source_history_gave_up to PillTone.MUTE
+		entry.outcome == LbBotManager.OUTCOME_NEEDS_PICK -> Res.string.attention_needs_pick to PillTone.WARN
+		else -> Res.string.attention_failed to PillTone.BAD
+	}
+	return Pill(FillText.Res(words), tone)
 }
 
 /** The file-level transfers lb-bot lists: what, how far, from whom. Never a filename. */

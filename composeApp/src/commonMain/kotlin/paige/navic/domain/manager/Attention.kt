@@ -132,10 +132,16 @@ fun attentionBadge(read: LbAttention?, ledgerCount: Int): Int =
  * A folder in one line: "Artist — Album · 11 files", or "Unidentified folder · 11 files". Built from
  * what lb-bot identified and the count alone; a folder's name never reaches this side.
  */
-fun folderLine(f: AttentionFolder, unidentified: String, filesWord: (Int) -> String): String {
-	val what = f.matchLabel.takeIf { f.identified && it.isNotBlank() } ?: unidentified
-	return "$what · ${filesWord(f.fileCount)}"
-}
+fun folderLine(f: AttentionFolder, unidentified: String, filesWord: (Int) -> String): String =
+	"${folderTitle(f, unidentified)} · ${filesWord(f.fileCount)}"
+
+/** What a folder is, alone: lb-bot's "Artist — Album" when it identified one, else [unidentified]. */
+fun folderTitle(f: AttentionFolder, unidentified: String): String =
+	f.matchLabel.takeIf { f.identified && it.isNotBlank() } ?: unidentified
+
+/** The line under a folder's title: how many files and lb-bot's word for their format ("11 files · FLAC"). */
+fun folderDetail(f: AttentionFolder, filesWord: (Int) -> String): String =
+	listOfNotNull(filesWord(f.fileCount), f.formats.trim().uppercase().ifBlank { null }).joinToString(" · ")
 
 /** Whether a server row and a device ledger row are the same fill: by release MBID, else by group id. */
 internal fun sameFill(releaseMbid: String, groupId: String, entry: LbFillEntry): Boolean = when {

@@ -1283,6 +1283,10 @@
 	<string name="source_history_running">Running</string>
 	<string name="source_history_earlier">Earlier</string>
 	<string name="source_history_empty">No requests yet</string>
+	<string name="source_history_verified">Verified</string>
+	<string name="source_history_placed">Placed</string>
+	<string name="source_history_cancelled">Cancelled</string>
+	<string name="source_history_gave_up">Gave up</string>
 	<string name="source_history_notice_older">This lb-bot or hub is older, so only the requests made on this device are listed.</string>
 	<string name="source_history_notice_unreachable">Couldn't reach lb-bot, so only the requests made on this device are listed.</string>
 	<string name="source_history_transfer_line">%1$s · @%2$s</string>

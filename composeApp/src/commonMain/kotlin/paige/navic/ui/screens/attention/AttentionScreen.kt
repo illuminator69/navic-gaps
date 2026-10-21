@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,7 +83,9 @@ import paige.navic.domain.manager.AttentionRow
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.asLedgerRow
+import paige.navic.domain.manager.folderDetail
 import paige.navic.domain.manager.folderLine
+import paige.navic.domain.manager.folderTitle
 import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
@@ -452,13 +455,13 @@ private fun FolderRow(
 	val unidentified = stringResource(Res.string.attention_unidentified_folder)
 	val filesWord = @Composable { n: Int -> pluralStringResource(Res.plurals.attention_files, n, n) }
 	val files = filesWord(folder.fileCount)
-	val line = folderLine(folder, unidentified) { files }
+	val spoken = folderLine(folder, unidentified) { files }
 	val matched = folder.identified && folder.matchLabel.isNotBlank()
 	val pill = if (matched) Pill(FillText.Res(Res.string.attention_matched), PillTone.NEUTRAL)
 	else Pill(FillText.Res(Res.string.attention_needs_pick), PillTone.WARN)
 	SegmentedListItem(
 		onClick = onToggle,
-		modifier = modifier,
+		modifier = modifier.semantics { contentDescription = spoken },
 		shapes = shapes,
 		colors = fillRowColors(),
 		contentPadding = SongRowDefaults.ContentPadding,
@@ -470,7 +473,7 @@ private fun FolderRow(
 		trailingContent = { StatePill(pill) },
 		supportingContent = {
 			Column {
-				if (folder.formats.isNotBlank()) Text(folder.formats.uppercase(), maxLines = 1)
+				Text(folderDetail(folder) { files }, maxLines = 1, overflow = TextOverflow.Ellipsis)
 				Fold(visible = open) {
 					Column(Modifier.padding(top = 6.dp)) {
 						Text(stringResource(Res.string.attention_folder_hint), style = MaterialTheme.typography.bodySmall)
@@ -484,6 +487,6 @@ private fun FolderRow(
 			}
 		}
 	) {
-		Text(line, maxLines = 2, overflow = TextOverflow.Ellipsis)
+		Text(folderTitle(folder, unidentified), maxLines = 2, overflow = TextOverflow.Ellipsis)
 	}
 }
