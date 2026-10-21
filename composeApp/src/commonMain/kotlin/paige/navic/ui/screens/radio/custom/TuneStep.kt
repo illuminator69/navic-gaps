@@ -26,7 +26,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.VerticalDivider
@@ -102,6 +103,7 @@ import androidx.compose.runtime.rememberCoroutineScope
  * dials, and the count above Done. The count is asked when the artists or the character change,
  * never for a variety tap; Done is disabled only by a count of 0 or "AudioMuse knows none of these".
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TuneStep(
 	viewModel: CustomRadioViewModel,
@@ -191,10 +193,14 @@ internal fun TuneStep(
 				// words, a thin divider, then Pump-up, Upbeat, Downbeat (board RadioTune).
 				if (!filterWords.isEmpty) {
 					SectionLabel(stringResource(Res.string.custom_radio_filters), top = 20.dp)
-					Row(
-						Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+					// Wrapping, not one sideways row: the page has the room, and every word (the chosen
+					// one included) stays in view (your note on the AVD build, 2026-10-21). The divider
+					// sits inline between the two groups, as the board draws it.
+					FlowRow(
+						Modifier.fillMaxWidth().padding(horizontal = 16.dp),
 						horizontalArrangement = Arrangement.spacedBy(8.dp),
-						verticalAlignment = Alignment.CenterVertically
+						verticalArrangement = Arrangement.spacedBy(4.dp),
+						itemVerticalAlignment = Alignment.CenterVertically
 					) {
 						filterWords.home.forEach { mood ->
 							FilterWord(mood.label, mood.id == moodFilter) { viewModel.tapMoodFilter(mood.id) }

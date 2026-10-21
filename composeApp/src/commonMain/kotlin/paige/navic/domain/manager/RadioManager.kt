@@ -279,7 +279,7 @@ class RadioManager(
 	 * for this queue's continuation. Follows a tap before the hub's frame does (the record is first).
 	 */
 	val moodSelected: StateFlow<String?> = combine(combine(generatorInputs) { boundNow() }, _pendingMood) { bound, pending ->
-		selectedMoodChip(bound, pendingMoodFor(pending, queueIdNow()))
+		selectedMoodChip(bound, unboundMood(pendingMoodFor(pending, queueIdNow()), tileMoodNow()))
 	}
 		.distinctUntilChanged()
 		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
@@ -307,8 +307,10 @@ class RadioManager(
 		setAutoplayOn(plan.autoplayOn)
 		if (bound == null) {
 			val queueId = queueIdNow()
-			val next = nextPendingMood(pendingMoodFor(_pendingMood.value, queueId), moodId)
-			_pendingMood.value = if (next != null && queueId != null) PendingMood(queueId, next) else null
+			val current = unboundMood(pendingMoodFor(_pendingMood.value, queueId), tileMoodNow())
+			val next = nextPendingMood(current, moodId)
+			// All is kept as a pick of its own (""), so a mood mix's own mood can be turned off.
+			_pendingMood.value = queueId?.let { PendingMood(it, next.orEmpty()) }
 		}
 		val value = plan.signalMood
 		val keep = bound?.takeIf { !remote || stationManager.provenance.value?.stationId == it.stationId }
@@ -352,9 +354,13 @@ class RadioManager(
 	 * the Home tile that made the queue (a mood mix carries on in its mood when its songs end).
 	 */
 	private fun continuationMood(state: PlayerUiState, queueId: String): String? =
-		pendingMoodFor(_pendingMood.value, queueId)
-			?: generated.value?.takeIf { state.queue.isNotEmpty() && queueSig(state.queue) == it.first }
-				?.second?.moodId?.takeIf { it.isNotBlank() }
+		unboundMood(pendingMoodFor(_pendingMood.value, queueId), tileMoodOf(state.queue))
+
+	/** The mood of the Home tile that made [queue], while the queue is still exactly its songs. */
+	private fun tileMoodOf(queue: List<DomainSong>): String? =
+		generated.value?.takeIf { queue.isNotEmpty() && queueSig(queue) == it.first }?.second?.moodId?.takeIf { it.isNotBlank() }
+
+	private fun tileMoodNow(): String? = tileMoodOf(mediaPlayer.uiState.value.queue)
 
 	/**
 	 * The staged queue's autoplay switch (P2): a tap on the chip it stands for ([autoplayToggleChip]),

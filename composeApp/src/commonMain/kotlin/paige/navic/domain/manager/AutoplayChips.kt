@@ -271,13 +271,23 @@ fun planMoodTap(moodId: String?, bound: StationProvenance?, onHub: Boolean): Chi
 	)
 }
 
-/** The mood waiting for the next continuation of one queue ([queueId]). */
+/** The mood picked for the next continuation of one queue ([queueId]); "" is All, picked explicitly. */
 @kotlinx.serialization.Serializable
 data class PendingMood(val queueId: String, val moodId: String)
 
-/** The pending mood for the queue playing now: dropped as soon as another queue plays. */
+/** The pick for the queue playing now ("" = All), or null: dropped as soon as another queue plays. */
 fun pendingMoodFor(pending: PendingMood?, queueId: String?): String? =
 	pending?.takeIf { queueId != null && it.queueId == queueId }?.moodId
+
+/**
+ * The mood of a queue no station is bound to yet, which its continuation starts in: the chip picked
+ * for it ([pending], "" = All), else the mood of the Home tile that made it ([fromTile]).
+ */
+fun unboundMood(pending: String?, fromTile: String?): String? = when {
+	pending == null -> fromTile?.takeIf { it.isNotBlank() }
+	pending.isEmpty() -> null
+	else -> pending
+}
 
 /** A mood tap with no bound station: the pending mood after it (tapping the pending one is All). */
 fun nextPendingMood(current: String?, tapped: String?): String? = tapped?.takeUnless { it == current }

@@ -123,6 +123,17 @@ class MoodChipsTest {
 	}
 
 	@Test
+	fun aMoodMixsQueueIsInItsTilesMoodUntilAChipSaysOtherwise() {
+		assertEquals("relax", unboundMood(pending = null, fromTile = "relax"))
+		assertNull(unboundMood(pending = "", fromTile = "relax"))        // All, picked
+		assertEquals("sleep", unboundMood(pending = "sleep", fromTile = "relax"))
+		assertNull(unboundMood(pending = null, fromTile = null))
+		assertNull(unboundMood(pending = null, fromTile = ""))
+		// Tapping the tile's mood (selected) is All.
+		assertNull(nextPendingMood(unboundMood(null, "relax"), "relax"))
+	}
+
+	@Test
 	fun theRecordFollowsTheFramesAndAnswersMood() {
 		val frame = HubStationFrame("st_1", seq = 5, rev = 2, character = "balanced", exhausted = false, mood = "relax")
 		assertEquals("relax", radio.withFrame(frame).mood)

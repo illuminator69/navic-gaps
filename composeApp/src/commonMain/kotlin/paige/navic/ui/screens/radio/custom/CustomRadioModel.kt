@@ -85,11 +85,14 @@ data class FilterWords(val home: List<MoodEntry>, val extra: List<MoodEntry>) {
 fun filterWords(moods: MoodCatalogue, probe: StationCatalogue): FilterWords {
 	if ("mood" !in probe.filters || !moods.available) return FilterWords(emptyList(), emptyList())
 	val offered = moods.moods.filter { it.filter }
-	return FilterWords(
-		home = offered.filter { it.group == MOOD_GROUP_HOME },
-		extra = offered.filter { it.group == MOOD_GROUP_EXTRA }
-	)
+	// The board's order for Home's words; a word the board does not name follows, in the hub's order.
+	val home = offered.filter { it.group == MOOD_GROUP_HOME }
+		.sortedBy { FILTER_HOME_ORDER.indexOf(it.id).let { i -> if (i < 0) FILTER_HOME_ORDER.size else i } }
+	return FilterWords(home = home, extra = offered.filter { it.group == MOOD_GROUP_EXTRA })
 }
+
+/** Home's filter words as board RadioTune orders them (P7 call 8). */
+private val FILTER_HOME_ORDER = listOf("energize", "relax", "feel-good", "sad", "focus")
 
 /** Tapping the chosen filter clears it; any other chooses it (one at a time). */
 fun nextMoodFilter(current: String?, tapped: String): String? = if (current == tapped) null else tapped

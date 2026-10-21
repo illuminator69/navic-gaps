@@ -201,8 +201,8 @@ class CustomRadioModelTest {
 	@Test
 	fun theFilterWordsAreHomesFiveThenTheExtraThree() {
 		val words = filterWords(moods, probe)
-		assertEquals(listOf("Energize", "Relax", "Feel good", "Sad", "Focus").sorted(), words.home.map { it.label }.sorted())
-		assertEquals(listOf("relax", "energize", "feel-good", "sad", "focus"), words.home.map { it.id })
+		// The board's order, not the catalogue's (Relax, Energize, ... in the hub).
+		assertEquals(listOf("Energize", "Relax", "Feel good", "Sad", "Focus"), words.home.map { it.label })
 		assertEquals(listOf("Pump-up", "Upbeat", "Downbeat"), words.extra.map { it.label })
 		assertTrue(filterWords(moods, probe.copy(filters = emptyList())).isEmpty)
 		assertTrue(filterWords(moods.copy(available = false), probe).isEmpty)
