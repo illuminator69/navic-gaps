@@ -322,14 +322,18 @@ fun AvatarMenuDrawer(content: @Composable () -> Unit) {
 	)
 
 	// Back closes the menu and goes no further. This drawer does not do it itself (measured on the
-	// AVD: with the menu open one Back left the app), so it is handled here, composed AFTER the page
-	// so that it is the handler the system asks first. Enabled only while the menu is open, so it
-	// never stands between the page and its own Back.
-	NavigationBackHandler(
-		state = rememberNavigationEventState(NavigationEventInfo.None),
-		isBackEnabled = open,
-		onBackCompleted = { shell.closeAvatarMenu() }
-	)
+	// AVD: with the menu open one Back left the app), so it is handled here. The dispatcher asks the
+	// handler added LAST, so it is composed only while the menu is open, i.e. added when it opens:
+	// since P6 Home stays under Search and the Library, NavDisplay's own handler is enabled on those
+	// pages, and a handler composed for the drawer's whole life was older than it, so one Back popped
+	// the page under the open menu (measured on the AVD, Library to Home).
+	if (open) {
+		NavigationBackHandler(
+			state = rememberNavigationEventState(NavigationEventInfo.None),
+			isBackEnabled = true,
+			onBackCompleted = { shell.closeAvatarMenu() }
+		)
+	}
 }
 
 @Composable
