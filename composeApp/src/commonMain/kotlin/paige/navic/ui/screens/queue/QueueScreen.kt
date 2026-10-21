@@ -648,7 +648,15 @@ internal fun QueueContent(layout: QueueLayout) {
 						// out what it added after the next song, a character swaps those for a
 						// fresh batch. Never the playing song or the next one, never a reload.
 						val autoplayChips by radioManager.chips.collectAsState()
-						PageChips(
+						// P7: All and the playing song's moods first, where the hub offers moods.
+						val moodsOffered by radioManager.moodChipsOffered.collectAsState()
+						val selectedMood by radioManager.moodSelected.collectAsState()
+						val moods = rememberQueueMoods(playerState.currentSong?.id, selectedMood, moodsOffered)
+						MoodAndCharacterChips(
+							showMoods = moodsOffered,
+							moods = moods,
+							selectedMood = selectedMood,
+							onMood = { radioManager.onMoodTap(it) },
 							options = autoplayChips.chips,
 							selected = autoplayChips.selected,
 							label = { autoplayChipLabel(it, catalogue) },
@@ -956,7 +964,17 @@ private fun QueueLayerBody(
 
 		val characters = characterChips(chipsUi.chips)
 		if (characters.isNotEmpty()) {
-			PageChips(
+			// P7: All and the moods that suit the playing song, before the characters (HomeQueues,
+			// QueueHalf). Absent without moods on the hub's probe, and on a radio with a mood filter.
+			val moodsOffered by radioManager.moodChipsOffered.collectAsState()
+			val selectedMood by radioManager.moodSelected.collectAsState()
+			val playingId = player.steadyState.collectAsStateWithLifecycle().value.currentSong?.id
+			val moods = rememberQueueMoods(playingId, selectedMood, moodsOffered)
+			MoodAndCharacterChips(
+				showMoods = moodsOffered,
+				moods = moods,
+				selectedMood = selectedMood,
+				onMood = { radioManager.onMoodTap(it) },
 				options = characters,
 				// Off shows the character autoplay would come back with, dimmed.
 				selected = chipsUi.selected.takeIf { it in characters } ?: AutoplayChip.of(preferredCharacter),

@@ -202,15 +202,7 @@ class RadioManager(
 	fun onChipTap(chip: AutoplayChip) {
 		val bound = boundNow()
 		val remote = hubManager.isRemoteActive.value
-		val session = hubManager.remoteSession.value
-		val onHub = chipEditsOnHub(
-			stationEdits = hubManager.hubOffers(HUB_FEATURE_STATION_EDITS),
-			bound = bound,
-			sessionStationId = session.stationId,
-			sessionQueueId = session.savedQueueId,
-			queueId = if (remote) session.savedQueueId else mediaPlayer.localUiState.value.savedQueueId,
-			playsSession = !remote && bindSessionFor() != null
-		)
+		val onHub = chipOnHub(bound, remote)
 		val plan = planChipTap(chip, bound, onHub)
 		setAutoplayOn(plan.autoplayOn)
 		plan.character?.let {
@@ -259,6 +251,110 @@ class RadioManager(
 			}
 		}
 	}
+
+	/** Whether the hub edits the queue for a chip on [bound] ([chipEditsOnHub], S-035). */
+	private fun chipOnHub(bound: StationProvenance?, remote: Boolean): Boolean {
+		val session = hubManager.remoteSession.value
+		return chipEditsOnHub(
+			stationEdits = hubManager.hubOffers(HUB_FEATURE_STATION_EDITS),
+			bound = bound,
+			sessionStationId = session.stationId,
+			sessionQueueId = session.savedQueueId,
+			queueId = if (remote) session.savedQueueId else mediaPlayer.localUiState.value.savedQueueId,
+			playsSession = !remote && bindSessionFor() != null
+		)
+	}
+
+	// ---- Mood chips (P7, PROTOCOL §18.5) ------------------------------------------------------ //
+
+	/** The mood picked for the next continuation of a queue no station is bound to yet. */
+	private val _pendingMood = MutableStateFlow<PendingMood?>(null)
+
+	private fun queueIdNow(): String? =
+		if (hubManager.isRemoteActive.value) hubManager.remoteSession.value.savedQueueId
+		else mediaPlayer.localUiState.value.savedQueueId
+
+	/**
+	 * The mood chip shown selected (null is All): the bound station's own mood, else the one waiting
+	 * for this queue's continuation. Follows a tap before the hub's frame does (the record is first).
+	 */
+	val moodSelected: StateFlow<String?> = combine(combine(generatorInputs) { boundNow() }, _pendingMood) { bound, pending ->
+		selectedMoodChip(bound, pendingMoodFor(pending, queueIdNow()))
+	}
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+	/**
+	 * Whether the queue offers mood chips: the engine is there and its probe says moods, and the
+	 * queue is not a radio with a mood filter (its identity is its filter).
+	 */
+	val moodChipsOffered: StateFlow<Boolean> = combine(
+		combine(generatorInputs) { boundNow() }, stationManager.catalogue, stationManager.available
+	) { bound, catalogue, available -> available && catalogue.moods && bound?.moodFilter == null }
+		.distinctUntilChanged()
+		.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
+
+	/**
+	 * A mood chip ([planMoodTap]; null is All, and the selected mood again is All). With a bound
+	 * station the mood is its source from now on: the hub edits the queue when it can, else the
+	 * station's songs still to come are swapped here, as a character chip swaps them. With none,
+	 * autoplay goes on and the mood waits for this queue's continuation. Shares the chips' lock.
+	 */
+	fun onMoodTap(moodId: String?) {
+		val bound = boundNow()
+		val remote = hubManager.isRemoteActive.value
+		val plan = planMoodTap(moodId, bound, chipOnHub(bound, remote))
+		setAutoplayOn(plan.autoplayOn)
+		if (bound == null) {
+			val queueId = queueIdNow()
+			val next = nextPendingMood(pendingMoodFor(_pendingMood.value, queueId), moodId)
+			_pendingMood.value = if (next != null && queueId != null) PendingMood(queueId, next) else null
+		}
+		val value = plan.signalMood
+		val keep = bound?.takeIf { !remote || stationManager.provenance.value?.stationId == it.stationId }
+		val before = keep?.mood
+		if (keep != null && value != null) {
+			stationManager.record(keep.copy(mood = value.ifBlank { null }, stopped = false, exhausted = false))
+		}
+		val trackId = mediaPlayer.uiState.value.currentSong?.id.orEmpty()
+		scope.launch {
+			stationOps.withLock {
+				stationManager.setBusy(true)
+				try {
+					if (bound != null && value != null) {
+						val took = if (plan.applyOnHub) {
+							stationManager.signalEdit(bound.stationId, trackId, "mood", value)
+								?.also { Logger.i("RadioManager", "mood chip: hub edit ${it.edited ?: "none"} ${it.reason.orEmpty()}") } != null
+						} else stationManager.signal(bound.stationId, trackId, "mood", value)
+						if (!took) {
+							// Refused (409: the mood's list cannot be had now): the chip goes back.
+							stationManager.provenance.value?.takeIf { it.stationId == bound.stationId }
+								?.let { stationManager.record(it.copy(mood = before)) }
+						} else if (plan.replaceTail) {
+							replaceStationTail(boundNow()?.takeIf { it.stationId == bound.stationId } ?: bound)
+						}
+					}
+				} catch (e: Exception) {
+					Logger.e("RadioManager", "mood chip $moodId failed", e)
+				} finally {
+					stationManager.setBusy(false)
+				}
+			}
+			if (plan.runDecision) {
+				chipLook.value = true
+				driverKick.update { it + 1 }
+			}
+		}
+	}
+
+	/**
+	 * The mood a continuation of this queue starts in: the one picked on its chips, else the mood of
+	 * the Home tile that made the queue (a mood mix carries on in its mood when its songs end).
+	 */
+	private fun continuationMood(state: PlayerUiState, queueId: String): String? =
+		pendingMoodFor(_pendingMood.value, queueId)
+			?: generated.value?.takeIf { state.queue.isNotEmpty() && queueSig(state.queue) == it.first }
+				?.second?.moodId?.takeIf { it.isNotBlank() }
 
 	/**
 	 * The staged queue's autoplay switch (P2): a tap on the chip it stands for ([autoplayToggleChip]),
@@ -1306,7 +1402,11 @@ class RadioManager(
 		val character = restart.character ?: _character.value
 		val bind = bindSessionFor()
 		return when (
-			val result = stationManager.start(restart.seed, character, STATION_BATCH, queueIdsOf(state), bind, restart.origin)
+			// Its own mood or filter too: a station brought back is the same station (P7).
+			val result = stationManager.start(
+				restart.seed, character, STATION_BATCH, queueIdsOf(state), bind, restart.origin,
+				mood = bound.mood, moodFilter = bound.moodFilter
+			)
 		) {
 			is StationResult.Ok -> applyBatch(
 				state,
@@ -1349,9 +1449,16 @@ class RadioManager(
 		// landed. Bound to that id the start continued nothing (`bound: false`), or, with the old
 		// queue still a station's, got that station back as a 409. Look again in a moment.
 		if (!startMayBind(bind, queueId)) return DriverRetry.Publishing
-		return when (
-			val result = stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bind, ORIGIN_CONTINUE)
-		) {
+		val mood = continuationMood(queued, queueId)
+		val first = stationManager.start(
+			seed, _character.value, STATION_BATCH, queueIdsOf(state), bind, ORIGIN_CONTINUE, mood = mood
+		)
+		val result = if (mood != null && first is StationResult.Refused && first.code == "mood_unavailable") {
+			// Moods cannot be had now: autoplay carries on without one rather than stall.
+			_pendingMood.value = null
+			stationManager.start(seed, _character.value, STATION_BATCH, queueIdsOf(state), bind, ORIGIN_CONTINUE)
+		} else first
+		return when (result) {
 			is StationResult.Ok -> {
 				val fresh = StationProvenance(
 					queueId = queueId,

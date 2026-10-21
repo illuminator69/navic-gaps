@@ -67,6 +67,9 @@ class MoodManager(
 
 	private val refreshLock = Mutex()
 	private val tileReads = SingleFlight<String, TileIdsResult>(scope)
+	private val forSongReads = SingleFlight<String, ForSongAnswer?>(scope)
+	private val forSongCache = ForSongCache(FOR_SONG_CACHE_MAX)
+	private val cacheLock = Mutex()
 
 	init {
 		// Every welcome: the hub may be another one, or newer.
@@ -97,6 +100,23 @@ class MoodManager(
 			tileIdsOutcome(reply.status, reply.body, moodId, variantId)
 		}
 
+	/**
+	 * Which moods suit [songId] (`POST /sonic/mood/for`, P7 Part B): the queue's mood chips. A ready
+	 * answer is kept for the session (at most [FOR_SONG_CACHE_MAX] songs); a "not ready yet" one is
+	 * asked again next time. Null: no hub, an older hub, or no answer.
+	 */
+	suspend fun forSong(songId: String): ForSongAnswer? {
+		cacheLock.withLock { forSongCache[songId] }?.let { return it }
+		return forSongReads.run(songId) {
+			val request = forSongRequest(hubHttpBase(preferenceManager), preferenceManager.hubToken, songId)
+				?: return@run null
+			val reply = transport(request) ?: return@run null
+			forSongOutcome(reply.status, reply.body)?.also { answer ->
+				if (answer.ready) cacheLock.withLock { forSongCache[songId] = answer }
+			}
+		}
+	}
+
 	private suspend fun send(request: MoodHttpRequest): MoodHttpReply? = try {
 		val response = if (request.body == null) {
 			client.get(request.url) { header("Authorization", request.authorization) }
@@ -120,6 +140,8 @@ class MoodManager(
 
 		/** A cold tile is one CLAP search on the hub (about 1 s, 2.2 s for AudioMuse's first). */
 		const val REQUEST_TIMEOUT_MS = 20_000L
+
+		const val FOR_SONG_CACHE_MAX = 100
 	}
 }
 
@@ -244,4 +266,35 @@ class SingleFlight<K, V>(private val scope: CoroutineScope) {
 		}
 		return deferred.await()
 	}
+}
+
+@Serializable
+private data class ForSongBody(val id: String)
+
+fun forSongRequest(base: String?, token: String, songId: String): MoodHttpRequest? =
+	base?.let { MoodHttpRequest("$it/sonic/mood/for", "Bearer $token", moodJson.encodeToString(ForSongBody(songId))) }
+
+/** `/sonic/mood/for`'s answer; null for anything but a 200 that reads as one. */
+fun forSongOutcome(status: Int, body: String): ForSongAnswer? {
+	if (status !in 200..299) return null
+	return try {
+		moodJson.decodeFromString<ForSongAnswer>(body)
+	} catch (e: Exception) {
+		null
+	}
+}
+
+/** The last [max] songs' answers, least recently asked dropped first. */
+class ForSongCache(private val max: Int) {
+	private val map = LinkedHashMap<String, ForSongAnswer>()
+
+	operator fun get(id: String): ForSongAnswer? = map.remove(id)?.also { map[id] = it }
+
+	operator fun set(id: String, answer: ForSongAnswer) {
+		map.remove(id)
+		map[id] = answer
+		while (map.size > max) map.remove(map.keys.first())
+	}
+
+	val size: Int get() = map.size
 }

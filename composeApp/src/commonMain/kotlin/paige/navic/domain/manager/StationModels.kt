@@ -76,8 +76,10 @@ data class StationCatalogue(
 	val count: Boolean = false,
 	/** P5: the Artist variety values `start` obeys; empty from an older hub (draw no control). */
 	val varieties: List<String> = emptyList(),
-	/** P5: the custom-radio filters the hub obeys; a client draws only these (none yet). */
-	val filters: List<String> = emptyList()
+	/** P5: the custom-radio filters the hub obeys; a client draws only these (P7: "mood"). */
+	val filters: List<String> = emptyList(),
+	/** P7: the hub's mood service is available, so the queue may offer mood chips. */
+	val moods: Boolean = false
 ) {
 	/**
 	 * The catalogue's words for [character], or the bundled ones. The words before P5 (Close,
@@ -129,7 +131,12 @@ sealed interface StationCountAnswer {
 }
 
 @Serializable
-internal data class StationCountBody(val seed: StationSeed, val character: String)
+internal data class StationCountBody(
+	val seed: StationSeed,
+	val character: String,
+	/** P7: the radio's mood filter; null is not sent (`encodeDefaults = false`). */
+	val moodFilter: String? = null
+)
 
 /**
  * Read a count's answer by its status and body. 404 with `seed_unknown` is an answer; any other 404
@@ -202,7 +209,10 @@ data class StationAnswer(
 	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE], echoed; null from a hub that does not say. */
 	val origin: String? = null,
 	/** `start` only: whether `bindSession` bound the session. Null from a hub that does not say. */
-	val bound: Boolean? = null
+	val bound: Boolean? = null,
+	/** P7: echoed; null when unset, and from a hub that predates them. */
+	val mood: String? = null,
+	val moodFilter: String? = null
 )
 
 @Serializable
@@ -215,7 +225,10 @@ internal data class StationStartBody(
 	val deviceId: String? = null,
 	val origin: String,
 	/** Artist variety (P5); null (not sent) unless the hub's probe lists the value. */
-	val variety: String? = null
+	val variety: String? = null,
+	/** P7: a mood as the station's source, or as a custom radio's filter; null is not sent. */
+	val mood: String? = null,
+	val moodFilter: String? = null
 )
 
 @Serializable
@@ -409,7 +422,11 @@ data class StationProvenance(
 	 * every top-up), newest last, at most [SERVED_KEEP]. The Off and character chips remove or
 	 * replace only these, never a song the user put in (I-041).
 	 */
-	val served: List<String> = emptyList()
+	val served: List<String> = emptyList(),
+	/** P7: the mood that is the station's source (the frame's `mood`); null = its own anchors (All). */
+	val mood: String? = null,
+	/** P7: a custom radio's mood filter (the frame's `moodFilter`); such a radio shows no mood chips. */
+	val moodFilter: String? = null
 ) {
 	/** [ORIGIN_RADIO] or [ORIGIN_CONTINUE], as recorded; kept for the record, no longer a rule. */
 	val effectiveOrigin: String get() = stationOrigin(origin, null)
@@ -433,7 +450,10 @@ data class HubStationFrame(
 	val name: String? = null,
 	val seed: StationSeed? = null,
 	val origin: String? = null,
-	val stopped: Boolean = false
+	val stopped: Boolean = false,
+	/** P7: the station's mood and mood filter; null when unset, and from a hub that predates them. */
+	val mood: String? = null,
+	val moodFilter: String? = null
 )
 
 /** A station's provenance after an answer was applied to its queue. */
@@ -448,7 +468,9 @@ internal fun StationProvenance.applied(answer: StationAnswer): StationProvenance
 	exhausted = answer.exhausted,
 	lastFromAutoDj = false,
 	origin = answer.origin?.takeIf { it.isNotBlank() } ?: origin,
-	stopped = answer.stopped
+	stopped = answer.stopped,
+	mood = answer.mood,
+	moodFilter = answer.moodFilter
 )
 
 /** What one `start` / `next` answer does: the record after it, the ids to append, and whether to ask again soon. */
@@ -541,7 +563,9 @@ internal fun StationProvenance.withFrame(frame: HubStationFrame): StationProvena
 		exhausted = frame.exhausted,
 		name = frame.name?.takeIf { it.isNotBlank() } ?: name,
 		origin = frame.origin?.takeIf { it.isNotBlank() } ?: origin,
-		stopped = frame.stopped
+		stopped = frame.stopped,
+		mood = frame.mood,
+		moodFilter = frame.moodFilter
 	)
 
 // --------------------------------------------------------------------------------------------- //

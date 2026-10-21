@@ -100,7 +100,12 @@ data class ChipTapPlan(
 	 * The signal goes with `apply: true` and the hub edits the queue (S-035): no removes, no
 	 * `next`, no decision here for this tap. The hub's answer or its queue change is the result.
 	 */
-	val applyOnHub: Boolean = false
+	val applyOnHub: Boolean = false,
+	/**
+	 * P7: `signal {kind: "mood", value}` to the bound station: a mood id, or "" for All (its own
+	 * anchors again). Null: not a mood tap, or nothing to tell the station.
+	 */
+	val signalMood: String? = null
 )
 
 /**
@@ -201,3 +206,78 @@ fun stationTailIndices(
 		.filter { queueIds[it] in servedSet }
 		.sortedDescending()
 }
+
+// --------------------------------------------------------------------------------------------- //
+// Mood chips (P7, PROTOCOL §18.5): All, then up to three moods that suit the playing song
+// --------------------------------------------------------------------------------------------- //
+
+/** One mood of `POST /sonic/mood/for`: its id and the song's rank in its merged list. */
+@kotlinx.serialization.Serializable
+data class MoodRank(val id: String, val rank: Int)
+
+/** `POST /sonic/mood/for`'s answer. [ready] false: the hub's lists are still being built. */
+@kotlinx.serialization.Serializable
+data class ForSongAnswer(val ready: Boolean = false, val moods: List<MoodRank> = emptyList())
+
+/** How many mood chips the queue shows at most. */
+const val MOOD_CHIPS_MAX = 3
+
+/**
+ * The mood chips for the playing song: the hub's moods for it, best rank first, at most three, only
+ * those the catalogue knows. None while the hub's lists are not ready or nothing was asked.
+ */
+fun moodChipsFor(answer: ForSongAnswer?, catalogue: MoodCatalogue): List<MoodEntry> {
+	if (answer == null || !answer.ready) return emptyList()
+	return answer.moods.sortedBy { it.rank }
+		.mapNotNull { m -> catalogue.find(m.id) }
+		.distinctBy { it.id }
+		.take(MOOD_CHIPS_MAX)
+}
+
+/**
+ * The mood chip shown selected: a bound station's own mood (null = All), else the mood picked for
+ * the next continuation ([pending]). Null is All.
+ */
+fun selectedMoodChip(bound: StationProvenance?, pending: String?): String? =
+	if (bound != null) bound.mood else pending
+
+/**
+ * A mood chip tapped ([moodId]; null = All). Tapping the station's own mood is All. With a bound
+ * station the mood is its source from its next batch (`signal mood`): the hub edits the queue when
+ * it can ([onHub]), otherwise this device swaps the songs the station added that are still to come,
+ * as a character tap does. With no station, autoplay goes on and the mood waits for the next
+ * continuation (the caller keeps it). A character tap never touches the mood.
+ */
+fun planMoodTap(moodId: String?, bound: StationProvenance?, onHub: Boolean): ChipTapPlan {
+	if (bound == null) {
+		return ChipTapPlan(
+			autoplayOn = true, character = null, stopStation = false, signalCharacter = null,
+			removeTail = false, replaceTail = false, runDecision = true
+		)
+	}
+	val target = moodId?.takeUnless { it == bound.mood }
+	val steer = target != bound.mood || bound.stopped
+	val hub = onHub && steer
+	return ChipTapPlan(
+		autoplayOn = true,
+		character = null,
+		stopStation = false,
+		signalCharacter = null,
+		removeTail = false,
+		replaceTail = steer && !bound.stopped && !hub,
+		runDecision = !hub,
+		applyOnHub = hub,
+		signalMood = if (steer) target.orEmpty() else null
+	)
+}
+
+/** The mood waiting for the next continuation of one queue ([queueId]). */
+@kotlinx.serialization.Serializable
+data class PendingMood(val queueId: String, val moodId: String)
+
+/** The pending mood for the queue playing now: dropped as soon as another queue plays. */
+fun pendingMoodFor(pending: PendingMood?, queueId: String?): String? =
+	pending?.takeIf { queueId != null && it.queueId == queueId }?.moodId
+
+/** A mood tap with no bound station: the pending mood after it (tapping the pending one is All). */
+fun nextPendingMood(current: String?, tapped: String?): String? = tapped?.takeUnless { it == current }

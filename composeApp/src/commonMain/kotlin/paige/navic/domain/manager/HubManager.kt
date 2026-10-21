@@ -275,7 +275,12 @@ class HubManager(
 			name = obj["name"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.name,
 			seed = seed ?: previous?.seed,
 			origin = obj["origin"]?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() } ?: previous?.origin,
-			stopped = obj["stopped"]?.jsonPrimitive?.booleanOrNull ?: previous?.stopped ?: false
+			stopped = obj["stopped"]?.jsonPrimitive?.booleanOrNull ?: previous?.stopped ?: false,
+			// P7: present (a mood id or null) on a hub with moods; absent keeps what was known.
+			mood = if ("mood" in obj) obj["mood"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+			else previous?.mood,
+			moodFilter = if ("moodFilter" in obj) obj["moodFilter"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+			else previous?.moodFilter
 		)
 		// Bounded: a station frame names one station, and only a handful are alive on a hub (8).
 		_stationFrames.update { frames -> (frames - id + (id to frame)).entries.toList().takeLast(16).associate { it.toPair() } }
