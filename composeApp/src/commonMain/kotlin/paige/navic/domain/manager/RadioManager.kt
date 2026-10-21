@@ -1014,6 +1014,18 @@ class RadioManager(
 	}
 
 	/**
+	 * Play a Home mood tile's mix (P7): exactly the songs its page showed, in that order or shuffled,
+	 * saved to history as a radio-kind queue named after the tile (`GeneratedQueue.ofMoodTile`).
+	 */
+	fun playMoodTile(songs: List<DomainSong>, title: String, moodId: String, shuffle: Boolean, startIndex: Int = 0) {
+		if (songs.isEmpty()) return
+		radioStarted()
+		val order = if (shuffle) songs.shuffled() else songs
+		val start = if (shuffle) 0 else startIndex.coerceIn(0, order.lastIndex)
+		playMix(order, SavedQueueSource.RADIO, GeneratedQueue.ofMoodTile(title, moodId), start)
+	}
+
+	/**
 	 * Play a generated queue under [what]'s name. It is recorded in [generated], so the queue's
 	 * line says that name, crediting AudioMuse only when AudioMuse chose the songs. When another
 	 * device is the active receiver, hand the mix to the session so it plays THERE (the hub

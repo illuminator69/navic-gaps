@@ -26,6 +26,7 @@ import paige.navic.domain.manager.ShellController
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.StationManager
+import paige.navic.domain.manager.MoodManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.ui.util.AmbientColorHolder
 import paige.navic.ui.util.CoverSeedPrefetcher
@@ -88,6 +89,8 @@ val managerModule = module {
 	// that built this device's queue. Constructed by RadioManager below at start, after HubManager,
 	// whose queue publish it supplies the bound station id to.
 	singleOf(::StationManager)
+	// Home's moods (P7): the hub's catalogue and a tile's ids.
+	singleOf(::MoodManager)
 	// createdAtStart so the autoplay observer is running before the first radio use. The last two
 	// get()s are StationManager and SongRepository (its star events steer a bound station).
 	single(createdAtStart = true) { RadioManager(get(), get(), get(), get(), get(), get(), get(), get()) }

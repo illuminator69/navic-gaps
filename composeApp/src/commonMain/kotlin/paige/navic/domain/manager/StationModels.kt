@@ -745,13 +745,19 @@ sealed interface QueueGenerator {
  * and whether AudioMuse chose its songs. A radio without the engine is "<seed> radio" and
  * Navidrome's similar songs; a Your mix without it and a journey are AudioMuse's.
  */
-data class GeneratedQueue(val name: String, val audioMuse: Boolean) {
+data class GeneratedQueue(val name: String, val audioMuse: Boolean, val moodId: String = "") {
 	companion object {
 		/** A mix played without a station: a regenerated recipe or a preview's Play. */
 		fun ofMix(mix: Mix) = GeneratedQueue(mixQueueName(mix), mixBuiltByAudioMuse(mix))
 
 		/** A mood (CLAP) search's results, saved as "Search: …": AudioMuse's text search chose them. */
 		fun ofMoodSearch(name: String) = GeneratedQueue(name, audioMuse = true)
+
+		/**
+		 * A Home mood tile's mix (P7), saved under the tile's title, which is how Home finds it again
+		 * (`queuesFromMood`). AudioMuse's CLAP search chose the songs. [moodId] is its mood.
+		 */
+		fun ofMoodTile(title: String, moodId: String) = GeneratedQueue(title, audioMuse = true, moodId = moodId)
 	}
 }
 
