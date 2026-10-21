@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -68,6 +72,8 @@ import navic.composeapp.generated.resources.custom_radio_count_unavailable
 import navic.composeapp.generated.resources.custom_radio_count_unknown
 import navic.composeapp.generated.resources.custom_radio_count_updating
 import navic.composeapp.generated.resources.custom_radio_count_zero
+import navic.composeapp.generated.resources.custom_radio_count_low
+import navic.composeapp.generated.resources.custom_radio_filters
 import navic.composeapp.generated.resources.custom_radio_done
 import navic.composeapp.generated.resources.custom_radio_hint
 import navic.composeapp.generated.resources.custom_radio_song_selection
@@ -110,6 +116,8 @@ internal fun TuneStep(
 	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
 	val varietyOffered by viewModel.varietyOffered.collectAsStateWithLifecycle()
 	val finishing by viewModel.finishing.collectAsStateWithLifecycle()
+	val filterWords by viewModel.filterWords.collectAsStateWithLifecycle()
+	val moodFilter by viewModel.moodFilter.collectAsStateWithLifecycle()
 	val scope = rememberCoroutineScope()
 	val snackBarState = LocalSnackBarState.current
 	val saveFailedWords = stringResource(Res.string.custom_radio_save_failed)
@@ -178,8 +186,27 @@ internal fun TuneStep(
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)
 				)
-				// Filters: drawn only for what the hub advertises (`filters`), which is none yet, so the
-				// section is absent with no gap (P5 call 4).
+				// Filters: drawn only for what the hub advertises (`filters`: "mood" since P7), so a hub
+				// without it shows no section and no gap (P5 call 4). One mood at a time; Home's five
+				// words, a thin divider, then Pump-up, Upbeat, Downbeat (board RadioTune).
+				if (!filterWords.isEmpty) {
+					SectionLabel(stringResource(Res.string.custom_radio_filters), top = 20.dp)
+					Row(
+						Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						filterWords.home.forEach { mood ->
+							FilterWord(mood.label, mood.id == moodFilter) { viewModel.tapMoodFilter(mood.id) }
+						}
+						if (filterWords.home.isNotEmpty() && filterWords.extra.isNotEmpty()) {
+							VerticalDivider(Modifier.height(24.dp).padding(horizontal = 2.dp))
+						}
+						filterWords.extra.forEach { mood ->
+							FilterWord(mood.label, mood.id == moodFilter) { viewModel.tapMoodFilter(mood.id) }
+						}
+					}
+				}
 			}
 			Column(
 				Modifier
@@ -197,7 +224,7 @@ internal fun TuneStep(
 					.padding(start = 16.dp, end = 16.dp, top = 30.dp, bottom = 20.dp),
 				horizontalAlignment = Alignment.CenterHorizontally
 			) {
-				CountLine(count)
+				CountLine(count, warnLow = moodFilter != null && filterWarning(count))
 				Spacer(Modifier.height(10.dp))
 				Button(
 					onClick = {
@@ -328,7 +355,7 @@ private fun Dial(label: String, selected: Boolean, onClick: () -> Unit, modifier
 
 /** The count, one line for each [CountState], cross-faded as it changes. */
 @Composable
-private fun CountLine(count: CountState) {
+private fun CountLine(count: CountState, warnLow: Boolean = false) {
 	AnimatedContent(
 		targetState = count,
 		contentKey = { it::class },
@@ -356,6 +383,9 @@ private fun CountLine(count: CountState) {
 				}
 				is CountState.Known -> if (state.count == 0) {
 					WarnLine(stringResource(Res.string.custom_radio_count_zero))
+				} else if (warnLow) {
+					// A filter that leaves little (P7 call 8): said, and Done stays enabled.
+					WarnLine(stringResource(Res.string.custom_radio_count_low, formatCount(state.count)))
 				} else {
 					Text(
 						stringResource(
@@ -371,6 +401,20 @@ private fun CountLine(count: CountState) {
 			}
 		}
 	}
+}
+
+/** One mood filter word, a chip like the queue's. */
+@Composable
+private fun FilterWord(text: String, selected: Boolean, onClick: () -> Unit) {
+	FilterChip(
+		selected = selected,
+		onClick = onClick,
+		label = { Text(text, maxLines = 1) },
+		shape = MaterialTheme.shapes.small,
+		leadingIcon = if (selected) {
+			{ Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+		} else null
+	)
 }
 
 @Composable

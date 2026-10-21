@@ -575,8 +575,9 @@ class RadioManager(
 		character: StationCharacter,
 		fallbackName: String,
 		count: Int = RADIO_START_COUNT,
-		variety: String = ""
-	): StationPlay = when (val start = startStation(seed, seedSongs, character, fallbackName, count, variety)) {
+		variety: String = "",
+		moodFilter: String = ""
+	): StationPlay = when (val start = startStation(seed, seedSongs, character, fallbackName, count, variety, moodFilter)) {
 		is StationStart.Ok -> {
 			loadStation(start.built, start.built.queue, 0)
 			StationPlay.Played
@@ -592,14 +593,15 @@ class RadioManager(
 		character: StationCharacter,
 		fallbackName: String,
 		count: Int,
-		variety: String
+		variety: String,
+		moodFilter: String = ""
 	): StationStart {
 		if (!stationManager.available.value) return StationStart.Unavailable
 		stationManager.setBusy(true)
 		try {
 			val result = stationManager.start(
 				seed, character, count, seedSongs.map { it.id }, bindSession = null, origin = ORIGIN_RADIO,
-				variety = variety
+				variety = variety, moodFilter = moodFilter.ifBlank { null }
 			)
 			val answer = (result as? StationResult.Ok)?.answer ?: run {
 				Logger.i("RadioManager", "station start: $result, using the fallback")
@@ -696,7 +698,7 @@ class RadioManager(
 			val recipe = stationRecipe(mix)
 			if (recipe != null) {
 				val name = mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO).orEmpty() }
-				when (playStation(recipe.seed, recipe.seedSongs, recipe.character, name, mix.count.coerceIn(5, 50), mix.variety)) {
+				when (playStation(recipe.seed, recipe.seedSongs, recipe.character, name, mix.count.coerceIn(5, 50), mix.variety, mix.moodFilter)) {
 					StationPlay.Played -> {
 						hubManager.actTouchMix(mix.id)
 						return true
@@ -890,7 +892,8 @@ class RadioManager(
 				else mix.name.ifBlank { defaultMixName(SavedQueueSource.RADIO).orEmpty() }
 				val count = if (yourMix) MIX_PAGE_COUNT else mix.count.coerceIn(5, 50)
 				val variety = if (yourMix) "" else mix.variety
-				when (val start = startStation(recipe.seed, recipe.seedSongs, recipe.character, name, count, variety)) {
+				val filter = if (yourMix) "" else mix.moodFilter
+				when (val start = startStation(recipe.seed, recipe.seedSongs, recipe.character, name, count, variety, filter)) {
 					is StationStart.Ok -> return MixBuild(mix, start.built.queue, start.built)
 					StationStart.Empty -> return null
 					StationStart.Unavailable -> {}

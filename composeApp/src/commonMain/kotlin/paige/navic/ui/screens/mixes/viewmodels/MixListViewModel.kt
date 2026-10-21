@@ -123,6 +123,7 @@ internal fun HubManager.saveMix(recipe: Mix, name: String) {
 		coverArtId = recipe.coverArtId,
 		character = recipe.character,
 		seedIds = recipe.seedIds,
-		variety = recipe.variety
+		variety = recipe.variety,
+		moodFilter = recipe.moodFilter
 	)
 }
