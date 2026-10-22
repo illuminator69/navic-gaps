@@ -167,6 +167,17 @@ class ShellTabTest {
 		assertEquals(listOf(home, search), normalizedStack(normalizedStack(listOf(search))), "once")
 	}
 
+	/**
+	 * B-181 / B-180: a stack that already holds Home somewhere is never given a second one at the
+	 * bottom. `[Search, Home]` would have become `[Home, Search, Home]`, the shape B-180 saw.
+	 */
+	@Test
+	fun aStackThatAlreadyHoldsHomeIsNotGivenAnother() {
+		assertEquals(listOf(search, home), normalizedStack(listOf(search, home)))
+		assertEquals(listOf(library, album, home), normalizedStack(listOf(library, album, home)))
+		assertEquals(listOf(home, search, home), normalizedStack(listOf(home, search, home)), "left as it was")
+	}
+
 	@Test
 	fun aStackThatStartsWithAnotherPageIsUnchanged() {
 		assertEquals(listOf<NavKey>(Screen.Login), normalizedStack(listOf(Screen.Login)))

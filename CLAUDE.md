@@ -1607,6 +1607,18 @@ true of invented *album art*, and not of an icon naming the kind.
 ## 7. Conventions and gotchas
 
 - **Navic files use tabs.** Multi-line edit matches are fragile; prefer matching single bare lines.
+- **There is one `MainActivity`: it is `singleTask`, and a launch intent is handled once (B-181).**
+  It was `standard`, and the widgets, the fill notification and a share into the app all name the
+  class, so each started a *second* instance on top of the running one: a fresh `[Home]` over the old
+  `[Home, Search]`, and Back walked both (B-180's `[Home, Search, Home]`; reproduced 2026-10-22 with
+  `adb shell am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT <url>
+  -p paige.navic.debug`, then `dumpsys activity activities` showed two history entries). They now
+  reach the running instance through `onNewIntent`. `onCreate` hands `intent` to `handleDeepLink`
+  only when `savedInstanceState == null`: a rotation or a restore re-enters it with the intent the
+  activity was last given, and a link that had already opened its page opened it again.
+  `normalizedStack` also never adds a Home to a stack that holds one. `SingleActivityLaunchTest` reads
+  the manifest and the activity (a source guard: the behaviour needs a device, so after touching
+  either, repeat the share above and expect ONE history entry).
 - **Never take `albumLookup().firstOrNull()`.** That is a MusicBrainz *text score*, passed through
   by lb-bot, and a free-text `"<artist> <title>"` scores a release-group whose TITLE contains both
   words above the one where the artist match is a separate field. Measured 2026-09-23: `Daft Punk

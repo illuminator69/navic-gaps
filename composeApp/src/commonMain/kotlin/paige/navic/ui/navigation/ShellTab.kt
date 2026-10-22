@@ -78,7 +78,9 @@ fun stackAfterTap(current: List<NavKey>, tab: ShellTab): List<NavKey>? {
 fun normalizedStack(stack: List<NavKey>): List<NavKey> {
 	val first = stack.firstOrNull() ?: return stack
 	val tabFirst = first != Screen.Home && ShellTab.entries.any { it.destination == first }
-	return if (tabFirst) listOf<NavKey>(Screen.Home) + stack else stack
+	// A Home further up means the stack was built with one already: giving it another at the bottom is
+	// the `[Home, Search, Home]` shape of B-180.
+	return if (tabFirst && Screen.Home !in stack) listOf<NavKey>(Screen.Home) + stack else stack
 }
 
 /**

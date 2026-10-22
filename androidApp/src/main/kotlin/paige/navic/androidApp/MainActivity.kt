@@ -70,7 +70,9 @@ class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		enableEdgeToEdge()
-		handleDeepLink(intent)
+		// Only on a fresh create (B-181): a rotation, or a restore after process death, re-enters here
+		// with the intent the activity was last given, and the link it carried already opened its page.
+		if (savedInstanceState == null) handleDeepLink(intent)
 		observeFills()
 		setContent { App() }
 	}
@@ -131,9 +133,9 @@ class MainActivity : ComponentActivity() {
 	}
 
 	/**
-	 * Reached when a Quick Picks tile is tapped, or a link is shared in, while the activity is
-	 * already running — the tile intents carry `FLAG_ACTIVITY_SINGLE_TOP`, so the task is reused
-	 * rather than recreated, and a share into a live task arrives the same way.
+	 * Reached when a Quick Picks tile is tapped, a link is shared in, a widget or the fill
+	 * notification is tapped while the activity is already running. The activity is `singleTask`
+	 * (B-181), so every one of them arrives here instead of starting a second instance.
 	 */
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)

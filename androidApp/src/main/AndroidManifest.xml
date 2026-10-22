@@ -52,9 +52,14 @@
 		android:usesCleartextTraffic="true"
 		tools:targetApi="33">
 
+		<!-- singleTask, B-181: one MainActivity per task. It was `standard`, and the widgets, the fill
+		     notification and a share into the app all name it, so each started a SECOND instance on top
+		     of the running one (a new Home over the old [Home, Search]; Back then walked both, B-180).
+		     Now they reach the running instance through onNewIntent. -->
 		<activity
 			android:name=".MainActivity"
 			android:exported="true"
+			android:launchMode="singleTask"
 			android:theme="@style/Theme.Navic">
 			<!-- Paste-a-link, via the system share sheet: a streaming URL shared from
 			     a browser or another music app is resolved to MusicBrainz ids by
