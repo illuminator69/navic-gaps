@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import paige.navic.ui.navigation.ShellTab
+import paige.navic.ui.navigation.chipRequestAfterTap
 
 /**
  * navi-connect P1: what the app's shell has open. The New sheet and the avatar menu are composed
@@ -84,6 +86,11 @@ class ShellController {
 
 	fun libraryChipShown() {
 		_libraryChip.value = null
+	}
+
+	/** A bar or rail tap: any tab but the Library's drops a pending chip request ([chipRequestAfterTap]). */
+	fun onTabTapped(tab: ShellTab) {
+		_libraryChip.value = chipRequestAfterTap(_libraryChip.value, tab)
 	}
 }
 

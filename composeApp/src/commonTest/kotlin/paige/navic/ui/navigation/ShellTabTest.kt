@@ -205,4 +205,16 @@ class ShellTabTest {
 		assertEquals(listOf(home, search), searchEntryStack(listOf(home)))
 		assertEquals(listOf(home, search), searchEntryStack(listOf(home, search)))
 	}
+
+	// Audit L2-07: the custom radio's Done arms "show Mixes" for the next Library visit; leaving its
+	// page by Home or Search left it armed, so a later Library tap opened on Mixes.
+	@Test
+	fun anotherTabDropsAStaleLibraryChipRequest() {
+		assertNull(chipRequestAfterTap("Mixes", ShellTab.Home))
+		assertNull(chipRequestAfterTap("Mixes", ShellTab.Search))
+		assertEquals("Mixes", chipRequestAfterTap("Mixes", ShellTab.Library))
+		assertNull(chipRequestAfterTap(null, ShellTab.Library))
+		// New opens a sheet over the page and goes nowhere: the request stays for the Library under it.
+		assertEquals("Mixes", chipRequestAfterTap("Mixes", ShellTab.New))
+	}
 }
