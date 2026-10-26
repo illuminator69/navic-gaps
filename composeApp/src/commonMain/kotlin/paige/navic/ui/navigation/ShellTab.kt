@@ -71,6 +71,13 @@ fun stackAfterTap(current: List<NavKey>, tab: ShellTab): List<NavKey>? {
 }
 
 /**
+ * The stack the Library's magnifier leaves: the Search tab's tap, `[Home, Search]`, not a push over
+ * the Library (`[Home, Library, Search]` landed Back on the Library: audit L2-04, W-02). Back from
+ * Search goes Home, the owner's ruling for every way into it.
+ */
+fun searchEntryStack(current: List<NavKey>): List<NavKey> = stackAfterTap(current, ShellTab.Search)!!
+
+/**
  * A stack saved before P6 (a tab tap left the tab alone) or by anything that still does: one whose
  * first entry is Search's or the Library's own page gets Home put under it, once, so Back from it goes
  * Home too. Any other stack (Home's, a login, a shared link's) is unchanged.

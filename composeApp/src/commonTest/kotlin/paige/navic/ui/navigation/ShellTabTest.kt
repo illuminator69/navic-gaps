@@ -196,4 +196,13 @@ class ShellTabTest {
 		assertFalse(isRootPage(Screen.Library(nested = true)))
 		assertFalse(isRootPage(null))
 	}
+
+	// Audit L2-04 (W-02, ran): the Library's magnifier pushed Search over the Library, so Back from
+	// Search landed on the Library. It is the Search tab's tap: Back from Search goes Home.
+	@Test
+	fun theLibraryMagnifierLeavesHomeAndSearch() {
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home, library)))
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home)))
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home, search)))
+	}
 }

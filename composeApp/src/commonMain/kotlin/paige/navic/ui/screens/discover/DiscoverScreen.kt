@@ -501,7 +501,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 									color = MaterialTheme.colorScheme.onSurfaceVariant,
 									modifier = Modifier
 										.padding(top = 2.dp)
-										.clickable { backStack.add(Screen.Search()) }
+										.clickable { backStack.add(Screen.Search(nested = true)) }
 								)
 								// The one row here that is not a carousel: there is
 								// nothing to page through and nothing to illustrate, so

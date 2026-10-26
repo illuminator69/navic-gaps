@@ -19,7 +19,11 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -39,6 +43,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Close
 import paige.navic.ui.components.common.SearchHeaderAvatar
+import paige.navic.ui.screens.search.shouldRequestSearchFocus
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -52,8 +57,14 @@ fun SearchScreenTopBar(
 	val focusManager = LocalFocusManager.current
 	val focusRequester = remember { FocusRequester() }
 
+	// The field takes the keyboard when Search arrives, not each time the page is composed again
+	// after Back from a result (audit L2-05, W-03). The flag lives with the entry.
+	var focused by rememberSaveable { mutableStateOf(false) }
 	LaunchedEffect(Unit) {
-		focusRequester.requestFocus()
+		if (shouldRequestSearchFocus(focused)) {
+			focusRequester.requestFocus()
+			focused = true
+		}
 	}
 
 	// System Back on an active root search clears it first, as the arrow does; only an empty
