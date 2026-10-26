@@ -79,4 +79,20 @@ class SingleActivityLaunchTest {
 		val body = src.substring(start, src.indexOf("\n\t}\n", start))
 		assertTrue("handleDeepLink(intent)" in body, "onNewIntent must still hand the intent to handleDeepLink")
 	}
+
+	/**
+	 * Audit L2-13: predictive Back (and the back-invoked callbacks Navigation 3 registers) relied on
+	 * targetSdk 37's default, which a device on API 33 to 35 does not share. The manifest says it.
+	 */
+	@Test
+	fun theApplicationOptsIntoPredictiveBack() {
+		val xml = text(manifest)
+		val start = xml.indexOf("<application")
+		assertTrue(start >= 0, "<application> not found in the manifest")
+		val tag = xml.substring(start, xml.indexOf(">", start))
+		assertTrue(
+			"""android:enableOnBackInvokedCallback="true"""" in tag,
+			"<application> must declare android:enableOnBackInvokedCallback=\"true\". Tag was:\n$tag"
+		)
+	}
 }

@@ -209,6 +209,16 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     `launchToCompletion`, i.e. `withContext(NonCancellable)` inside `viewModelScope` — before that,
     a Cancel tapped just before backing out was cancelled with the pane and the download kept
     running. A new lb-bot action on that screen goes through the same helper.
+15. **A saved back stack outlives the build that saved it.** The stack is saved through
+    `ui/navigation/NavConfig.kt` (`navSavedStateConfiguration`: every `Screen` as a polymorphic
+    `NavKey`, looked up by serial name) and a `Screen`'s enum argument is saved by position. So a
+    renamed or moved `Screen` (upstream's or the fork's) needs a `@SerialName` alias with the old
+    name, and an enum a screen carries (`DownloadsSection`, `SourceHistorySection`) is only ever
+    appended to. `SavedStackGuardTest` round-trips every screen the configuration registers and pins
+    those enums' order; a reorder fails it, and appending means editing its literal. The manifest
+    declares `android:enableOnBackInvokedCallback="true"` (`SingleActivityLaunchTest`): API 33 to 35
+    devices do not get predictive Back from targetSdk's default. `Screen.ImageView` has had no entry
+    point since alpha59 (audit L2-10); it is left in place, and removing it is a rename as above.
 
 ⚠️ `dev.zt64.subsonic:subsonic-client` resolves at `1.0.0-SNAPSHOT` from a GitHub raw maven repo. A
 snapshot is not reproducible: if a build suddenly fails on a symbol that used to exist, suspect
