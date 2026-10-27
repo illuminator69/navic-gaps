@@ -42,11 +42,21 @@ class CoverSeedStore(
 
 	fun contains(key: String): Boolean = key in entries
 
+	/** The playing cover's key: never the one a [put] over the cap evicts (audit L4a-08). */
+	private var playingKey: String? = null
+
+	/** Marks [key] as the playing cover (null: none), and refreshes its recency. */
+	fun keepPlaying(key: String?) {
+		playingKey = key
+		key?.let { get(it) }
+	}
+
 	fun put(key: String, seeds: CoverSeeds) {
 		entries.remove(key)
 		entries[key] = seeds
 		while (entries.size > cap) {
-			entries.remove(entries.keys.first())
+			val oldest = entries.keys.firstOrNull { it != playingKey } ?: break
+			entries.remove(oldest)
 		}
 		if (pendingWrite?.isActive == true) return
 		pendingWrite = scope.launch {

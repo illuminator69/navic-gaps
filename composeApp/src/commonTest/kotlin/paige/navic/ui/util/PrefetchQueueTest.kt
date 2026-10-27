@@ -51,4 +51,32 @@ class PrefetchQueueTest {
 		q.done("a")
 		assertTrue(q.offer("a"))
 	}
+
+	// Audit L4a-08: a tile grid's requests displaced the next songs', so a song change missed its colours.
+	@Test
+	fun nextSongsBeatTiles() {
+		val q = queue(capacity = 2)
+		q.offer("n1", urgent = true)
+		repeat(10) { q.offer("t$it") }
+		assertEquals("n1", q.next())
+		assertEquals("t9", q.next())
+	}
+
+	@Test
+	fun theNextSongsAreServedInTheirOrder() {
+		val q = queue()
+		q.offer("t1")
+		q.offer("n1", urgent = true); q.offer("n2", urgent = true)
+		assertEquals(listOf("n1", "n2", "t1"), listOf(q.next(), q.next(), q.next()))
+	}
+
+	@Test
+	fun aTileThatBecomesANextSongMovesUp() {
+		val q = queue()
+		q.offer("a"); q.offer("b")
+		assertTrue(q.offer("a", urgent = true))
+		assertEquals("a", q.next())
+		assertEquals("b", q.next())
+		assertNull(q.next())
+	}
 }

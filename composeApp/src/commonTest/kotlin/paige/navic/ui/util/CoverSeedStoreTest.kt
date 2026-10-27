@@ -71,4 +71,18 @@ class CoverSeedStoreTest {
 		assertEquals(navy, again["al-1"])
 		assertEquals(grey, again["mf-2"])
 	}
+
+	// Audit L4a-08: a long grid scroll evicted the playing cover's seeds.
+	@Test
+	fun playingCoverSurvivesAGridScroll() {
+		val s = store(cap = 3)
+		s.put("playing", navy)
+		s.keepPlaying("playing")
+		s.put("a", grey); s.put("b", grey); s.put("c", grey); s.put("d", grey)
+		assertTrue(s.contains("playing"))
+		assertFalse(s.contains("a"))
+		s.keepPlaying(null)
+		s.put("e", grey)
+		assertFalse(s.contains("playing"))
+	}
 }

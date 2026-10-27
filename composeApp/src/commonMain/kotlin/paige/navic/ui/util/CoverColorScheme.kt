@@ -114,6 +114,20 @@ private val BlackAndWhiteOnly = object : Palette.Filter {
 }
 
 /**
+ * The seeds the wash shows (audit L4a-03). [fetched] is the previous cover's seeds, kept as a BRIDGE
+ * while a new cover's are on their way, so the colour eases from the old one instead of flashing
+ * through the neutral default. It is only a bridge while a cover is coming: with no cover
+ * ([paletteKey] null: the queue cleared, a radio, a coverless song, Navidrome's generic avatar) or
+ * once this cover's fetch failed ([fetchFailedFor]), the previous cover no longer colours the page.
+ */
+internal fun <T> seedsForWash(paletteKey: String?, cached: T?, fetched: T?, fetchFailedFor: String?): T? = when {
+	paletteKey == null -> null
+	cached != null -> cached
+	fetchFailedFor == paletteKey -> null
+	else -> fetched
+}
+
+/**
  * A cover's [CoverSeeds], fetched from [uri] and quantised: the one fetch every colour path uses
  * (the page's own, and [CoverSeedPrefetcher]'s ahead of need). Retried, and each failure LOGGED.
  * This used to be `runCatching { … }.getOrNull() ?: return@LaunchedEffect`: silent, and permanent
@@ -253,6 +267,8 @@ fun rememberCoverColorScheme(
 	// until the new one's are ready, so changing to a cover not yet stored eases from the old
 	// colour instead of flashing through the neutral default.
 	var fetched by remember { mutableStateOf<CoverSeeds?>(null) }
+	// The cover whose fetch failed: no bridge for it (audit L4a-03).
+	var fetchFailedFor by remember { mutableStateOf<String?>(null) }
 
 	LaunchedEffect(coverUri, paletteKey) {
 		val id = paletteKey ?: return@LaunchedEffect
@@ -264,11 +280,14 @@ fun rememberCoverColorScheme(
 			return@LaunchedEffect
 		}
 		val result = fetchCoverSeeds(networkLoader, uri)
-		if (result == null) return@LaunchedEffect
+		if (result == null) {
+			fetchFailedFor = id
+			return@LaunchedEffect
+		}
 		store.put(id, result)
 		fetched = result
 	}
-	val seeds = cached ?: fetched
+	val seeds = seedsForWash(paletteKey.takeIf { hasArt }, cached, fetched, fetchFailedFor)
 
 	val appScheme = MaterialTheme.colorScheme
 	val fallback = appScheme.surface

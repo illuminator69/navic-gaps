@@ -16,8 +16,8 @@ import kotlin.time.TimeSource
  * changed to one queued a few seconds earlier, then finds its colours in the store and is coloured
  * in its first frame instead of fetching after it is up.
  *
- * At most [PARALLEL] fetches at once, newest request first ([PrefetchQueue]): what was scrolled past
- * matters less than what is on screen now. A failed cover is not asked for again for a minute, so
+ * At most [PARALLEL] fetches at once ([PrefetchQueue]): the next songs first, in their order, then
+ * the tiles newest first (what was scrolled past matters less than what is on screen now). A failed cover is not asked for again for a minute, so
  * offline or a slow server costs a bounded number of attempts, not a loop. Nothing at all while
  * cover theming is off (CLAUDE.md §6 rule 7). Main thread only: [request] is called from
  * composition effects, and the work is scheduled on [Dispatchers.Main].
@@ -32,10 +32,11 @@ class CoverSeedPrefetcher(
 	private val queue = PrefetchQueue(now = { clockOrigin.elapsedNow().inWholeMilliseconds })
 	private var running = 0
 
-	fun request(coverArtId: String?) {
+	/** [nextSong]: one of the next songs in the queue, which no tile request displaces (audit L4a-08). */
+	fun request(coverArtId: String?, nextSong: Boolean = false) {
 		if (coverArtId.isNullOrBlank() || CoverPlaceholder.isPlaceholder(coverArtId)) return
 		if (!preferences.dynamicTheming || store.contains(coverArtId)) return
-		if (queue.offer(coverArtId)) pump()
+		if (queue.offer(coverArtId, urgent = nextSong)) pump()
 	}
 
 	private fun pump() {
@@ -71,34 +72,49 @@ class CoverSeedPrefetcher(
 }
 
 /**
- * The prefetcher's work list: newest first, at most [capacity] waiting (the oldest waiting id is
- * dropped), and an id is not taken again while it waits, while it is being fetched, or for
- * [retryAfterMs] after it failed. Pure, with an injected clock, so the rules are testable.
+ * The prefetcher's work list, two lanes. Urgent ids (the next songs) are served first, in the order
+ * they were offered, at most [urgentCapacity] of them; the rest (tiles) newest first, at most
+ * [capacity] waiting (the oldest waiting id is dropped). A tile flood never drops an urgent id, and a
+ * waiting tile offered as urgent moves up. An id is not taken again while it waits, while it is being
+ * fetched, or for [retryAfterMs] after it failed. Pure, with an injected clock, so the rules are
+ * testable.
  */
 internal class PrefetchQueue(
 	private val capacity: Int = 48,
 	private val retryAfterMs: Long = 60_000,
+	private val urgentCapacity: Int = 8,
 	private val now: () -> Long
 ) {
+	private val urgentPending = ArrayDeque<String>()
 	private val pending = ArrayDeque<String>()
 	private val inFlight = mutableSetOf<String>()
 	private val failedAt = mutableMapOf<String, Long>()
 
-	/** False when [id] is already waiting, being fetched, or failed within the retry window. */
-	fun offer(id: String): Boolean {
-		if (id in inFlight || id in pending) return false
+	/**
+	 * False when [id] is already waiting in its lane (or as urgent), being fetched, or failed within the
+	 * retry window. A tile id offered as [urgent] moves to the urgent lane.
+	 */
+	fun offer(id: String, urgent: Boolean = false): Boolean {
+		if (id in inFlight || id in urgentPending) return false
+		if (!urgent && id in pending) return false
 		failedAt[id]?.let { at ->
 			if (now() - at < retryAfterMs) return false
 			failedAt.remove(id)
 		}
-		pending.addLast(id)
-		while (pending.size > capacity) pending.removeFirst()
+		if (urgent) {
+			pending.remove(id)
+			urgentPending.addLast(id)
+			while (urgentPending.size > urgentCapacity) urgentPending.removeFirst()
+		} else {
+			pending.addLast(id)
+			while (pending.size > capacity) pending.removeFirst()
+		}
 		return true
 	}
 
-	/** The newest waiting id, now counted as being fetched; null when nothing waits. */
+	/** The next id to fetch, now counted as being fetched: the oldest urgent, else the newest tile. */
 	fun next(): String? {
-		val id = pending.removeLastOrNull() ?: return null
+		val id = urgentPending.removeFirstOrNull() ?: pending.removeLastOrNull() ?: return null
 		inFlight += id
 		return id
 	}

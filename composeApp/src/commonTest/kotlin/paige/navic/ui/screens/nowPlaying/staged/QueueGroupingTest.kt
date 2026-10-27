@@ -234,4 +234,13 @@ class QueueGroupingTest {
 		// Cleared.
 		assertEquals(emptySet(), userQueuedAfterQueueChange(added, previousQueueId = "q1", queueId = "q1", queueEmpty = true))
 	}
+
+	// Audit L4a-08: the indices after the playing one in play order, the same trust rule as peekRow.
+	@Test
+	fun upcomingIndicesFollowPlayOrder() {
+		assertEquals(listOf(3, 1), upcomingIndices(size = 4, currentIndex = 0, order = listOf(2, 0, 3, 1), count = 2))
+		assertEquals(listOf(1, 2), upcomingIndices(size = 4, currentIndex = 0, order = listOf(1, 0), count = 2))
+		assertEquals(listOf(1, 2, 3), upcomingIndices(size = 4, currentIndex = 0, order = null, count = 9))
+		assertEquals(emptyList(), upcomingIndices(size = 4, currentIndex = 7, order = null, count = 2))
+	}
 }

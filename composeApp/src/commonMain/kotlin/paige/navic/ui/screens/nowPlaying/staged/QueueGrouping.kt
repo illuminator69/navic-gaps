@@ -96,12 +96,21 @@ fun rowRunPositions(items: List<QueueListItem>): Map<Long, Pair<Int, Int>> {
  * null for queue order), or null at the end. An order that does not describe this queue (a frame
  * behind it) is not trusted.
  */
-fun peekRow(songIds: List<String>, currentIndex: Int, order: List<Int>?): Int? {
-	if (currentIndex !in songIds.indices) return null
-	if (order != null && order.size == songIds.size && currentIndex in order) {
-		return order.getOrNull(order.indexOf(currentIndex) + 1)
+fun peekRow(songIds: List<String>, currentIndex: Int, order: List<Int>?): Int? =
+	upcomingIndices(songIds.size, currentIndex, order, 1).firstOrNull()
+
+/**
+ * The queue indices of the songs after the playing one, in play order, at most [count]: [order] (the
+ * shuffle order) when it describes this queue of [size] songs, else queue order; nothing for an index
+ * outside the queue. The prefetch follows it, so under shuffle it works out the songs that really
+ * come next (audit L4a-08).
+ */
+fun upcomingIndices(size: Int, currentIndex: Int, order: List<Int>?, count: Int): List<Int> {
+	if (currentIndex !in 0 until size || count <= 0) return emptyList()
+	if (order != null && order.size == size && currentIndex in order) {
+		return order.drop(order.indexOf(currentIndex) + 1).take(count)
 	}
-	return (currentIndex + 1).takeIf { it < songIds.size }
+	return ((currentIndex + 1) until size).take(count)
 }
 
 /** The header's "Playing from": [kind] ("album", "playlist") when the name alone does not say it. */
