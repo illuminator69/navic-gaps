@@ -1316,7 +1316,9 @@ class RadioManager(
 					lastSig = sig
 					stationManager.setBusy(true)
 					val retry = try {
-						runStep(step, state, order, on, transientAttempts)
+						// What the step's failure handling reads (an engine fallback's Auto DJ) is the same rule
+						// the step was decided by: a live bound station wants more whatever the default says.
+						runStep(step, state, order, autoplayWanted(available, on, bound), transientAttempts)
 					} catch (e: Exception) {
 						Logger.e("RadioManager", "autoplay $step failed", e)
 						null

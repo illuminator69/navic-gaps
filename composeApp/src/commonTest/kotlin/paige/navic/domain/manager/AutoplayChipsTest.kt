@@ -277,4 +277,15 @@ class AutoplayChipsTest {
 		assertFalse(autoplayToggleShowsOn(selectedAutoplayChip(true, autoplayOn = true, StationCharacter.Close, radio.copy(stopped = true))))
 		assertTrue(autoplayToggleShowsOn(selectedAutoplayChip(true, autoplayOn = false, StationCharacter.Close, radio)))
 	}
+
+	// Audit L4a-02: the switch read the station's stopped flag, the driver the local default, so
+	// Off here then a character chip on another device left this switch ON and nothing topped up.
+	@Test
+	fun switchAndDriverAgree() {
+		val bounds = listOf(null, radio.copy(stopped = false), radio.copy(stopped = true), radio.copy(character = "unknown-new"))
+		for (available in listOf(false, true)) for (on in listOf(false, true)) for (bound in bounds) {
+			val shown = autoplayToggleShowsOn(selectedAutoplayChip(available, on, StationCharacter.Balanced, bound))
+			assertEquals(autoplayWanted(available, on, bound), shown, "available=$available on=$on bound=$bound")
+		}
+	}
 }

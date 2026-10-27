@@ -106,7 +106,7 @@ class StationDriverTest {
 
 	@Test
 	fun nothingHappensWhileOffRemotePausedRepeatingBusyOrEmpty() {
-		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, on = false)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, on = false, bound = null)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, remote = true)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, repeat = 2)))
@@ -122,7 +122,7 @@ class StationDriverTest {
 		assertEquals(AutoplayStep.Start, autoplayStep(look(remaining = 1, paused = true, chipTap = true, bound = null)))
 		assertEquals(AutoplayStep.AutoDj, autoplayStep(look(remaining = 0, paused = true, chipTap = true, available = false)))
 		// Still nothing with autoplay off, repeating, or enough left.
-		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true, chipTap = true, on = false)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true, chipTap = true, on = false, bound = null)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, paused = true, chipTap = true, repeat = 2)))
 		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 3, paused = true, chipTap = true)))
 	}
@@ -332,12 +332,38 @@ class StationDriverTest {
 
 	@Test
 	fun offStopsEveryStationRadiosIncluded() {
-		// I-041 replaces the origin rule: Off stops everything; On continues every bound station.
+		// I-041 replaces the origin rule: Off stops everything. Since the fix round (audit L4a-02) the
+		// Off chip says it through the station's own stopped flag, which every device shares: a live
+		// station continues whatever its origin, a stopped one adds nothing.
 		for (origin in listOf(ORIGIN_RADIO, ORIGIN_CONTINUE, null)) {
 			val bound = radio.copy(origin = origin)
 			assertEquals(AutoplayStep.Next("st_1", 20), autoplayStep(look(remaining = 1, bound = bound, on = true)), "on, $origin")
-			assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = bound, on = false)), "off, $origin")
+			assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, bound = bound.copy(stopped = true), on = false)), "off, $origin")
 		}
+	}
+
+	// ---- audit L4a-02: the switch and the driver read one rule (autoplayWanted) ---------------- //
+
+	@Test
+	fun aLiveBoundStationIsToppedUpWhateverTheDefaultSays() {
+		assertEquals(AutoplayStep.Next("st_1", 20), autoplayStep(look(remaining = 1, on = false)))
+	}
+
+	@Test
+	fun aStoppedStationAddsNothingWhateverTheDefaultSays() {
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, on = true, bound = radio.copy(stopped = true))))
+	}
+
+	@Test
+	fun withNoStationTheDefaultDecides() {
+		assertEquals(AutoplayStep.Start, autoplayStep(look(remaining = 1, on = true, bound = null)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 1, on = false, bound = null)))
+	}
+
+	@Test
+	fun withoutTheEngineTheDefaultDecides() {
+		assertEquals(AutoplayStep.AutoDj, autoplayStep(look(remaining = 0, available = false, on = true)))
+		assertEquals(AutoplayStep.Idle, autoplayStep(look(remaining = 0, available = false, on = false)))
 	}
 
 	@Test

@@ -65,20 +65,28 @@ fun characterChips(chips: List<AutoplayChip>): List<AutoplayChip> = chips.filter
 /** The switch shows on iff the selected chip ([selectedAutoplayChip]) is not Off. */
 fun autoplayToggleShowsOn(selected: AutoplayChip): Boolean = selected != AutoplayChip.Off
 
-/** The chip shown selected. */
+/**
+ * Whether autoplay is wanted for this queue: the one rule the switch ([selectedAutoplayChip]) and the
+ * driver ([autoplayStep]) both read (audit L4a-02). While the engine is there and a station is bound,
+ * **the hub's station is the truth**: its `stopped` is shared by every device, and the Off chip sets
+ * it. Otherwise the local switch ("Autoplay by default") decides: a default for a queue with no
+ * station, not a mute for a station that is playing.
+ */
+fun autoplayWanted(stationsAvailable: Boolean, autoplayOn: Boolean, bound: StationProvenance?): Boolean =
+	if (stationsAvailable && bound != null) !bound.stopped else autoplayOn
+
+/** The chip shown selected: Off exactly when autoplay is not wanted ([autoplayWanted]). */
 fun selectedAutoplayChip(
 	stationsAvailable: Boolean,
 	autoplayOn: Boolean,
 	preferred: StationCharacter,
 	bound: StationProvenance?
 ): AutoplayChip {
-	if (!stationsAvailable) return if (autoplayOn) AutoplayChip.AutoDj else AutoplayChip.Off
-	if (bound != null) {
-		if (bound.stopped) return AutoplayChip.Off
-		// A character not known yet (no frame) shows the preference rather than a guess.
-		StationCharacter.fromWire(bound.character)?.let { return AutoplayChip.of(it) }
-	}
-	return if (autoplayOn) AutoplayChip.of(preferred) else AutoplayChip.Off
+	if (!autoplayWanted(stationsAvailable, autoplayOn, bound)) return AutoplayChip.Off
+	if (!stationsAvailable) return AutoplayChip.AutoDj
+	// A character not known yet (no frame) shows the preference rather than a guess.
+	bound?.let { StationCharacter.fromWire(it.character) }?.let { return AutoplayChip.of(it) }
+	return AutoplayChip.of(preferred)
 }
 
 /** What a tap on a chip does, decided before anything is sent. */

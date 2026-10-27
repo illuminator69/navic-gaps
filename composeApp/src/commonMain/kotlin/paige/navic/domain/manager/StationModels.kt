@@ -671,10 +671,13 @@ data class AutoplayLook(
  * queue no station built asks `start` at the same point. Without it, Auto DJ at its own timing.
  *
  * Off stops everything, radios included (I-041; the Off chip): nothing is asked and nothing is
- * started. A station stopped by any device ([StationProvenance.stopped]) adds nothing either.
+ * started. Whether autoplay is on is [autoplayWanted]: a bound station's own `stopped` (set by the
+ * Off chip on any device) decides for it, the local default for a queue with no station.
  */
 fun autoplayStep(look: AutoplayLook): AutoplayStep {
-	if (!look.autoplayOn || look.remoteActive || look.inFlight) return AutoplayStep.Idle
+	if (!autoplayWanted(look.stationsAvailable, look.autoplayOn, look.bound) || look.remoteActive || look.inFlight) {
+		return AutoplayStep.Idle
+	}
 	// Paused waits for playback, except right after a chip: a character picked on a paused queue
 	// on its last song is a request for more now, not at the next play.
 	if ((look.paused && !look.chipTap) || look.repeatMode != 0) return AutoplayStep.Idle

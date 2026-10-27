@@ -629,8 +629,12 @@ Rules, each with a reason:
 - **Autoplay is the queue's chips, and Off stops everything (I-041).** Under the queue's header,
   one sideways-scrolling `PageChips` row: Off, Close, Balanced, Explore with the engine (the
   catalogue's words), Off and Auto DJ without it (`AutoplayChips.kt`; Feishin's
-  `station-chips.ts` is the twin). The selected chip is a bound station's own state (Off iff it is
-  `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
+  `station-chips.ts` is the twin). The switch and the driver read ONE rule, `autoplayWanted`
+  (fix round P2, audit L4a-02): with the engine and a bound station, the station's own `stopped`
+  (shared by every device) decides, else the local `autoplayOn` ("Autoplay by default"). So Off
+  here then a character chip on another device reads ON here and tops up, and the default never
+  silences a station that is playing. The selected chip is a bound station's own state (Off iff it
+  is `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
   bound station (the hub then answers `next` with no tracks and `stopped`, for every device, and
   says `stopped` in its frames), and the songs that station added that are still to come are taken
   out. **A character**: autoplay on with it; a bound station that is stopped or on another
