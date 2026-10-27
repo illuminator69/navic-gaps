@@ -51,12 +51,13 @@ class CoverSeedPrefetcher(
 				try {
 					// A loader per fetch: its request builder is one mutable object, and two
 					// fetches run at once.
-					val seeds = fetchCoverSeeds(NetworkLoader(paletteHttpClient), sessionManager.getCoverArtUrl(id, size = PALETTE_PX))
-					if (seeds != null) {
-						store.put(id, seeds)
-						queue.done(id)
-					} else {
-						queue.failed(id)
+					when (val fetch = fetchCoverSeeds(NetworkLoader(paletteHttpClient), sessionManager.getCoverArtUrl(id, size = PALETTE_PX))) {
+						is CoverSeedFetch.Seeds -> {
+							store.put(id, fetch.seeds)
+							queue.done(id)
+						}
+						CoverSeedFetch.Unextractable -> queue.unextractable(id)
+						CoverSeedFetch.Failed -> queue.failed(id)
 					}
 				} finally {
 					running--
@@ -89,13 +90,14 @@ internal class PrefetchQueue(
 	private val pending = ArrayDeque<String>()
 	private val inFlight = mutableSetOf<String>()
 	private val failedAt = mutableMapOf<String, Long>()
+	private val unextractable = mutableSetOf<String>()
 
 	/**
 	 * False when [id] is already waiting in its lane (or as urgent), being fetched, or failed within the
 	 * retry window. A tile id offered as [urgent] moves to the urgent lane.
 	 */
 	fun offer(id: String, urgent: Boolean = false): Boolean {
-		if (id in inFlight || id in urgentPending) return false
+		if (id in inFlight || id in urgentPending || id in unextractable) return false
 		if (!urgent && id in pending) return false
 		failedAt[id]?.let { at ->
 			if (now() - at < retryAfterMs) return false
@@ -126,5 +128,11 @@ internal class PrefetchQueue(
 	fun failed(id: String) {
 		inFlight -= id
 		failedAt[id] = now()
+	}
+
+	/** [id]'s image came and gave no seeds (all black): it is never asked for again. */
+	fun unextractable(id: String) {
+		inFlight -= id
+		unextractable += id
 	}
 }

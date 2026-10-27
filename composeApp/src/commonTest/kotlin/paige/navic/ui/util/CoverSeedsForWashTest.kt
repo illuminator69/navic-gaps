@@ -31,4 +31,12 @@ class CoverSeedsForWashTest {
 	fun whileTheNewCoverIsComingTheOldOneBridges() {
 		assertEquals("old", seedsForWash("c2", cached = null, fetched = "old", fetchFailedFor = "c1"))
 	}
+
+	// Fix round P6: a cover the palette cannot read is an answer, not a failure to retry.
+	@Test
+	fun noSeedsFromAFetchedImageIsUnextractable() {
+		assertEquals(CoverSeedFetch.Unextractable, coverSeedFetchOf(null))
+		val seeds = CoverSeeds(dominant = 0xFF0A1430.toInt(), vivid = null)
+		assertEquals(CoverSeedFetch.Seeds(seeds), coverSeedFetchOf(seeds))
+	}
 }

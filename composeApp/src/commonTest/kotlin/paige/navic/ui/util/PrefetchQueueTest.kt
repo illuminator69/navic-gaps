@@ -79,4 +79,15 @@ class PrefetchQueueTest {
 		assertEquals("b", q.next())
 		assertNull(q.next())
 	}
+
+	// Fix round P6: an all-black cover gives no seeds however often it is asked; it is not asked again.
+	@Test
+	fun anUnextractableIdIsNeverAskedAgain() {
+		val q = queue()
+		q.offer("black"); q.next()
+		q.unextractable("black")
+		clock += 10 * 60_000
+		assertFalse(q.offer("black"))
+		assertFalse(q.offer("black", urgent = true))
+	}
 }

@@ -136,9 +136,10 @@ internal fun <T> seedsForWash(paletteKey: String?, cached: T?, fetched: T?, fetc
  * fresh composable, a fresh attempt — showed the right colours for the same cover.
  *
  * The Ktor fetch suspends off the caller's thread on its own, but the quantisation afterwards is
- * plain CPU work, so it runs on [Dispatchers.Default]. Null when every attempt failed.
+ * plain CPU work, so it runs on [Dispatchers.Default]. [CoverSeedFetch.Failed] when every attempt
+ * failed; [CoverSeedFetch.Unextractable] when the image came and the palette found nothing in it.
  */
-internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverSeeds? {
+internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverSeedFetch {
 	for (attempt in 0 until PALETTE_ATTEMPTS) {
 		if (attempt > 0) delay(PALETTE_RETRY_DELAY_MS * attempt)
 		val outcome = runCatching {
@@ -155,13 +156,27 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 				)
 			}
 		}
-		if (outcome.isSuccess) return outcome.getOrNull()
+		if (outcome.isSuccess) return coverSeedFetchOf(outcome.getOrNull())
 		val error = outcome.exceptionOrNull()
 		if (error is CancellationException) throw error
 		Logger.w("CoverColorScheme", "palette fetch failed for $uri (attempt ${attempt + 1})", error)
 	}
-	return null
+	return CoverSeedFetch.Failed
 }
+
+/**
+ * What a cover-colour fetch came back with. An image whose palette gives no seeds (all black) is an
+ * answer, [Unextractable], not a failure: asking again gives the same nothing (fix round P6).
+ */
+sealed interface CoverSeedFetch {
+	data class Seeds(val seeds: CoverSeeds) : CoverSeedFetch
+	data object Unextractable : CoverSeedFetch
+	data object Failed : CoverSeedFetch
+}
+
+/** A fetched image's derived seeds as a [CoverSeedFetch]: none is [CoverSeedFetch.Unextractable]. */
+internal fun coverSeedFetchOf(derived: CoverSeeds?): CoverSeedFetch =
+	derived?.let { CoverSeedFetch.Seeds(it) } ?: CoverSeedFetch.Unextractable
 
 /** A readable Material scheme derived from artwork plus the extracted seed color. */
 data class CoverColors(
@@ -279,8 +294,9 @@ fun rememberCoverColorScheme(
 			fetched = it
 			return@LaunchedEffect
 		}
-		val result = fetchCoverSeeds(networkLoader, uri)
+		val result = (fetchCoverSeeds(networkLoader, uri) as? CoverSeedFetch.Seeds)?.seeds
 		if (result == null) {
+			// Failed or unextractable: either way this cover has no colours to bridge to.
 			fetchFailedFor = id
 			return@LaunchedEffect
 		}
