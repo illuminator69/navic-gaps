@@ -299,3 +299,14 @@ fun unboundMood(pending: String?, fromTile: String?): String? = when {
 
 /** A mood tap with no bound station: the pending mood after it (tapping the pending one is All). */
 fun nextPendingMood(current: String?, tapped: String?): String? = tapped?.takeUnless { it == current }
+
+/**
+ * The songs a hub edit (S-035, `stationEdits`) swapped into the queue: those in [after] that [before]
+ * did not hold, once each. The hub's answer gives only counts, so this device reads them off the
+ * queue it was sent, and adds them to the station's `served`: they read "Autoplay", not "Up next"
+ * (B-177, audit L4a-04).
+ */
+fun swappedInIds(before: List<String>, after: List<String>): List<String> {
+	val had = before.toHashSet()
+	return after.filter { it !in had }.distinct()
+}

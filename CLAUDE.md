@@ -415,7 +415,9 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   still a tap that turns it on with that character), the off note (only for a queue a station is
   bound to), and at full only the Up next / Related switch, the count with Clear and the generator
   line. Rows are grouped by who added them (`queueListItems`: Autoplay = in the bound station's
-  served list; "Queued by you" only beside an autoplay group; "Up next" otherwise); a dragged row
+  served list, which a hub edit's swap-in joins on this device (`swappedInIds`, B-177); "Queued by you"
+  only beside an autoplay group and only for a song the user queued here (`MediaPlayerViewModel.userQueued`,
+  forgotten when the queue is replaced or cleared; fix round P3); "Up next" otherwise); a dragged row
   moves through a frozen copy of the list, past headers, and the mirror moves only when it passes a
   row. **Outside a drag the list groups by the player's own index**, not by the uid-tracked playing
   row: that follows a track change a frame late, and the scroll to "Now playing" landed on the song

@@ -288,4 +288,13 @@ class AutoplayChipsTest {
 			assertEquals(autoplayWanted(available, on, bound), shown, "available=$available on=$on bound=$bound")
 		}
 	}
+
+	// B-177: the rows a hub edit swapped in are the station's; this device learns them as the ids
+	// the edit brought that the queue did not hold before.
+	@Test
+	fun aHubEditsSwapInIsWhatTheQueueDidNotHoldBefore() {
+		assertEquals(listOf("x1", "x2"), swappedInIds(listOf("s0", "s1", "s3", "s4"), listOf("s0", "s1", "x1", "x2")))
+		assertEquals(emptyList(), swappedInIds(listOf("s0", "s1"), listOf("s0", "s1")))
+		assertEquals(listOf("x1"), swappedInIds(listOf("s0"), listOf("s0", "x1", "x1")))
+	}
 }

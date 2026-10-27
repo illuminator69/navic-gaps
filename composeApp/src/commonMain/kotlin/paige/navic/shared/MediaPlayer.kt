@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
+import paige.navic.ui.screens.nowPlaying.staged.userQueuedAfterAdd
+import paige.navic.ui.screens.nowPlaying.staged.userQueuedAfterQueueChange
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -392,6 +394,34 @@ abstract class MediaPlayerViewModel(
 	private val _restored = MutableStateFlow(false)
 	val restored: StateFlow<Boolean> = _restored.asStateFlow()
 
+	/**
+	 * The song ids the user queued on this device by hand (add to queue, play next), for the queue's
+	 * "Queued by you" (audit L4a-04). Forgotten when the queue is replaced or cleared
+	 * ([userQueuedAfterQueueChange]). By id, so a queued song the station also served reads Autoplay.
+	 */
+	private val _userQueued = MutableStateFlow<Set<String>>(emptySet())
+	val userQueued: StateFlow<Set<String>> = _userQueued.asStateFlow()
+
+	private fun noteUserQueued(ids: List<String>) {
+		_userQueued.value = userQueuedAfterAdd(_userQueued.value, ids)
+	}
+
+	private fun forgetUserQueued() {
+		_userQueued.value = emptySet()
+	}
+
+	init {
+		viewModelScope.launch {
+			var previousQueueId = _uiState.value.savedQueueId
+			_uiState.collect { state ->
+				_userQueued.value = userQueuedAfterQueueChange(
+					_userQueued.value, previousQueueId, state.savedQueueId, state.queue.isEmpty()
+				)
+				previousQueueId = state.savedQueueId
+			}
+		}
+	}
+
 	init {
 		viewModelScope.launch {
 			try {
@@ -457,24 +487,29 @@ abstract class MediaPlayerViewModel(
 	protected abstract fun shufflePlayLocal(collection: DomainSongCollection)
 
 	fun addToQueueSingle(song: DomainSong) {
+		noteUserQueued(listOf(song.id))
 		routeRemotely?.enqueue(listOf(song), playNext = false) ?: addToQueueSingleLocal(song)
 	}
 
 	fun addToQueue(collection: DomainSongCollection) {
+		noteUserQueued(collection.songs.map { it.id })
 		routeRemotely?.enqueue(collection.songs, playNext = false) ?: addToQueueLocal(collection)
 	}
 
 	fun playNextSingle(song: DomainSong) {
+		noteUserQueued(listOf(song.id))
 		routeRemotely?.enqueue(listOf(song), playNext = true) ?: playNextSingleLocal(song)
 	}
 
 	fun playNext(collection: DomainSongCollection) {
+		noteUserQueued(collection.songs.map { it.id })
 		routeRemotely?.enqueue(collection.songs, playNext = true) ?: playNextLocal(collection)
 	}
 
 	fun playCollection(collection: DomainSongCollection, startSong: DomainSong) {
 		// Replacing the queue is undoable: snapshot whatever is playing now before it's discarded.
 		captureQueueUndo(QueueUndoKind.REPLACE)
+		forgetUserQueued()
 		val router = routeRemotely
 		if (router != null) {
 			// Send the WHOLE collection and tell the hub where to start, so the rest of the album
@@ -492,6 +527,7 @@ abstract class MediaPlayerViewModel(
 
 	fun shufflePlay(collection: DomainSongCollection) {
 		captureQueueUndo(QueueUndoKind.REPLACE)
+		forgetUserQueued()
 		val router = routeRemotely
 		if (router != null) {
 			// Shuffle here rather than asking the hub to: the receiver gets a plain ordered queue,
@@ -514,6 +550,7 @@ abstract class MediaPlayerViewModel(
 
 	fun playNow(song: DomainSong) {
 		captureQueueUndo(QueueUndoKind.REPLACE)
+		forgetUserQueued()
 		val router = routeRemotely
 		if (router != null) {
 			router.setQueue(listOf(song), 0, sourceName = song.title)
@@ -549,6 +586,7 @@ abstract class MediaPlayerViewModel(
 			return
 		}
 		captureQueueUndo(QueueUndoKind.REPLACE)
+		forgetUserQueued()
 		clearQueue()
 		addToQueueLocal(collection)
 		playAt(startIndex)
@@ -557,6 +595,7 @@ abstract class MediaPlayerViewModel(
 
 	fun playNow(songs: List<DomainSong>, startIndex: Int = 0) {
 		captureQueueUndo(QueueUndoKind.REPLACE)
+		forgetUserQueued()
 		val router = routeRemotely
 		if (router != null) {
 			router.setQueue(songs, startIndex)

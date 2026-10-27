@@ -1401,7 +1401,7 @@
 	<string name="staged_section_queued_by_you">Queued by you</string>
 	<string name="staged_section_autoplay">Autoplay · %1$s</string>
 	<string name="staged_section_up_next">Up next</string>
-	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and the songs it had added are gone. Songs you queued stay.</string>
+	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and took its queued songs out, apart from one that is about to play. Songs you queued stay.</string>
 	<string name="staged_open_queue">Open the queue</string>
 	<string name="staged_collapse_queue">Collapse the queue</string>
 	<string name="staged_rate_song">Rate this song</string>
