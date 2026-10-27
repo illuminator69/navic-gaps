@@ -166,4 +166,13 @@ class MoodModelsTest {
 		assertEquals("sleep", relax.tap("sleep").moodId)
 		assertNull(relax.clear().moodId)
 	}
+
+	// Audit L4a-01: with the hub's station refused or unavailable, a filtered radio fell back to
+	// Navidrome's similar songs, which know no mood, while its row still said "· Pump-up".
+	@Test
+	fun aFilteredRadioHasNoUnfilteredFallback() {
+		assertTrue(stationFallbackAllowed(""))
+		assertFalse(stationFallbackAllowed("relax"))
+		assertTrue(stationFallbackAllowed("  "))
+	}
 }

@@ -714,6 +714,8 @@ class RadioManager(
 				}
 			}
 		}
+		// Audit L4a-01: a filtered radio has no unfiltered fallback.
+		if (!stationFallbackAllowed(mix.moodFilter)) return false
 		val queue = generate(mix)
 		if (queue.isEmpty()) return false
 
@@ -886,9 +888,11 @@ class RadioManager(
 	 * plays from there), built afresh on each opening as YouTube Music's mixes are. A mix that
 	 * plays as a station starts that station now and shows its first batch, so what plays is what
 	 * the page showed and the station carries on after it; any other mix runs its recipe
-	 * ([generate]). Null when nothing could be built. Not a play: `lastPlayedAt` is untouched.
+	 * ([generate]). [MixBuildResult.Empty] when nothing could be built, and
+	 * [MixBuildResult.NeedsAudioMuse] for a mood-filtered radio whose station could not start (it has
+	 * no unfiltered fallback, audit L4a-01). Not a play: `lastPlayedAt` is untouched.
 	 */
-	suspend fun buildMix(mix: Mix, yourMixName: String): MixBuild? {
+	suspend fun buildMix(mix: Mix, yourMixName: String): MixBuildResult {
 		val yourMix = mix.id == YOUR_MIX_ID
 		if (yourMix || stationBacked(mix)) {
 			val recipe = if (yourMix) StationRecipe(StationSeed.YourMix, emptyList(), _character.value)
@@ -900,16 +904,17 @@ class RadioManager(
 				val variety = if (yourMix) "" else mix.variety
 				val filter = if (yourMix) "" else mix.moodFilter
 				when (val start = startStation(recipe.seed, recipe.seedSongs, recipe.character, name, count, variety, filter)) {
-					is StationStart.Ok -> return MixBuild(mix, start.built.queue, start.built)
-					StationStart.Empty -> return null
+					is StationStart.Ok -> return MixBuildResult.Built(MixBuild(mix, start.built.queue, start.built))
+					StationStart.Empty -> return MixBuildResult.Empty
 					StationStart.Unavailable -> {}
 				}
 			}
 		}
+		if (!yourMix && !stationFallbackAllowed(mix.moodFilter)) return MixBuildResult.NeedsAudioMuse
 		val songs = if (yourMix) {
 			resolveIds(runCatching { audioMuseManager.fetchSonicFingerprintIds(RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList()))
 		} else generate(mix)
-		return songs.takeIf { it.isNotEmpty() }?.let { MixBuild(mix, it, null) }
+		return if (songs.isEmpty()) MixBuildResult.Empty else MixBuildResult.Built(MixBuild(mix, songs, null))
 	}
 
 	/**

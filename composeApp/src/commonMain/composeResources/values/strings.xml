@@ -1329,6 +1329,7 @@
 	<string name="custom_radio_save_failed">It could not be saved: the hub did not answer. Try again.</string>
 	<string name="mix_page_building">Building this mix</string>
 	<string name="mix_page_empty">This mix came up empty just now. Pull to try again.</string>
+	<string name="radio_mood_needs_audiomuse">A mood radio needs AudioMuse, and it is not answering now. Pull to try again.</string>
 	<string name="mix_page_fresh">Built fresh each time you open it.</string>
 	<string name="mix_page_continues">When these end, the radio carries on.</string>
 	<string name="mix_custom_radio">Custom radio</string>

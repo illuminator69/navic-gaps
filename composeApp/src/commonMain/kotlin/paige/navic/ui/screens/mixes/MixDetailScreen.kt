@@ -64,6 +64,7 @@ import navic.composeapp.generated.resources.mix_page_continues
 import navic.composeapp.generated.resources.mix_page_empty
 import navic.composeapp.generated.resources.mix_page_fresh
 import navic.composeapp.generated.resources.mix_unknown_kind
+import navic.composeapp.generated.resources.radio_mood_needs_audiomuse
 import navic.composeapp.generated.resources.queue_your_mix
 import navic.composeapp.generated.resources.title_delete_mix
 import navic.composeapp.generated.resources.title_rename_mix
@@ -304,6 +305,13 @@ fun MixDetailScreen(mixId: String) {
 									modifier = Modifier.padding(vertical = 32.dp),
 									icon = Icons.Outlined.Equalizer,
 									label = stringResource(Res.string.mix_page_empty)
+								)
+							}
+							MixPageState.NeedsAudioMuse -> item(key = "needs-audiomuse") {
+								ContentUnavailable(
+									modifier = Modifier.padding(vertical = 32.dp),
+									icon = Icons.Outlined.Equalizer,
+									label = stringResource(Res.string.radio_mood_needs_audiomuse)
 								)
 							}
 							MixPageState.UnknownKind -> item(key = "unknown") {

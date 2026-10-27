@@ -219,3 +219,11 @@ fun HomeMoodSelection.tap(id: String): HomeMoodSelection =
 	if (moodId == id) HomeMoodSelection(null) else HomeMoodSelection(id)
 
 fun HomeMoodSelection.clear(): HomeMoodSelection = HomeMoodSelection(null)
+
+/**
+ * Whether a radio with [moodFilter] may fall back to the recipe's own engines (Navidrome's similar
+ * songs) when the hub's station is refused or unavailable. Only an unfiltered one: those songs know
+ * no mood, so a filtered radio played that way is the wrong music under its mood's name (audit
+ * L4a-01). A filtered radio is refused instead, with a line that says AudioMuse is not answering.
+ */
+fun stationFallbackAllowed(moodFilter: String): Boolean = moodFilter.isBlank()
