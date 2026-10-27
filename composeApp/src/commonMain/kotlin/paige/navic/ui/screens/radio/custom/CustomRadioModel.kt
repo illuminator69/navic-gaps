@@ -169,3 +169,9 @@ fun customRadioRecipe(
 		moodFilter = moodFilter.orEmpty()
 	)
 }
+
+/** Which hint the Tune step shows under its dials. */
+enum class TuneHint { WithVariety, WithoutVariety }
+
+/** The hint names Artist variety only when the control is drawn (a hub that has none, fix round P6). */
+fun tuneHint(varietyOffered: Boolean): TuneHint = if (varietyOffered) TuneHint.WithVariety else TuneHint.WithoutVariety

@@ -77,6 +77,7 @@ import navic.composeapp.generated.resources.custom_radio_count_low
 import navic.composeapp.generated.resources.custom_radio_filters
 import navic.composeapp.generated.resources.custom_radio_done
 import navic.composeapp.generated.resources.custom_radio_hint
+import navic.composeapp.generated.resources.custom_radio_hint_no_variety
 import navic.composeapp.generated.resources.custom_radio_song_selection
 import navic.composeapp.generated.resources.custom_radio_variety
 import navic.composeapp.generated.resources.custom_radio_variety_high
@@ -183,7 +184,12 @@ internal fun TuneStep(
 					}
 				}
 				Text(
-					stringResource(Res.string.custom_radio_hint),
+					stringResource(
+						when (tuneHint(varietyOffered)) {
+							TuneHint.WithVariety -> Res.string.custom_radio_hint
+							TuneHint.WithoutVariety -> Res.string.custom_radio_hint_no_variety
+						}
+					),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)

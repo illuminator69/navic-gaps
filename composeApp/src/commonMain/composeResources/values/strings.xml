@@ -1318,6 +1318,7 @@
 	<string name="custom_radio_variety_high">High</string>
 	<string name="custom_radio_song_selection">Song selection</string>
 	<string name="custom_radio_hint">Discover widens artists too. Artist variety limits how often one artist repeats.</string>
+	<string name="custom_radio_hint_no_variety">Discover widens artists too.</string>
 	<string name="custom_radio_count">%1$s songs to draw from</string>
 	<string name="custom_radio_count_partial">At least %1$s songs to draw from</string>
 	<string name="custom_radio_count_updating">updating</string>

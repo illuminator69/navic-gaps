@@ -234,4 +234,11 @@ class CustomRadioModelTest {
 		assertFalse("moodFilter" in plain)
 		assertEquals("", paige.navic.domain.manager.mixFromRecord(kotlinx.serialization.json.JsonObject(plain))?.moodFilter)
 	}
+
+	// Fix round P6: the hint under the dials named Artist variety on a hub that draws no variety control.
+	@Test
+	fun theHintNamesVarietyOnlyWhenItIsOffered() {
+		assertEquals(TuneHint.WithVariety, tuneHint(varietyOffered = true))
+		assertEquals(TuneHint.WithoutVariety, tuneHint(varietyOffered = false))
+	}
 }
