@@ -2026,7 +2026,9 @@ true of invented *album art*, and not of an icon naming the kind.
   header row is the app bar's 64 dp so the avatar is at the same height (uiautomator: node (36,175)-(180,319) px on all
   three pages at density 3). **Back goes Home**: a tab tap leaves `[Home]` or `[Home, tab]` (`stackAfterTap`, applied by
   `becomeStack`, the smallest edits, never `clear()` then add), `NavDisplay`'s own pop does the rest (so Back on Search or
-  the Library is the ordinary pop with its predictive animation, and only Home leaves the app); a tab's own page is still
+  the Library is the ordinary pop, and only Home leaves the app; its animation, predictive gesture included, is the root
+  tabs' cross-fade from `navtabMetadata`, not a slide: seen on the phone's release build 2026-10-27 and kept by the owner,
+  fix round N6); a tab's own page is still
   a root for the transitions (`isRootPage`); a restored stack that starts with Search or the Library gets Home put under
   it once (`normalizedStack`, before anything reads it). **Anything outside `NavDisplay` that takes Back must be added
   AFTER it**: the dispatcher asks the last-added handler, and with Home under them `NavDisplay`'s handler is enabled on
