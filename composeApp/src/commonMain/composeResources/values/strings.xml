@@ -1323,6 +1323,7 @@
 	<string name="custom_radio_count_partial">At least %1$s songs to draw from</string>
 	<string name="custom_radio_count_updating">updating</string>
 	<string name="custom_radio_count_unavailable">Count unavailable</string>
+	<string name="custom_radio_count_unfinished">Could not finish counting</string>
 	<string name="custom_radio_count_zero">0 songs match. Try a different setting.</string>
 	<string name="custom_radio_count_unknown">AudioMuse has not analysed these artists yet.</string>
 	<string name="custom_radio_done">Done</string>

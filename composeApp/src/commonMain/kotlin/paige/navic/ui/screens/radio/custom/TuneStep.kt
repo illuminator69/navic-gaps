@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.custom_radio_add_artists
 import navic.composeapp.generated.resources.custom_radio_count
 import navic.composeapp.generated.resources.custom_radio_count_partial
 import navic.composeapp.generated.resources.custom_radio_count_unavailable
+import navic.composeapp.generated.resources.custom_radio_count_unfinished
 import navic.composeapp.generated.resources.custom_radio_count_unknown
 import navic.composeapp.generated.resources.custom_radio_count_updating
 import navic.composeapp.generated.resources.custom_radio_count_zero
@@ -393,17 +394,19 @@ private fun CountLine(count: CountState, warnLow: Boolean = false) {
 					}
 					Text(stringResource(Res.string.custom_radio_count_updating), style = style, color = muted)
 				}
-				is CountState.Known -> if (state.count == 0) {
-					WarnLine(stringResource(Res.string.custom_radio_count_zero))
-				} else if (warnLow) {
+				// In songs the radio can reach (audit L4a-05): the hub's `reach` when it sends one.
+				is CountState.Known -> when (val text = countText(state, warnLow)) {
+					CountText.Zero -> WarnLine(stringResource(Res.string.custom_radio_count_zero))
+					CountText.Unfinished ->
+						Text(stringResource(Res.string.custom_radio_count_unfinished), style = style, color = muted)
 					// A filter that leaves little (P7 call 8): said, and Done stays enabled.
-					WarnLine(stringResource(Res.string.custom_radio_count_low, formatCount(state.count)))
-				} else {
-					Text(
-						stringResource(
-							if (state.partial) Res.string.custom_radio_count_partial else Res.string.custom_radio_count,
-							formatCount(state.count)
-						),
+					is CountText.Low -> WarnLine(stringResource(Res.string.custom_radio_count_low, formatCount(text.songs)))
+					is CountText.Partial -> Text(
+						stringResource(Res.string.custom_radio_count_partial, formatCount(text.songs)),
+						style = style, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+					)
+					is CountText.Counted -> Text(
+						stringResource(Res.string.custom_radio_count, formatCount(text.songs)),
 						style = style, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
 					)
 				}

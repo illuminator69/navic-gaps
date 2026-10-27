@@ -54,7 +54,7 @@ fun radioTitle(artists: List<PickedArtist>): String =
 sealed interface CountState {
 	data object Idle : CountState
 	data class Counting(val previous: Int?) : CountState
-	data class Known(val count: Int, val partial: Boolean = false) : CountState
+	data class Known(val count: Int, val partial: Boolean = false, val reach: Int? = null) : CountState
 	data object Unknown : CountState
 	data object Unavailable : CountState
 	data object Failed : CountState
@@ -100,8 +100,41 @@ fun nextMoodFilter(current: String?, tapped: String): String? = if (current == t
 /** Below this many songs to draw from, a filtered radio will run out soon: the footer says so. */
 const val FILTER_WARN_BELOW = 30
 
-/** Whether the count line warns that the radio will run out quickly: a known count under 30. */
-fun filterWarning(state: CountState): Boolean = state is CountState.Known && state.count < FILTER_WARN_BELOW
+/**
+ * The songs the radio can draw on: the count, or the hub's `reach` when it says more (B-178: 22
+ * counted, 50 served, 338 reachable). An older hub sends no `reach`, and this is the count.
+ */
+fun reachable(known: CountState.Known): Int = maxOf(known.count, known.reach ?: known.count)
+
+/**
+ * Whether the count line warns that the radio will run out quickly: a complete count whose reach is
+ * under 30. A partial count may be low, so it does not warn.
+ */
+fun filterWarning(state: CountState): Boolean =
+	state is CountState.Known && !state.partial && reachable(state) < FILTER_WARN_BELOW
+
+/** What the count line says for a known count. */
+sealed interface CountText {
+	/** Nothing can be drawn: Done is off. */
+	data object Zero : CountText
+	/** A partial count of 0: counting did not finish, which is not "0 songs match". */
+	data object Unfinished : CountText
+	data class Low(val songs: Int) : CountText
+	data class Partial(val songs: Int) : CountText
+	data class Counted(val songs: Int) : CountText
+}
+
+/** The count line for [known], in songs the radio can reach ([reachable]); [warnLow] from [filterWarning]. */
+fun countText(known: CountState.Known, warnLow: Boolean): CountText {
+	val songs = reachable(known)
+	return when {
+		known.partial && songs == 0 -> CountText.Unfinished
+		songs == 0 -> CountText.Zero
+		known.partial -> CountText.Partial(songs)
+		warnLow -> CountText.Low(songs)
+		else -> CountText.Counted(songs)
+	}
+}
 
 /**
  * The count line after an event about [key]. [answer] null means a count for [key] went out.
@@ -113,12 +146,12 @@ fun reduceCount(state: CountState, key: CountKey, current: CountKey, answer: Sta
 	return when (answer) {
 		null -> CountState.Counting(
 			when (state) {
-				is CountState.Known -> state.count
+				is CountState.Known -> reachable(state)
 				is CountState.Counting -> state.previous
 				else -> null
 			}
 		)
-		is StationCountAnswer.Counted -> CountState.Known(answer.count, answer.partial)
+		is StationCountAnswer.Counted -> CountState.Known(answer.count, answer.partial, answer.reach)
 		StationCountAnswer.SeedUnknown -> CountState.Unknown
 		StationCountAnswer.Unavailable -> CountState.Unavailable
 		StationCountAnswer.Failed -> CountState.Failed
@@ -127,13 +160,14 @@ fun reduceCount(state: CountState, key: CountKey, current: CountKey, answer: Sta
 
 /**
  * Whether Done can be tapped: an artist is picked, and the count has not said there is nothing to
- * play. Only a count of 0 and "AudioMuse knows none of these" disable it; no engine, a count that
- * failed or one still out leave it enabled (the radio then plays Navidrome's similar songs).
+ * play. Only a complete count that reaches nothing and "AudioMuse knows none of these" disable it; a
+ * partial count of 0 (PROTOCOL 18.1: never shown as complete), no engine, a count that failed or one
+ * still out leave it enabled.
  */
 fun canFinish(picked: Int, count: CountState): Boolean {
 	if (picked <= 0) return false
 	return when (count) {
-		is CountState.Known -> count.count > 0
+		is CountState.Known -> count.partial || reachable(count) > 0
 		CountState.Unknown -> false
 		else -> true
 	}

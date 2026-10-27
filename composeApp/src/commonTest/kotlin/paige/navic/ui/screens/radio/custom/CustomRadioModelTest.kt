@@ -241,4 +241,55 @@ class CustomRadioModelTest {
 		assertEquals(TuneHint.WithVariety, tuneHint(varietyOffered = true))
 		assertEquals(TuneHint.WithoutVariety, tuneHint(varietyOffered = false))
 	}
+
+	// ---- audit L4a-05, B-178: the count follows what the radio can reach -------------------- //
+
+	@Test
+	fun aReachBeyondTheCountNeitherWarnsNorLies() {
+		val known = CountState.Known(22, partial = false, reach = 338)
+		assertEquals(338, reachable(known))
+		assertFalse(filterWarning(known))
+		assertTrue(canFinish(1, known))
+		assertEquals(CountText.Counted(338), countText(known, warnLow = filterWarning(known)))
+	}
+
+	@Test
+	fun anOlderHubWithNoReachWarnsAsBefore() {
+		val known = CountState.Known(22)
+		assertEquals(22, reachable(known))
+		assertTrue(filterWarning(known))
+		assertEquals(CountText.Low(22), countText(known, warnLow = true))
+	}
+
+	@Test
+	fun aZeroCountThatCanStillReachSongsIsNotZero() {
+		val known = CountState.Known(0, partial = false, reach = 120)
+		assertTrue(canFinish(1, known))
+		assertEquals(CountText.Counted(120), countText(known, warnLow = filterWarning(known)))
+	}
+
+	@Test
+	fun nothingReachableIsZeroAndDisablesDone() {
+		val known = CountState.Known(0, partial = false, reach = 0)
+		assertFalse(canFinish(1, known))
+		assertEquals(CountText.Zero, countText(known, warnLow = false))
+	}
+
+	@Test
+	fun aPartialZeroIsAnUnfinishedCountNotAnEmptyOne() {
+		val known = CountState.Known(0, partial = true)
+		assertTrue(canFinish(1, known))
+		assertFalse(filterWarning(known))
+		assertEquals(CountText.Unfinished, countText(known, warnLow = false))
+		assertEquals(CountText.Partial(12), countText(CountState.Known(12, partial = true), warnLow = false))
+	}
+
+	@Test
+	fun reduceCountCarriesReach() {
+		val key = CountKey.of(listOf("ar1"), StationCharacter.Balanced)
+		assertEquals(
+			CountState.Known(22, partial = false, reach = 338),
+			reduceCount(CountState.Counting(null), key, key, StationCountAnswer.Counted(22, false, reach = 338))
+		)
+	}
 }

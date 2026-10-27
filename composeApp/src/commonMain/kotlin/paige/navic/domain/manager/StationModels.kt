@@ -124,7 +124,11 @@ data class StationCatalogue(
  * the seeds; [Unavailable] no engine, or a hub too old to count; [Failed] no answer.
  */
 sealed interface StationCountAnswer {
-	data class Counted(val count: Int, val partial: Boolean) : StationCountAnswer
+	/**
+	 * [reach]: how many songs the radio can draw on beyond [count] (the hub's H4); null from an older
+	 * hub, and every rule then reads [count] (audit L4a-05, B-178).
+	 */
+	data class Counted(val count: Int, val partial: Boolean, val reach: Int? = null) : StationCountAnswer
 	data object SeedUnknown : StationCountAnswer
 	data object Unavailable : StationCountAnswer
 	data object Failed : StationCountAnswer
@@ -152,7 +156,9 @@ fun parseStationCount(status: Int?, body: String?): StationCountAnswer {
 			val count = (obj?.get("count") as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
 				?: return StationCountAnswer.Failed
 			val partial = (obj["partial"] as? JsonPrimitive)?.content == "true"
-			StationCountAnswer.Counted(count.coerceAtLeast(0), partial)
+			// Additive (H4): absent, or not a number, is an older hub.
+			val reach = (obj["reach"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()?.coerceAtLeast(0)
+			StationCountAnswer.Counted(count.coerceAtLeast(0), partial, reach)
 		}
 		status == 404 && str("code") == "seed_unknown" -> StationCountAnswer.SeedUnknown
 		status == 404 || status == 503 || (obj?.get("fallback") as? JsonPrimitive)?.content == "true" ->

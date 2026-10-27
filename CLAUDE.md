@@ -718,8 +718,11 @@ Rules, each with a reason:
   probe lists them** (`StationCatalogue.varieties`, `.count`; `takesVariety`); `start` sends `variety`
   only then, and a hub without them shows no control and "Count unavailable". The count is per artist
   set and character (`CountKey`), asked 250 ms after a change, never for a variety tap, and an answer
-  for any other key is dropped (`reduceCount`). Done is disabled only by `Known(0)` and `Unknown`
-  (`canFinish`). Done mints the id (the hub takes a client-minted one), saves and waits up to 6 s for the
+  for any other key is dropped (`reduceCount`). The line, the low warning and Done read
+  `reachable` (fix round P4, B-178): the hub's `reach` when its count answer carries one (an older hub
+  sends none: the count), so 22 counted of 338 reachable neither warns nor reads 22. Done is disabled
+  only by a complete count that reaches nothing and by `Unknown` (`canFinish`); a partial 0 is "Could
+  not finish counting", not "0 songs match". Done mints the id (the hub takes a client-minted one), saves and waits up to 6 s for the
   `mixes` broadcast to hold it; **it does not play** (P5 round 2, the owner's note: it was reached from
   New, so starting it surprised): the stack becomes the Library on Mixes with the mix's page on top, and
   `NewSheetHost` shows "Saved under Mixes", whose Undo deletes the mix (its page then leaves). A save the
