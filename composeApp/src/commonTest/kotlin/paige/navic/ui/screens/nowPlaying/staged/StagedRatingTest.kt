@@ -31,4 +31,12 @@ class StagedRatingTest {
 		assertEquals(listOf(true, true, true, false, false), (1..5).map { starFilled(it, rating = 3) })
 		assertEquals(List(5) { false }, (1..5).map { starFilled(it, rating = 0) })
 	}
+
+	// Fix round P6: an ext: preview is not a Navidrome song, so it cannot be saved or rated.
+	@Test
+	fun aPreviewIsNeitherSavedNorRated() {
+		assertTrue(canSaveOrRate("so-1"))
+		assertFalse(canSaveOrRate("ext:deezer:123"))
+		assertFalse(canSaveOrRate(null))
+	}
 }

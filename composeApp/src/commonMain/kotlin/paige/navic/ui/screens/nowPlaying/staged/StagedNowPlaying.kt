@@ -311,7 +311,7 @@ fun StagedNowPlaying() {
 									rating = songRating,
 									onRate = { viewModel.rateSong(it) },
 									songKey = song?.id,
-									enabled = song != null
+									enabled = canSaveOrRate(song?.id)
 								)
 							}
 						)
@@ -332,7 +332,7 @@ fun StagedNowPlaying() {
 							icon = Icons.Outlined.PlaylistAdd,
 							label = stringResource(Res.string.action_save),
 							onClick = { saveMenuOpen = true },
-							enabled = song != null,
+							enabled = canSaveOrRate(song?.id),
 							modifier = Modifier
 								.weight(1f)
 								.onGloballyPositioned { saveAnchor = it.boundsInRoot() }
