@@ -53,7 +53,11 @@ fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery {
 		DomainAlbumListType.Highest -> orderBy = "userRating DESC"
 		DomainAlbumListType.Newest -> orderBy = "createdAt DESC"
 		DomainAlbumListType.Random -> orderBy = "RANDOM()"
-		DomainAlbumListType.Recent -> orderBy = "lastPlayedAt DESC"
+		// What Home's Recently played shelf is the first twelve of: played albums only (audit W-11).
+		DomainAlbumListType.Recent -> {
+			where = "lastPlayedAt IS NOT NULL"
+			orderBy = "lastPlayedAt DESC"
+		}
 
 		DomainAlbumListType.Year -> {
 			orderBy = "year DESC"
