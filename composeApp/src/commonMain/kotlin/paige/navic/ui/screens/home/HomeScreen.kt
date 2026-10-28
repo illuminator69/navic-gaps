@@ -232,7 +232,8 @@ fun HomeScreen() {
 				modifier = modifier,
 				title = title,
 				items = albums,
-				key = { it.id },
+				// Per shelf (audit L1-09): an album on two shelves arrives on both.
+				key = { shelfKey(tab, it.id) },
 				gate = gate,
 				shelfIndex = shelfIndex,
 				moreLabel = seeAll,
@@ -290,7 +291,7 @@ fun HomeScreen() {
 			}
 
 			item(key = "mood-body") {
-				Fold(visible = selectedMood != null, tall = true) {
+				Fold(visible = selectedMood != null, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					shownMood?.let { mood ->
 						MoodBody(
 							mood = mood,
@@ -315,9 +316,9 @@ fun HomeScreen() {
 
 			if (HomeSection.ContinueListening in sections) {
 				item(key = "continue") {
-					Fold(visible = shelves) {
+					Fold(visible = shelves, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					ContinueListeningPill(
-						modifier = Modifier.animateItem(),
+						modifier = Modifier,
 						queues = continueQueues,
 						totalCount = queues.size,
 						playingId = playingQueueId,
@@ -333,15 +334,15 @@ fun HomeScreen() {
 
 			if (showRecent) {
 				item(key = "recent") {
-					Fold(visible = shelves, tall = true) {
+					Fold(visible = shelves, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					if (recentAlbums.isNotEmpty()) {
 						albumShelf(
-							Modifier.animateItem(), recentTitle, recentAlbums, RECENT_TAB, 0,
+							Modifier, recentTitle, recentAlbums, RECENT_TAB, 0,
 							Screen.AlbumList(nested = true, listType = DomainAlbumListType.Newest)
 						)
 					} else {
 						HomeShelfPlaceholder(
-							modifier = Modifier.animateItem(),
+							modifier = Modifier,
 							title = recentTitle,
 							tiles = RECENT_PLACEHOLDERS,
 							seed = "recent"
@@ -353,10 +354,10 @@ fun HomeScreen() {
 
 			if (showFresh) {
 				item(key = "fresh") {
-					Fold(visible = shelves, tall = true) {
+					Fold(visible = shelves, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					if (fresh.isNotEmpty()) {
 						HomeShelf(
-							modifier = Modifier.animateItem(),
+							modifier = Modifier,
 							title = freshTitle,
 							items = fresh,
 							key = { it.key },
@@ -373,7 +374,7 @@ fun HomeScreen() {
 						}
 					} else {
 						HomeShelfPlaceholder(
-							modifier = Modifier.animateItem(),
+							modifier = Modifier,
 							title = freshTitle,
 							tiles = FRESH_PLACEHOLDERS,
 							seed = "fresh"
@@ -385,9 +386,9 @@ fun HomeScreen() {
 
 			if (HomeSection.RecentlyPlayed in sections) {
 				item(key = "played") {
-					Fold(visible = shelves, tall = true) {
+					Fold(visible = shelves, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					albumShelf(
-						Modifier.animateItem(), playedTitle, played, PLAYED_TAB, laterShelfIndex,
+						Modifier, playedTitle, played, PLAYED_TAB, laterShelfIndex,
 						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Recent)
 					)
 					}
@@ -396,9 +397,9 @@ fun HomeScreen() {
 
 			if (HomeSection.FrequentlyPlayed in sections) {
 				item(key = "frequent") {
-					Fold(visible = shelves, tall = true) {
+					Fold(visible = shelves, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					albumShelf(
-						Modifier.animateItem(), frequentTitle, frequent, FREQUENT_TAB, laterShelfIndex,
+						Modifier, frequentTitle, frequent, FREQUENT_TAB, laterShelfIndex,
 						Screen.AlbumList(nested = true, listType = DomainAlbumListType.Frequent)
 					)
 					}
@@ -407,9 +408,9 @@ fun HomeScreen() {
 
 			if (HomeSection.YourMixes in sections) {
 				item(key = "mixes") {
-					Fold(visible = shelves, tall = true) {
+					Fold(visible = shelves, tall = true, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
 					YourMixesShelf(
-						modifier = Modifier.animateItem(),
+						modifier = Modifier,
 						title = yourMixesTitle,
 						tiles = mixTiles,
 						yourMixName = yourMixTitle,

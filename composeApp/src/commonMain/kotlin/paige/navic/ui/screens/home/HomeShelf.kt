@@ -56,6 +56,10 @@ internal val ShelfCardWidth = 150.dp
  * a left-to-right sweep; every later shelf arrives together, 150 ms in. [itemContent] is handed the
  * arrival modifier for its card and must apply it to the card's outermost node.
  */
+
+/** A tile's lazy key and arrival key on a Home shelf: per shelf, so an album on two shelves is two tiles (audit L1-09). */
+fun shelfKey(shelf: String, id: String): String = "$shelf:$id"
+
 @Composable
 fun <T> HomeShelf(
 	title: String,

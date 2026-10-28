@@ -2055,7 +2055,11 @@ true of invented *album art*, and not of an icon naming the kind.
   An album can be on three shelves: the open sheet is the shelf's whose tile was pressed. `HomeShelf`'s row has
   `ArtCarousel`'s `animateContentSize` (B-134). Measured on the VM AVD (frames, 360x800): the header under a shelf moved
   over 7 to 11 in-between frames with it, and over 6 to 8 WITHOUT it, because the shelf item's own `animateItem()`
-  already animates the next item's placement; the snap the owner saw was not reproduced here, so judge it on the phone.
+  then animated the next item's placement; the snap the owner saw was not reproduced here, so judge it on the phone.
+  Since P7 that `animateItem()` sat inside `Fold`, where it is inert (a lazy item's placement is read from its root), so
+  only `animateContentSize` was left; fix round M3 moved it to the root, `Fold(…, modifier = Modifier.animateItem(fadeInSpec
+  = null, fadeOutSpec = null))` (placement only: `Fold` fades and rolls the height), held by `HomeAnimateItemPlacementTest`.
+  An album shelf's tiles are keyed `shelfKey(shelf, id)`, so an album on two shelves arrives on both (L1-09).
   **One avatar slot** (`HeaderAvatar`, `SearchHeaderAvatar`): the monogram's edge is the title's, 16 dp in, and Search's
   header row is the app bar's 64 dp so the avatar is at the same height (uiautomator: node (36,175)-(180,319) px on all
   three pages at density 3). **Back goes Home**: a tab tap leaves `[Home]` or `[Home, tab]` (`stackAfterTap`, applied by
