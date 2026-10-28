@@ -129,6 +129,17 @@ fun attentionBadge(read: LbAttention?, ledgerCount: Int): Int =
 	read?.counts?.let(::toFixCount) ?: ledgerCount
 
 /**
+ * Whether the avatar's dot is drawn: something to fix, the dot not turned off, and a hub configured.
+ * With navi-connect off the persisted ledger count lit the dot while the menu had no Needs attention
+ * row to explain it (audit W-06).
+ */
+fun attentionDotShown(badge: Int, preference: Boolean, configured: Boolean): Boolean =
+	configured && preference && badge > 0
+
+/** The menu's Needs attention badge, by the same rule as the dot: none without a configured hub. */
+fun menuAttentionBadge(badge: Int, configured: Boolean): Int = if (configured) badge else 0
+
+/**
  * A folder in one line: "Artist — Album · 11 files", or "Unidentified folder · 11 files". Built from
  * what lb-bot identified and the count alone; a folder's name never reaches this side.
  */
@@ -160,8 +171,17 @@ data class AttentionRow(
 	val album: AttentionAlbum,
 	val entry: LbFillEntry?
 ) {
-	/** Only a row the ledger holds can be retried or dismissed here; lb-bot's own rows open the album. */
+	/** Only a row the ledger holds can be retried here; lb-bot's own rows open the album. */
 	val actionable: Boolean get() = entry != null
+
+	/** A row only this phone's ledger holds: lb-bot does not list it (any more). */
+	val isDeviceOnly: Boolean get() = id.startsWith("device:")
+
+	/**
+	 * Dismiss is for a row only this phone holds. On a row lb-bot still lists it only hid this phone's
+	 * copy: the row stayed as lb-bot's, with the count and the dot unchanged (audit L4b-09).
+	 */
+	val dismissable: Boolean get() = isDeviceOnly
 }
 
 /** A one-line note under the page's title. */
@@ -187,7 +207,14 @@ sealed interface AttentionPage {
 		val artistsToCheck: Int?,
 		/** lb-bot's number, or null when no answer is known (then the title says no number at all). */
 		val toFix: Int?,
-		val notices: List<AttentionNotice>
+		val notices: List<AttentionNotice>,
+		/**
+		 * With an answer from lb-bot: the failed or waiting rows this phone's ledger holds that lb-bot
+		 * no longer lists (the ledger keeps a week, lb-bot a day). Listed apart, under "Only on this
+		 * phone", never under lb-bot's headline as if lb-bot had counted them (audit L4b-02). Without an
+		 * answer the device's rows are [albums] and there is no headline.
+		 */
+		val deviceOnly: List<AttentionRow> = emptyList()
 	) : AttentionPage
 }
 
@@ -196,7 +223,8 @@ sealed interface AttentionPage {
  *
  * - A good answer lists lb-bot's rows; a ledger row the server also lists appears once, lb-bot's
  *   state with the device's [AttentionRow.entry]. The device's own failed or waiting rows lb-bot no
- *   longer lists follow (lb-bot forgets a failed request after a day; the ledger keeps a week).
+ *   longer lists are [AttentionPage.Rows.deviceOnly] (lb-bot forgets a failed request after a day;
+ *   the ledger keeps a week).
  * - A failed read keeps the last good answer and says since when; with none, the device's rows.
  * - An older hub or lb-bot lists the device's rows and says so. No read at all is [AttentionPage.Loading].
  */
@@ -243,11 +271,12 @@ fun attentionPage(
 	}
 	val deviceOnly = device.filter { it.key !in claimed }.sortedForAttention().map { it.asAttentionRow() }
 	return AttentionPage.Rows(
-		albums = serverRows + deviceOnly,
+		albums = serverRows,
 		folders = answer.folders,
 		artistsToCheck = artistsToCheck,
 		toFix = answer.counts?.let(::toFixCount),
-		notices = notices
+		notices = notices,
+		deviceOnly = deviceOnly
 	)
 }
 

@@ -1253,6 +1253,7 @@
 	<string name="attention_nothing_to_fix">Nothing to fix</string>
 	<string name="attention_section_albums">Albums</string>
 	<string name="attention_section_to_fix">To fix</string>
+	<string name="attention_device_only">Only on this phone</string>
 	<plurals name="attention_artists_to_check">
 		<item quantity="one">%1$d artist to check</item>
 		<item quantity="other">%1$d artists to check</item>

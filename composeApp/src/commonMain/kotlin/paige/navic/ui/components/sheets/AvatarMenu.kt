@@ -82,6 +82,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.menuAttentionBadge
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.manager.PreferenceManager
@@ -388,7 +389,7 @@ private fun AvatarMenuContent() {
 	val lbConfigured = lbBot.isConfigured
 	val canShare = sessionManager.canUserShare()
 	val items = remember(lbConfigured, canShare, attention, webUrl) {
-		avatarMenuItems(lbConfigured, canShare, attention, webUrl)
+		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl)
 	}
 	val uriHandler = LocalUriHandler.current
 
