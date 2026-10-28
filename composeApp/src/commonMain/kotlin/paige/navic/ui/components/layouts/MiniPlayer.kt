@@ -1,5 +1,7 @@
 package paige.navic.ui.components.layouts
 
+import paige.navic.ui.util.crossfadeMsFor
+import paige.navic.ui.util.rememberReducedMotion
 import navic.composeapp.generated.resources.action_devices
 import paige.navic.ui.components.sheets.DevicePickerSheet
 import paige.navic.icons.outlined.Devices
@@ -140,7 +142,8 @@ fun MiniPlayer(
 	val imageLoader = koinInject<ImageLoader>()
 	val sessionManager = koinInject<SessionManager>()
 	val radioManager = koinInject<RadioManager>()
-	val model = remember(song?.coverArtId) {
+	val fadeMs = crossfadeMsFor(rememberReducedMotion(), 400)
+	val model = remember(song?.coverArtId, fadeMs) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(song?.coverArtId)
@@ -149,7 +152,7 @@ fun MiniPlayer(
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			// Cross-fade the thumbnail on track change so the swap eases in instead of
 			// hard-cutting — matches Now Playing and CoverArt.
-			.crossfade(400)
+			.crossfade(fadeMs)
 			.build()
 	}
 

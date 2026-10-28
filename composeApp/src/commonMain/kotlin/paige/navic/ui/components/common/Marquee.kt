@@ -1,5 +1,6 @@
 package paige.navic.ui.components.common
 
+import paige.navic.ui.util.rememberReducedMotion
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -41,12 +42,12 @@ fun MarqueeText(
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	if (preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled) {
+	if (preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled && !rememberReducedMotion()) {
 		Marquee(modifier) {
 			Text(text, maxLines = 1, style = style)
 		}
 	} else {
-		Text(text, maxLines = 1, style = style, overflow = TextOverflow.Ellipsis)
+		Text(text, modifier = modifier, maxLines = 1, style = style, overflow = TextOverflow.Ellipsis)
 	}
 }
 
@@ -67,13 +68,17 @@ fun MarqueeText(
 	manualScroll: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	if (manualScroll || preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled) {
+	// Under reduced motion the line does not scroll on its own (it jump-cut between its ends once a
+	// second, audit L1-03): its start, with an ellipsis. Dragging it is still offered where it was.
+	val reduced = rememberReducedMotion()
+	if (manualScroll || (preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled && !reduced)) {
 		Marquee(modifier, manualScroll = manualScroll) {
 			Text(text, maxLines = 1, style = style, inlineContent = inlineContent)
 		}
 	} else {
 		Text(
 			text,
+			modifier = modifier,
 			maxLines = 1,
 			style = style,
 			overflow = TextOverflow.Ellipsis,
