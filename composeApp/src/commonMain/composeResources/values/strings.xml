@@ -1386,10 +1386,16 @@
 		<item quantity="one">Only %1$d song of this mix is in your library yet.</item>
 		<item quantity="other">Only %1$d songs of this mix are in your library yet.</item>
 	</plurals>
+	<plurals name="mood_mix_short_length">
+		<item quantity="one">Only %1$d song of this mix is short enough for this mood.</item>
+		<item quantity="other">Only %1$d songs of this mix are short enough for this mood.</item>
+	</plurals>
+	<string name="mood_mix_gone">This mix is not in the hub's list any more.</string>
 	<string name="queue_mood_all">All</string>
 	<string name="custom_radio_filters">Filters</string>
 	<string name="custom_radio_count_low">%1$s songs to draw from. This radio will run out quickly.</string>
 	<string name="mood_play_short">Only %1$d of this mix's songs are in your library yet.</string>
+	<string name="mood_play_short_length">Only %1$d of this mix's songs are short enough for this mood.</string>
 	<string name="mood_unavailable_title">Mood search is not available right now</string>
 	<string name="mood_unavailable_body">Navic could not reach the server that finds songs by mood. Your library and everything else still work.</string>
 	<!-- navi-connect P2: the staged queue inside the player (portrait phones). -->

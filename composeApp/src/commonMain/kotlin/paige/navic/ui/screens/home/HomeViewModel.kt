@@ -18,7 +18,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.mood_mix_gone
 import navic.composeapp.generated.resources.mood_play_short
+import navic.composeapp.generated.resources.mood_play_short_length
 import navic.composeapp.generated.resources.mood_unavailable_title
 import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.manager.HomeMoodSelection
@@ -176,7 +178,11 @@ class HomeViewModel(
 				val draw = drawMoodMix(moodManager, songDao, mood, variant.id)
 				when (val state = draw.state) {
 					is MixState.Ready -> radioManager.playMoodTile(draw.songs, variant.title, mood.id, shuffle = false)
-					is MixState.Short -> snackBarManager.notify(Res.string.mood_play_short, state.found)
+					is MixState.Short -> snackBarManager.notify(
+						if (state.byLibrary) Res.string.mood_play_short else Res.string.mood_play_short_length,
+						state.found
+					)
+					MixState.Gone -> snackBarManager.notify(Res.string.mood_mix_gone)
 					MixState.Unavailable, MixState.Loading -> snackBarManager.notify(Res.string.mood_unavailable_title)
 				}
 			} catch (e: CancellationException) {

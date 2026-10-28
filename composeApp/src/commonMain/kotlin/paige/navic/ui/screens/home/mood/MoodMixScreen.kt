@@ -53,7 +53,9 @@ import navic.composeapp.generated.resources.mood_mix_from_library
 import navic.composeapp.generated.resources.mood_mix_hours_minutes
 import navic.composeapp.generated.resources.mood_mix_kind
 import navic.composeapp.generated.resources.mood_mix_minutes
+import navic.composeapp.generated.resources.mood_mix_gone
 import navic.composeapp.generated.resources.mood_mix_short
+import navic.composeapp.generated.resources.mood_mix_short_length
 import navic.composeapp.generated.resources.mood_mix_songs
 import navic.composeapp.generated.resources.mood_unavailable_body
 import navic.composeapp.generated.resources.mood_unavailable_title
@@ -178,7 +180,17 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 				MixState.Loading -> items(PLACEHOLDER_ROWS) { PlaceholderRow(it) }
 				is MixState.Short -> item(key = "short") {
 					MoodMixMessage(
-						title = pluralStringResource(Res.plurals.mood_mix_short, state.found, state.found),
+						title = pluralStringResource(
+							if (state.byLibrary) Res.plurals.mood_mix_short else Res.plurals.mood_mix_short_length,
+							state.found, state.found
+						),
+						body = null,
+						onRetry = { viewModel.retry() }
+					)
+				}
+				MixState.Gone -> item(key = "gone") {
+					MoodMixMessage(
+						title = stringResource(Res.string.mood_mix_gone),
 						body = null,
 						onRetry = { viewModel.retry() }
 					)

@@ -136,19 +136,40 @@ internal fun spaceArtists(songs: List<OwnedSong>, gap: Int): List<OwnedSong> {
 sealed interface MixState {
 	data object Loading : MixState
 	data class Ready(val ids: List<String>) : MixState
-	/** The library holds [found] of the tile's songs, under [MOOD_MIX_MIN]: said, with Retry. */
-	data class Short(val found: Int) : MixState
+	/**
+	 * Fewer than [MOOD_MIX_MIN] songs to draw from: said, with Retry. [inLibrary] of the tile's songs
+	 * are in the library, [eligible] of those within the mood's length limit. The line names which of
+	 * the two cut it short (audit L4b-04: both read "in your library", with the after-length number).
+	 */
+	data class Short(val eligible: Int, val inLibrary: Int) : MixState {
+		/** The library is what is short; else the length limit is. */
+		val byLibrary: Boolean get() = inLibrary < MOOD_MIX_MIN
+		/** The number the line says. */
+		val found: Int get() = if (byLibrary) inLibrary else eligible
+	}
 	/** The hub could not search (AudioMuse down, CLAP unloaded, the hub unreachable): Retry. */
 	data object Unavailable : MixState
+	/** The hub answered and knows no such tile: it is not in its list any more. */
+	data object Gone : MixState
 }
 
-/** The page's state from its read: [drawn] null while it runs, [eligible] the songs it could draw from. */
-fun mixState(drawn: List<String>?, eligible: Int, failed: Boolean): MixState = when {
+/**
+ * The page's state from its read: [drawn] null while it runs, [eligible] the songs it could draw from,
+ * [inLibrary] the tile's songs the library holds at any length, [absent] the hub knowing no such tile.
+ */
+fun mixState(drawn: List<String>?, eligible: Int, inLibrary: Int, absent: Boolean, failed: Boolean): MixState = when {
 	failed -> MixState.Unavailable
+	absent -> MixState.Gone
 	drawn == null -> MixState.Loading
-	eligible < MOOD_MIX_MIN -> MixState.Short(eligible)
+	eligible < MOOD_MIX_MIN -> MixState.Short(eligible, inLibrary)
 	else -> MixState.Ready(drawn)
 }
+
+/**
+ * A tile the cached catalogue does not list, after asking the hub again: gone when a catalogue is
+ * known (the hub's list no longer has it), else the hub could not be read.
+ */
+fun missingTileState(catalogueKnown: Boolean): MixState = if (catalogueKnown) MixState.Gone else MixState.Unavailable
 
 // --------------------------------------------------------------------------------------------- //
 // Tile art, the saved queues, Home's selection

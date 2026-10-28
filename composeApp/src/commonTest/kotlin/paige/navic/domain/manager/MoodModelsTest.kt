@@ -88,11 +88,41 @@ class MoodModelsTest {
 
 	@Test
 	fun thePageStates() {
-		assertEquals(MixState.Short(19), mixState(ids(19), eligible = 19, failed = false))
-		assertEquals(MixState.Ready(ids(20)), mixState(ids(20), eligible = 20, failed = false))
-		assertEquals(MixState.Unavailable, mixState(ids(50), eligible = 300, failed = true))
-		assertEquals(MixState.Unavailable, mixState(null, eligible = 0, failed = true))
-		assertEquals(MixState.Loading, mixState(null, eligible = 0, failed = false))
+		assertEquals(MixState.Short(19, 19), mixState(ids(19), eligible = 19, inLibrary = 19, absent = false, failed = false))
+		assertEquals(MixState.Unavailable, mixState(ids(50), eligible = 300, inLibrary = 300, absent = false, failed = true))
+		assertEquals(MixState.Unavailable, mixState(null, eligible = 0, inLibrary = 0, absent = false, failed = true))
+		assertEquals(MixState.Loading, mixState(null, eligible = 0, inLibrary = 0, absent = false, failed = false))
+	}
+
+	@Test
+	fun readyAt20Eligible() {
+		assertEquals(MixState.Ready(ids(20)), mixState(ids(20), eligible = 20, inLibrary = 40, absent = false, failed = false))
+	}
+
+	@Test
+	fun shortBecauseOfLibrary() {
+		// B5 (audit L4b-04): which shortfall, and its own number.
+		val state = mixState(ids(12), eligible = 12, inLibrary = 15, absent = false, failed = false)
+		assertEquals(MixState.Short(eligible = 12, inLibrary = 15), state)
+		assertTrue((state as MixState.Short).byLibrary)
+		assertEquals(15, state.found)
+	}
+
+	@Test
+	fun shortBecauseOfLength() {
+		// 20 of the tile's songs are in the library, only 5 of them under the mood's length limit.
+		val state = mixState(ids(5), eligible = 5, inLibrary = 20, absent = false, failed = false) as MixState.Short
+		assertFalse(state.byLibrary)
+		assertEquals(5, state.found)
+	}
+
+	@Test
+	fun goneIsNotUnavailable() {
+		assertEquals(MixState.Gone, mixState(null, eligible = 0, inLibrary = 0, absent = true, failed = false))
+		assertEquals(MixState.Unavailable, mixState(null, eligible = 0, inLibrary = 0, absent = false, failed = true))
+		// A tile the catalogue does not list: gone when a catalogue is known, else the hub is unreachable.
+		assertEquals(MixState.Gone, missingTileState(catalogueKnown = true))
+		assertEquals(MixState.Unavailable, missingTileState(catalogueKnown = false))
 	}
 
 	private val catalogue = MoodCatalogue(

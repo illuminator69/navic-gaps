@@ -22,6 +22,7 @@ import paige.navic.domain.manager.MoodVariant
 import paige.navic.domain.manager.OwnedSong
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.TileIdsResult
+import paige.navic.domain.manager.missingTileState
 import paige.navic.domain.manager.drawMix
 import paige.navic.domain.manager.find
 import paige.navic.domain.manager.mixState
@@ -47,17 +48,19 @@ suspend fun drawMoodMix(
 ): MoodDraw {
 	val ids = when (val answer = moodManager.tileIds(mood.id, variantId)) {
 		is TileIdsResult.Ok -> answer.ids.take(mood.depth)
-		TileIdsResult.Unavailable, TileIdsResult.Absent -> return MoodDraw(MixState.Unavailable, emptyList())
+		TileIdsResult.Unavailable -> return MoodDraw(MixState.Unavailable, emptyList())
+		TileIdsResult.Absent -> return MoodDraw(MixState.Gone, emptyList())
 	}
 	val entities = if (ids.isEmpty()) emptyList() else songDao.getSongsByIds(ids)
 	val owned = entities.associate {
 		it.songId to OwnedSong(it.songId, it.duration.inWholeSeconds.toInt(), it.artistId)
 	}
 	val eligible = moodEligible(ids, owned, mood.maxSeconds, mood.depth).size
+	val inLibrary = moodEligible(ids, owned, maxSeconds = null, depth = mood.depth).size
 	val drawn = drawMix(ids, owned, mood.maxSeconds, mood.depth, random)
 	val byId = entities.associateBy { it.songId }
 	val songs = drawn.mapNotNull { byId[it]?.toDomainModel() }
-	return MoodDraw(mixState(drawn, eligible, failed = false), songs)
+	return MoodDraw(mixState(drawn, eligible, inLibrary, absent = false, failed = false), songs)
 }
 
 /**
@@ -107,7 +110,7 @@ class MoodMixViewModel(
 				mood.value
 			}
 			val result = if (entry == null || entry.variants.none { it.id == variantId }) {
-				MoodDraw(MixState.Unavailable, emptyList())
+				MoodDraw(missingTileState(catalogueKnown = moodManager.catalogue.value.moods.isNotEmpty()), emptyList())
 			} else try {
 				drawMoodMix(moodManager, songDao, entry, variantId)
 			} catch (e: CancellationException) {
