@@ -27,6 +27,18 @@ class CoverSeedStoreTest {
 	}
 
 	@Test
+	fun aToneRoundTripsThroughTheCodec() {
+		val entries = listOf("al-1" to navy.copy(tone = 42.5f), "al-2" to grey)
+		assertEquals(entries, CoverSeedCodec.decode(CoverSeedCodec.encode(entries)))
+	}
+
+	@Test
+	fun seedsStoredBeforeToneAreWorkedOutAgain() {
+		// Version 2 had no tone: its entries would keep the old brightness rule until evicted.
+		assertEquals(emptyList(), CoverSeedCodec.decode("{\"v\":2,\"e\":[{\"k\":\"al-1\",\"d\":1}]}"))
+	}
+
+	@Test
 	fun garbageNeverThrowsAndReadsAsEmpty() {
 		for (raw in listOf("", "{", "null", "{\"v\":1}", "not json")) {
 			assertEquals(emptyList(), CoverSeedCodec.decode(raw), "for '$raw'")

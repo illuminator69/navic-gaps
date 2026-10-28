@@ -78,7 +78,7 @@ class CoverSeedStore(
 }
 
 /**
- * The store's persisted form: `{"v":<VERSION>,"e":[{"k":"<key>","d":<int>,"s":<int?>,"a":<int?>}]}`, oldest
+ * The store's persisted form: `{"v":<VERSION>,"e":[{"k":"<key>","d":<int>,"s":<int?>,"a":<int?>,"t":<float?>}]}`, oldest
  * entry first. Reading never throws: a blank, malformed or foreign blob is an empty store.
  */
 internal object CoverSeedCodec {
@@ -86,23 +86,23 @@ internal object CoverSeedCodec {
 	 * Bump whenever the rules in [deriveCoverSeeds] change: colours stored under the old rules
 	 * are then discarded at the next start instead of being worn, and are worked out again.
 	 */
-	const val VERSION: Int = 2
+	const val VERSION: Int = 3
 
 	@Serializable
 	private data class Blob(val v: Int, val e: List<Entry>)
 
 	@Serializable
-	private data class Entry(val k: String, val d: Int, val s: Int? = null, val a: Int? = null)
+	private data class Entry(val k: String, val d: Int, val s: Int? = null, val a: Int? = null, val t: Float? = null)
 
 	private val json = Json { ignoreUnknownKeys = true }
 
 	fun encode(entries: List<Pair<String, CoverSeeds>>): String =
-		json.encodeToString(Blob.serializer(), Blob(VERSION, entries.map { (k, v) -> Entry(k, v.dominant, v.vivid, v.accent) }))
+		json.encodeToString(Blob.serializer(), Blob(VERSION, entries.map { (k, v) -> Entry(k, v.dominant, v.vivid, v.accent, v.tone) }))
 
 	fun decode(raw: String): List<Pair<String, CoverSeeds>> {
 		if (raw.isBlank()) return emptyList()
 		val blob = runCatching { json.decodeFromString(Blob.serializer(), raw) }.getOrNull() ?: return emptyList()
 		if (blob.v != VERSION) return emptyList()
-		return blob.e.map { it.k to CoverSeeds(dominant = it.d, vivid = it.s, accent = it.a) }
+		return blob.e.map { it.k to CoverSeeds(dominant = it.d, vivid = it.s, accent = it.a, tone = it.t) }
 	}
 }

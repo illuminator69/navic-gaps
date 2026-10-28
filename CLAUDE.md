@@ -1394,8 +1394,9 @@ Rules, each with a reason:
 Every browsing and detail page is washed in the current artwork's colours. This is the fork's
 largest UI divergence and the thing most likely to be broken by an upstream merge.
 
-**The pipeline.** A cover is reduced to three colours, `CoverSeeds` (`dominant`, `vivid`, `accent`),
-by the pure `deriveCoverSeeds` (`CoverSeeds.kt`), and those are **persisted** in `CoverSeedStore` (the
+**The pipeline.** A cover is reduced to three colours and a number, `CoverSeeds` (`dominant`, `vivid`, `accent`,
+and `tone`, how light the whole image reads, from `coverTone`), by the pure `deriveCoverSeeds` (`CoverSeeds.kt`),
+and those are **persisted** in `CoverSeedStore` (the
 `coverSeeds` preference, LRU 512, written at most every 2 s). `ui/util/CoverColorScheme.kt`'s
 `rememberCoverColorScheme` reads the store **in composition**, so a cover seen before is coloured in
 the first frame; only a miss fetches (`fetchCoverSeeds`), and the store is also filled ahead of need
@@ -1423,7 +1424,23 @@ cover `accent` is the family with the most *salience* (population times chroma s
 from a second palette built without kmpalette's default skin-tone filter, which drops every hue
 10 to 37 degrees with saturation up to 0.82 and so took Lookaftering's brown hare out entirely. A
 dark cover's `accent` is its `vivid`, unchanged: there the dark field already fails the colourful
-bounds. Page brightness and the wash still come from the default palette alone.
+bounds. Which accent rule applies follows the page's brightness.
+
+**Page brightness and the wash's lightness follow the cover's tone (2026-10-28, the owner's five
+covers).** `coverTone` is CIE L*: half the image's plain average, half the lightness of its colours
+(each pixel weighted by Oklab chroma squared), read off every pixel, because the palettes have already
+dropped near-black pixels and every "skin tone". Under 55 (`PAGE_TONE_SPLIT`) the page is dark. The
+page used to follow one swatch's luminance (the dominant's, light at 0.5 and up), which sent mid covers to
+the wrong side or the far end: Vanille fraise (reads 71) got a dark page, Mitski's peach frame round a
+black photo a dark one, The Bends a near-white one. `seedForTone` then moves the wash seed so the
+gradient's top sits at `washTopLstar`: L* 8 to 28 on a dark page, 76 to 94 on a light one, the bands
+text stays readable in (`WashTuningTest`: 4.5:1 for secondary text over the brightest artwork on a
+dark page, the darkest on a light one). A light page whose dominant is dark takes its wash and its
+neutrals from `vivid` (Mitski: the peach, not the black lifted to grey). `OwnerCovers` holds the five
+covers at 32 px and `CoverToneTest` the pages the owner chose for them: a change to the rule that
+flips one of them is a change to what the owner asked for. Seeds stored without a tone (none after
+`CoverSeedCodec` version 3) fall back to the old rule; the now-playing sheet, which keeps its own
+brightness, ignores the tone.
 
 Nine rules, each of which is a bug that shipped:
 

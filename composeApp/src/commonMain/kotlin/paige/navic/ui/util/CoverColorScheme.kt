@@ -145,6 +145,9 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 		val outcome = runCatching {
 			val bitmap = loader.load(Url(uri))
 			withContext(Dispatchers.Default) {
+				// Every pixel, for the tone: the palettes below have already dropped near-black ones
+				// and every "skin tone" before anything is counted.
+				val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.readPixels(it) }
 				deriveCoverSeeds(
 					swatches = bitmap.generatePalette().swatches.map { it.toSample() },
 					// Only near-black and near-white dropped: the default filter's skin-tone rule
@@ -152,7 +155,8 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 					unfiltered = bitmap.generatePalette {
 						clearFilters()
 						addFilter(BlackAndWhiteOnly)
-					}.swatches.map { it.toSample() }
+					}.swatches.map { it.toSample() },
+					tone = coverTone(pixels)
 				)
 			}
 		}
@@ -347,21 +351,35 @@ fun rememberCoverColorScheme(
 	// What `primary` is seeded from: the vivid swatch on a dark cover, the most salient colour on a
 	// light one (see [CoverSeeds.accent]).
 	val accent = seeds?.accent?.let(::Color) ?: vivid
+	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
+	// immersive page (light text), a light cover a light page (dark text) — independent of
+	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
+	// By the cover's TONE, how light the whole image reads (`coverTone`), never the vivid swatch:
+	// a bright accent on a dark cover must not flip the whole page to light. Seeds stored without
+	// a tone fall back to the dominant's luminance.
+	val coverIsDark = if (!followArtworkBrightness) isDark
+		else seeds?.pageIsDark() ?: isDark
+	// The tone also places the wash's lightness (`seedForTone`), on pages that follow the artwork.
+	val pageTone = seeds?.tone?.takeIf { followArtworkBrightness }
+	// A light page whose dominant is dark: the light part of such a cover is its colour, the dark
+	// part a photo or a field with no hue (Mitski's peach frame round a near-black photo). Its wash
+	// and neutrals come from the vivid swatch, or the page would be the black field lifted to grey.
+	val lightFromVivid = pageTone != null && !coverIsDark && vivid != null && dominant.luminance() < 0.5f
 	// The WASH is the dominant colour pulled a third of the way toward the vivid one: enough for
 	// the page to actually read as the cover's colour, not so much that a saturated cover turns
 	// the background into a glare. This is what "expressive" means here — a black-and-yellow cover
 	// should give a dark page that is unmistakably YELLOW-dark, not a flat grey one.
-	val seed = if (vivid != null) lerp(dominant, vivid, 0.35f) else dominant
+	val washBase = when {
+		vivid == null -> dominant
+		lightFromVivid -> vivid
+		else -> lerp(dominant, vivid, 0.35f)
+	}
+	val seed = pageTone?.let { seedForTone(washBase, it, coverIsDark) } ?: washBase
+	// What the scheme's neutrals (every background and card) are seeded from.
+	val neutralSeed = if (lightFromVivid) vivid else dominant
 	// The ACCENT (buttons, primary), saturation-boosted so even muted artwork yields an obvious
 	// cover colour rather than a washed near-grey `primary`.
 	val accentSeed = (accent ?: dominant).boostedAccent()
-	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
-	// immersive page (light text), a light cover a light page (dark text) — independent of
-	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
-	// Keyed on the DOMINANT colour, never the vivid one: a bright accent on a dark cover must not
-	// flip the whole page to light.
-	val coverIsDark = if (!followArtworkBrightness) isDark
-		else if (seeds != null) dominant.luminance() < 0.5f else isDark
 	// Content keeps colourful covers faithful AND leaves a true-greyscale cover naturally
 	// grey — it doesn't amplify chroma like Vibrant (which invented a teal from a B&W cover),
 	// so no Monochrome special-case is needed; a dark scheme already yields a bright `primary`.
@@ -391,15 +409,15 @@ fun rememberCoverColorScheme(
 	// thing on the sleeve — a navy record with a green squiggle on it gave a green page. Deriving
 	// the neutrals rather than tinting them by hand is also what keeps `onSurface` legible over
 	// them, which hand-blending a surface toward a cover colour does not.
-	val scheme = if (!hasSeedSource) appScheme else remember(accentSeed, dominant, coverIsDark, style) {
-		val key = SchemeKey(accentSeed, dominant, coverIsDark, style)
+	val scheme = if (!hasSeedSource) appScheme else remember(accentSeed, neutralSeed, coverIsDark, style) {
+		val key = SchemeKey(accentSeed, neutralSeed, coverIsDark, style)
 		schemeCache[key] ?: run {
 			val raw = dynamicColorScheme(
 				seedColor = accentSeed,
 				isDark = coverIsDark,
 				style = style,
-				neutral = dominant,
-				neutralVariant = dominant,
+				neutral = neutralSeed,
+				neutralVariant = neutralSeed,
 				specVersion = ColorSpec.SpecVersion.SPEC_2021
 			)
 			raw.copy(

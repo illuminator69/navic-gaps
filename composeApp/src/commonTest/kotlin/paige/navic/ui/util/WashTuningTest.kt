@@ -148,4 +148,76 @@ class WashTuningTest {
 			}
 		}
 	}
+
+	/** Secondary text on a dark page: the dark scheme's onSurfaceVariant, tone 80. */
+	private val darkSecondaryText = Color(0xFFC6C6C6) // L* 80
+
+	private val tones = (0..100 step 5).map { it.toFloat() }
+
+	@Test
+	fun theWashTopLandsWhereTheCoversToneSaysItShould() {
+		for (tone in tones) {
+			val isDark = pageIsDark(tone)
+			for (seed in seeds + lightSeeds) {
+				val (top, _) = coverAmbientGradient(seedForTone(seed, tone, isDark), isDark)
+				val target = washTopLstar(tone, isDark)
+				// A colour's Oklab lightness is not exactly a grey's, and the light floor can lift it.
+				val tolerance = if (isDark) 3f else 4f
+				assertTrue(lstar(top) >= target - tolerance && lstar(top) <= target + tolerance,
+					"tone $tone, seed $seed: top L* ${lstar(top)}, wanted $target")
+			}
+		}
+	}
+
+	@Test
+	fun aLighterCoverNeverGetsADarkerPage() {
+		val grey = Color(0.5f, 0.5f, 0.5f)
+		val tops = tones.map { tone -> lstar(coverAmbientGradient(seedForTone(grey, tone, pageIsDark(tone)), pageIsDark(tone)).first) }
+		assertEquals(tops.sorted(), tops)
+	}
+
+	@Test
+	fun theOwnersMidCoversMoveTowardTheirTone() {
+		// Measured 2026-10-28 on the phone: The Bends' page top was L* 87 and Heavy Is the Crown's 21.
+		assertTrue(washTopLstar(coverTone(OwnerCovers.theBends)!!, isDark = false) < 82f)
+		assertTrue(washTopLstar(coverTone(OwnerCovers.heavyIsTheCrown)!!, isDark = true) > 25f)
+	}
+
+	@Test
+	fun aDarkPageStaysReadableOverTheBrightestArtwork() {
+		val dark = washTuning(isDark = true)
+		val base = over(Color.White, dark.artScrimColor, dark.artScrimAlpha)
+		for (tone in tones.filter { pageIsDark(it) }) {
+			for (seed in seeds + lightSeeds) {
+				val (top, bottom) = coverAmbientGradient(seedForTone(seed, tone, true), true)
+				for ((band, colour) in listOf("top" to over(base, top, dark.topAlpha), "bottom" to over(base, bottom, dark.bottomAlpha))) {
+					val ratio = contrast(darkSecondaryText, colour)
+					assertTrue(ratio >= 4.5f, "tone $tone, seed $seed, $band band: $ratio")
+				}
+			}
+		}
+	}
+
+	@Test
+	fun aLightPageMovedToItsToneStaysReadableOverTheDarkestArtwork() {
+		val light = washTuning(isDark = false)
+		val midAlpha = light.midAlpha ?: (light.topAlpha + light.bottomAlpha) / 2
+		for (artwork in listOf(Color.Black, Color(0.25f, 0.25f, 0.25f))) {
+			val base = over(artwork, light.artScrimColor, light.artScrimAlpha)
+			for (tone in tones.filter { !pageIsDark(it) }) {
+				for (seed in seeds + lightSeeds) {
+					val (top, bottom) = coverAmbientGradient(seedForTone(seed, tone, false), false)
+					val bands = listOf(
+						"top" to over(base, top, light.topAlpha),
+						"mid" to over(base, lerp(top, bottom, 0.5f), midAlpha),
+						"bottom" to over(base, bottom, light.bottomAlpha)
+					)
+					for ((band, colour) in bands) {
+						val ratio = contrast(secondaryText, colour)
+						assertTrue(ratio >= 4.5f, "tone $tone, seed $seed over $artwork, $band band: $ratio")
+					}
+				}
+			}
+		}
+	}
 }
