@@ -88,7 +88,9 @@ data class RequestUi(
 	val variantIndex: Int = 0,
 	val editionMbid: String = "",
 	/** Whether this release-group is on lb-bot's wishlist; null when unknown or unsupported. */
-	val wishlisted: Boolean? = null
+	val wishlisted: Boolean? = null,
+	/** Statistics' Find sources asked for a search on arrival that has not started yet. */
+	val arrivalWanted: Boolean = false
 )
 
 data class ExternalAlbumUi(
@@ -487,6 +489,7 @@ class ExternalAlbumViewModel(
 	 */
 	fun findSourcesOnArrival() {
 		arrivalSearchWanted = true
+		updateRequest { it.copy(arrivalWanted = true) }
 		startArrivalSearchIfDue()
 	}
 
@@ -502,6 +505,7 @@ class ExternalAlbumViewModel(
 			)
 		) return
 		arrivalSearchDone = true
+		updateRequest { it.copy(arrivalWanted = false) }
 		findSources()
 	}
 

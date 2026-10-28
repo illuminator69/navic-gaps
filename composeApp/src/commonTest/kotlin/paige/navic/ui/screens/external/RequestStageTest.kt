@@ -15,6 +15,7 @@ import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.describeFill
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -166,6 +167,44 @@ class RequestStageTest {
 	}
 
 	@Test
+	fun anIncompleteAlbumWithAFailedFillIsFailed() {
+		// B6 (audit L4b-05): a partly-owned album is not "in your library"; its failed fill must show.
+		val stage = requestStage(input(
+			indexed = LbRelease(rgid = "rg-1", status = "incomplete", groupId = "g1"),
+			fill = fill(state = "failed", outcome = "failed", settled = true)
+		))
+		assertTrue(stage is RequestStage.Failed, "was $stage")
+	}
+
+	@Test
+	fun anIncompleteAlbumWithARunningFillIsActive() {
+		val stage = requestStage(input(indexed = LbRelease(rgid = "rg-1", status = "incomplete", groupId = "g1"), fill = fill()))
+		assertTrue(stage is RequestStage.Active)
+	}
+
+	@Test
+	fun anIncompleteAlbumWithNoFillIsStillInLibrary() {
+		assertEquals(RequestStage.InLibrary, requestStage(input(indexed = LbRelease(rgid = "rg-1", status = "incomplete", groupId = "g1"))))
+	}
+
+	@Test
+	fun aPresentAlbumIsInLibrary() {
+		assertEquals(RequestStage.InLibrary, requestStage(input(
+			indexed = LbRelease(rgid = "rg-1", status = "complete"),
+			fill = fill(state = "failed", outcome = "failed", settled = true)
+		)))
+	}
+
+	@Test
+	fun aMissingAlbumFallsThrough() {
+		val stage = requestStage(input(
+			indexed = LbRelease(rgid = "rg-1", status = "missing"),
+			fill = fill(state = "failed", outcome = "failed", settled = true)
+		))
+		assertTrue(stage is RequestStage.Failed)
+	}
+
+	@Test
 	fun aMissingIndexRowIsNotInLibrary() {
 		assertEquals(RequestStage.Idle(false), requestStage(input(indexed = LbRelease(rgid = "rg-1", status = "missing"))))
 	}
@@ -268,4 +307,13 @@ class RequestStageTest {
 		)
 		assertEquals(listOf(FillButton.DISMISS), requestActions(view.copy(buttons = listOf(FillButton.OPEN_ALBUM, FillButton.DISMISS))))
 	}
+
+	@Test
+	fun theChooseAnEditionLineShowsOnlyWhileTheArrivalSearchWaitsForOne() {
+		assertTrue(chooseEditionLineShown(arrivalWanted = true, detailLoaded = true, editionMbid = ""))
+		assertFalse(chooseEditionLineShown(arrivalWanted = true, detailLoaded = false, editionMbid = ""), "still loading")
+		assertFalse(chooseEditionLineShown(arrivalWanted = true, detailLoaded = true, editionMbid = "ed-1"))
+		assertFalse(chooseEditionLineShown(arrivalWanted = false, detailLoaded = true, editionMbid = ""))
+	}
 }
+

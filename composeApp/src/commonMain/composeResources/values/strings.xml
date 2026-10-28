@@ -984,6 +984,8 @@
 	<string name="info_gap_missing_count">%1$d missing</string>
 	<string name="info_gap_failed">%1$d track(s) failed</string>
 	<string name="info_pending_sync">Added — syncing</string>
+	<string name="request_placed_waiting">Placed, waiting for Navidrome</string>
+	<string name="request_choose_edition">Choose an edition to look for sources.</string>
 	<plurals name="action_fill_gaps_count">
 		<item quantity="one">Find %1$d missing track</item>
 		<item quantity="other">Find %1$d missing tracks</item>

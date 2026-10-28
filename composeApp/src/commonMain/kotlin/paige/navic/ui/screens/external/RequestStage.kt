@@ -75,7 +75,10 @@ sealed interface RequestStage {
 	data class Attention(val view: FillPresentation) : RequestStage
 	data class Failed(val view: FillPresentation) : RequestStage
 	data class Done(val view: FillPresentation) : RequestStage
-	/** lb-bot's index says the library holds it; Room has not caught up yet. */
+	/**
+	 * lb-bot's index says the library holds it (or, for a partly-owned album with no fill, part of it);
+	 * Room has not caught up yet.
+	 */
 	data object InLibrary : RequestStage
 }
 
@@ -88,7 +91,11 @@ fun requestStage(input: RequestInput): RequestStage {
 			requestSteps(fill.state, fill.done, fill.total)
 		)
 	}
-	if (input.indexed != null && !input.indexed.isMissing) return RequestStage.InLibrary
+	// An `incomplete` album is partly owned: a settled fill for it (failed, a pick waiting) still shows
+	// (audit L4b-05); with no fill, what the library holds of it is what there is to say.
+	if (input.indexed != null && !input.indexed.isMissing &&
+		(input.indexed.status != "incomplete" || fill == null)
+	) return RequestStage.InLibrary
 	var cancelledBefore = false
 	if (fill != null) {
 		val view = describeFill(fill, input.now, input.wishlistAvailable)
@@ -171,3 +178,10 @@ private val ACTION_ORDER = listOf(
 
 /** The box's recovery rows: [view]'s buttons, in the box's order, without Open album (the box redirects). */
 fun requestActions(view: FillPresentation): List<FillButton> = ACTION_ORDER.filter { it in view.buttons }
+
+/**
+ * The idle box's line when Statistics' Find sources asked for a search that cannot start: the page's
+ * releases are loaded and no edition is chosen. The search waits for one, and the box said nothing.
+ */
+fun chooseEditionLineShown(arrivalWanted: Boolean, detailLoaded: Boolean, editionMbid: String): Boolean =
+	arrivalWanted && detailLoaded && editionMbid.isBlank()
