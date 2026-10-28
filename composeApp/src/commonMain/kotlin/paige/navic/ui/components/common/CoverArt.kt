@@ -1,5 +1,8 @@
 package paige.navic.ui.components.common
 
+import paige.navic.ui.util.COVER_FADE_MS
+import paige.navic.ui.util.crossfadeMsFor
+import paige.navic.ui.util.rememberReducedMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
@@ -65,7 +68,8 @@ fun CoverArt(
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
 	square: Boolean = true,
-	crossfadeMs: Int = 500,
+	/** The cover fades in over its box this long; the kit's [COVER_FADE_MS] unless a caller says otherwise (audit L1-04). */
+	crossfadeMs: Int = COVER_FADE_MS,
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
 	shape: Shape? = null,
@@ -106,7 +110,9 @@ fun CoverArt(
 		preferenceManager.coverArtShape.shape
 	}
 
-	val model = remember(coverArtId, preferenceManager.customHeaders) {
+	// Coil times its cross-fade on the wall clock: under reduced motion the cover is just there (L1-03).
+	val fadeMs = crossfadeMsFor(rememberReducedMotion(), crossfadeMs)
+	val model = remember(coverArtId, preferenceManager.customHeaders, fadeMs) {
 		val networkHeaders = NetworkHeaders.Builder().apply {
 			preferenceManager.customHeadersMap().forEach { (key, value) -> add(key, value) }
 		}.build()
@@ -116,7 +122,7 @@ fun CoverArt(
 			.diskCacheKey(coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
-			.crossfade(crossfadeMs)
+			.crossfade(fadeMs)
 			.httpHeaders(networkHeaders)
 			.build()
 	}

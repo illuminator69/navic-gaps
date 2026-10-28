@@ -1,5 +1,6 @@
 package paige.navic.ui.components.common
 
+import paige.navic.ui.util.WASH_MS
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -67,7 +68,7 @@ fun CoverAmbientBackground(
 	 */
 	artworkScrim: Brush? = null
 ) {
-	val animatedSeed = animateColorAsState(seed, animationSpec = tween(450))
+	val animatedSeed = animateColorAsState(seed, animationSpec = tween(WASH_MS))
 	val tuning = washTuning(isDark)
 	val scrim = remember(isDark, artworkScrim) {
 		artworkScrim.takeIf { isDark } ?: SolidColor(tuning.artScrimColor.copy(alpha = tuning.artScrimAlpha))

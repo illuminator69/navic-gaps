@@ -1,5 +1,12 @@
 package paige.navic.ui.screens.sourcehistory
 
+import paige.navic.domain.manager.historyRereadWanted
+import paige.navic.domain.manager.historyRead
+import paige.navic.domain.manager.historyEmptyState
+import paige.navic.domain.manager.formatListenedAt
+import paige.navic.domain.manager.HistoryEmpty
+import navic.composeapp.generated.resources.attention_notice_unreachable
+import kotlinx.datetime.TimeZone
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,7 +64,6 @@ import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
-import paige.navic.domain.manager.ActivityRead
 import paige.navic.domain.manager.ActivityTransfer
 import paige.navic.domain.manager.HistoryRow
 import paige.navic.domain.manager.LbFillEntry
@@ -68,6 +74,7 @@ import paige.navic.domain.manager.transfersShown
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Download
+import paige.navic.ui.components.common.rowPlaceholders
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.FillButton
 import paige.navic.ui.components.common.FillRow
@@ -117,6 +124,8 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
+	val loading by viewModel.loading.collectAsStateWithLifecycle()
+	val zone = remember { TimeZone.currentSystemDefault() }
 	val lifecycleOwner = LocalLifecycleOwner.current
 	val scope = rememberCoroutineScope()
 	val now = rememberFillClock()
@@ -128,7 +137,7 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 
 	// lb-bot's half: on opening, then again every few seconds only while one of ITS rows is running
 	// and the page is on screen. The device's rows move with the ledger and need no read.
-	val serverRunning = groups.running.any { it.entry == null }
+	val serverRunning = historyRereadWanted(groups)
 	LaunchedEffect(lifecycleOwner, serverRunning) {
 		lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
 			viewModel.load().join()
@@ -201,22 +210,31 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 				) {
 					when (current) {
 						SourceHistorySection.Requests -> {
-							val notice = when (server.status) {
-								ActivityRead.Older -> Res.string.source_history_notice_older
-								ActivityRead.Unavailable -> if (server.last == null) Res.string.source_history_notice_unreachable else null
-								else -> null
-							}
-							if (notice != null) {
+							// B4 (L4b-08): "No requests yet" only once lb-bot has answered with none.
+							val empty = historyEmptyState(
+								historyRead(server.status, loading),
+								rows = groups.running.size + groups.earlier.size,
+								asOf = server.lastAt.takeIf { server.last != null }
+							)
+							if (empty == HistoryEmpty.Older || empty is HistoryEmpty.Unreachable) {
 								item(key = "notice") {
+									val asOf = (empty as? HistoryEmpty.Unreachable)?.asOf
+									val notice = when {
+										empty == HistoryEmpty.Older -> stringResource(Res.string.source_history_notice_older)
+										asOf != null -> stringResource(
+											Res.string.attention_notice_unreachable, formatListenedAt(asOf / 1000.0, zone)
+										)
+										else -> stringResource(Res.string.source_history_notice_unreachable)
+									}
 									Text(
-										stringResource(notice),
+										notice,
 										style = MaterialTheme.typography.bodyMedium,
 										color = MaterialTheme.colorScheme.onSurfaceVariant,
 										modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp).animateItem()
 									)
 								}
 							}
-							if (groups.running.isEmpty() && groups.earlier.isEmpty()) {
+							if (empty == HistoryEmpty.NoRequests) {
 								item(key = "empty") {
 									ContentUnavailable(
 										modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
@@ -225,6 +243,7 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 									)
 								}
 							}
+							if (empty == HistoryEmpty.Skeleton) rowPlaceholders("history")
 							historyGroup("running", Res.string.source_history_running, groups.running, now,
 								actions, wishlisted, openAlbum)
 							historyGroup("earlier", Res.string.source_history_earlier, groups.earlier, now,

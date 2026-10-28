@@ -29,3 +29,14 @@ internal class BuiltStation(
 	/** The station's own songs in [queue] (the seeds left out), for its served set. */
 	val served: List<String>
 )
+
+/** What [RadioManager.buildMix] made of a mix. */
+sealed interface MixBuildResult {
+	class Built(val build: MixBuild) : MixBuildResult
+
+	/** The recipe ran and nothing came of it. */
+	data object Empty : MixBuildResult
+
+	/** A mood-filtered radio whose station could not start: it has no unfiltered fallback ([stationFallbackAllowed]). */
+	data object NeedsAudioMuse : MixBuildResult
+}

@@ -1,5 +1,9 @@
 package paige.navic.ui.screens.attention
 
+import paige.navic.ui.components.common.ROW_PLACEHOLDERS
+import paige.navic.ui.components.common.RowPlaceholder
+import org.jetbrains.compose.resources.StringResource
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +17,6 @@ import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemShapes
@@ -62,6 +65,7 @@ import navic.composeapp.generated.resources.attention_notice_older
 import navic.composeapp.generated.resources.attention_notice_truncated
 import navic.composeapp.generated.resources.attention_notice_unreachable
 import navic.composeapp.generated.resources.attention_notice_unreachable_never
+import navic.composeapp.generated.resources.attention_device_only
 import navic.composeapp.generated.resources.attention_section_albums
 import navic.composeapp.generated.resources.attention_section_to_fix
 import navic.composeapp.generated.resources.attention_to_fix
@@ -193,8 +197,12 @@ fun AttentionScreen() {
 			modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
 		) {
 			when (val p = page) {
-				AttentionPage.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-					ContainedLoadingIndicator()
+				// Waiting rows under the title's place, then lb-bot's rows (audit L1-05).
+				AttentionPage.Loading -> Column(
+					Modifier.fillMaxSize().padding(innerPadding.withoutTop()).padding(horizontal = 16.dp, vertical = 8.dp),
+					verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
+				) {
+					repeat(ROW_PLACEHOLDERS) { RowPlaceholder() }
 				}
 				is AttentionPage.Rows -> LazyColumn(
 					modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -205,7 +213,7 @@ fun AttentionScreen() {
 						AttentionHead(p, Modifier.animateItem())
 					}
 					val toCheck = p.artistsToCheck?.takeIf { it > 0 }
-					if (p.albums.isEmpty() && p.folders.isEmpty() && toCheck == null) {
+					if (p.albums.isEmpty() && p.folders.isEmpty() && toCheck == null && p.deviceOnly.isEmpty()) {
 						item(key = "empty") {
 							ContentUnavailable(
 								modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp).animateItem(),
@@ -214,38 +222,37 @@ fun AttentionScreen() {
 							)
 						}
 					}
-					if (p.albums.isNotEmpty()) {
-						item(key = "albums-header") {
-							GroupHeader(
-								stringResource(Res.string.attention_section_albums),
-								count = p.albums.size,
-								modifier = Modifier.animateItem()
-							)
-						}
-						itemsIndexed(p.albums, key = { _, row -> row.id }) { index, row ->
-							AlbumRow(
-								row = row,
-								now = now,
-								shapes = segmentedShapes(index, p.albums.size),
-								open = row.id in open,
-								onToggle = { open = if (row.id in open) open - row.id else open + row.id },
-								wishlistAvailable = actions.wishlistSupported && row.entry?.key !in wishlisted,
-								onAction = { button, entry ->
-									when (button) {
-										FillButton.RETRY -> actions.retryFill(entry.key)
-										FillButton.TRY_ANOTHER -> actions.retryAnotherSource(entry.key)
-										FillButton.CANCEL -> actions.cancelFill(entry.key)
-										FillButton.ALLOW_MP3 -> actions.allowMp3AndRetry(entry)
-										FillButton.WISHLIST -> actions.addToWishlist(entry)
-										FillButton.DISMISS -> actions.dismissFill(entry.key)
-										FillButton.OPEN_ALBUM -> openAlbum(row)
-									}
-								},
-								onOpenAlbum = { openAlbum(row) },
-								modifier = Modifier.animateItem()
-							)
+					val albumRows: LazyListScope.(String, StringResource, List<AttentionRow>) -> Unit = { key, title, rows ->
+						if (rows.isNotEmpty()) {
+							item(key = "$key-header") {
+								GroupHeader(stringResource(title), count = rows.size, modifier = Modifier.animateItem())
+							}
+							itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+								AlbumRow(
+									row = row,
+									now = now,
+									shapes = segmentedShapes(index, rows.size),
+									open = row.id in open,
+									onToggle = { open = if (row.id in open) open - row.id else open + row.id },
+									wishlistAvailable = actions.wishlistSupported && row.entry?.key !in wishlisted,
+									onAction = { button, entry ->
+										when (button) {
+											FillButton.RETRY -> actions.retryFill(entry.key)
+											FillButton.TRY_ANOTHER -> actions.retryAnotherSource(entry.key)
+											FillButton.CANCEL -> actions.cancelFill(entry.key)
+											FillButton.ALLOW_MP3 -> actions.allowMp3AndRetry(entry)
+											FillButton.WISHLIST -> actions.addToWishlist(entry)
+											FillButton.DISMISS -> actions.dismissFill(entry.key)
+											FillButton.OPEN_ALBUM -> openAlbum(row)
+										}
+									},
+									onOpenAlbum = { openAlbum(row) },
+									modifier = Modifier.animateItem()
+								)
+							}
 						}
 					}
+					albumRows("albums", Res.string.attention_section_albums, p.albums)
 					val toFixRows = p.folders.size + (if (toCheck != null) 1 else 0)
 					if (toFixRows > 0) {
 						item(key = "fix-header") {
@@ -292,6 +299,8 @@ fun AttentionScreen() {
 							}
 						}
 					}
+					// L4b-02: this phone's own rows lb-bot no longer lists, apart from lb-bot's and its count.
+					albumRows("device-only", Res.string.attention_device_only, p.deviceOnly)
 					if (webUrl.isNotBlank()) {
 						item(key = "open-lb") {
 							TextButton(
@@ -368,7 +377,8 @@ private fun AlbumRow(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val entry = row.entry
 	val view = describeFill(entry ?: a.asLedgerRow(), now.value, wishlistAvailable)
-	val buttons = if (entry != null) view.buttons
+	// Dismiss only where it removes the row: one only this phone holds (L4b-09).
+	val buttons = if (entry != null) view.buttons.filter { it != FillButton.DISMISS || row.dismissable }
 	else listOf(FillButton.OPEN_ALBUM).filter { a.rgid.isNotBlank() || a.albumId.isNotBlank() }
 	val pill = if (a.picking) Pill(FillText.Res(Res.string.attention_choose_source), PillTone.WARN)
 	else Pill(FillText.Res(Res.string.attention_failed), PillTone.BAD)
@@ -459,9 +469,14 @@ private fun FolderRow(
 	val matched = folder.identified && folder.matchLabel.isNotBlank()
 	val pill = if (matched) Pill(FillText.Res(Res.string.attention_matched), PillTone.NEUTRAL)
 	else Pill(FillText.Res(Res.string.attention_needs_pick), PillTone.WARN)
+	// Its pill is said too: the row's description replaces what its children would say (L4b-11).
+	val stateWords = pill.label.resolve()
 	SegmentedListItem(
 		onClick = onToggle,
-		modifier = modifier.semantics { contentDescription = spoken },
+		modifier = modifier.semantics {
+			contentDescription = spoken
+			stateDescription = stateWords
+		},
 		shapes = shapes,
 		colors = fillRowColors(),
 		contentPadding = SongRowDefaults.ContentPadding,

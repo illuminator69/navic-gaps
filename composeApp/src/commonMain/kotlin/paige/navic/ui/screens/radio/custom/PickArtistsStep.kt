@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.radio.custom
 
+import paige.navic.ui.util.ClaimAfterFirstFrame
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -97,6 +98,8 @@ internal fun PickArtistsStep(
 		artists.orEmpty().filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) }
 	}
 	val gate = rememberArrivalGate()
+	// Tiles scrolled in later appear at once (audit L1-08).
+	ClaimAfterFirstFrame(gate, remember(shown) { shown.map { it.id } })
 
 	Scaffold(
 		containerColor = Color.Transparent,

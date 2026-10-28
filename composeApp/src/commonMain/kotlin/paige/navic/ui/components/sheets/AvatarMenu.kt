@@ -1,5 +1,7 @@
 package paige.navic.ui.components.sheets
 
+import androidx.compose.foundation.selection.toggleable
+import paige.navic.ui.a11y.MIN_TOUCH_DP
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -82,6 +84,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
+import paige.navic.domain.manager.menuAttentionBadge
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.manager.PreferenceManager
@@ -388,7 +391,7 @@ private fun AvatarMenuContent() {
 	val lbConfigured = lbBot.isConfigured
 	val canShare = sessionManager.canUserShare()
 	val items = remember(lbConfigured, canShare, attention, webUrl) {
-		avatarMenuItems(lbConfigured, canShare, attention, webUrl)
+		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl)
 	}
 	val uriHandler = LocalUriHandler.current
 
@@ -516,6 +519,8 @@ private fun MenuEntry(
 				iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
 				inFold = inFold,
 				onClick = { set(!checked) },
+				// A switch to TalkBack, with its state, not a button (audit L4b-11).
+				toggled = checked,
 				trailing = { Switch(checked = checked, onCheckedChange = null) }
 			)
 		}
@@ -530,13 +535,19 @@ private fun MenuRow(
 	iconTint: Color,
 	inFold: Boolean,
 	onClick: () -> Unit,
+	/** Set for a switch row: the row is one toggleable, read as a switch with this state. */
+	toggled: Boolean? = null,
 	trailing: (@Composable () -> Unit)? = null
 ) {
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.heightIn(min = if (inFold) 44.dp else 46.dp)
-			.clickable(role = Role.Button, onClick = onClick)
+			// 48 dp, the least a tappable may be (they were 44 and 46, audit L1-12).
+			.heightIn(min = MIN_TOUCH_DP.dp)
+			.then(
+				if (toggled != null) Modifier.toggleable(value = toggled, role = Role.Switch, onValueChange = { onClick() })
+				else Modifier.clickable(role = Role.Button, onClick = onClick)
+			)
 			.padding(horizontal = if (inFold) 12.dp else 20.dp),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(14.dp)

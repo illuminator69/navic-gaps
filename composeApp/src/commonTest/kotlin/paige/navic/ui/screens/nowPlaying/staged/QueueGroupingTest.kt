@@ -27,7 +27,7 @@ class QueueGroupingTest {
 
 	@Test
 	fun aQueueNoStationIsBoundToIsNowPlayingThenUpNext() {
-		val items = queueListItems(ids(5), uids(5), currentIndex = 1, bound = null)
+		val items = queueListItems(ids(5), uids(5), currentIndex = 1, bound = null, userQueued = emptySet())
 		assertEquals(
 			listOf(
 				Row(0, 100L, QueueGroup.Played),
@@ -44,7 +44,7 @@ class QueueGroupingTest {
 
 	@Test
 	fun aStationQueueIsQueuedByYouThenAutoplayOneHeaderPerRun() {
-		val items = queueListItems(ids(6), uids(6), currentIndex = 0, bound = station)
+		val items = queueListItems(ids(6), uids(6), currentIndex = 0, bound = station, userQueued = setOf("s1", "s2"))
 		assertEquals(
 			listOf(
 				Header(QueueGroup.Playing, 100L),
@@ -64,7 +64,7 @@ class QueueGroupingTest {
 	@Test
 	fun aSongQueuedAfterTheAutoplayRunGetsASecondQueuedHeader() {
 		val songs = listOf("s0", "s1", "s3", "s4", "s5", "s2")
-		val items = queueListItems(songs, uids(6), currentIndex = 0, bound = station)
+		val items = queueListItems(songs, uids(6), currentIndex = 0, bound = station, userQueued = setOf("s1", "s2"))
 		assertEquals(
 			listOf(
 				Header(QueueGroup.Playing, 100L),
@@ -86,7 +86,7 @@ class QueueGroupingTest {
 	fun membershipInServedDecidesTheGroupNotWhetherTheStationRuns() {
 		// Off kept s3 because it was nearly playing; s1 and s2 are the user's.
 		val stopped = station.copy(stopped = true, served = listOf("s3"))
-		val items = queueListItems(ids(4), uids(4), currentIndex = 0, bound = stopped)
+		val items = queueListItems(ids(4), uids(4), currentIndex = 0, bound = stopped, userQueued = setOf("s1", "s2"))
 		assertEquals(
 			listOf(
 				Header(QueueGroup.Playing, 100L),
@@ -105,14 +105,14 @@ class QueueGroupingTest {
 	fun oneSongIsNowPlayingOnlyAndAnEmptyQueueIsNothing() {
 		assertEquals(
 			listOf(Header(QueueGroup.Playing, 100L), Row(0, 100L, QueueGroup.Playing)),
-			queueListItems(listOf("s0"), listOf(100L), currentIndex = 0, bound = station)
+			queueListItems(listOf("s0"), listOf(100L), currentIndex = 0, bound = station, userQueued = emptySet())
 		)
-		assertEquals(emptyList(), queueListItems(emptyList(), emptyList(), currentIndex = -1, bound = null))
+		assertEquals(emptyList(), queueListItems(emptyList(), emptyList(), currentIndex = -1, bound = null, userQueued = emptySet()))
 	}
 
 	@Test
 	fun theSameSongTwiceIsTwoRowsWithTheirOwnKeys() {
-		val items = queueListItems(listOf("s0", "s7", "s7"), listOf(5L, 9L, 12L), currentIndex = 0, bound = null)
+		val items = queueListItems(listOf("s0", "s7", "s7"), listOf(5L, 9L, 12L), currentIndex = 0, bound = null, userQueued = emptySet())
 		val rows = items.filterIsInstance<Row>()
 		assertEquals(listOf(5L, 9L, 12L), rows.map { it.uid })
 		assertEquals(listOf(1, 2), rows.filter { it.group == QueueGroup.Next }.map { it.index })
@@ -121,7 +121,7 @@ class QueueGroupingTest {
 	@Test
 	fun nothingPlayingIsAllUpcoming() {
 		// A queue whose index is not known yet (the first frame of a restore): no "Now playing".
-		val items = queueListItems(ids(2), uids(2), currentIndex = -1, bound = null)
+		val items = queueListItems(ids(2), uids(2), currentIndex = -1, bound = null, userQueued = emptySet())
 		assertEquals(listOf(Header(QueueGroup.Next, 100L), Row(0, 100L, QueueGroup.Next), Row(1, 101L, QueueGroup.Next)), items)
 	}
 
@@ -156,23 +156,91 @@ class QueueGroupingTest {
 		val unseen = station.copy(served = emptyList())
 		assertEquals(
 			listOf(Header(QueueGroup.Playing, 100L), Row(0, 100L, QueueGroup.Playing), Header(QueueGroup.Next, 101L), Row(1, 101L, QueueGroup.Next)),
-			queueListItems(ids(2), uids(2), currentIndex = 0, bound = unseen)
+			queueListItems(ids(2), uids(2), currentIndex = 0, bound = unseen, userQueued = emptySet())
 		)
 		// A served song already played does not make one either.
 		val playedOnly = station.copy(served = listOf("s0"))
 		assertEquals(
 			listOf(Row(0, 100L, QueueGroup.Played), Header(QueueGroup.Playing, 101L), Row(1, 101L, QueueGroup.Playing), Header(QueueGroup.Next, 102L), Row(2, 102L, QueueGroup.Next)),
-			queueListItems(ids(3), uids(3), currentIndex = 1, bound = playedOnly)
+			queueListItems(ids(3), uids(3), currentIndex = 1, bound = playedOnly, userQueued = emptySet())
 		)
 	}
 
 	@Test
 	fun eachRowKnowsItsPlaceInItsRunForItsShape() {
-		val items = queueListItems(ids(6), uids(6), currentIndex = 1, bound = station.copy(served = listOf("s4", "s5")))
+		val items = queueListItems(ids(6), uids(6), currentIndex = 1, bound = station.copy(served = listOf("s4", "s5")), userQueued = setOf("s2", "s3"))
 		// s0 played | Playing s1 | Queued s2 s3 | Autoplay s4 s5
 		assertEquals(
 			mapOf(100L to (0 to 1), 101L to (0 to 1), 102L to (0 to 2), 103L to (1 to 2), 104L to (0 to 2), 105L to (1 to 2)),
 			rowRunPositions(items)
 		)
+	}
+
+	// ---- audit L4a-04: "Queued by you" only for what the user queued -------------------------- //
+
+	@Test
+	fun aStationQueueSaysQueuedOnlyForTheUsersRowsAndUpNextForTheRest() {
+		// s1 the station served, s2 the user queued, s3 neither (another device's top-up, a transfer's).
+		val bound = station.copy(served = listOf("s1"))
+		val items = queueListItems(ids(4), uids(4), currentIndex = 0, bound = bound, userQueued = setOf("s2"))
+		assertEquals(
+			listOf(
+				Header(QueueGroup.Playing, 100L),
+				Row(0, 100L, QueueGroup.Playing),
+				Header(QueueGroup.Autoplay, 101L),
+				Row(1, 101L, QueueGroup.Autoplay),
+				Header(QueueGroup.Queued, 102L),
+				Row(2, 102L, QueueGroup.Queued),
+				Header(QueueGroup.Next, 103L),
+				Row(3, 103L, QueueGroup.Next)
+			),
+			items
+		)
+	}
+
+	@Test
+	fun aHubEditSwapInIsAutoplayOnceItIsInServed() {
+		val swapped = station.copy(served = listOf("s3", "s4", "s5", "x1", "x2"))
+		val items = queueListItems(listOf("s0", "x1", "x2"), uids(3), currentIndex = 0, bound = swapped, userQueued = emptySet())
+		assertEquals(listOf(QueueGroup.Playing, QueueGroup.Autoplay, QueueGroup.Autoplay), items.filterIsInstance<Row>().map { it.group })
+	}
+
+	@Test
+	fun aQueueWithNoServedRowAfterThePlayingOneIsOneUpNext() {
+		val items = queueListItems(ids(3), uids(3), currentIndex = 0, bound = station.copy(served = listOf("s0")), userQueued = setOf("s1"))
+		assertEquals(listOf(QueueGroup.Playing, QueueGroup.Next, QueueGroup.Next), items.filterIsInstance<Row>().map { it.group })
+	}
+
+	@Test
+	fun aSongBothServedAndUserQueuedReadsAutoplay() {
+		// Registered cost: membership is by id.
+		val items = queueListItems(ids(2), uids(2), currentIndex = 0, bound = station.copy(served = listOf("s1")), userQueued = setOf("s1"))
+		assertEquals(QueueGroup.Autoplay, items.filterIsInstance<Row>()[1].group)
+	}
+
+	// ---- what the player remembers the user queued ------------------------------------------- //
+
+	@Test
+	fun theUsersAddsAreRememberedAndAReplacedQueueForgetsThem() {
+		val added = userQueuedAfterAdd(emptySet(), listOf("a", "b"))
+		assertEquals(setOf("a", "b"), added)
+		assertEquals(setOf("a", "b", "c"), userQueuedAfterAdd(added, listOf("c")))
+		// The same queue goes on: kept. Another queue (a mix, a transfer, a new album): forgotten.
+		assertEquals(added, userQueuedAfterQueueChange(added, previousQueueId = "q1", queueId = "q1", queueEmpty = false))
+		assertEquals(emptySet(), userQueuedAfterQueueChange(added, previousQueueId = "q1", queueId = "q2", queueEmpty = false))
+		assertEquals(emptySet(), userQueuedAfterQueueChange(added, previousQueueId = "q1", queueId = null, queueEmpty = false))
+		// The add that starts a queue gives it its first id: kept.
+		assertEquals(added, userQueuedAfterQueueChange(added, previousQueueId = null, queueId = "q1", queueEmpty = false))
+		// Cleared.
+		assertEquals(emptySet(), userQueuedAfterQueueChange(added, previousQueueId = "q1", queueId = "q1", queueEmpty = true))
+	}
+
+	// Audit L4a-08: the indices after the playing one in play order, the same trust rule as peekRow.
+	@Test
+	fun upcomingIndicesFollowPlayOrder() {
+		assertEquals(listOf(3, 1), upcomingIndices(size = 4, currentIndex = 0, order = listOf(2, 0, 3, 1), count = 2))
+		assertEquals(listOf(1, 2), upcomingIndices(size = 4, currentIndex = 0, order = listOf(1, 0), count = 2))
+		assertEquals(listOf(1, 2, 3), upcomingIndices(size = 4, currentIndex = 0, order = null, count = 9))
+		assertEquals(emptyList(), upcomingIndices(size = 4, currentIndex = 7, order = null, count = 2))
 	}
 }

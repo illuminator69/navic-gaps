@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.MixBuild
+import paige.navic.domain.manager.MixBuildResult
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.Mix
@@ -31,6 +32,8 @@ sealed interface MixPageState {
 	data object Empty : MixPageState
 	/** A kind this build cannot run (a newer client's recipe). */
 	data object UnknownKind : MixPageState
+	/** A mood-filtered radio whose station could not start; it is refused, not played unfiltered (audit L4a-01). */
+	data object NeedsAudioMuse : MixPageState
 }
 
 /**
@@ -90,8 +93,11 @@ class MixDetailViewModel(
 			}
 			// The songs already shown stay while new ones are built: a pull does not blank the page.
 			if (_state.value !is MixPageState.Built) _state.value = MixPageState.Building
-			_state.value = radioManager.buildMix(target, yourMixName)
-				?.let { MixPageState.Built(it) } ?: MixPageState.Empty
+			_state.value = when (val result = radioManager.buildMix(target, yourMixName)) {
+				is MixBuildResult.Built -> MixPageState.Built(result.build)
+				MixBuildResult.Empty -> MixPageState.Empty
+				MixBuildResult.NeedsAudioMuse -> MixPageState.NeedsAudioMuse
+			}
 		}
 	}
 

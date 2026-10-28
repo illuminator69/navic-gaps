@@ -27,6 +27,18 @@ class CoverSeedStoreTest {
 	}
 
 	@Test
+	fun aToneRoundTripsThroughTheCodec() {
+		val entries = listOf("al-1" to navy.copy(tone = 42.5f), "al-2" to grey)
+		assertEquals(entries, CoverSeedCodec.decode(CoverSeedCodec.encode(entries)))
+	}
+
+	@Test
+	fun seedsStoredBeforeToneAreWorkedOutAgain() {
+		// Version 2 had no tone: its entries would keep the old brightness rule until evicted.
+		assertEquals(emptyList(), CoverSeedCodec.decode("{\"v\":2,\"e\":[{\"k\":\"al-1\",\"d\":1}]}"))
+	}
+
+	@Test
 	fun garbageNeverThrowsAndReadsAsEmpty() {
 		for (raw in listOf("", "{", "null", "{\"v\":1}", "not json")) {
 			assertEquals(emptyList(), CoverSeedCodec.decode(raw), "for '$raw'")
@@ -70,5 +82,19 @@ class CoverSeedStoreTest {
 		val again = store(load = { saved })
 		assertEquals(navy, again["al-1"])
 		assertEquals(grey, again["mf-2"])
+	}
+
+	// Audit L4a-08: a long grid scroll evicted the playing cover's seeds.
+	@Test
+	fun playingCoverSurvivesAGridScroll() {
+		val s = store(cap = 3)
+		s.put("playing", navy)
+		s.keepPlaying("playing")
+		s.put("a", grey); s.put("b", grey); s.put("c", grey); s.put("d", grey)
+		assertTrue(s.contains("playing"))
+		assertFalse(s.contains("a"))
+		s.keepPlaying(null)
+		s.put("e", grey)
+		assertFalse(s.contains("playing"))
 	}
 }

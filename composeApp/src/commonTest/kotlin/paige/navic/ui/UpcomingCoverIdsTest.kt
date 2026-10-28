@@ -52,4 +52,17 @@ class UpcomingCoverIdsTest {
 		assertEquals(emptyList(), upcomingCoverArtIds(queue, currentIndex = 1, count = 3))
 		assertEquals(emptyList(), upcomingCoverArtIds(queue, currentIndex = -1, count = 3))
 	}
+
+	// Audit L4a-08: the prefetch followed queue order, so under shuffle it missed the next songs.
+	@Test
+	fun followsPlayOrderUnderShuffle() {
+		val queue = listOf(song("1", "c1"), song("2", "c2"), song("3", "c3"), song("4", "c4"))
+		assertEquals(listOf("c4", "c2"), upcomingCoverArtIds(queue, currentIndex = 0, order = listOf(2, 0, 3, 1), count = 2))
+	}
+
+	@Test
+	fun anOrderThatDoesNotDescribeTheQueueIsIgnored() {
+		val queue = listOf(song("1", "c1"), song("2", "c2"), song("3", "c3"))
+		assertEquals(listOf("c2", "c3"), upcomingCoverArtIds(queue, currentIndex = 0, order = listOf(1, 0), count = 2))
+	}
 }

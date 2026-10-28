@@ -1,5 +1,11 @@
 package paige.navic.ui.screens.external.components
 
+import paige.navic.ui.util.Fold
+import navic.composeapp.generated.resources.releases_show_all
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -86,6 +92,8 @@ fun ReleaseRows(
 	val lbBot = koinInject<LbBotManager>()
 	val ledger by lbBot.ledger.collectAsState()
 	val gate = rememberArrivalGate()
+	// The groups Show all has opened, by type.
+	var expanded by rememberSaveable { mutableStateOf(listOf<String>()) }
 	Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
 		sections.forEach { section ->
 			Column {
@@ -115,19 +123,41 @@ fun ReleaseRows(
 						}
 					}
 				}
+				// B7 (audit L4b-06): the page is a scrolling Column, so every row drew at once (500
+				// releases, 500 rows and 500 cover requests). A group draws its first rows, and Show all
+				// folds the rest in; folded away, they are not composed at all.
+				val open = section.type in expanded
+				val first = visibleReleases(section.entries.size, expanded = false)
+				val count = visibleReleases(section.entries.size, open)
+				val row: @Composable (Int, DiscographyEntry) -> Unit = { index, entry ->
+					ReleaseRow(
+						entry = entry,
+						fill = fillFor(entry, ledger),
+						type = typeOf?.invoke(entry),
+						pills = pills,
+						index = index,
+						count = count,
+						onClick = { onOpenEntry(entry) },
+						onLongClick = onLongClick?.takeIf { entry.album != null }?.let { { it(entry) } },
+						modifier = Modifier.arrive(gate, entry.key, index)
+					)
+				}
 				Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-					section.entries.forEachIndexed { index, entry ->
-						ReleaseRow(
-							entry = entry,
-							fill = fillFor(entry, ledger),
-							type = typeOf?.invoke(entry),
-							pills = pills,
-							index = index,
-							count = section.entries.size,
-							onClick = { onOpenEntry(entry) },
-							onLongClick = onLongClick?.takeIf { entry.album != null }?.let { { it(entry) } },
-							modifier = Modifier.arrive(gate, entry.key, index)
-						)
+					section.entries.take(first).forEachIndexed { index, entry -> row(index, entry) }
+					if (section.entries.size > first) {
+						Fold(visible = open, tall = true) {
+							Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+								section.entries.drop(first).forEachIndexed { i, entry -> row(first + i, entry) }
+							}
+						}
+						if (!open) {
+							TextButton(
+								onClick = { expanded = expanded + section.type },
+								modifier = Modifier.padding(horizontal = 12.dp)
+							) {
+								Text(stringResource(Res.string.releases_show_all, section.entries.size))
+							}
+						}
 					}
 				}
 			}
@@ -142,6 +172,13 @@ private fun fillFor(entry: DiscographyEntry, ledger: List<LbFillEntry>): LbFillE
 	val rgid = entry.release?.rgid.orEmpty()
 	return if (rgid.isBlank()) null else ledger.firstOrNull { it.key == rgid }
 }
+
+/** A group's rows drawn before Show all. */
+const val RELEASE_ROWS_FIRST = 40
+
+/** How many of a group's [count] rows are drawn: all once opened, else the first [limit]. */
+fun visibleReleases(count: Int, expanded: Boolean, limit: Int = RELEASE_ROWS_FIRST): Int =
+	if (expanded) count else minOf(count, limit)
 
 @Composable
 private fun ReleaseRow(

@@ -1,5 +1,6 @@
 package paige.navic
 
+import paige.navic.ui.util.PREDICTIVE_POP_MS
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -60,11 +61,7 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
-import androidx.savedstate.serialization.SavedStateConfiguration
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_open_in_lbbot
 import navic.composeapp.generated.resources.info_link_unresolved
@@ -140,6 +137,7 @@ import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.downloads.DownloadsScreen
 import paige.navic.ui.navigation.isRootPage
+import paige.navic.ui.navigation.navSavedStateConfiguration
 import paige.navic.ui.navigation.normalizedStack
 import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.ui.screens.attention.AttentionScreen
@@ -182,15 +180,6 @@ import paige.navic.ui.screens.genre.GenreDetailScreen
 import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
 import paige.navic.ui.screens.settings.SettingsEqualiserScreen
 
-@OptIn(ExperimentalSerializationApi::class)
-private val config = SavedStateConfiguration {
-	serializersModule = SerializersModule {
-		polymorphic(NavKey::class) {
-			subclassesOfSealed<Screen>()
-		}
-	}
-}
-
 
 // Coil's singleton factory may only be installed once per process. When the
 // playback service keeps the process alive (e.g. while casting) and the UI is
@@ -217,7 +206,7 @@ fun App() {
 
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val backStack = rememberNavBackStack(
-		config, if (isLoggedIn) {
+		navSavedStateConfiguration, if (isLoggedIn) {
 			Screen.Home
 		} else {
 			Screen.Login
@@ -482,10 +471,10 @@ fun App() {
 									predictivePopTransitionSpec = {
 										if (preferenceManager.enablePredictiveBackAnimations) {
 											slideInHorizontally(
-												animationSpec = tween(300, easing = EaseOutQuart),
+												animationSpec = tween(PREDICTIVE_POP_MS, easing = EaseOutQuart),
 												initialOffsetX = { -it }
 											) togetherWith slideOutHorizontally(
-												animationSpec = tween(300, easing = EaseOutQuart),
+												animationSpec = tween(PREDICTIVE_POP_MS, easing = EaseOutQuart),
 												targetOffsetX = { it }
 											)
 										} else {

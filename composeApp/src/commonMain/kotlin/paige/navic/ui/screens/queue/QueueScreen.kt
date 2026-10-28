@@ -277,6 +277,7 @@ internal fun QueueContent(layout: QueueLayout) {
 	// headers too; the mirror moves only when the row passes another row. Regrouped on release.
 	val isLayer = layout is QueueLayout.Layer
 	val boundStation by radioManager.boundStation.collectAsState()
+	val userQueued by player.userQueued.collectAsStateWithLifecycle()
 	val layerDragItems = remember { mutableStateListOf<QueueListItem>() }
 	var layerDragging by remember { mutableStateOf(false) }
 	val groupedRef = remember { arrayOf<List<QueueListItem>>(emptyList()) }
@@ -375,8 +376,8 @@ internal fun QueueContent(layout: QueueLayout) {
 	else playingIndex
 	val grouped = if (isLayer) {
 		val entries = displayQueue.toList()
-		remember(entries, groupingIndex, boundStation) {
-			queueListItems(entries.map { it.song.id }, entries.map { it.uid }, groupingIndex, boundStation)
+		remember(entries, groupingIndex, boundStation, userQueued) {
+			queueListItems(entries.map { it.song.id }, entries.map { it.uid }, groupingIndex, boundStation, userQueued)
 		}
 	} else emptyList()
 	groupedRef[0] = grouped

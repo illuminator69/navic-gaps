@@ -984,6 +984,8 @@
 	<string name="info_gap_missing_count">%1$d missing</string>
 	<string name="info_gap_failed">%1$d track(s) failed</string>
 	<string name="info_pending_sync">Added — syncing</string>
+	<string name="request_placed_waiting">Placed, waiting for Navidrome</string>
+	<string name="request_choose_edition">Choose an edition to look for sources.</string>
 	<plurals name="action_fill_gaps_count">
 		<item quantity="one">Find %1$d missing track</item>
 		<item quantity="other">Find %1$d missing tracks</item>
@@ -1226,11 +1228,11 @@
 	<string name="option_navi_connect_audiomuse_url">AudioMuse URL (direct, optional)</string>
 	<string name="option_navi_connect_audiomuse_token">AudioMuse API token (direct, optional)</string>
 	<string name="action_navi_connect_save_audiomuse">Save AudioMuse</string>
-	<string name="info_navi_connect_where_matches">Artist, album and name matches are in Library Matches, on the library's home page, and the listening history's sync is in Stats.</string>
+	<string name="info_navi_connect_where_matches">Artist, album and name matches are in Library Matches, in the avatar menu, and the listening history's sync is in Stats.</string>
 	<string name="option_expressive_blur">Expressive blur</string>
 	<string name="subtitle_expressive_blur">Real frosted-glass blur under the top bars (experimental)</string>
 	<string name="title_downloads">Downloads</string>
-	<string name="subtitle_downloads_page">Active, queued and failed downloads, also on the library's home page</string>
+	<string name="subtitle_downloads_page">Active, queued and failed downloads on this device</string>
 	<string name="option_downloads_device">On this device</string>
 	<string name="option_downloads_fills">From Soulseek</string>
 	<string name="info_no_fills">Nothing is coming from Soulseek</string>
@@ -1253,6 +1255,7 @@
 	<string name="attention_nothing_to_fix">Nothing to fix</string>
 	<string name="attention_section_albums">Albums</string>
 	<string name="attention_section_to_fix">To fix</string>
+	<string name="attention_device_only">Only on this phone</string>
 	<plurals name="attention_artists_to_check">
 		<item quantity="one">%1$d artist to check</item>
 		<item quantity="other">%1$d artists to check</item>
@@ -1318,10 +1321,12 @@
 	<string name="custom_radio_variety_high">High</string>
 	<string name="custom_radio_song_selection">Song selection</string>
 	<string name="custom_radio_hint">Discover widens artists too. Artist variety limits how often one artist repeats.</string>
+	<string name="custom_radio_hint_no_variety">Discover widens artists too.</string>
 	<string name="custom_radio_count">%1$s songs to draw from</string>
 	<string name="custom_radio_count_partial">At least %1$s songs to draw from</string>
 	<string name="custom_radio_count_updating">updating</string>
 	<string name="custom_radio_count_unavailable">Count unavailable</string>
+	<string name="custom_radio_count_unfinished">Could not finish counting</string>
 	<string name="custom_radio_count_zero">0 songs match. Try a different setting.</string>
 	<string name="custom_radio_count_unknown">AudioMuse has not analysed these artists yet.</string>
 	<string name="custom_radio_done">Done</string>
@@ -1329,6 +1334,7 @@
 	<string name="custom_radio_save_failed">It could not be saved: the hub did not answer. Try again.</string>
 	<string name="mix_page_building">Building this mix</string>
 	<string name="mix_page_empty">This mix came up empty just now. Pull to try again.</string>
+	<string name="radio_mood_needs_audiomuse">A mood radio needs AudioMuse, and it is not answering now. Pull to try again.</string>
 	<string name="mix_page_fresh">Built fresh each time you open it.</string>
 	<string name="mix_page_continues">When these end, the radio carries on.</string>
 	<string name="mix_custom_radio">Custom radio</string>
@@ -1382,10 +1388,16 @@
 		<item quantity="one">Only %1$d song of this mix is in your library yet.</item>
 		<item quantity="other">Only %1$d songs of this mix are in your library yet.</item>
 	</plurals>
+	<plurals name="mood_mix_short_length">
+		<item quantity="one">Only %1$d song of this mix is short enough for this mood.</item>
+		<item quantity="other">Only %1$d songs of this mix are short enough for this mood.</item>
+	</plurals>
+	<string name="mood_mix_gone">This mix is not in the hub's list any more.</string>
 	<string name="queue_mood_all">All</string>
 	<string name="custom_radio_filters">Filters</string>
 	<string name="custom_radio_count_low">%1$s songs to draw from. This radio will run out quickly.</string>
 	<string name="mood_play_short">Only %1$d of this mix's songs are in your library yet.</string>
+	<string name="mood_play_short_length">Only %1$d of this mix's songs are short enough for this mood.</string>
 	<string name="mood_unavailable_title">Mood search is not available right now</string>
 	<string name="mood_unavailable_body">Navic could not reach the server that finds songs by mood. Your library and everything else still work.</string>
 	<!-- navi-connect P2: the staged queue inside the player (portrait phones). -->
@@ -1400,7 +1412,7 @@
 	<string name="staged_section_queued_by_you">Queued by you</string>
 	<string name="staged_section_autoplay">Autoplay · %1$s</string>
 	<string name="staged_section_up_next">Up next</string>
-	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and the songs it had added are gone. Songs you queued stay.</string>
+	<string name="staged_autoplay_off_note">Autoplay is off. The station stopped and took its queued songs out, apart from one that is about to play. Songs you queued stay.</string>
 	<string name="staged_open_queue">Open the queue</string>
 	<string name="staged_collapse_queue">Collapse the queue</string>
 	<string name="staged_rate_song">Rate this song</string>
@@ -1474,7 +1486,7 @@
 	<string name="request_search_failed">Couldn't search for sources</string>
 	<string name="request_cancel">Cancel request</string>
 	<string name="request_retry_from">From %1$s</string>
-	<string name="request_leave_any_time">Leave this page any time. Progress also shows in Downloads.</string>
+	<string name="request_leave_any_time">Leave this page any time. Progress also shows in Source history.</string>
 	<string name="request_refused">lb-bot would not take that request.</string>
 	<string name="request_found_from_link">Found from your link</string>
 	<string name="request_on_wishlist">On your wishlist</string>
@@ -1482,6 +1494,7 @@
 	<string name="artist_scan_failed">Couldn't scan this artist</string>
 	<string name="artist_try_again">Try again</string>
 	<string name="artist_no_releases">lb-bot's index holds no releases for this artist.</string>
+	<string name="releases_show_all">Show all %1$d</string>
 	<string name="release_tap_hint">Tap one to find sources</string>
 	<string name="gap_in_library">%1$d of %2$d in your library</string>
 	<plurals name="gap_find_sources_for">

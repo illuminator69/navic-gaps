@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.browse
 
+import paige.navic.ui.util.ClaimAfterFirstFrame
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,6 +90,8 @@ fun BrowseFeedScreen(kind: BrowseKind) {
 	val scope = rememberCoroutineScope()
 	val snackbarHostState = remember { SnackbarHostState() }
 	val gate = rememberArrivalGate()
+	// Tiles scrolled in later appear at once (audit L1-08).
+	ClaimAfterFirstFrame(gate, remember(state.albums) { state.albums.map { it.feedKey() } })
 	val unresolved = stringResource(Res.string.browse_unresolved)
 
 	val open: (LbBrowseAlbum) -> Unit = { album ->

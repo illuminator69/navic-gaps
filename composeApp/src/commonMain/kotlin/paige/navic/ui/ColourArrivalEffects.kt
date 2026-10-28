@@ -2,13 +2,15 @@ package paige.navic.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.screens.nowPlaying.staged.upcomingIndices
 import paige.navic.ui.util.CoverSeedPrefetcher
+import paige.navic.ui.util.CoverSeedStore
 import paige.navic.ui.util.rememberNowPlayingCoverArtId
 import paige.navic.ui.util.rememberPlayerRestored
 import paige.navic.util.CoverPlaceholder
@@ -42,10 +44,16 @@ fun ColourArrivalEffects() {
 	val player = koinInject<MediaPlayerViewModel>()
 	val prefetcher = koinInject<CoverSeedPrefetcher>()
 	LaunchedEffect(player, prefetcher) {
-		player.steadyState
-			.map { upcomingCoverArtIds(it.queue, it.currentIndex, UPCOMING_PREFETCH) }
+		combine(player.steadyState, player.playOrder) { state, order ->
+			upcomingCoverArtIds(state.queue, state.currentIndex, order, UPCOMING_PREFETCH)
+		}
 			.distinctUntilChanged()
-			.collect { ids -> ids.forEach(prefetcher::request) }
+			.collect { ids -> ids.forEach { prefetcher.request(it, nextSong = true) } }
+	}
+	// The playing cover's colours are never the ones a long grid scroll pushes out of the store.
+	val store = koinInject<CoverSeedStore>()
+	LaunchedEffect(playing) {
+		store.keepPlaying(playing?.takeIf { it.isNotBlank() && !CoverPlaceholder.isPlaceholder(it) })
 	}
 }
 
@@ -53,14 +61,13 @@ fun ColourArrivalEffects() {
 private const val UPCOMING_PREFETCH = 3
 
 /**
- * The cover ids of the songs after [currentIndex], in order: none blank, none Navidrome's generic
- * avatar, each once, at most [count]. Nothing for an index of -1 or past the end.
+ * The cover ids of the songs after [currentIndex], in play order ([upcomingIndices]: [order] is the
+ * shuffle order, or null for queue order): none blank, none Navidrome's generic avatar, each once, at
+ * most [count]. Nothing for an index of -1 or past the end.
  */
-internal fun upcomingCoverArtIds(queue: List<DomainSong>, currentIndex: Int, count: Int): List<String> {
-	if (currentIndex < 0 || currentIndex >= queue.size) return emptyList()
-	return queue.asSequence()
-		.drop(currentIndex + 1)
-		.mapNotNull { it.coverArtId }
+internal fun upcomingCoverArtIds(queue: List<DomainSong>, currentIndex: Int, order: List<Int>? = null, count: Int): List<String> {
+	return upcomingIndices(queue.size, currentIndex, order, queue.size).asSequence()
+		.mapNotNull { queue[it].coverArtId }
 		.filter { it.isNotBlank() && !CoverPlaceholder.isPlaceholder(it) }
 		.distinct()
 		.take(count)

@@ -2,6 +2,7 @@ package paige.navic.ui.screens.nowPlaying.staged
 
 import paige.navic.domain.manager.StationProvenance
 import paige.navic.domain.models.SavedQueueSource
+import paige.navic.shared.MediaPlayerViewModel
 
 /*
  * navi-connect P2: the staged queue's rows grouped by who put them there, the peek row and the
@@ -10,8 +11,10 @@ import paige.navic.domain.models.SavedQueueSource
  * - "Autoplay": the song is in the bound station's served list (what this device saw it add). That
  *   membership decides, never whether the station still runs: a song Off kept because it was nearly
  *   playing is still the station's, and its header says the station is off.
- * - "Queued by you": a song on a bound station's queue that the station did not add. Only next to
- *   an autoplay group: an album's songs were never "queued by you".
+ * - "Queued by you": a song on a bound station's queue that the user queued on this device
+ *   ([MediaPlayerViewModel.userQueued]: add to queue, play next). Only next to an autoplay group: an
+ *   album's songs were never "queued by you". Any other row of such a queue (a hub edit's swap-in
+ *   before it is in `served`, another device's top-up, a transfer's) is "Up next" (audit L4a-04).
  * - "Up next": a queue no station is bound to (an album, a playlist, a hand-made queue).
  *
  * Groups are runs in queue order, not a partition: a song the user adds after the autoplay run gets
@@ -38,7 +41,8 @@ fun queueListItems(
 	songIds: List<String>,
 	uids: List<Long>,
 	currentIndex: Int,
-	bound: StationProvenance?
+	bound: StationProvenance?,
+	userQueued: Set<String>
 ): List<QueueListItem> {
 	val count = minOf(songIds.size, uids.size)
 	if (count == 0) return emptyList()
@@ -56,7 +60,8 @@ fun queueListItems(
 			i == playing -> QueueGroup.Playing
 			served == null -> QueueGroup.Next
 			songIds[i] in served -> QueueGroup.Autoplay
-			else -> QueueGroup.Queued
+			songIds[i] in userQueued -> QueueGroup.Queued
+			else -> QueueGroup.Next
 		}
 		if (group != QueueGroup.Played && group != previous) items += QueueListItem.Header(group, uids[i])
 		items += QueueListItem.Row(i, uids[i], group)
@@ -91,12 +96,21 @@ fun rowRunPositions(items: List<QueueListItem>): Map<Long, Pair<Int, Int>> {
  * null for queue order), or null at the end. An order that does not describe this queue (a frame
  * behind it) is not trusted.
  */
-fun peekRow(songIds: List<String>, currentIndex: Int, order: List<Int>?): Int? {
-	if (currentIndex !in songIds.indices) return null
-	if (order != null && order.size == songIds.size && currentIndex in order) {
-		return order.getOrNull(order.indexOf(currentIndex) + 1)
+fun peekRow(songIds: List<String>, currentIndex: Int, order: List<Int>?): Int? =
+	upcomingIndices(songIds.size, currentIndex, order, 1).firstOrNull()
+
+/**
+ * The queue indices of the songs after the playing one, in play order, at most [count]: [order] (the
+ * shuffle order) when it describes this queue of [size] songs, else queue order; nothing for an index
+ * outside the queue. The prefetch follows it, so under shuffle it works out the songs that really
+ * come next (audit L4a-08).
+ */
+fun upcomingIndices(size: Int, currentIndex: Int, order: List<Int>?, count: Int): List<Int> {
+	if (currentIndex !in 0 until size || count <= 0) return emptyList()
+	if (order != null && order.size == size && currentIndex in order) {
+		return order.drop(order.indexOf(currentIndex) + 1).take(count)
 	}
-	return (currentIndex + 1).takeIf { it < songIds.size }
+	return ((currentIndex + 1) until size).take(count)
 }
 
 /** The header's "Playing from": [kind] ("album", "playlist") when the name alone does not say it. */
@@ -116,3 +130,19 @@ fun playingFromText(kind: String?, name: String?, sourceName: String?): PlayingF
 	}
 	return PlayingFrom(shownKind, shown)
 }
+
+/** The songs the user has queued on this device after [ids] were added by their own hand. */
+fun userQueuedAfterAdd(current: Set<String>, ids: List<String>): Set<String> = current + ids
+
+/**
+ * What stays of [current] when the queue changes: everything while it is the same queue and not
+ * empty; nothing once it is replaced (a mix, a transfer, an album played: [previousQueueId] gives way
+ * to another id or to none) or cleared. A first id where there was none is the same queue being
+ * started by the add itself.
+ */
+fun userQueuedAfterQueueChange(
+	current: Set<String>,
+	previousQueueId: String?,
+	queueId: String?,
+	queueEmpty: Boolean
+): Set<String> = if (queueEmpty || (previousQueueId != null && previousQueueId != queueId)) emptySet() else current

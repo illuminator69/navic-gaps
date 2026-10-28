@@ -196,4 +196,25 @@ class ShellTabTest {
 		assertFalse(isRootPage(Screen.Library(nested = true)))
 		assertFalse(isRootPage(null))
 	}
+
+	// Audit L2-04 (W-02, ran): the Library's magnifier pushed Search over the Library, so Back from
+	// Search landed on the Library. It is the Search tab's tap: Back from Search goes Home.
+	@Test
+	fun theLibraryMagnifierLeavesHomeAndSearch() {
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home, library)))
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home)))
+		assertEquals(listOf(home, search), searchEntryStack(listOf(home, search)))
+	}
+
+	// Audit L2-07: the custom radio's Done arms "show Mixes" for the next Library visit; leaving its
+	// page by Home or Search left it armed, so a later Library tap opened on Mixes.
+	@Test
+	fun anotherTabDropsAStaleLibraryChipRequest() {
+		assertNull(chipRequestAfterTap("Mixes", ShellTab.Home))
+		assertNull(chipRequestAfterTap("Mixes", ShellTab.Search))
+		assertEquals("Mixes", chipRequestAfterTap("Mixes", ShellTab.Library))
+		assertNull(chipRequestAfterTap(null, ShellTab.Library))
+		// New opens a sheet over the page and goes nowhere: the request stays for the Library under it.
+		assertEquals("Mixes", chipRequestAfterTap("Mixes", ShellTab.New))
+	}
 }

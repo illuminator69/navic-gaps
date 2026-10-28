@@ -124,7 +124,11 @@ data class StationCatalogue(
  * the seeds; [Unavailable] no engine, or a hub too old to count; [Failed] no answer.
  */
 sealed interface StationCountAnswer {
-	data class Counted(val count: Int, val partial: Boolean) : StationCountAnswer
+	/**
+	 * [reach]: how many songs the radio can draw on beyond [count] (the hub's H4); null from an older
+	 * hub, and every rule then reads [count] (audit L4a-05, B-178).
+	 */
+	data class Counted(val count: Int, val partial: Boolean, val reach: Int? = null) : StationCountAnswer
 	data object SeedUnknown : StationCountAnswer
 	data object Unavailable : StationCountAnswer
 	data object Failed : StationCountAnswer
@@ -152,7 +156,9 @@ fun parseStationCount(status: Int?, body: String?): StationCountAnswer {
 			val count = (obj?.get("count") as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
 				?: return StationCountAnswer.Failed
 			val partial = (obj["partial"] as? JsonPrimitive)?.content == "true"
-			StationCountAnswer.Counted(count.coerceAtLeast(0), partial)
+			// Additive (H4): absent, or not a number, is an older hub.
+			val reach = (obj["reach"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()?.coerceAtLeast(0)
+			StationCountAnswer.Counted(count.coerceAtLeast(0), partial, reach)
 		}
 		status == 404 && str("code") == "seed_unknown" -> StationCountAnswer.SeedUnknown
 		status == 404 || status == 503 || (obj?.get("fallback") as? JsonPrimitive)?.content == "true" ->
@@ -671,10 +677,13 @@ data class AutoplayLook(
  * queue no station built asks `start` at the same point. Without it, Auto DJ at its own timing.
  *
  * Off stops everything, radios included (I-041; the Off chip): nothing is asked and nothing is
- * started. A station stopped by any device ([StationProvenance.stopped]) adds nothing either.
+ * started. Whether autoplay is on is [autoplayWanted]: a bound station's own `stopped` (set by the
+ * Off chip on any device) decides for it, the local default for a queue with no station.
  */
 fun autoplayStep(look: AutoplayLook): AutoplayStep {
-	if (!look.autoplayOn || look.remoteActive || look.inFlight) return AutoplayStep.Idle
+	if (!autoplayWanted(look.stationsAvailable, look.autoplayOn, look.bound) || look.remoteActive || look.inFlight) {
+		return AutoplayStep.Idle
+	}
 	// Paused waits for playback, except right after a chip: a character picked on a paused queue
 	// on its last song is a request for more now, not at the next play.
 	if ((look.paused && !look.chipTap) || look.repeatMode != 0) return AutoplayStep.Idle

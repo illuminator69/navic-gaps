@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.search.components
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -424,7 +425,8 @@ fun BrowseTileCard(
 	Box(
 		modifier = modifier
 			.fillMaxWidth()
-			.height(92.dp)
+			// At least, not exactly: at font scale 2.0 the two lines are taller than 92 dp (W-07).
+			.heightIn(min = 92.dp)
 			.clip(MaterialTheme.shapes.large)
 			.background(placeholderBrush(title))
 			.clickable(role = Role.Button, onClick = onClick)

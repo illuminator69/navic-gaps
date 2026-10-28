@@ -185,12 +185,14 @@ class AttentionTest {
 			entry("mine", finishedAt = 2)
 		)
 		val page = attentionPage(AttentionRead.Ok(ok()), ok(), 1L, ledger, null) as AttentionPage.Rows
-		assertEquals(listOf("rel-1", "g1", "mine"), page.albums.map { it.album.key })
+		assertEquals(listOf("rel-1", "g1"), page.albums.map { it.album.key })
+		assertEquals(listOf("mine"), page.deviceOnly.map { it.album.key }, "only on this phone: listed apart (B3)")
 		assertEquals("rg-x", page.albums[0].entry?.key)
 		assertEquals("picking", page.albums[1].album.state, "lb-bot's state wins")
 		assertEquals("g1", page.albums[1].entry?.key)
 		assertTrue(page.albums.all { it.actionable })
-		assertEquals(page.albums.size, page.albums.map { it.id }.toSet().size, "ids are unique")
+		val ids = (page.albums + page.deviceOnly).map { it.id }
+		assertEquals(ids.size, ids.toSet().size, "ids are unique")
 	}
 
 	@Test
@@ -250,4 +252,60 @@ class AttentionTest {
 		assertNull(older.last)
 		assertEquals(2, attentionBadge(older.last, ledgerCount = 2))
 	}
+
+	@Test
+	fun theDotNeedsTheHubConfiguredTheSettingOnAndSomethingToFix() {
+		// W-06: with navi-connect off, the persisted ledger count lit the dot while the menu had no
+		// Needs attention row to explain it.
+		assertFalse(attentionDotShown(badge = 5, preference = true, configured = false))
+		assertFalse(attentionDotShown(badge = 0, preference = true, configured = true))
+		assertFalse(attentionDotShown(badge = 5, preference = false, configured = true))
+		assertTrue(attentionDotShown(badge = 5, preference = true, configured = true))
+	}
+
+	@Test
+	fun theMenusBadgeIsZeroWithoutAConfiguredHub() {
+		assertEquals(0, menuAttentionBadge(badge = 5, configured = false))
+		assertEquals(5, menuAttentionBadge(badge = 5, configured = true))
+	}
+
+	private val zero = """{"version":1,"serverTime":1.0,"counts":{"failedGaps":0,"failedRequests":0,"folders":0},"albums":[],"folders":[]}"""
+
+	@Test
+	fun deviceOnlyRowsAreNotInAlbums() {
+		// L4b-02: the ledger keeps a failed request 7 days, lb-bot a day; it hung under "Nothing to fix".
+		val answer = (attentionRead(200, zero) as AttentionRead.Ok).attention
+		val old = entry("rg-old", releaseMbid = "rel-old", finishedAt = 5L)
+		val page = attentionPage(AttentionRead.Ok(answer), answer, 1L, listOf(old), null) as AttentionPage.Rows
+		assertEquals(0, page.toFix)
+		assertTrue(page.albums.isEmpty())
+		assertEquals(listOf("device:rg-old"), page.deviceOnly.map { it.id })
+	}
+
+	@Test
+	fun aServerRowTheLedgerHoldsStaysInAlbums() {
+		val held = entry("rg-x", releaseMbid = "rel-1")
+		val page = attentionPage(AttentionRead.Ok(ok()), ok(), 1L, listOf(held), null) as AttentionPage.Rows
+		assertEquals("rg-x", page.albums.first { it.album.key == "rel-1" }.entry?.key)
+		assertTrue(page.deviceOnly.isEmpty())
+	}
+
+	@Test
+	fun dismissableIsOnlyTrueForADeviceOnlyRow() {
+		// L4b-09: dismissing a row lb-bot still lists only hid this phone's copy; the count stayed.
+		val held = entry("rg-x", releaseMbid = "rel-1")
+		val mine = entry("rg-mine", releaseMbid = "rel-mine")
+		val page = attentionPage(AttentionRead.Ok(ok()), ok(), 1L, listOf(held, mine), null) as AttentionPage.Rows
+		val server = page.albums.first { it.album.key == "rel-1" }
+		assertTrue(server.actionable)
+		assertFalse(server.dismissable)
+		assertTrue(page.deviceOnly.single().dismissable)
+	}
+
+	@Test
+	fun anOlderHubsDeviceRowsAreDismissable() {
+		val page = attentionPage(AttentionRead.Older, null, null, listOf(entry("rg-a")), null) as AttentionPage.Rows
+		assertTrue(page.albums.single().dismissable)
+	}
 }
+

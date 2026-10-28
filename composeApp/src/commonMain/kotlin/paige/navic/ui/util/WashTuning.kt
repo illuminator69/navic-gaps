@@ -1,6 +1,10 @@
 package paige.navic.ui.util
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.lerp
+import kotlin.math.abs
+import kotlin.math.cbrt
 
 /**
  * The page wash's numbers, per page brightness (I-043 Task 8). [coverAmbientGradient] reads the
@@ -71,3 +75,52 @@ private val LightWash = WashTuning(
 )
 
 fun washTuning(isDark: Boolean): WashTuning = if (isDark) DarkWash else LightWash
+
+/**
+ * Where a page's wash top sits, CIE L*, for a cover of [tone] ([coverTone]): the page follows how
+ * light the cover reads, inside the band its text stays readable in. The owner's covers of
+ * 2026-10-28 are the cases: mid covers (L* 42 to 71) all landed at an extreme, a dark page at 21 to
+ * 31 or a light one at 76 to 87.
+ *
+ * - Dark: from [DARK_TOP_MIN] for a black cover up to [DARK_TOP_MAX] at the split. Not higher:
+ *   secondary text (L* 80) must keep 4.5:1 over the composite with white artwork under it
+ *   (`WashTuningTest`).
+ * - Light: from [LIGHT_TOP_MIN] at the split (the light floor, luminance 0.5) to [LIGHT_TOP_MAX] for
+ *   a white cover, which leaves room for the bottom's depth step.
+ */
+fun washTopLstar(tone: Float, isDark: Boolean): Float =
+	if (isDark) {
+		DARK_TOP_MIN + (DARK_TOP_MAX - DARK_TOP_MIN) * (tone / PAGE_TONE_SPLIT).coerceIn(0f, 1f)
+	} else {
+		LIGHT_TOP_MIN + (LIGHT_TOP_MAX - LIGHT_TOP_MIN) *
+			((tone - PAGE_TONE_SPLIT) / (100f - PAGE_TONE_SPLIT)).coerceIn(0f, 1f)
+	}
+
+const val DARK_TOP_MIN = 8f
+const val DARK_TOP_MAX = 28f
+const val LIGHT_TOP_MIN = 76f
+const val LIGHT_TOP_MAX = 94f
+
+/**
+ * [seed] moved toward black or white, keeping its hue, so that [coverAmbientGradient]'s top lands at
+ * [washTopLstar] for [tone]. The gradient's top is the seed moved [WashTuning.topMix] toward black
+ * (dark) or white (light) in Oklab, where lightness moves linearly, so the seed's lightness is solved
+ * for directly. The target is an L* turned into Oklab lightness as a grey's (the cube root of its
+ * luminance): exact for a grey and close for a colour, and the light floor still applies after.
+ */
+fun seedForTone(seed: Color, tone: Float, isDark: Boolean): Color {
+	val tuning = washTuning(isDark)
+	val top = oklabLightnessOfLstar(washTopLstar(tone, isDark))
+	val wanted = (if (isDark) top / (1f - tuning.topMix) else (top - tuning.topMix) / (1f - tuning.topMix))
+		.coerceIn(0f, 1f)
+	val current = seed.convert(ColorSpaces.Oklab).red
+	if (abs(wanted - current) < 1e-4f) return seed
+	return if (wanted > current) lerp(seed, Color.White, (wanted - current) / (1f - current))
+	else lerp(seed, Color.Black, (current - wanted) / current)
+}
+
+/** A grey's Oklab lightness at CIE [lStar]: the cube root of its relative luminance. */
+private fun oklabLightnessOfLstar(lStar: Float): Float {
+	val y = if (lStar > 8f) ((lStar + 16f) / 116f).let { it * it * it } else lStar * 27f / 24389f
+	return cbrt(y)
+}

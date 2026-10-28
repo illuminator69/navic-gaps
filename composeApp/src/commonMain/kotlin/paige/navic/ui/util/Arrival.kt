@@ -1,5 +1,6 @@
 package paige.navic.ui.util
 
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -47,6 +48,12 @@ const val ARRIVAL_REST_MS = 150
 
 /** A real cover fades in over its tinted placeholder (`CoverArt.crossfadeMs`). */
 const val COVER_FADE_MS = 280
+
+/** A predictive back's pop (the page settling back when a back gesture is let go). */
+const val PREDICTIVE_POP_MS = 300
+
+/** A page's wash, the mini player's ring and the sheets' ambient easing to a new cover's colours. */
+const val WASH_MS = 450
 
 val ArrivalEasing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f)
 
@@ -129,5 +136,18 @@ fun Modifier.arrive(gate: ArrivalGate, key: Any, index: Int): Modifier {
 		val p = progress.value
 		alpha = p
 		translationY = (1f - p) * risePx
+	}
+}
+
+/**
+ * Once the first frame of a list is up, every key it holds has arrived: the tiles composed in that
+ * frame play their arrival, and one scrolled in later appears at once instead of arriving on its own
+ * (what Home's shelves and Search do; audit L1-08 found three grids without it).
+ */
+@Composable
+fun ClaimAfterFirstFrame(gate: ArrivalGate, keys: List<Any>) {
+	LaunchedEffect(gate, keys) {
+		withFrameNanos { }
+		gate.claimAll(keys)
 	}
 }

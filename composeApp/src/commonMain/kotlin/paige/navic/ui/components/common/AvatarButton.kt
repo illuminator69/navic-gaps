@@ -30,6 +30,7 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.domain.manager.attentionBadge
+import paige.navic.domain.manager.attentionDotShown
 import paige.navic.ui.theme.warning
 
 /**
@@ -49,7 +50,7 @@ fun AvatarButton(modifier: Modifier = Modifier) {
 	val lbBot = koinInject<LbBotManager>()
 	val badge by lbBot.attentionBadge.collectAsState()
 
-	val attention = badge > 0 && preferenceManager.showAttentionDot
+	val attention = attentionDotShown(badge, preferenceManager.showAttentionDot, lbBot.isConfigured)
 	val label = stringResource(
 		if (attention) Res.string.info_open_menu_attention else Res.string.action_open_menu
 	)

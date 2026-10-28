@@ -1,5 +1,8 @@
 package paige.navic.ui.screens.song.components
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.Modifier
@@ -60,9 +63,8 @@ fun LazyListScope.songListScreenContent(
 		}
 	} else {
 		when (state) {
-			is UiState.Loading -> {
-				// TODO
-			}
+			// Waiting rows, never a blank list (audit L1-06).
+			is UiState.Loading -> rowPlaceholders("songs", modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
 
 			else -> {
 				item {

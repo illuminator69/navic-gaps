@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.sourcehistory
 
+import kotlin.time.Clock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -18,8 +19,11 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.historyGroups
 import paige.navic.domain.manager.mergeHistory
 
-/** What lb-bot said last ([last], null before its first good answer) and how the last read went. */
-data class SourceHistoryServer(val last: LbActivity? = null, val status: ActivityRead? = null)
+/**
+ * What lb-bot said last ([last], null before its first good answer, read at [lastAt] epoch ms) and how
+ * the last read went ([status], null before any read has come back).
+ */
+data class SourceHistoryServer(val last: LbActivity? = null, val status: ActivityRead? = null, val lastAt: Long? = null)
 
 /**
  * Source history (P6): lb-bot's ledger read on demand (`GET /lb/activity`) joined with this device's
@@ -40,11 +44,23 @@ class SourceHistoryViewModel(private val lbBot: LbBotManager) : ViewModel() {
 
 	val lbConfigured: Boolean get() = lbBot.isConfigured
 
+	private val _loading = MutableStateFlow(false)
+	/** A read of lb-bot is out. */
+	val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
 	/** A good answer replaces the last; an older lb-bot forgets it; a failure keeps it on screen. */
 	fun load(): Job = viewModelScope.launch {
-		val read = lbBot.activity()
+		_loading.value = true
+		val read = try {
+			lbBot.activity()
+		} finally {
+			_loading.value = false
+		}
 		_server.value = when (read) {
-			is ActivityRead.Ok -> SourceHistoryServer(LbActivity(version = 1, requests = read.requests, transfers = read.transfers), read)
+			is ActivityRead.Ok -> SourceHistoryServer(
+				LbActivity(version = 1, requests = read.requests, transfers = read.transfers), read,
+				lastAt = Clock.System.now().toEpochMilliseconds()
+			)
 			ActivityRead.Older -> SourceHistoryServer(null, read)
 			ActivityRead.Unavailable -> _server.value.copy(status = read)
 		}

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.home.mood
 
+import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +54,9 @@ import navic.composeapp.generated.resources.mood_mix_from_library
 import navic.composeapp.generated.resources.mood_mix_hours_minutes
 import navic.composeapp.generated.resources.mood_mix_kind
 import navic.composeapp.generated.resources.mood_mix_minutes
+import navic.composeapp.generated.resources.mood_mix_gone
 import navic.composeapp.generated.resources.mood_mix_short
+import navic.composeapp.generated.resources.mood_mix_short_length
 import navic.composeapp.generated.resources.mood_mix_songs
 import navic.composeapp.generated.resources.mood_unavailable_body
 import navic.composeapp.generated.resources.mood_unavailable_title
@@ -87,7 +90,6 @@ import paige.navic.ui.screens.home.MoodArt
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.theme.defaultFont
-import paige.navic.ui.util.placeholderBrush
 import kotlin.time.Duration
 
 /** Placeholder rows while the draw is out, the rows' own height. */
@@ -175,10 +177,20 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 				)
 			}
 			when (val state = draw.state) {
-				MixState.Loading -> items(PLACEHOLDER_ROWS) { PlaceholderRow(it) }
+				MixState.Loading -> rowPlaceholders("mood-mix", count = PLACEHOLDER_ROWS, height = 64.dp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
 				is MixState.Short -> item(key = "short") {
 					MoodMixMessage(
-						title = pluralStringResource(Res.plurals.mood_mix_short, state.found, state.found),
+						title = pluralStringResource(
+							if (state.byLibrary) Res.plurals.mood_mix_short else Res.plurals.mood_mix_short_length,
+							state.found, state.found
+						),
+						body = null,
+						onRetry = { viewModel.retry() }
+					)
+				}
+				MixState.Gone -> item(key = "gone") {
+					MoodMixMessage(
+						title = stringResource(Res.string.mood_mix_gone),
 						body = null,
 						onRetry = { viewModel.retry() }
 					)
@@ -369,15 +381,3 @@ private fun MoodMixMessage(title: String, body: String?, onRetry: () -> Unit) {
 	}
 }
 
-/** A row's tinted box while the draw is out: the song row's height, a tint per position. */
-@Composable
-private fun PlaceholderRow(index: Int) {
-	Box(
-		Modifier
-			.fillMaxWidth()
-			.padding(horizontal = 16.dp, vertical = 2.dp)
-			.height(64.dp)
-			.clip(MaterialTheme.shapes.medium)
-			.background(placeholderBrush("mood-row-$index"))
-	)
-}

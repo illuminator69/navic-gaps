@@ -114,6 +114,20 @@ private val BlackAndWhiteOnly = object : Palette.Filter {
 }
 
 /**
+ * The seeds the wash shows (audit L4a-03). [fetched] is the previous cover's seeds, kept as a BRIDGE
+ * while a new cover's are on their way, so the colour eases from the old one instead of flashing
+ * through the neutral default. It is only a bridge while a cover is coming: with no cover
+ * ([paletteKey] null: the queue cleared, a radio, a coverless song, Navidrome's generic avatar) or
+ * once this cover's fetch failed ([fetchFailedFor]), the previous cover no longer colours the page.
+ */
+internal fun <T> seedsForWash(paletteKey: String?, cached: T?, fetched: T?, fetchFailedFor: String?): T? = when {
+	paletteKey == null -> null
+	cached != null -> cached
+	fetchFailedFor == paletteKey -> null
+	else -> fetched
+}
+
+/**
  * A cover's [CoverSeeds], fetched from [uri] and quantised: the one fetch every colour path uses
  * (the page's own, and [CoverSeedPrefetcher]'s ahead of need). Retried, and each failure LOGGED.
  * This used to be `runCatching { … }.getOrNull() ?: return@LaunchedEffect`: silent, and permanent
@@ -122,14 +136,18 @@ private val BlackAndWhiteOnly = object : Palette.Filter {
  * fresh composable, a fresh attempt — showed the right colours for the same cover.
  *
  * The Ktor fetch suspends off the caller's thread on its own, but the quantisation afterwards is
- * plain CPU work, so it runs on [Dispatchers.Default]. Null when every attempt failed.
+ * plain CPU work, so it runs on [Dispatchers.Default]. [CoverSeedFetch.Failed] when every attempt
+ * failed; [CoverSeedFetch.Unextractable] when the image came and the palette found nothing in it.
  */
-internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverSeeds? {
+internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverSeedFetch {
 	for (attempt in 0 until PALETTE_ATTEMPTS) {
 		if (attempt > 0) delay(PALETTE_RETRY_DELAY_MS * attempt)
 		val outcome = runCatching {
 			val bitmap = loader.load(Url(uri))
 			withContext(Dispatchers.Default) {
+				// Every pixel, for the tone: the palettes below have already dropped near-black ones
+				// and every "skin tone" before anything is counted.
+				val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.readPixels(it) }
 				deriveCoverSeeds(
 					swatches = bitmap.generatePalette().swatches.map { it.toSample() },
 					// Only near-black and near-white dropped: the default filter's skin-tone rule
@@ -137,17 +155,32 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 					unfiltered = bitmap.generatePalette {
 						clearFilters()
 						addFilter(BlackAndWhiteOnly)
-					}.swatches.map { it.toSample() }
+					}.swatches.map { it.toSample() },
+					tone = coverTone(pixels)
 				)
 			}
 		}
-		if (outcome.isSuccess) return outcome.getOrNull()
+		if (outcome.isSuccess) return coverSeedFetchOf(outcome.getOrNull())
 		val error = outcome.exceptionOrNull()
 		if (error is CancellationException) throw error
 		Logger.w("CoverColorScheme", "palette fetch failed for $uri (attempt ${attempt + 1})", error)
 	}
-	return null
+	return CoverSeedFetch.Failed
 }
+
+/**
+ * What a cover-colour fetch came back with. An image whose palette gives no seeds (all black) is an
+ * answer, [Unextractable], not a failure: asking again gives the same nothing (fix round P6).
+ */
+sealed interface CoverSeedFetch {
+	data class Seeds(val seeds: CoverSeeds) : CoverSeedFetch
+	data object Unextractable : CoverSeedFetch
+	data object Failed : CoverSeedFetch
+}
+
+/** A fetched image's derived seeds as a [CoverSeedFetch]: none is [CoverSeedFetch.Unextractable]. */
+internal fun coverSeedFetchOf(derived: CoverSeeds?): CoverSeedFetch =
+	derived?.let { CoverSeedFetch.Seeds(it) } ?: CoverSeedFetch.Unextractable
 
 /** A readable Material scheme derived from artwork plus the extracted seed color. */
 data class CoverColors(
@@ -253,6 +286,8 @@ fun rememberCoverColorScheme(
 	// until the new one's are ready, so changing to a cover not yet stored eases from the old
 	// colour instead of flashing through the neutral default.
 	var fetched by remember { mutableStateOf<CoverSeeds?>(null) }
+	// The cover whose fetch failed: no bridge for it (audit L4a-03).
+	var fetchFailedFor by remember { mutableStateOf<String?>(null) }
 
 	LaunchedEffect(coverUri, paletteKey) {
 		val id = paletteKey ?: return@LaunchedEffect
@@ -263,12 +298,16 @@ fun rememberCoverColorScheme(
 			fetched = it
 			return@LaunchedEffect
 		}
-		val result = fetchCoverSeeds(networkLoader, uri)
-		if (result == null) return@LaunchedEffect
+		val result = (fetchCoverSeeds(networkLoader, uri) as? CoverSeedFetch.Seeds)?.seeds
+		if (result == null) {
+			// Failed or unextractable: either way this cover has no colours to bridge to.
+			fetchFailedFor = id
+			return@LaunchedEffect
+		}
 		store.put(id, result)
 		fetched = result
 	}
-	val seeds = cached ?: fetched
+	val seeds = seedsForWash(paletteKey.takeIf { hasArt }, cached, fetched, fetchFailedFor)
 
 	val appScheme = MaterialTheme.colorScheme
 	val fallback = appScheme.surface
@@ -312,21 +351,35 @@ fun rememberCoverColorScheme(
 	// What `primary` is seeded from: the vivid swatch on a dark cover, the most salient colour on a
 	// light one (see [CoverSeeds.accent]).
 	val accent = seeds?.accent?.let(::Color) ?: vivid
+	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
+	// immersive page (light text), a light cover a light page (dark text) — independent of
+	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
+	// By the cover's TONE, how light the whole image reads (`coverTone`), never the vivid swatch:
+	// a bright accent on a dark cover must not flip the whole page to light. Seeds stored without
+	// a tone fall back to the dominant's luminance.
+	val coverIsDark = if (!followArtworkBrightness) isDark
+		else seeds?.pageIsDark() ?: isDark
+	// The tone also places the wash's lightness (`seedForTone`), on pages that follow the artwork.
+	val pageTone = seeds?.tone?.takeIf { followArtworkBrightness }
+	// A light page whose dominant is dark: the light part of such a cover is its colour, the dark
+	// part a photo or a field with no hue (Mitski's peach frame round a near-black photo). Its wash
+	// and neutrals come from the vivid swatch, or the page would be the black field lifted to grey.
+	val lightFromVivid = pageTone != null && !coverIsDark && vivid != null && dominant.luminance() < 0.5f
 	// The WASH is the dominant colour pulled a third of the way toward the vivid one: enough for
 	// the page to actually read as the cover's colour, not so much that a saturated cover turns
 	// the background into a glare. This is what "expressive" means here — a black-and-yellow cover
 	// should give a dark page that is unmistakably YELLOW-dark, not a flat grey one.
-	val seed = if (vivid != null) lerp(dominant, vivid, 0.35f) else dominant
+	val washBase = when {
+		vivid == null -> dominant
+		lightFromVivid -> vivid
+		else -> lerp(dominant, vivid, 0.35f)
+	}
+	val seed = pageTone?.let { seedForTone(washBase, it, coverIsDark) } ?: washBase
+	// What the scheme's neutrals (every background and card) are seeded from.
+	val neutralSeed = if (lightFromVivid) vivid else dominant
 	// The ACCENT (buttons, primary), saturation-boosted so even muted artwork yields an obvious
 	// cover colour rather than a washed near-grey `primary`.
 	val accentSeed = (accent ?: dominant).boostedAccent()
-	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
-	// immersive page (light text), a light cover a light page (dark text) — independent of
-	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
-	// Keyed on the DOMINANT colour, never the vivid one: a bright accent on a dark cover must not
-	// flip the whole page to light.
-	val coverIsDark = if (!followArtworkBrightness) isDark
-		else if (seeds != null) dominant.luminance() < 0.5f else isDark
 	// Content keeps colourful covers faithful AND leaves a true-greyscale cover naturally
 	// grey — it doesn't amplify chroma like Vibrant (which invented a teal from a B&W cover),
 	// so no Monochrome special-case is needed; a dark scheme already yields a bright `primary`.
@@ -356,15 +409,15 @@ fun rememberCoverColorScheme(
 	// thing on the sleeve — a navy record with a green squiggle on it gave a green page. Deriving
 	// the neutrals rather than tinting them by hand is also what keeps `onSurface` legible over
 	// them, which hand-blending a surface toward a cover colour does not.
-	val scheme = if (!hasSeedSource) appScheme else remember(accentSeed, dominant, coverIsDark, style) {
-		val key = SchemeKey(accentSeed, dominant, coverIsDark, style)
+	val scheme = if (!hasSeedSource) appScheme else remember(accentSeed, neutralSeed, coverIsDark, style) {
+		val key = SchemeKey(accentSeed, neutralSeed, coverIsDark, style)
 		schemeCache[key] ?: run {
 			val raw = dynamicColorScheme(
 				seedColor = accentSeed,
 				isDark = coverIsDark,
 				style = style,
-				neutral = dominant,
-				neutralVariant = dominant,
+				neutral = neutralSeed,
+				neutralVariant = neutralSeed,
 				specVersion = ColorSpec.SpecVersion.SPEC_2021
 			)
 			raw.copy(
@@ -539,8 +592,8 @@ fun rememberCoverAmbient(
 	// Ease the colours in as the seed resolves (kmpalette extraction is async) so
 	// the sheet wash fades from the neutral default to the cover colour instead of
 	// popping instantly. Matches the detail screens' `animateColorAsState`.
-	val top by animateColorAsState(rawTop, tween(450))
-	val bottom by animateColorAsState(rawBottom, tween(450))
+	val top by animateColorAsState(rawTop, tween(WASH_MS))
+	val bottom by animateColorAsState(rawBottom, tween(WASH_MS))
 	return CoverAmbient(
 		scheme = cover.scheme,
 		seed = cover.seed,

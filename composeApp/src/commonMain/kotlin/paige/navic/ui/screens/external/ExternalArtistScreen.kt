@@ -2,6 +2,8 @@
 
 package paige.navic.ui.screens.external
 
+import paige.navic.ui.components.common.ROW_PLACEHOLDERS
+import paige.navic.ui.components.common.RowPlaceholder
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
@@ -12,7 +14,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
@@ -146,8 +147,12 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 		}
 	) { innerPadding ->
 		when (page) {
-			ArtistPageState.Loading -> Box(Modifier.fillMaxSize()) {
-				ContainedLoadingIndicator(Modifier.size(80.dp).align(Alignment.Center))
+			// Waiting rows, then the page (audit L1-05: a spinner, then a hard cut).
+			ArtistPageState.Loading -> Column(
+				Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp, vertical = 8.dp),
+				verticalArrangement = Arrangement.spacedBy(4.dp)
+			) {
+				repeat(ROW_PLACEHOLDERS) { RowPlaceholder() }
 			}
 
 			// lb-bot out of reach, or this hub without it: the page has nothing to read.

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.discover
 
+import paige.navic.ui.util.ClaimAfterFirstFrame
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.style.TextOverflow
@@ -239,6 +240,8 @@ fun DiscoverScreen(nested: Boolean = false) {
 
 	val stack = remember(state) { discoverStack(state) }
 	val gate = rememberArrivalGate()
+	// Rows scrolled in later appear at once (audit L1-08).
+	ClaimAfterFirstFrame(gate, remember(stack) { stack.map { it.key } })
 	val openStackEntry: (DiscoverTarget) -> Unit = { target ->
 		when (target) {
 			is DiscoverTarget.Release -> {
@@ -501,7 +504,7 @@ fun DiscoverScreen(nested: Boolean = false) {
 									color = MaterialTheme.colorScheme.onSurfaceVariant,
 									modifier = Modifier
 										.padding(top = 2.dp)
-										.clickable { backStack.add(Screen.Search()) }
+										.clickable { backStack.add(Screen.Search(nested = true)) }
 								)
 								// The one row here that is not a carousel: there is
 								// nothing to page through and nothing to illustrate, so

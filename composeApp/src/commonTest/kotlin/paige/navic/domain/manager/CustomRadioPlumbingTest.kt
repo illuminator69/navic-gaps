@@ -186,4 +186,12 @@ class CustomRadioPlumbingTest {
 		val renamed = StationCatalogue(characters = listOf(StationCharacterInfo("close", "Near", "d", "EchoMatch")))
 		assertEquals("Near", renamed.infoFor(StationCharacter.Close).label)
 	}
+
+	// Audit L4a-05: the hub's count may say how far the radio reaches; an older one does not.
+	@Test
+	fun theCountBodyReadsReachWhenItIsThere() {
+		assertEquals(StationCountAnswer.Counted(22, false, reach = 338), parseStationCount(200, """{"count":22,"reach":338}"""))
+		assertEquals(StationCountAnswer.Counted(22, false, reach = null), parseStationCount(200, """{"count":22}"""))
+		assertEquals(StationCountAnswer.Counted(22, true, reach = null), parseStationCount(200, """{"count":22,"partial":true,"reach":"x"}"""))
+	}
 }

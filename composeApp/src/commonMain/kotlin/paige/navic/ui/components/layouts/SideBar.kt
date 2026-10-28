@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.WideNavigationRail
 import androidx.compose.material3.WideNavigationRailState
+import androidx.compose.material3.WideNavigationRailDefaults
 import androidx.compose.material3.WideNavigationRailValue
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
@@ -29,6 +30,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
@@ -74,10 +81,14 @@ fun SideBar() {
 		if (railExpanded) 0.dp else 4.dp,
 		animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
 	)
+	// Audit W-05: at 448 dp tall the fourth item sat below the fold; compact items on a short window.
+	val windowHeightDp = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp().value }
 	val itemMinHeight by animateDpAsState(
-		if (railExpanded) 48.dp else 64.dp,
+		railItemMinHeight(windowHeightDp, railExpanded).dp,
 		animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
 	)
+	val scrollState = rememberScrollState()
+	val railColor = WideNavigationRailDefaults.colors().containerColor
 
 	WideNavigationRail(
 		state = railState,
@@ -93,10 +104,26 @@ fun SideBar() {
 		// scrolling Column. The rail sizes its first child to the height below the header but
 		// places it a header gap lower (WNRHeaderPadding, 40 dp): the bottom padding keeps the
 		// viewport on screen, or the last tab would scroll to just past the edge.
+		// A rail that scrolls says so: a fade to the rail's colour at its foot while more is below.
 		Column(
 			Modifier
 				.padding(bottom = 40.dp)
-				.verticalScroll(rememberScrollState()),
+				.drawWithContent {
+					drawContent()
+					if (scrollState.canScrollForward) {
+						val fade = RAIL_FADE_DP.dp.toPx()
+						drawRect(
+							Brush.verticalGradient(
+								listOf(railColor.copy(alpha = 0f), railColor),
+								startY = size.height - fade,
+								endY = size.height
+							),
+							topLeft = Offset(0f, size.height - fade),
+							size = Size(size.width, fade)
+						)
+					}
+				}
+				.verticalScroll(scrollState),
 			verticalArrangement = Arrangement.spacedBy(itemSpacing)
 		) {
 			ShellTab.entries.forEach { tab ->
@@ -120,6 +147,19 @@ fun SideBar() {
 			}
 		}
 	}
+}
+
+/** The fade's height at the foot of a rail that scrolls. */
+private const val RAIL_FADE_DP = 24
+
+/**
+ * A collapsed rail item's minimum height: 64 dp (the rail's own token), 56 dp on a window shorter than
+ * 480 dp so a phone in landscape fits more of its tabs; 48 dp expanded.
+ */
+fun railItemMinHeight(windowHeightDp: Float, expanded: Boolean): Float = when {
+	expanded -> 48f
+	windowHeightDp < 480f -> 56f
+	else -> 64f
 }
 
 @Composable

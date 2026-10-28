@@ -1,5 +1,8 @@
 package paige.navic.ui.components.common
 
+import paige.navic.ui.util.COVER_FADE_MS
+import paige.navic.ui.util.crossfadeMsFor
+import paige.navic.ui.util.rememberReducedMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
@@ -46,7 +49,7 @@ fun RemoteCoverArt(
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
 	square: Boolean = true,
-	crossfadeMs: Int = 500,
+	crossfadeMs: Int = COVER_FADE_MS,
 	shape: Shape? = null,
 	/** The card's own, so a press anywhere on the card ripples the cover (as `CoverArt`). */
 	interactionSource: MutableInteractionSource? = null,
@@ -57,14 +60,15 @@ fun RemoteCoverArt(
 	val resolvedShape = shape ?: preferenceManager.coverArtShape.shape
 	val coilPlatformContext = LocalCoilPlatformContext.current
 
-	val model = remember(url) {
+	val fadeMs = crossfadeMsFor(rememberReducedMotion(), crossfadeMs)
+	val model = remember(url, fadeMs) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(url)
 			.memoryCacheKey(url)
 			.diskCacheKey(url)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
-			.crossfade(crossfadeMs)
+			.crossfade(fadeMs)
 			.build()
 	}
 

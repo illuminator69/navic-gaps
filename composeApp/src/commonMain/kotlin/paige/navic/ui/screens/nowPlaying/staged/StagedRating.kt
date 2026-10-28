@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import paige.navic.ui.a11y.MIN_TOUCH_DP
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -26,16 +27,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousCapsule
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.staged_rate_song
 import navic.composeapp.generated.resources.staged_rate_stars
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.domain.manager.PreviewManager
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.util.rememberFoldMotion
-import kotlin.time.Duration.Companion.seconds
 
 /*
  * navi-connect P2 notes (you, 2026-10-19): the player's star is the song's rating, not a favourite.
@@ -50,6 +52,12 @@ fun ratingAfterTap(current: Int, tapped: Int): Int = if (tapped == current) 0 el
 fun ratingShownOpen(rating: Int, opened: Boolean): Boolean = rating > 0 || opened
 
 fun starFilled(star: Int, rating: Int): Boolean = star <= rating
+
+/**
+ * Whether the playing song can be saved (favourite, playlist) or rated: a Navidrome song, not
+ * nothing and not an `ext:` preview, which Navidrome does not hold (fix round P6).
+ */
+fun canSaveOrRate(songId: String?): Boolean = songId != null && !PreviewManager.isPreviewId(songId)
 
 /** How long opened stars wait for a tap before closing again on an unrated song. */
 private val OPEN_IDLE = 5.seconds
@@ -107,7 +115,7 @@ fun ExpandingRating(
 				IconButton(
 					onClick = { opened = true },
 					enabled = enabled,
-					modifier = Modifier.size(32.dp)
+					modifier = Modifier.size(MIN_TOUCH_DP.dp)
 				) {
 					Icon(Icons.Outlined.Star, contentDescription = stringResource(Res.string.staged_rate_song))
 				}
@@ -122,7 +130,8 @@ private fun RatingStar(star: Int, rating: Int, enabled: Boolean, onTap: (Int) ->
 	IconButton(
 		onClick = { onTap(star) },
 		enabled = enabled,
-		modifier = Modifier.width(30.dp).height(32.dp)
+		// 48 dp tall to touch; 40 wide, so five fit beside the title (audit L1-12: they were 30 x 32).
+		modifier = Modifier.width(40.dp).height(MIN_TOUCH_DP.dp)
 	) {
 		Box(contentAlignment = Alignment.Center) {
 			Icon(

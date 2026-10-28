@@ -25,7 +25,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.title_albums
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -87,17 +86,19 @@ fun AlbumListScreen(
 	val actions: @Composable RowScope.() -> Unit = {
 		AlbumListSortAction(viewModel, nested)
 	}
+	val shownType by viewModel.listType.collectAsStateWithLifecycle()
+	val title = stringResource(albumListTitle(shownType).label)
 
 	Scaffold(
 		topBar = {
 			if (!nested) {
 				RootTopBar(
-					{ Text(stringResource(Res.string.title_albums)) },
+					{ Text(title) },
 					scrollBehavior,
 					actions
 				)
 			} else {
-				NestedTopBar({ Text(stringResource(Res.string.title_albums)) }, actions = actions)
+				NestedTopBar({ Text(title) }, actions = actions)
 			}
 		},
 		bottomBar = {

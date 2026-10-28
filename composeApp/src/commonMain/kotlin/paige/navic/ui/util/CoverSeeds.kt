@@ -3,6 +3,8 @@ package paige.navic.ui.util
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.abs
+import kotlin.math.cbrt
+import kotlin.math.pow
 
 /**
  * One palette swatch, as the colour rules need it: packed ARGB, HSL as `Palette.Swatch.hsl` gives
@@ -23,15 +25,83 @@ data class SwatchSample(
  * `rememberCoverColorScheme`, so these two are all that has to be known, or stored, about a cover.
  *
  * - [dominant]: the cover's most populous colour family, by its leading swatch — what a person
- *   would say the artwork "is". It decides page brightness and seeds the scheme's neutrals.
+ *   would say the artwork "is". It seeds the scheme's neutrals, and decides page brightness only
+ *   for seeds stored without a [tone].
  * - [vivid]: the most populous COLOURFUL family (washed-out, near-black and near-white swatches
  *   rejected); null for a genuinely greyscale cover, which then stays neutral rather than having a
  *   hue invented for it. The page WASH is pulled toward it.
  * - [accent]: what the scheme's `primary` (buttons, the play bar, links) is seeded from. On a dark
  *   cover it is [vivid]. On a light one it is the most SALIENT colourful family instead (see
  *   [salientFamily]), because there the most populous one is usually the pale field itself.
+ * - [tone]: how light the cover reads, CIE L* 0 to 100 ([coverTone]), read off the whole image rather
+ *   than off a swatch. It decides page brightness ([pageIsDark]) and how light the wash is
+ *   ([seedForTone]). Null for seeds worked out without the image's pixels: the page then follows the
+ *   dominant's luminance, as it did before tone existed.
  */
-data class CoverSeeds(val dominant: Int, val vivid: Int?, val accent: Int? = vivid)
+data class CoverSeeds(val dominant: Int, val vivid: Int?, val accent: Int? = vivid, val tone: Float? = null)
+
+/**
+ * Whether a cover's page is dark: by its [CoverSeeds.tone] when known, else by the dominant swatch's
+ * luminance (the rule before tone).
+ */
+fun CoverSeeds.pageIsDark(): Boolean = tone?.let(::pageIsDark) ?: (Color(dominant).luminance() < 0.5f)
+
+/** Below this [CoverSeeds.tone] a cover's page is dark (fitted to the owner's five covers, 2026-10-28). */
+const val PAGE_TONE_SPLIT = 55f
+
+fun pageIsDark(tone: Float): Boolean = tone < PAGE_TONE_SPLIT
+
+/**
+ * A grey pixel's weight in [coverTone]'s colour half, as Oklab chroma squared (chroma 0.01): enough
+ * that a cover with no colour at all reads as its plain average, too little to outweigh real colour.
+ */
+private const val GREY_WEIGHT = 0.0001
+
+/** sRGB channel (0 to 255) to linear light, once per value rather than once per pixel. */
+private val linearChannel = DoubleArray(256) { i ->
+	val c = i / 255.0
+	if (c <= 0.04045) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
+}
+
+/**
+ * How light a cover READS, CIE L* 0 to 100: half its plain average lightness, half the lightness of
+ * its colours (each pixel weighted by its Oklab chroma squared). Null for no opaque pixels.
+ *
+ * Neither half is enough alone, measured on the owner's phone (2026-10-28, five covers with the page
+ * they wanted). The plain average put Mitski's `The Land Is Inhospitable and So Are We` (a peach
+ * frame round a near-black photo, average L* 42) with the dark covers, but the owner reads that sleeve
+ * as its peach; the colour half alone would give a black sleeve with a small yellow logo a light page.
+ * The page used to follow ONE swatch's luminance, the leading swatch of the most populous colour
+ * family, after kmpalette's filters had dropped near-black pixels and every "skin tone" (hue 10 to 37,
+ * saturation up to 0.82): KID A MNESIA's black band and most of Mitski's frame were never counted.
+ */
+fun coverTone(argb: IntArray): Float? {
+	var count = 0
+	var lightnessSum = 0.0
+	var colourSum = 0.0
+	var weightSum = 0.0
+	for (pixel in argb) {
+		if ((pixel ushr 24) == 0) continue
+		val r = linearChannel[(pixel shr 16) and 0xFF]
+		val g = linearChannel[(pixel shr 8) and 0xFF]
+		val b = linearChannel[pixel and 0xFF]
+		val y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+		val lStar = if (y > 216.0 / 24389.0) 116.0 * cbrt(y) - 16.0 else 24389.0 / 27.0 * y
+		// Oklab's a and b, for the chroma only.
+		val l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+		val m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+		val s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+		val a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+		val bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+		val weight = a * a + bb * bb + GREY_WEIGHT
+		count++
+		lightnessSum += lStar
+		colourSum += lStar * weight
+		weightSum += weight
+	}
+	if (count == 0) return null
+	return ((lightnessSum / count + colourSum / weightSum) / 2.0).toFloat()
+}
 
 /** The vivid rule's bounds: below them a swatch is washed out, near black or near white. */
 private fun SwatchSample.isColourful(): Boolean = saturation >= 0.25f && lightness in 0.25f..0.85f
@@ -46,7 +116,11 @@ private fun SwatchSample.isColourful(): Boolean = saturation >= 0.25f && lightne
  * a palette at all): the light-cover accent is chosen from it. Measured on Vashti Bunyan's
  * `Lookaftering`, a brown hare on cream, the filter removed the whole hare.
  */
-fun deriveCoverSeeds(swatches: List<SwatchSample>, unfiltered: List<SwatchSample> = swatches): CoverSeeds? {
+fun deriveCoverSeeds(
+	swatches: List<SwatchSample>,
+	unfiltered: List<SwatchSample> = swatches,
+	tone: Float? = null
+): CoverSeeds? {
 	val dominant = swatches.dominantByColorFamily() ?: return null
 	val vivid = swatches
 		.filter { it.isColourful() }
@@ -54,9 +128,9 @@ fun deriveCoverSeeds(swatches: List<SwatchSample>, unfiltered: List<SwatchSample
 		// artwork is known by, not whichever shade of it quantisation happened to keep whole.
 		.dominantByColorFamily()
 	// The same test `rememberCoverColorScheme` uses for page brightness.
-	val lightCover = Color(dominant.rgb).luminance() >= 0.5f
+	val lightCover = !CoverSeeds(dominant.rgb, null, tone = tone).pageIsDark()
 	val accent = if (!lightCover) vivid else unfiltered.filter { it.isColourful() }.salientFamily() ?: vivid
-	return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb, accent = accent?.rgb)
+	return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb, accent = accent?.rgb, tone = tone)
 }
 
 /** Shortest distance between two hues on the colour wheel, in degrees (0-180). */

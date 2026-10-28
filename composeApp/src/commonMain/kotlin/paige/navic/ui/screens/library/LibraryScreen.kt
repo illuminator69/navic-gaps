@@ -89,6 +89,8 @@ import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.navigation.PersistentViewModelStoreOwner
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.becomeStack
+import paige.navic.ui.navigation.searchEntryStack
 import paige.navic.ui.screens.album.AlbumListBody
 import paige.navic.ui.screens.album.AlbumListSortAction
 import paige.navic.ui.screens.album.albumListViewModel
@@ -186,7 +188,7 @@ fun LibraryScreen() {
 						{ Text(stringResource(Res.string.title_library)) },
 						scrollBehavior,
 						actions = {
-							IconButton(onClick = { backStack.add(Screen.Search()) }) {
+							IconButton(onClick = { backStack.becomeStack(searchEntryStack(backStack)) }) {
 								Icon(Icons.Outlined.Search, contentDescription = stringResource(Res.string.title_search))
 							}
 							IconButton(onClick = { shell.openNew() }) {

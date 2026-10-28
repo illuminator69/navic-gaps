@@ -1,5 +1,7 @@
 package paige.navic.ui.components.common
 
+import paige.navic.ui.util.crossfadeMsFor
+import paige.navic.ui.util.rememberReducedMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -67,19 +69,22 @@ fun BlendBackground(
 	}
 
 	val sessionManager = koinInject<SessionManager>()
-	val model = remember(coverArtId) {
+	// Reduced motion: one still frame, no rotation and no cross-fade (audit L1-03).
+	val reduced = rememberReducedMotion()
+	val fadeMs = crossfadeMsFor(reduced, 400)
+	val model = remember(coverArtId, fadeMs) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(coverArtId?.let { "${it}_static" })
 			.diskCacheKey(coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
-			.crossfade(400)
+			.crossfade(fadeMs)
 			.build()
 	}
 
-	LaunchedEffect(isPaused) {
-		if (!isPaused) {
+	LaunchedEffect(isPaused, reduced) {
+		if (!isPaused && !reduced) {
 			val timeSource = TimeSource.Monotonic
 			var lastFrameMark = timeSource.markNow()
 

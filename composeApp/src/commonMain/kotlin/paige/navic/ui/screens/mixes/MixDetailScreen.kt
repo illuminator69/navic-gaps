@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.mixes
 
+import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -64,6 +64,7 @@ import navic.composeapp.generated.resources.mix_page_continues
 import navic.composeapp.generated.resources.mix_page_empty
 import navic.composeapp.generated.resources.mix_page_fresh
 import navic.composeapp.generated.resources.mix_unknown_kind
+import navic.composeapp.generated.resources.radio_mood_needs_audiomuse
 import navic.composeapp.generated.resources.queue_your_mix
 import navic.composeapp.generated.resources.title_delete_mix
 import navic.composeapp.generated.resources.title_rename_mix
@@ -285,25 +286,30 @@ fun MixDetailScreen(mixId: String) {
 							)
 						}
 						when (val shown = state) {
-							MixPageState.Building -> item(key = "building") {
-								Column(
-									Modifier.fillMaxWidth().padding(vertical = 48.dp),
-									horizontalAlignment = Alignment.CenterHorizontally,
-									verticalArrangement = Arrangement.spacedBy(12.dp)
-								) {
-									CircularProgressIndicator(Modifier.size(32.dp))
+							// Waiting rows, as the mood mix page waits (audit L1-05), under the line that says why.
+							MixPageState.Building -> {
+								item(key = "building") {
 									Text(
 										stringResource(Res.string.mix_page_building),
 										style = MaterialTheme.typography.bodyMedium,
-										color = LocalContentColor.current.copy(alpha = 0.7f)
+										color = LocalContentColor.current.copy(alpha = 0.7f),
+										modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
 									)
 								}
+								rowPlaceholders("mix", height = 64.dp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
 							}
 							MixPageState.Empty -> item(key = "empty") {
 								ContentUnavailable(
 									modifier = Modifier.padding(vertical = 32.dp),
 									icon = Icons.Outlined.Equalizer,
 									label = stringResource(Res.string.mix_page_empty)
+								)
+							}
+							MixPageState.NeedsAudioMuse -> item(key = "needs-audiomuse") {
+								ContentUnavailable(
+									modifier = Modifier.padding(vertical = 32.dp),
+									icon = Icons.Outlined.Equalizer,
+									label = stringResource(Res.string.radio_mood_needs_audiomuse)
 								)
 							}
 							MixPageState.UnknownKind -> item(key = "unknown") {

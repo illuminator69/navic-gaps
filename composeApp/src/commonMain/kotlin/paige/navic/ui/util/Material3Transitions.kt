@@ -25,10 +25,6 @@ private val pathForAnimation =
 		cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f)
 	}
 
-const val DurationMedium1 = 250
-const val DurationMedium2 = 300
-const val DurationLong1 = 450
-const val DurationLong2 = 500
 val EmphasizedEasing = PathEasing(pathForAnimation)
 val EmphasizedAccelerateEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 val EmphasizedDecelerateEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
@@ -43,8 +39,6 @@ fun sheetHideMotionSpec(motion: PageMotion) = tween<Float>(
 	durationMillis = motion.sheetHideMs,
 	easing = EmphasizedAccelerateEasing
 )
-val SheetShowMotionSpec = sheetShowMotionSpec(DefaultPageMotion)
-val SheetHideMotionSpec = sheetHideMotionSpec(DefaultPageMotion)
 
 /**
  * navi-connect I-042: a cover's shared-element flight between a list and its page, timed by the

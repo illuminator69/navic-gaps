@@ -291,3 +291,9 @@ fun externalRows(
  */
 fun ownedArtistJoinsLibrary(query: String, name: String): Boolean =
 	paige.navic.domain.search.fuzzyScore(query, name) > 0
+
+/**
+ * Whether Search's field asks for the keyboard now: only on the entry's arrival, never again when the
+ * page is composed after Back from a result (audit L2-05). The top bar keeps the flag per entry.
+ */
+fun shouldRequestSearchFocus(alreadyFocusedOnThisEntry: Boolean): Boolean = !alreadyFocusedOnThisEntry

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.search.components
 
+import paige.navic.ui.util.rememberFoldMotion
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -76,9 +77,10 @@ fun LazyGridScope.externalSection(
 		val row = rows.getOrNull(slot)
 		item(span = { GridItemSpan(maxLineSpan) }, key = "x-slot-$slot", contentType = "external") {
 			Fold(visible = row != null || looking, modifier = Modifier.animateItem()) {
+				val fade = rememberFoldMotion()
 				AnimatedContent(
 					targetState = row,
-					transitionSpec = { fadeIn() togetherWith fadeOut() },
+					transitionSpec = { fadeIn(fade.effects()) togetherWith fadeOut(fade.effects()) },
 					contentKey = { it?.key }
 				) { shown ->
 					if (shown == null) {

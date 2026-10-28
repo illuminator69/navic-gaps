@@ -71,6 +71,13 @@ fun stackAfterTap(current: List<NavKey>, tab: ShellTab): List<NavKey>? {
 }
 
 /**
+ * The stack the Library's magnifier leaves: the Search tab's tap, `[Home, Search]`, not a push over
+ * the Library (`[Home, Library, Search]` landed Back on the Library: audit L2-04, W-02). Back from
+ * Search goes Home, the owner's ruling for every way into it.
+ */
+fun searchEntryStack(current: List<NavKey>): List<NavKey> = stackAfterTap(current, ShellTab.Search)!!
+
+/**
  * A stack saved before P6 (a tab tap left the tab alone) or by anything that still does: one whose
  * first entry is Search's or the Library's own page gets Home put under it, once, so Back from it goes
  * Home too. Any other stack (Home's, a login, a shared link's) is unchanged.
@@ -104,6 +111,15 @@ fun MutableList<NavKey>.becomeStack(target: List<NavKey>) {
 }
 
 /**
+ * The Library chip request ([ShellController.libraryChip]) a tab tap leaves: only the Library's tap
+ * keeps it. The custom radio's Done arms it and lands on `[Home, Library, MixDetail]`; leaving by Home
+ * or Search no longer leaves it armed for the next Library visit (audit L2-07). New opens a sheet over
+ * the page and goes nowhere, so it keeps the request too.
+ */
+fun chipRequestAfterTap(pending: String?, tab: ShellTab): String? =
+	if (tab == ShellTab.Library || tab == ShellTab.New) pending else null
+
+/**
  * The one tap handler for the bar and the rail, so they cannot disagree. A tab switch leaves Home
  * under Search and the Library ([stackAfterTap]); every root page's ViewModel that must outlive a
  * switch still opts out of the entry's store (CLAUDE.md §2 rule 14).
@@ -114,6 +130,7 @@ fun onShellTabTapped(
 	rootViewModel: RootViewModel,
 	shellController: ShellController
 ) {
+	shellController.onTabTapped(tab)
 	when (shellTap(tab, backStack.lastOrNull())) {
 		ShellTap.ScrollToTop -> rootViewModel.requestScrollToTop()
 		is ShellTap.Navigate -> stackAfterTap(backStack, tab)?.let { backStack.becomeStack(it) }

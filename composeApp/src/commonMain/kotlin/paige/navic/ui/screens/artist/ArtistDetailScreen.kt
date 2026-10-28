@@ -280,6 +280,9 @@ fun ArtistDetailScreen(
 			transitionSpec = {
 				fadeIn(animationSpec = effectSpec) togetherWith fadeOut(animationSpec = effectSpec)
 			},
+			// By kind: the view model emits a new Success at least three times as the page's data
+			// lands, and each replayed the cross-fade, backdrop included (audit L1-01).
+			contentKey = { it::class },
 			modifier = Modifier.fillMaxSize()
 		) { artistState ->
 			when (artistState) {

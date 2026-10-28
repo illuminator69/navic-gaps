@@ -86,4 +86,19 @@ class CoverSeedsTest {
 		// Not the tan, though it is within the hare's 45 degree family and has more pixels.
 		assertEquals(hare.rgb, seeds.accent)
 	}
+
+	@Test
+	fun theAccentRuleFollowsTheTonesPageNotTheDominant() {
+		// A near-black dominant with a peach on it, and a red only the unfiltered palette has: dark
+		// by the dominant (accent = vivid, the peach), but the cover reads light (tone 60), so the
+		// light-cover rule picks the most salient colour, the red.
+		val photo = swatch(0xFF202020.toInt(), 0f, 1400, saturation = 0f, lightness = 0.13f)
+		val peach = swatch(0xFFF8A058.toInt(), 27f, 350, saturation = 0.92f, lightness = 0.66f)
+		val text = swatch(0xFFD02020.toInt(), 0f, 400, saturation = 0.73f, lightness = 0.47f)
+		val dark = deriveCoverSeeds(listOf(photo, peach), unfiltered = listOf(photo, peach, text))!!
+		assertEquals(peach.rgb, dark.accent)
+		val light = deriveCoverSeeds(listOf(photo, peach), unfiltered = listOf(photo, peach, text), tone = 60f)!!
+		assertEquals(60f, light.tone)
+		assertEquals(text.rgb, light.accent)
+	}
 }

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.album.components
 
+import paige.navic.ui.util.COVER_FADE_MS
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -44,7 +45,7 @@ fun AlbumListScreenGridItem(
 	onSetRating: (Int) -> Unit,
 	// Home's shelf (P1): a tinted box the cover fades in over, in the time the shelf says.
 	placeholderName: String? = null,
-	crossfadeMs: Int = 500
+	crossfadeMs: Int = COVER_FADE_MS
 ) {
 	val backStack = LocalNavStack.current
 	val snackBarManager = koinInject<SnackBarManager>()

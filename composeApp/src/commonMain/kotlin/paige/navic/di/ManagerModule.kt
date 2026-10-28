@@ -23,6 +23,7 @@ import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.ShellController
+import paige.navic.ui.viewmodel.RootEventBus
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.StationManager
@@ -99,6 +100,8 @@ val managerModule = module {
 	singleOf(::SnackBarManager)
 	// P1: what the shell has open (the New sheet, the avatar menu), opened from any bar or header.
 	singleOf(::ShellController)
+	// Audit L2-03: the rail's RootViewModel and the pages' share their events through this one store.
+	singleOf(::RootEventBus)
 	singleOf(::LoginManager)
 	singleOf(::EqualiserManager)
 }

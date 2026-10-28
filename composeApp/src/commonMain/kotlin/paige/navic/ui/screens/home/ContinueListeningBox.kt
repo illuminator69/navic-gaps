@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.home
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -91,7 +92,7 @@ fun ContinueListeningPill(
 			Row(
 				modifier = Modifier
 					.fillMaxWidth()
-					.height(42.dp)
+					.heightIn(min = 42.dp)
 					.semantics { if (expanded) collapse { onToggle(); true } else expand { onToggle(); true } }
 					.clickable(role = Role.Button, onClick = onToggle)
 					.padding(horizontal = 14.dp),

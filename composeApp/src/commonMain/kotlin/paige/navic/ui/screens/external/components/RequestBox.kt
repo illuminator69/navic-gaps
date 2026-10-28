@@ -45,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import navic.composeapp.generated.resources.request_choose_edition
+import navic.composeapp.generated.resources.request_placed_waiting
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_wishlist
 import navic.composeapp.generated.resources.action_allow_mp3_retry
@@ -67,7 +69,6 @@ import navic.composeapp.generated.resources.label_edition
 import navic.composeapp.generated.resources.label_quality_preference
 import navic.composeapp.generated.resources.label_version
 import navic.composeapp.generated.resources.lbbot_fill_cancelled
-import navic.composeapp.generated.resources.lbbot_fill_verified
 import navic.composeapp.generated.resources.request_cancel
 import navic.composeapp.generated.resources.request_leave_any_time
 import navic.composeapp.generated.resources.request_refused
@@ -78,6 +79,7 @@ import navic.composeapp.generated.resources.request_this_album
 import navic.composeapp.generated.resources.title_sources
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.ui.screens.external.chooseEditionLineShown
 import paige.navic.domain.manager.AllFilesNote
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbFillEntry
@@ -278,6 +280,9 @@ private fun StageContent(
 				StatePill(Pill(FillText.Res(Res.string.lbbot_fill_cancelled), PillTone.MUTE))
 			}
 			EditionHeader(request, detail, onSelectEdition)
+			if (chooseEditionLineShown(request.arrivalWanted, detail != null, request.editionMbid)) {
+				Caption(stringResource(Res.string.request_choose_edition))
+			}
 			Button(onClick = onFindSources, modifier = Modifier.fillMaxWidth()) {
 				Icon(Icons.Outlined.Download, null, modifier = Modifier.size(20.dp).padding(end = 4.dp))
 				Text(stringResource(Res.string.action_find_sources))
@@ -386,7 +391,8 @@ private fun StageContent(
 		// lb-bot's index says the library holds it; Navidrome has not indexed the files yet. The
 		// page moves to the album by itself once Room has it.
 		RequestStage.InLibrary -> {
-			Text(stringResource(Res.string.lbbot_fill_verified), style = MaterialTheme.typography.titleMedium)
+			// lb-bot placed it; the library has not caught up, so it is not "in your library" yet (L4b-05).
+			Text(stringResource(Res.string.request_placed_waiting), style = MaterialTheme.typography.titleMedium)
 			StatePill(Pill(FillText.Res(Res.string.info_pending_sync), PillTone.RUN))
 			Caption(stringResource(Res.string.info_pending_sync_detail))
 		}

@@ -1,5 +1,8 @@
 package paige.navic.ui.screens.home
 
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,6 +59,10 @@ internal val ShelfCardWidth = 150.dp
  * a left-to-right sweep; every later shelf arrives together, 150 ms in. [itemContent] is handed the
  * arrival modifier for its card and must apply it to the card's outermost node.
  */
+
+/** A tile's lazy key and arrival key on a Home shelf: per shelf, so an album on two shelves is two tiles (audit L1-09). */
+fun shelfKey(shelf: String, id: String): String = "$shelf:$id"
+
 @Composable
 fun <T> HomeShelf(
 	title: String,
@@ -120,9 +127,11 @@ internal fun HomeShelfHeader(title: String, moreLabel: String?, more: NavKey?, o
 				text = moreLabel,
 				fontSize = 12.sp,
 				color = MaterialTheme.colorScheme.primary,
+				// 48 dp to touch and a button to TalkBack (it was a 32 dp bare text, audit L1-12).
 				modifier = Modifier
-					.heightIn(min = 32.dp)
-					.clickable(onClick = onMore ?: dropUnlessResumed { more?.let { backStack.add(it) } })
+					.minimumInteractiveComponentSize()
+					.clickable(role = Role.Button, onClick = onMore ?: dropUnlessResumed { more?.let { backStack.add(it) } })
+					.wrapContentHeight()
 			)
 		}
 	}

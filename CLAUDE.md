@@ -209,6 +209,16 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
     `launchToCompletion`, i.e. `withContext(NonCancellable)` inside `viewModelScope` — before that,
     a Cancel tapped just before backing out was cancelled with the pane and the download kept
     running. A new lb-bot action on that screen goes through the same helper.
+15. **A saved back stack outlives the build that saved it.** The stack is saved through
+    `ui/navigation/NavConfig.kt` (`navSavedStateConfiguration`: every `Screen` as a polymorphic
+    `NavKey`, looked up by serial name) and a `Screen`'s enum argument is saved by position. So a
+    renamed or moved `Screen` (upstream's or the fork's) needs a `@SerialName` alias with the old
+    name, and an enum a screen carries (`DownloadsSection`, `SourceHistorySection`) is only ever
+    appended to. `SavedStackGuardTest` round-trips every screen the configuration registers and pins
+    those enums' order; a reorder fails it, and appending means editing its literal. The manifest
+    declares `android:enableOnBackInvokedCallback="true"` (`SingleActivityLaunchTest`): API 33 to 35
+    devices do not get predictive Back from targetSdk's default. `Screen.ImageView` has had no entry
+    point since alpha59 (audit L2-10); it is left in place, and removing it is a rename as above.
 
 ⚠️ `dev.zt64.subsonic:subsonic-client` resolves at `1.0.0-SNAPSHOT` from a GitHub raw maven repo. A
 snapshot is not reproducible: if a build suddenly fails on a symbol that used to exist, suspect
@@ -405,7 +415,9 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   still a tap that turns it on with that character), the off note (only for a queue a station is
   bound to), and at full only the Up next / Related switch, the count with Clear and the generator
   line. Rows are grouped by who added them (`queueListItems`: Autoplay = in the bound station's
-  served list; "Queued by you" only beside an autoplay group; "Up next" otherwise); a dragged row
+  served list, which a hub edit's swap-in joins on this device (`swappedInIds`, B-177); "Queued by you"
+  only beside an autoplay group and only for a song the user queued here (`MediaPlayerViewModel.userQueued`,
+  forgotten when the queue is replaced or cleared; fix round P3); "Up next" otherwise); a dragged row
   moves through a frozen copy of the list, past headers, and the mirror moves only when it passes a
   row. **Outside a drag the list groups by the player's own index**, not by the uid-tracked playing
   row: that follows a track change a frame late, and the scroll to "Now playing" landed on the song
@@ -619,8 +631,12 @@ Rules, each with a reason:
 - **Autoplay is the queue's chips, and Off stops everything (I-041).** Under the queue's header,
   one sideways-scrolling `PageChips` row: Off, Close, Balanced, Explore with the engine (the
   catalogue's words), Off and Auto DJ without it (`AutoplayChips.kt`; Feishin's
-  `station-chips.ts` is the twin). The selected chip is a bound station's own state (Off iff it is
-  `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
+  `station-chips.ts` is the twin). The switch and the driver read ONE rule, `autoplayWanted`
+  (fix round P2, audit L4a-02): with the engine and a bound station, the station's own `stopped`
+  (shared by every device) decides, else the local `autoplayOn` ("Autoplay by default"). So Off
+  here then a character chip on another device reads ON here and tops up, and the default never
+  silences a station that is playing. The selected chip is a bound station's own state (Off iff it
+  is `stopped`, else its character), else the preference. **Off**: autoplay off, `signal stop` to the
   bound station (the hub then answers `next` with no tracks and `stopped`, for every device, and
   says `stopped` in its frames), and the songs that station added that are still to come are taken
   out. **A character**: autoplay on with it; a bound station that is stopped or on another
@@ -702,8 +718,11 @@ Rules, each with a reason:
   probe lists them** (`StationCatalogue.varieties`, `.count`; `takesVariety`); `start` sends `variety`
   only then, and a hub without them shows no control and "Count unavailable". The count is per artist
   set and character (`CountKey`), asked 250 ms after a change, never for a variety tap, and an answer
-  for any other key is dropped (`reduceCount`). Done is disabled only by `Known(0)` and `Unknown`
-  (`canFinish`). Done mints the id (the hub takes a client-minted one), saves and waits up to 6 s for the
+  for any other key is dropped (`reduceCount`). The line, the low warning and Done read
+  `reachable` (fix round P4, B-178): the hub's `reach` when its count answer carries one (an older hub
+  sends none: the count), so 22 counted of 338 reachable neither warns nor reads 22. Done is disabled
+  only by a complete count that reaches nothing and by `Unknown` (`canFinish`); a partial 0 is "Could
+  not finish counting", not "0 songs match". Done mints the id (the hub takes a client-minted one), saves and waits up to 6 s for the
   `mixes` broadcast to hold it; **it does not play** (P5 round 2, the owner's note: it was reached from
   New, so starting it surprised): the stack becomes the Library on Mixes with the mix's page on top, and
   `NewSheetHost` shows "Saved under Mixes", whose Undo deletes the mix (its page then leaves). A save the
@@ -1375,8 +1394,9 @@ Rules, each with a reason:
 Every browsing and detail page is washed in the current artwork's colours. This is the fork's
 largest UI divergence and the thing most likely to be broken by an upstream merge.
 
-**The pipeline.** A cover is reduced to three colours, `CoverSeeds` (`dominant`, `vivid`, `accent`),
-by the pure `deriveCoverSeeds` (`CoverSeeds.kt`), and those are **persisted** in `CoverSeedStore` (the
+**The pipeline.** A cover is reduced to three colours and a number, `CoverSeeds` (`dominant`, `vivid`, `accent`,
+and `tone`, how light the whole image reads, from `coverTone`), by the pure `deriveCoverSeeds` (`CoverSeeds.kt`),
+and those are **persisted** in `CoverSeedStore` (the
 `coverSeeds` preference, LRU 512, written at most every 2 s). `ui/util/CoverColorScheme.kt`'s
 `rememberCoverColorScheme` reads the store **in composition**, so a cover seen before is coloured in
 the first frame; only a miss fetches (`fetchCoverSeeds`), and the store is also filled ahead of need
@@ -1404,7 +1424,23 @@ cover `accent` is the family with the most *salience* (population times chroma s
 from a second palette built without kmpalette's default skin-tone filter, which drops every hue
 10 to 37 degrees with saturation up to 0.82 and so took Lookaftering's brown hare out entirely. A
 dark cover's `accent` is its `vivid`, unchanged: there the dark field already fails the colourful
-bounds. Page brightness and the wash still come from the default palette alone.
+bounds. Which accent rule applies follows the page's brightness.
+
+**Page brightness and the wash's lightness follow the cover's tone (2026-10-28, the owner's five
+covers).** `coverTone` is CIE L*: half the image's plain average, half the lightness of its colours
+(each pixel weighted by Oklab chroma squared), read off every pixel, because the palettes have already
+dropped near-black pixels and every "skin tone". Under 55 (`PAGE_TONE_SPLIT`) the page is dark. The
+page used to follow one swatch's luminance (the dominant's, light at 0.5 and up), which sent mid covers to
+the wrong side or the far end: Vanille fraise (reads 71) got a dark page, Mitski's peach frame round a
+black photo a dark one, The Bends a near-white one. `seedForTone` then moves the wash seed so the
+gradient's top sits at `washTopLstar`: L* 8 to 28 on a dark page, 76 to 94 on a light one, the bands
+text stays readable in (`WashTuningTest`: 4.5:1 for secondary text over the brightest artwork on a
+dark page, the darkest on a light one). A light page whose dominant is dark takes its wash and its
+neutrals from `vivid` (Mitski: the peach, not the black lifted to grey). `OwnerCovers` holds the five
+covers at 32 px and `CoverToneTest` the pages the owner chose for them: a change to the rule that
+flips one of them is a change to what the owner asked for. Seeds stored without a tone (none after
+`CoverSeedCodec` version 3) fall back to the old rule; the now-playing sheet, which keeps its own
+brightness, ignores the tone.
 
 Nine rules, each of which is a bug that shipped:
 
@@ -1947,13 +1983,19 @@ true of invented *album art*, and not of an icon naming the kind.
   at a time; never polled. **A read that did not happen is never zero**: an older hub or lb-bot (a bare 404, a 405) keeps
   P1's ledger count and the page lists the device's rows with one sentence; a failed read keeps the last answer and says
   when it was read; nothing read yet is a spinner. Rows lb-bot lists and the ledger holds appear once (lb-bot's state,
-  the device's buttons); a row only lb-bot knows offers **Open album and nothing else** (`FillRow`'s `lbBotOnly`): nothing
+  the device's buttons, but no Dismiss: on a row lb-bot lists it only hid this phone's copy, `AttentionRow.dismissable`);
+  the ledger's failed or waiting rows lb-bot no longer lists (it forgets in a day, the ledger in a week) are
+  `AttentionPage.Rows.deviceOnly`, under "Only on this phone" below lb-bot's albums and never under lb-bot's headline
+  (fix round B3); a row only lb-bot knows offers **Open album and nothing else** (`FillRow`'s `lbBotOnly`): nothing
   here can retry, cancel or dismiss what the ledger does not hold, and a folder is never filed from here (filing
   retags and moves files): its row says what lb-bot identified it as and how many files, never its name or path, and
   opens `#/place/<id>` in lb-bot. Source history (it was Downloads' Fills and Wishlist chips, "Activity" in the menu) is
   lb-bot's ledger joined with the device's (`mergeHistory`), Running over Earlier with the Activity board's pills, the
   transfers chip only when lb-bot lists any, and `WishlistSection` moved whole; lb-bot's half is re-read every 10 s only
-  while one of its own rows runs and the page is on screen. **Statistics' Find sources**: Not in library is rows (the
+  while a running row is one lb-bot lists and the page is on screen (`historyRereadWanted`). A running ledger row against
+  a finished lb-bot row is a Retry lb-bot has not been read since: the row is running, in the device's state (fix round
+  B2). Placeholder rows until lb-bot's first answer, "No requests yet" only after an answer with none, and a list it could
+  not refresh says "As of" (`historyEmptyState`, B4). **Statistics' Find sources**: Not in library is rows (the
   StatsMissing board); an album row's button opens `ExternalAlbum(findSources = true)`, and the page starts the ONE source
   search when the edition is known, once per visit (saved with the entry), never over a running fill or search; the tap is
   the consent (P4's rule), every other way in leaves it off. Walked on the VM AVD against a scratch hub and a fake lb-bot
@@ -1989,7 +2031,8 @@ true of invented *album art*, and not of an icon naming the kind.
   split the click from the label. `AccountSheet` is gone; the sleep timer it held is in the song sheet (Now Playing,
   More). A new root page is behind `Washed`, in `WashedBrowsingScreens`, and has a rule-14 row (§2).
   The dot counts lb-bot's own to-fix number where the hub answers `/lb/attention`, the device's own ledger
-  (`needsAttentionCount`: settled rows that failed or wait on a pick) where it cannot (P6, below); the
+  (`needsAttentionCount`: settled rows that failed or wait on a pick) where it cannot (P6, below), and is drawn only
+  with a hub configured, like the menu's Needs attention row (`attentionDotShown`, fix round B1); the
   menu's Autoplay switch goes through `RadioManager.setAutoplayOn` (the manager keeps its own flow: writing the
   preference alone would not reach the driver).
 - **Arrival: `rememberArrivalGate()` per page visit, `Modifier.arrive(gate, key, index)` per tile (P1).** The gate is
@@ -2005,18 +2048,25 @@ true of invented *album art*, and not of an icon naming the kind.
   does not arrive on its own.
 - **Home and the shell (P6).** Home is Continue listening, Recently added, Fresh, **Recently played**, **Frequently
   played** (Navidrome's recent and frequent lists from Room, twelve each, a never-played album left out of "recently
-  played": the recent order has no filter of its own) and **Your mixes** (`mixTiles`: Your mix first while the station
+  played": the recent order has no filter of its own; See all's `Recent` list filters `lastPlayedAt IS NOT NULL` and the
+  page is named after the shelf, `albumListTitle`, fix round B9) and **Your mixes** (`mixTiles`: Your mix first while the station
   engine is there, then every hub mix by last played, a mix never played by last changed, at most 30; a tile OPENS the
   mix's page, never plays it; "See all" is the Library tab on its Mixes chip), each absent when empty (`homeSections`).
   An album can be on three shelves: the open sheet is the shelf's whose tile was pressed. `HomeShelf`'s row has
   `ArtCarousel`'s `animateContentSize` (B-134). Measured on the VM AVD (frames, 360x800): the header under a shelf moved
   over 7 to 11 in-between frames with it, and over 6 to 8 WITHOUT it, because the shelf item's own `animateItem()`
-  already animates the next item's placement; the snap the owner saw was not reproduced here, so judge it on the phone.
+  then animated the next item's placement; the snap the owner saw was not reproduced here, so judge it on the phone.
+  Since P7 that `animateItem()` sat inside `Fold`, where it is inert (a lazy item's placement is read from its root), so
+  only `animateContentSize` was left; fix round M3 moved it to the root, `Fold(…, modifier = Modifier.animateItem(fadeInSpec
+  = null, fadeOutSpec = null))` (placement only: `Fold` fades and rolls the height), held by `HomeAnimateItemPlacementTest`.
+  An album shelf's tiles are keyed `shelfKey(shelf, id)`, so an album on two shelves arrives on both (L1-09).
   **One avatar slot** (`HeaderAvatar`, `SearchHeaderAvatar`): the monogram's edge is the title's, 16 dp in, and Search's
   header row is the app bar's 64 dp so the avatar is at the same height (uiautomator: node (36,175)-(180,319) px on all
   three pages at density 3). **Back goes Home**: a tab tap leaves `[Home]` or `[Home, tab]` (`stackAfterTap`, applied by
   `becomeStack`, the smallest edits, never `clear()` then add), `NavDisplay`'s own pop does the rest (so Back on Search or
-  the Library is the ordinary pop with its predictive animation, and only Home leaves the app); a tab's own page is still
+  the Library is the ordinary pop, and only Home leaves the app; its animation, predictive gesture included, is the root
+  tabs' cross-fade from `navtabMetadata`, not a slide: seen on the phone's release build 2026-10-27 and kept by the owner,
+  fix round N6); a tab's own page is still
   a root for the transitions (`isRootPage`); a restored stack that starts with Search or the Library gets Home put under
   it once (`normalizedStack`, before anything reads it). **Anything outside `NavDisplay` that takes Back must be added
   AFTER it**: the dispatcher asks the last-added handler, and with Home under them `NavDisplay`'s handler is enabled on

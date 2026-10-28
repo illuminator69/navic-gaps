@@ -1,5 +1,6 @@
 package paige.navic.ui.components.layouts
 
+import paige.navic.ui.util.COVER_FADE_MS
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -131,7 +132,7 @@ fun ArtGridItem(
 	/** navi-connect P1: the cover's box is this name's tinted gradient until the image fades in (Home). */
 	placeholderName: String? = null,
 	/** navi-connect P1: how long the real cover takes to fade in over its box. */
-	crossfadeMs: Int = 500
+	crossfadeMs: Int = COVER_FADE_MS
 ) {
 	val interactionSource = remember { MutableInteractionSource() }
 	with(LocalSharedTransitionScope.current) {

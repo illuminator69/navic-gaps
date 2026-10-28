@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
@@ -58,6 +60,9 @@ import kotlin.time.TimeSource
  * [isAudioMuseMix] is true while the queue is a station's, or exactly the last queue generated
  * here when AudioMuse chose its songs ([wearsAudioMuseColour]): the mini player's AudioMuse colour.
  */
+/** How long [RadioManager.markHubSwapIn] waits for the hub's edited queue. */
+private const val HUB_SWAP_WAIT_MS = 3_000L
+
 class RadioManager(
 	private val sessionManager: SessionManager,
 	private val songDao: SongDao,
@@ -227,8 +232,11 @@ class RadioManager(
 						// The hub edits the session's queue and tells the playing device (S-035):
 						// the signal is the whole of this tap here.
 						val kind = if (plan.stopStation) "stop" else "character"
+						val before = mediaPlayer.uiState.value.queue.map { it.id }
 						val answer = stationManager.signalEdit(bound.stationId, trackId, kind, plan.signalCharacter?.wireId)
 						Logger.i("RadioManager", "chip $chip: hub edit ${answer?.edited ?: "none"} ${answer?.reason.orEmpty()}")
+						// Outside the station lock: the wait is for the hub's frame, not for station work.
+						if (keep != null && (answer?.edited?.added ?: 0) > 0) scope.launch { markHubSwapIn(bound.stationId, before) }
 					} else if (bound != null) {
 						if (plan.stopStation) stationManager.signal(bound.stationId, trackId, "stop")
 						plan.signalCharacter?.let {
@@ -250,6 +258,20 @@ class RadioManager(
 				driverKick.update { it + 1 }
 			}
 		}
+	}
+
+	/**
+	 * After a hub edit that added songs: wait for the queue it sent (`queueChanged` goes out before
+	 * the hub answers, but is applied on its own time) and add what it brought to the station's
+	 * `served` ([swappedInIds], B-177). Nothing if the queue does not change within [HUB_SWAP_WAIT_MS].
+	 */
+	private suspend fun markHubSwapIn(stationId: String, before: List<String>) {
+		val after = withTimeoutOrNull(HUB_SWAP_WAIT_MS) {
+			mediaPlayer.uiState.first { state -> state.queue.map { it.id } != before }
+		}?.queue?.map { it.id } ?: return
+		val ids = swappedInIds(before, after)
+		val latest = boundNow()?.takeIf { it.stationId == stationId } ?: return
+		if (ids.isNotEmpty()) stationManager.record(latest.withServed(ids))
 	}
 
 	/** Whether the hub edits the queue for a chip on [bound] ([chipEditsOnHub], S-035). */
@@ -714,6 +736,8 @@ class RadioManager(
 				}
 			}
 		}
+		// Audit L4a-01: a filtered radio has no unfiltered fallback.
+		if (!stationFallbackAllowed(mix.moodFilter)) return false
 		val queue = generate(mix)
 		if (queue.isEmpty()) return false
 
@@ -886,9 +910,11 @@ class RadioManager(
 	 * plays from there), built afresh on each opening as YouTube Music's mixes are. A mix that
 	 * plays as a station starts that station now and shows its first batch, so what plays is what
 	 * the page showed and the station carries on after it; any other mix runs its recipe
-	 * ([generate]). Null when nothing could be built. Not a play: `lastPlayedAt` is untouched.
+	 * ([generate]). [MixBuildResult.Empty] when nothing could be built, and
+	 * [MixBuildResult.NeedsAudioMuse] for a mood-filtered radio whose station could not start (it has
+	 * no unfiltered fallback, audit L4a-01). Not a play: `lastPlayedAt` is untouched.
 	 */
-	suspend fun buildMix(mix: Mix, yourMixName: String): MixBuild? {
+	suspend fun buildMix(mix: Mix, yourMixName: String): MixBuildResult {
 		val yourMix = mix.id == YOUR_MIX_ID
 		if (yourMix || stationBacked(mix)) {
 			val recipe = if (yourMix) StationRecipe(StationSeed.YourMix, emptyList(), _character.value)
@@ -900,16 +926,17 @@ class RadioManager(
 				val variety = if (yourMix) "" else mix.variety
 				val filter = if (yourMix) "" else mix.moodFilter
 				when (val start = startStation(recipe.seed, recipe.seedSongs, recipe.character, name, count, variety, filter)) {
-					is StationStart.Ok -> return MixBuild(mix, start.built.queue, start.built)
-					StationStart.Empty -> return null
+					is StationStart.Ok -> return MixBuildResult.Built(MixBuild(mix, start.built.queue, start.built))
+					StationStart.Empty -> return MixBuildResult.Empty
 					StationStart.Unavailable -> {}
 				}
 			}
 		}
+		if (!yourMix && !stationFallbackAllowed(mix.moodFilter)) return MixBuildResult.NeedsAudioMuse
 		val songs = if (yourMix) {
 			resolveIds(runCatching { audioMuseManager.fetchSonicFingerprintIds(RADIO_FALLBACK_COUNT) }.getOrDefault(emptyList()))
 		} else generate(mix)
-		return songs.takeIf { it.isNotEmpty() }?.let { MixBuild(mix, it, null) }
+		return if (songs.isEmpty()) MixBuildResult.Empty else MixBuildResult.Built(MixBuild(mix, songs, null))
 	}
 
 	/**
@@ -1311,7 +1338,9 @@ class RadioManager(
 					lastSig = sig
 					stationManager.setBusy(true)
 					val retry = try {
-						runStep(step, state, order, on, transientAttempts)
+						// What the step's failure handling reads (an engine fallback's Auto DJ) is the same rule
+						// the step was decided by: a live bound station wants more whatever the default says.
+						runStep(step, state, order, autoplayWanted(available, on, bound), transientAttempts)
 					} catch (e: Exception) {
 						Logger.e("RadioManager", "autoplay $step failed", e)
 						null
