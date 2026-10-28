@@ -1,5 +1,6 @@
 package paige.navic
 
+import paige.navic.ui.util.PREDICTIVE_POP_MS
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -470,10 +471,10 @@ fun App() {
 									predictivePopTransitionSpec = {
 										if (preferenceManager.enablePredictiveBackAnimations) {
 											slideInHorizontally(
-												animationSpec = tween(300, easing = EaseOutQuart),
+												animationSpec = tween(PREDICTIVE_POP_MS, easing = EaseOutQuart),
 												initialOffsetX = { -it }
 											) togetherWith slideOutHorizontally(
-												animationSpec = tween(300, easing = EaseOutQuart),
+												animationSpec = tween(PREDICTIVE_POP_MS, easing = EaseOutQuart),
 												targetOffsetX = { it }
 											)
 										} else {

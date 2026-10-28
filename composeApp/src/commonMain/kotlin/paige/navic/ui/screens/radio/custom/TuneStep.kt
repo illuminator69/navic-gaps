@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.radio.custom
 
+import paige.navic.ui.util.rememberFoldMotion
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -369,10 +370,11 @@ private fun Dial(label: String, selected: Boolean, onClick: () -> Unit, modifier
 /** The count, one line for each [CountState], cross-faded as it changes. */
 @Composable
 private fun CountLine(count: CountState, warnLow: Boolean = false) {
+	val fade = rememberFoldMotion()
 	AnimatedContent(
 		targetState = count,
 		contentKey = { it::class },
-		transitionSpec = { fadeIn() togetherWith fadeOut() },
+		transitionSpec = { fadeIn(fade.effects()) togetherWith fadeOut(fade.effects()) },
 		label = "count"
 	) { state ->
 		Row(

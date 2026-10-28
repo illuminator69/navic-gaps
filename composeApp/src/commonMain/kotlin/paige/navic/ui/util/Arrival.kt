@@ -49,6 +49,12 @@ const val ARRIVAL_REST_MS = 150
 /** A real cover fades in over its tinted placeholder (`CoverArt.crossfadeMs`). */
 const val COVER_FADE_MS = 280
 
+/** A predictive back's pop (the page settling back when a back gesture is let go). */
+const val PREDICTIVE_POP_MS = 300
+
+/** A page's wash, the mini player's ring and the sheets' ambient easing to a new cover's colours. */
+const val WASH_MS = 450
+
 val ArrivalEasing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f)
 
 /** Folds and rolled-out boxes (Fold.kt); the brief's `cubic-bezier(.3,.7,.2,1)`. */

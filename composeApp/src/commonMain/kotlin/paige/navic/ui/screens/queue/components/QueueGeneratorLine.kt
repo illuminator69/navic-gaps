@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.queue.components
 
+import paige.navic.ui.util.rememberFoldMotion
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -66,9 +67,10 @@ fun QueueGeneratorLine(
 			val busyText = stringResource(Res.string.queue_station_busy)
 			// `fill = false`: a short line keeps its own width, so the spinner sits right after
 			// its last word; a long one gives the spinner its 18dp at the end, eased.
+			val fade = rememberFoldMotion()
 			AnimatedContent(
 				targetState = generator,
-				transitionSpec = { fadeIn() togetherWith fadeOut() },
+				transitionSpec = { fadeIn(fade.effects()) togetherWith fadeOut(fade.effects()) },
 				label = "queueGenerator",
 				modifier = Modifier.weight(1f, fill = false)
 			) { shown ->

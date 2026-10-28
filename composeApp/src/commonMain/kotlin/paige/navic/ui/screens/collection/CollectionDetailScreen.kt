@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.collection
 
+import paige.navic.ui.util.WASH_MS
 import paige.navic.ui.screens.collection.components.GapBox
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -225,7 +226,7 @@ fun CollectionDetailScreen(
 	val onAmbient = onAmbientColor(stableTop, coverColors.scheme)
 	// The BACKGROUND wash eases between songs; kept as a State and read in the draw phase
 	// (drawWithCache, below), so per-frame updates never recompose the content tree.
-	val animatedSeed = animateColorAsState(coverColors.seed, animationSpec = tween(450))
+	val animatedSeed = animateColorAsState(coverColors.seed, animationSpec = tween(WASH_MS))
 		// Status-bar icons follow the (cover-driven) page brightness.
 		ForceSystemBars(coverColors.isDark)
 

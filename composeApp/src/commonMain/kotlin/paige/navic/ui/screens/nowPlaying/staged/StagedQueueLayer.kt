@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import paige.navic.ui.util.FoldEasing
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -77,7 +78,6 @@ import kotlin.math.roundToInt
 private val RiseEasing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1.04f)
 
 /** Half to full: opens without overshoot (the storyboard's second curve). */
-private val OpenEasing = CubicBezierEasing(0.3f, 0.7f, 0.2f, 1f)
 
 private const val RISE_MS = 420
 private const val OPEN_MS = 380
@@ -137,7 +137,7 @@ class StagedQueueState internal constructor(
 		}
 		val spec = when (detentCurve(draggable.settledValue, to)) {
 			DetentCurve.Rise -> tween<Float>(RISE_MS, easing = RiseEasing)
-			DetentCurve.Open -> tween(OPEN_MS, easing = OpenEasing)
+			DetentCurve.Open -> tween(OPEN_MS, easing = FoldEasing)
 		}
 		draggable.animateTo(to, spec)
 	}

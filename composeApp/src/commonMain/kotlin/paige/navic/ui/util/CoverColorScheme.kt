@@ -592,8 +592,8 @@ fun rememberCoverAmbient(
 	// Ease the colours in as the seed resolves (kmpalette extraction is async) so
 	// the sheet wash fades from the neutral default to the cover colour instead of
 	// popping instantly. Matches the detail screens' `animateColorAsState`.
-	val top by animateColorAsState(rawTop, tween(450))
-	val bottom by animateColorAsState(rawBottom, tween(450))
+	val top by animateColorAsState(rawTop, tween(WASH_MS))
+	val bottom by animateColorAsState(rawBottom, tween(WASH_MS))
 	return CoverAmbient(
 		scheme = cover.scheme,
 		seed = cover.seed,
