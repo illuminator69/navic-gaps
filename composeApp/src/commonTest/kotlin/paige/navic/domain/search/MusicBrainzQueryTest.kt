@@ -69,4 +69,28 @@ class MusicBrainzQueryTest {
 		assertEquals("", mbAlbumQuery("  "))
 		assertEquals("releasegroup:\"x\"", mbAlbumQuery("releasegroup:\"x\""))
 	}
+
+	@Test
+	fun aColonThatNamesNoFieldIsEscaped() {
+		// B8 (audit L4b-10): "Songs: Ohia" was sent raw and asked MusicBrainz for a field "Songs".
+		assertEquals("Songs\\: Ohia~1", mbFuzzyQuery("Songs: Ohia"))
+		assertEquals("Mr. Bungle\\: California~1", mbFuzzyQuery("Mr. Bungle: California"))
+		assertEquals("(Songs\\: Ohia) OR (Songs\\: Ohia~1)", mbAlbumQuery("Songs: Ohia"))
+	}
+
+	@Test
+	fun aFieldNameOrAQuotedPhraseOrAFuzzyTermIsSentAsTyped() {
+		assertEquals("artist:\"Daft Punk\"", mbFuzzyQuery("artist:\"Daft Punk\""))
+		assertEquals("rgid:abc", mbFuzzyQuery("rgid:abc"))
+		assertEquals("\"in rainbows\"", mbFuzzyQuery("\"in rainbows\""))
+		assertEquals("boy~", mbFuzzyQuery("boy~"))
+		assertEquals("\"in rainbows\"", mbAlbumQuery("\"in rainbows\""))
+	}
+
+	@Test
+	fun aLoneQuoteOrTildeIsEscaped() {
+		assertEquals("Don't \\\"quote", mbFuzzyQuery("Don't \"quote"))
+		assertEquals("blue~1 \\~", mbFuzzyQuery("blue ~"))
+	}
 }
+

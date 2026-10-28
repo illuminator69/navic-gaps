@@ -5,7 +5,8 @@ package paige.navic.domain.search
  * Lucene query (navi-connect CLAUDE.md §7), so typo tolerance there costs no request: a word of four
  * or more Latin letters or digits gets "~1", one edit. Not "~" (distance 2): on short words that
  * ranked strangers first ("boy~ genuis~" put Bob Dylan above boygenius, probed 2026-10-20). A word
- * with a symbol in it is escaped and left exact; text that already reads as Lucene is sent as typed.
+ * with a symbol in it is escaped and left exact; text that already reads as Lucene ([readsAsLucene]) is
+ * sent as typed.
  */
 
 private const val LUCENE_SPECIALS = "+-&|!(){}[]^\"~*?:\\/"
@@ -21,14 +22,36 @@ fun mbFuzzyQuery(raw: String): String = luceneWords(raw, fuzzy = true)
  */
 fun mbAlbumQuery(raw: String): String {
 	val fuzzy = mbFuzzyQuery(raw)
-	if (raw.any { it == '"' || it == ':' || it == '~' }) return fuzzy
+	if (readsAsLucene(raw)) return fuzzy
 	val exact = luceneWords(raw, fuzzy = false)
 	return if (exact == fuzzy) fuzzy else "($exact) OR ($fuzzy)"
 }
 
+/** MusicBrainz's search fields a person might type as `field:value`. */
+private val MB_FIELDS = setOf(
+	"artist", "release", "releasegroup", "recording", "work", "label", "tag", "type", "country",
+	"arid", "rgid", "reid", "mbid"
+)
+
+private val FIELD_PREFIX = Regex("""(?:^|[\s(])([A-Za-z]+):""")
+private val FUZZY_TERM = Regex("""\w~\d*(?:\s|$|\))""")
+
+/**
+ * Text that reads as Lucene and is sent as typed (the P3 feature): a balanced pair of double quotes,
+ * a `~` right after a word character, or a known MusicBrainz field name followed by a colon. Anything
+ * else with a `:`, a lone `"` or a stray `~` is escaped like every other special (audit L4b-10: any
+ * of the three sent the whole text raw, so "Songs: Ohia" asked MusicBrainz for a field "Songs").
+ */
+private fun readsAsLucene(raw: String): Boolean {
+	val quotes = raw.count { it == '"' }
+	if (quotes >= 2 && quotes % 2 == 0) return true
+	if (FUZZY_TERM.containsMatchIn(raw)) return true
+	return FIELD_PREFIX.findAll(raw).any { it.groupValues[1].lowercase() in MB_FIELDS }
+}
+
 private fun luceneWords(raw: String, fuzzy: Boolean): String {
 	if (raw.isBlank()) return ""
-	if (raw.any { it == '"' || it == ':' || it == '~' }) return raw
+	if (readsAsLucene(raw)) return raw
 	return raw.trim().split(Regex("\\s+")).joinToString(" ") { word ->
 		when {
 			// A bare operator would be read as one: "Simon AND Garfunkel".
