@@ -41,6 +41,24 @@ fun RowPlaceholder(modifier: Modifier = Modifier, height: Dp = 72.dp) {
 }
 
 /** [count] waiting rows as lazy items, keyed under [key]. */
-fun LazyListScope.rowPlaceholders(key: String, count: Int = ROW_PLACEHOLDERS, height: Dp = 72.dp) {
-	items(count, key = { "$key-placeholder-$it" }) { RowPlaceholder(height = height) }
+fun LazyListScope.rowPlaceholders(
+	key: String,
+	count: Int = ROW_PLACEHOLDERS,
+	height: Dp = 72.dp,
+	modifier: Modifier = Modifier
+) {
+	items(count, key = { "$key-placeholder-$it" }) { RowPlaceholder(modifier, height = height) }
+}
+
+/** What a list draws: its rows when it has any, else placeholders while it loads, else its empty line. */
+enum class ListBody { Loading, Empty, Items }
+
+/**
+ * A list with rows shows them; an empty one is Loading while its read is out and Empty only after
+ * (audit L1-06: Library > Artists said "No artists" while it loaded, and Songs drew nothing).
+ */
+fun listBody(isLoading: Boolean, count: Int): ListBody = when {
+	count > 0 -> ListBody.Items
+	isLoading -> ListBody.Loading
+	else -> ListBody.Empty
 }

@@ -1,5 +1,10 @@
 package paige.navic.ui.screens.artist.components
 
+import androidx.compose.foundation.lazy.grid.items
+import paige.navic.ui.components.common.ROW_PLACEHOLDERS
+import paige.navic.ui.components.common.RowPlaceholder
+import paige.navic.ui.components.common.listBody
+import paige.navic.ui.components.common.ListBody
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -195,13 +200,18 @@ fun ArtistListScreenContent(
 				}
 			}
 
-			if (grouped.isEmpty()) {
-				item(span = { GridItemSpan(maxLineSpan) }) {
+			// "No artists" only once the read is back (audit L1-06); waiting rows before.
+			when (listBody(state is UiState.Loading, data.size)) {
+				ListBody.Loading -> items(ROW_PLACEHOLDERS, key = { "placeholder-$it" }, span = { GridItemSpan(maxLineSpan) }) {
+					RowPlaceholder(Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+				}
+				ListBody.Empty -> item(span = { GridItemSpan(maxLineSpan) }) {
 					ContentUnavailable(
 						icon = Icons.Outlined.Artist,
 						label = stringResource(Res.string.info_no_artists)
 					)
 				}
+				ListBody.Items -> {}
 			}
 		}
 		if (selectedSorting == DomainArtistListType.AlphabeticalByName) {

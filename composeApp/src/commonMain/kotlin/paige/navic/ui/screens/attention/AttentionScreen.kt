@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.attention
 
+import paige.navic.ui.components.common.ROW_PLACEHOLDERS
+import paige.navic.ui.components.common.RowPlaceholder
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +17,6 @@ import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemShapes
@@ -196,8 +197,12 @@ fun AttentionScreen() {
 			modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
 		) {
 			when (val p = page) {
-				AttentionPage.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-					ContainedLoadingIndicator()
+				// Waiting rows under the title's place, then lb-bot's rows (audit L1-05).
+				AttentionPage.Loading -> Column(
+					Modifier.fillMaxSize().padding(innerPadding.withoutTop()).padding(horizontal = 16.dp, vertical = 8.dp),
+					verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
+				) {
+					repeat(ROW_PLACEHOLDERS) { RowPlaceholder() }
 				}
 				is AttentionPage.Rows -> LazyColumn(
 					modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),

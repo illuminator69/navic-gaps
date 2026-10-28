@@ -1,5 +1,6 @@
 package paige.navic.ui.util
 
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -129,5 +130,18 @@ fun Modifier.arrive(gate: ArrivalGate, key: Any, index: Int): Modifier {
 		val p = progress.value
 		alpha = p
 		translationY = (1f - p) * risePx
+	}
+}
+
+/**
+ * Once the first frame of a list is up, every key it holds has arrived: the tiles composed in that
+ * frame play their arrival, and one scrolled in later appears at once instead of arriving on its own
+ * (what Home's shelves and Search do; audit L1-08 found three grids without it).
+ */
+@Composable
+fun ClaimAfterFirstFrame(gate: ArrivalGate, keys: List<Any>) {
+	LaunchedEffect(gate, keys) {
+		withFrameNanos { }
+		gate.claimAll(keys)
 	}
 }

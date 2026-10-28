@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.library
 
+import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,7 +62,8 @@ import paige.navic.ui.util.withoutTop
 /**
  * Recents (board Library): Liked pinned, then what was used last, one row each in the app's
  * segmented rows with 50 dp art (artists round): [LibraryRow], which every Library list shares. A tap opens the thing; a long press its sheet.
- * [entries] null: not read yet, so nothing is drawn (no "empty" before the first read).
+ * [entries] null: not read yet, so waiting rows are drawn (no "empty" before the first read, and not a blank page:
+ * audit L1-06).
  */
 @Composable
 fun LibraryRecents(
@@ -77,7 +79,7 @@ fun LibraryRecents(
 	scrollConnection: NestedScrollConnection? = null
 ) {
 	val gate = rememberArrivalGate()
-	val rows = entries ?: return
+	val rows = entries.orEmpty()
 	LazyColumn(
 		modifier = modifier
 			.padding(top = contentPadding.calculateTopPadding())
@@ -88,9 +90,13 @@ fun LibraryRecents(
 		contentPadding = contentPadding.withoutTop().let {
 			PaddingValues(top = 4.dp, bottom = it.calculateBottomPadding() + 24.dp)
 		},
-		verticalArrangement = if (rows.isEmpty()) Arrangement.Center
+		verticalArrangement = if (entries != null && rows.isEmpty()) Arrangement.Center
 		else Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)
 	) {
+		if (entries == null) {
+			rowPlaceholders("recents")
+			return@LazyColumn
+		}
 		if (syncFailed) {
 			item(key = "sync-failed") {
 				// An error row as Data & storage's danger zone draws them, leading to the sync's own

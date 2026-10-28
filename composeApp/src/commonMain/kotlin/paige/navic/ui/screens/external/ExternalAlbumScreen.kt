@@ -2,6 +2,7 @@
 
 package paige.navic.ui.screens.external
 
+import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
@@ -18,7 +19,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
@@ -349,11 +349,8 @@ fun ExternalAlbumScreen(
 				}
 			}
 			if (state.loading) {
-				item(key = "loading") {
-					Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), Alignment.Center) {
-						ContainedLoadingIndicator(Modifier.size(48.dp))
-					}
-				}
+				// The tracklist's waiting rows (audit L1-05: a spinner, then a hard cut).
+				rowPlaceholders("tracks", height = 64.dp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
 			} else {
 				// No `present` counting anywhere: presenceKnown is false here by definition,
 				// so every row is just the canonical tracklist.
