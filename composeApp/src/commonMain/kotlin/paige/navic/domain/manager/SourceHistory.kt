@@ -98,11 +98,61 @@ data class HistoryRow(
 	val entry: LbFillEntry?,
 	val server: ActivityRequest? = null
 ) {
-	/** Searching, queued, downloading or placing: the Running group. */
-	val running: Boolean get() = if (server == null && entry != null) !entry.settled else state in RUNNING_STATES
+	/**
+	 * Searching, queued, downloading or placing: the Running group. A device row lb-bot does not list,
+	 * or one it lists as finished while the ledger runs it again (a Retry), is running by its ledger.
+	 */
+	val running: Boolean get() = when {
+		entry != null && !entry.settled && (server == null || server.state in TERMINAL_SERVER_STATES) -> true
+		server == null && entry != null -> false
+		else -> state in RUNNING_STATES
+	}
 }
 
 private val RUNNING_STATES = setOf("searching", "queued", "downloading", "placing")
+
+/** lb-bot's states a request ends in. A running ledger row against one of these is a Retry. */
+private val TERMINAL_SERVER_STATES = setOf("failed", "placed", "verified", "cancelled")
+
+/**
+ * Whether the page reads lb-bot again every few seconds: while a running row is one lb-bot lists. A
+ * Retry'd row is such a row, and the read is what finally replaces lb-bot's stale failed state; a
+ * running row only this phone holds moves with the ledger and needs no read.
+ */
+fun historyRereadWanted(groups: HistoryGroups): Boolean = groups.running.any { it.server != null }
+
+/** How the page's read of lb-bot stands: before the first answer, or what the last one was. */
+enum class HistoryRead { NotYet, Reading, Answered, Unavailable, Older }
+
+fun historyRead(status: ActivityRead?, loading: Boolean): HistoryRead = when (status) {
+	null -> if (loading) HistoryRead.Reading else HistoryRead.NotYet
+	is ActivityRead.Ok -> HistoryRead.Answered
+	ActivityRead.Older -> HistoryRead.Older
+	ActivityRead.Unavailable -> HistoryRead.Unavailable
+}
+
+/** What Requests says besides its rows. */
+sealed interface HistoryEmpty {
+	/** No answer yet and nothing to list: placeholder rows, not "No requests yet". */
+	data object Skeleton : HistoryEmpty
+	data object NoRequests : HistoryEmpty
+	/** An older hub or lb-bot: only this phone's requests are listed. */
+	data object Older : HistoryEmpty
+	/** lb-bot did not answer: what is listed was read at [asOf] (epoch ms), or never when null. */
+	data class Unreachable(val asOf: Long?) : HistoryEmpty
+	data object None : HistoryEmpty
+}
+
+/**
+ * B4 (audit L4b-08): "No requests yet" only after lb-bot answered with none; placeholders before the
+ * first answer; a list lb-bot could not refresh says when it was read.
+ */
+fun historyEmptyState(read: HistoryRead, rows: Int, asOf: Long? = null): HistoryEmpty = when (read) {
+	HistoryRead.NotYet, HistoryRead.Reading -> if (rows == 0) HistoryEmpty.Skeleton else HistoryEmpty.None
+	HistoryRead.Answered -> if (rows == 0) HistoryEmpty.NoRequests else HistoryEmpty.None
+	HistoryRead.Older -> HistoryEmpty.Older
+	HistoryRead.Unavailable -> HistoryEmpty.Unreachable(asOf)
+}
 
 /**
  * lb-bot's list joined with the device's, each request once. A server row and a device row are the
@@ -114,14 +164,19 @@ fun mergeHistory(server: List<ActivityRequest>, device: List<LbFillEntry>): List
 	val fromServer = server.map { s ->
 		val entry = device.firstOrNull { it.key !in claimed && sameFill(s.releaseMbid, s.groupId, it) }
 		if (entry != null) claimed += entry.key
+		// B2 (audit L4b-01): a running ledger row against a finished lb-bot row is a Retry lb-bot has
+		// not been read since. The ledger is newer for the rows it names (a fill frame or a poll moves
+		// it at once), as on Needs attention: the row is running, in the device's own state.
+		val retried = entry != null && !entry.settled && s.state in TERMINAL_SERVER_STATES
+		val state = if (retried) entry.state else s.state
 		HistoryRow(
 			key = entry?.key ?: s.releaseMbid.ifBlank { s.groupId.ifBlank { s.rgid } },
 			artist = s.artist.ifBlank { entry?.artist.orEmpty() },
 			album = s.album.ifBlank { entry?.album.orEmpty() },
 			rgid = s.rgid.ifBlank { entry?.rgid.orEmpty() },
-			state = s.state,
-			percent = s.percent.takeIf { s.state == "downloading" },
-			updatedAt = (s.updatedAt * 1000).toLong(),
+			state = state,
+			percent = if (retried) entry.percent.takeIf { state == "downloading" } else s.percent.takeIf { s.state == "downloading" },
+			updatedAt = if (retried) maxOf((s.updatedAt * 1000).toLong(), deviceClock(entry)) else (s.updatedAt * 1000).toLong(),
 			fromDevice = entry != null,
 			entry = entry,
 			server = s

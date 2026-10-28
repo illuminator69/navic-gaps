@@ -37,13 +37,51 @@ class SourceHistoryTest {
 	fun theSameRequestByReleaseIsOneRowWithLbBotsStateAndTheDevicesEntry() {
 		val rows = mergeHistory(
 			listOf(req("rel-1", "failed", 10.0)),
-			listOf(entry("rg-a", settled = false, releaseMbid = "rel-1"))
+			listOf(entry("rg-a", settled = true, state = "verified", releaseMbid = "rel-1"))
 		)
 		assertEquals(1, rows.size)
 		assertEquals("failed", rows[0].state)
 		assertEquals("rg-a", rows[0].entry?.key)
 		assertTrue(rows[0].fromDevice)
-		assertFalse(rows[0].running, "lb-bot's state wins over the device's running row")
+		assertFalse(rows[0].running)
+	}
+
+	@Test
+	fun aRetriedRequestIsRunningAgainstAStaleFailedRow() {
+		// B2 (audit L4b-01): Retry starts the fill again on this device; lb-bot's row still says failed
+		// until the next read. The ledger is newer for the rows it names, as on Needs attention.
+		val rows = mergeHistory(
+			listOf(req("rel-1", "failed", 10.0)),
+			listOf(entry("rg-a", settled = false, state = "searching", releaseMbid = "rel-1"))
+		)
+		assertEquals(1, rows.size)
+		assertTrue(rows[0].running)
+		assertEquals("searching", rows[0].state)
+		assertEquals(listOf("rg-a"), historyGroups(rows).running.map { it.key })
+		for (terminal in listOf("placed", "verified", "cancelled")) {
+			val r = mergeHistory(listOf(req("rel-1", terminal, 10.0)), listOf(entry("rg-a", settled = false, state = "queued", releaseMbid = "rel-1")))
+			assertTrue(r[0].running, "against a $terminal row")
+		}
+	}
+
+	@Test
+	fun aSettledLedgerRowDoesNotOverrideTheServer() {
+		val rows = mergeHistory(
+			listOf(req("rel-1", "placed", 10.0)),
+			listOf(entry("rg-a", settled = true, state = "failed", releaseMbid = "rel-1"))
+		)
+		assertEquals("placed", rows[0].state)
+		assertFalse(rows[0].running)
+	}
+
+	@Test
+	fun lbBotsRunningRowWinsOverASettledLedgerRow() {
+		val rows = mergeHistory(
+			listOf(req("rel-1", "downloading", 10.0)),
+			listOf(entry("rg-a", settled = true, state = "failed", releaseMbid = "rel-1"))
+		)
+		assertEquals("downloading", rows[0].state)
+		assertTrue(rows[0].running)
 	}
 
 	@Test
@@ -148,4 +186,50 @@ class SourceHistoryTest {
 		assertFalse(running.settled)
 		assertFalse(running.canCancel, "a row only lb-bot knows is not cancelled from here")
 	}
+
+	@Test
+	fun aRetriedRowKeepsThePageReadingLbBot() {
+		// B2: the 10 s re-read is what replaces lb-bot's stale failed row; a running row lb-bot lists
+		// drives it, whoever else holds the row. A device-only running row needs no read.
+		val retried = historyGroups(mergeHistory(listOf(req("rel-1", "failed", 10.0)),
+			listOf(entry("rg-a", settled = false, state = "searching", releaseMbid = "rel-1"))))
+		assertTrue(historyRereadWanted(retried))
+		val deviceOnly = historyGroups(mergeHistory(emptyList(), listOf(entry("rg-b", settled = false))))
+		assertFalse(historyRereadWanted(deviceOnly))
+		val serverOnly = historyGroups(mergeHistory(listOf(req("rel-2", "downloading", 1.0)), emptyList()))
+		assertTrue(historyRereadWanted(serverOnly))
+		val settled = historyGroups(mergeHistory(listOf(req("rel-3", "verified", 1.0)), emptyList()))
+		assertFalse(historyRereadWanted(settled))
+	}
+
+	@Test
+	fun noRequestsYetOnlyAfterAnAnswerWithNone() {
+		// B4 (audit L4b-08): the page said "No requests yet" before its first read had come back.
+		assertEquals(HistoryEmpty.Skeleton, historyEmptyState(HistoryRead.NotYet, rows = 0))
+		assertEquals(HistoryEmpty.Skeleton, historyEmptyState(HistoryRead.Reading, rows = 0))
+		assertEquals(HistoryEmpty.NoRequests, historyEmptyState(HistoryRead.Answered, rows = 0))
+		assertEquals(HistoryEmpty.Older, historyEmptyState(HistoryRead.Older, rows = 0))
+		assertEquals(HistoryEmpty.Unreachable(null), historyEmptyState(HistoryRead.Unavailable, rows = 0))
+	}
+
+	@Test
+	fun aListWithRowsSaysOnlyWhatIsTrueOfIt() {
+		assertEquals(HistoryEmpty.None, historyEmptyState(HistoryRead.NotYet, rows = 2))
+		assertEquals(HistoryEmpty.None, historyEmptyState(HistoryRead.Reading, rows = 2))
+		assertEquals(HistoryEmpty.None, historyEmptyState(HistoryRead.Answered, rows = 2))
+		assertEquals(HistoryEmpty.Older, historyEmptyState(HistoryRead.Older, rows = 2))
+		// A stale list says when it was read.
+		assertEquals(HistoryEmpty.Unreachable(1_000L), historyEmptyState(HistoryRead.Unavailable, rows = 2, asOf = 1_000L))
+		assertEquals(HistoryEmpty.Unreachable(null), historyEmptyState(HistoryRead.Unavailable, rows = 2))
+	}
+
+	@Test
+	fun theReadIsWhatTheLastStatusSays() {
+		assertEquals(HistoryRead.NotYet, historyRead(status = null, loading = false))
+		assertEquals(HistoryRead.Reading, historyRead(status = null, loading = true))
+		assertEquals(HistoryRead.Answered, historyRead(ActivityRead.Ok(emptyList(), emptyList()), loading = true))
+		assertEquals(HistoryRead.Older, historyRead(ActivityRead.Older, loading = false))
+		assertEquals(HistoryRead.Unavailable, historyRead(ActivityRead.Unavailable, loading = false))
+	}
 }
+
