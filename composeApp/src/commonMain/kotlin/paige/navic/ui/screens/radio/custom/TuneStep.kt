@@ -1,5 +1,8 @@
 package paige.navic.ui.screens.radio.custom
 
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.material3.minimumInteractiveComponentSize
 import paige.navic.ui.util.rememberFoldMotion
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -285,7 +288,9 @@ private fun SectionLabel(text: String, top: androidx.compose.ui.unit.Dp = 16.dp)
 private fun PickedAvatars(picked: List<PickedArtist>, onAdd: () -> Unit) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Box(
+			// 44 dp drawn, 48 dp to touch (audit L1-12).
 			Modifier
+				.minimumInteractiveComponentSize()
 				.size(44.dp)
 				.background(MaterialTheme.colorScheme.onSurface, CircleShape)
 				.clickable(role = Role.Button, onClick = onAdd),
@@ -377,8 +382,9 @@ private fun CountLine(count: CountState, warnLow: Boolean = false) {
 		transitionSpec = { fadeIn(fade.effects()) togetherWith fadeOut(fade.effects()) },
 		label = "count"
 	) { state ->
+		// Read out when it changes, without interrupting (audit L4b-11).
 		Row(
-			Modifier.heightIn(min = 20.dp),
+			Modifier.heightIn(min = 20.dp).semantics { liveRegion = LiveRegionMode.Polite },
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(8.dp)
 		) {

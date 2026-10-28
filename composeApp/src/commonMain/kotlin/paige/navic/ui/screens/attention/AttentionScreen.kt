@@ -469,9 +469,14 @@ private fun FolderRow(
 	val matched = folder.identified && folder.matchLabel.isNotBlank()
 	val pill = if (matched) Pill(FillText.Res(Res.string.attention_matched), PillTone.NEUTRAL)
 	else Pill(FillText.Res(Res.string.attention_needs_pick), PillTone.WARN)
+	// Its pill is said too: the row's description replaces what its children would say (L4b-11).
+	val stateWords = pill.label.resolve()
 	SegmentedListItem(
 		onClick = onToggle,
-		modifier = modifier.semantics { contentDescription = spoken },
+		modifier = modifier.semantics {
+			contentDescription = spoken
+			stateDescription = stateWords
+		},
 		shapes = shapes,
 		colors = fillRowColors(),
 		contentPadding = SongRowDefaults.ContentPadding,

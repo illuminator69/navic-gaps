@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import paige.navic.ui.a11y.MIN_TOUCH_DP
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -114,7 +115,7 @@ fun ExpandingRating(
 				IconButton(
 					onClick = { opened = true },
 					enabled = enabled,
-					modifier = Modifier.size(32.dp)
+					modifier = Modifier.size(MIN_TOUCH_DP.dp)
 				) {
 					Icon(Icons.Outlined.Star, contentDescription = stringResource(Res.string.staged_rate_song))
 				}
@@ -129,7 +130,8 @@ private fun RatingStar(star: Int, rating: Int, enabled: Boolean, onTap: (Int) ->
 	IconButton(
 		onClick = { onTap(star) },
 		enabled = enabled,
-		modifier = Modifier.width(30.dp).height(32.dp)
+		// 48 dp tall to touch; 40 wide, so five fit beside the title (audit L1-12: they were 30 x 32).
+		modifier = Modifier.width(40.dp).height(MIN_TOUCH_DP.dp)
 	) {
 		Box(contentAlignment = Alignment.Center) {
 			Icon(

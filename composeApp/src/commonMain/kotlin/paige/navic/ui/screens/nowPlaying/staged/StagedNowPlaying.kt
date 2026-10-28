@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import paige.navic.ui.a11y.MIN_TOUCH_DP
+import navic.composeapp.generated.resources.action_devices
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -628,7 +630,7 @@ private fun StagedHeader(
 	onSetSongRating: (Int) -> Unit
 ) {
 	Row(
-		modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
+		modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
 		IconButton(onClick = onClose) {
@@ -689,7 +691,7 @@ private fun ActionPill(
 		shape = ContinuousCapsule,
 		color = if (inverted) Color.Transparent else onSurface.copy(alpha = 0.10f),
 		contentColor = onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-		modifier = modifier.heightIn(min = 40.dp)
+		modifier = modifier.heightIn(min = MIN_TOUCH_DP.dp)
 	) {
 		Row(
 			modifier = Modifier
@@ -749,7 +751,7 @@ private fun MiniHeader(
 		modifier = Modifier
 			.fillMaxWidth()
 			.padding(top = topInset)
-			.height(72.dp)
+			.heightIn(min = 72.dp)
 			.padding(horizontal = 16.dp)
 			.graphicsLayer { this.alpha = alpha() },
 		verticalAlignment = Alignment.CenterVertically
@@ -775,7 +777,7 @@ private fun MiniHeader(
 			)
 		}
 		IconButton(onClick = onDevices) {
-			Icon(Icons.Outlined.Devices, contentDescription = null)
+			Icon(Icons.Outlined.Devices, contentDescription = stringResource(Res.string.action_devices))
 		}
 		FilledIconButton(onClick = onPlayPause, enabled = song != null) {
 			Icon(

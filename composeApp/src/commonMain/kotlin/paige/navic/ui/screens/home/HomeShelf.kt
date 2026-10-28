@@ -1,5 +1,8 @@
 package paige.navic.ui.screens.home
 
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -124,9 +127,11 @@ internal fun HomeShelfHeader(title: String, moreLabel: String?, more: NavKey?, o
 				text = moreLabel,
 				fontSize = 12.sp,
 				color = MaterialTheme.colorScheme.primary,
+				// 48 dp to touch and a button to TalkBack (it was a 32 dp bare text, audit L1-12).
 				modifier = Modifier
-					.heightIn(min = 32.dp)
-					.clickable(onClick = onMore ?: dropUnlessResumed { more?.let { backStack.add(it) } })
+					.minimumInteractiveComponentSize()
+					.clickable(role = Role.Button, onClick = onMore ?: dropUnlessResumed { more?.let { backStack.add(it) } })
+					.wrapContentHeight()
 			)
 		}
 	}

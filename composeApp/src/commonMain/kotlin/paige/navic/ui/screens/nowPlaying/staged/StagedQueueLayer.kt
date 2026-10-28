@@ -1,5 +1,9 @@
 package paige.navic.ui.screens.nowPlaying.staged
 
+import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.staged_collapse_queue
 import paige.navic.ui.util.FoldEasing
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -303,11 +307,13 @@ fun StagedQueueLayer(
 /** The 32 x 4 dp handle in the primary colour: a button that moves one place, with expand and collapse for TalkBack. */
 @Composable
 private fun LayerHandle(state: StagedQueueState) {
+	val name = stringResource(Res.string.staged_collapse_queue)
 	Box(
 		modifier = Modifier
 			.fillMaxWidth()
 			.height(24.dp)
 			.semantics {
+				contentDescription = name
 				val a = state.anchors
 				if (a != null && state.targetDetent != QueueDetent.Full) {
 					expand { state.launchMove(handleTapTarget(state.targetDetent, a)); true }
