@@ -1,6 +1,5 @@
 package paige.navic.ui.screens.sourcehistory
 
-import paige.navic.ui.util.placeholderBrush
 import paige.navic.domain.manager.historyRereadWanted
 import paige.navic.domain.manager.historyRead
 import paige.navic.domain.manager.historyEmptyState
@@ -8,10 +7,6 @@ import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.manager.HistoryEmpty
 import navic.composeapp.generated.resources.attention_notice_unreachable
 import kotlinx.datetime.TimeZone
-import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.background
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,6 +74,7 @@ import paige.navic.domain.manager.transfersShown
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Download
+import paige.navic.ui.components.common.rowPlaceholders
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.FillButton
 import paige.navic.ui.components.common.FillRow
@@ -247,17 +243,7 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 									)
 								}
 							}
-							if (empty == HistoryEmpty.Skeleton) {
-								items(SKELETON_ROWS, key = { "skeleton-$it" }) { index ->
-									Box(
-										Modifier
-											.fillMaxWidth()
-											.height(72.dp)
-											.clip(MaterialTheme.shapes.medium)
-											.background(placeholderBrush("history-row-$index"))
-									)
-								}
-							}
+							if (empty == HistoryEmpty.Skeleton) rowPlaceholders("history")
 							historyGroup("running", Res.string.source_history_running, groups.running, now,
 								actions, wishlisted, openAlbum)
 							historyGroup("earlier", Res.string.source_history_earlier, groups.earlier, now,
@@ -277,9 +263,6 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 		}
 	}
 }
-
-/** Placeholder rows while the first read of lb-bot is out. */
-private const val SKELETON_ROWS = 3
 
 private val SourceHistorySection.label
 	get() = when (this) {
