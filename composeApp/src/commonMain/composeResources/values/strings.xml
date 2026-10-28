@@ -1494,6 +1494,7 @@
 	<string name="artist_scan_failed">Couldn't scan this artist</string>
 	<string name="artist_try_again">Try again</string>
 	<string name="artist_no_releases">lb-bot's index holds no releases for this artist.</string>
+	<string name="releases_show_all">Show all %1$d</string>
 	<string name="release_tap_hint">Tap one to find sources</string>
 	<string name="gap_in_library">%1$d of %2$d in your library</string>
 	<plurals name="gap_find_sources_for">
