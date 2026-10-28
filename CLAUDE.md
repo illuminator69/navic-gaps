@@ -1983,13 +1983,19 @@ true of invented *album art*, and not of an icon naming the kind.
   at a time; never polled. **A read that did not happen is never zero**: an older hub or lb-bot (a bare 404, a 405) keeps
   P1's ledger count and the page lists the device's rows with one sentence; a failed read keeps the last answer and says
   when it was read; nothing read yet is a spinner. Rows lb-bot lists and the ledger holds appear once (lb-bot's state,
-  the device's buttons); a row only lb-bot knows offers **Open album and nothing else** (`FillRow`'s `lbBotOnly`): nothing
+  the device's buttons, but no Dismiss: on a row lb-bot lists it only hid this phone's copy, `AttentionRow.dismissable`);
+  the ledger's failed or waiting rows lb-bot no longer lists (it forgets in a day, the ledger in a week) are
+  `AttentionPage.Rows.deviceOnly`, under "Only on this phone" below lb-bot's albums and never under lb-bot's headline
+  (fix round B3); a row only lb-bot knows offers **Open album and nothing else** (`FillRow`'s `lbBotOnly`): nothing
   here can retry, cancel or dismiss what the ledger does not hold, and a folder is never filed from here (filing
   retags and moves files): its row says what lb-bot identified it as and how many files, never its name or path, and
   opens `#/place/<id>` in lb-bot. Source history (it was Downloads' Fills and Wishlist chips, "Activity" in the menu) is
   lb-bot's ledger joined with the device's (`mergeHistory`), Running over Earlier with the Activity board's pills, the
   transfers chip only when lb-bot lists any, and `WishlistSection` moved whole; lb-bot's half is re-read every 10 s only
-  while one of its own rows runs and the page is on screen. **Statistics' Find sources**: Not in library is rows (the
+  while a running row is one lb-bot lists and the page is on screen (`historyRereadWanted`). A running ledger row against
+  a finished lb-bot row is a Retry lb-bot has not been read since: the row is running, in the device's state (fix round
+  B2). Placeholder rows until lb-bot's first answer, "No requests yet" only after an answer with none, and a list it could
+  not refresh says "As of" (`historyEmptyState`, B4). **Statistics' Find sources**: Not in library is rows (the
   StatsMissing board); an album row's button opens `ExternalAlbum(findSources = true)`, and the page starts the ONE source
   search when the edition is known, once per visit (saved with the entry), never over a running fill or search; the tap is
   the consent (P4's rule), every other way in leaves it off. Walked on the VM AVD against a scratch hub and a fake lb-bot
@@ -2025,7 +2031,8 @@ true of invented *album art*, and not of an icon naming the kind.
   split the click from the label. `AccountSheet` is gone; the sleep timer it held is in the song sheet (Now Playing,
   More). A new root page is behind `Washed`, in `WashedBrowsingScreens`, and has a rule-14 row (§2).
   The dot counts lb-bot's own to-fix number where the hub answers `/lb/attention`, the device's own ledger
-  (`needsAttentionCount`: settled rows that failed or wait on a pick) where it cannot (P6, below); the
+  (`needsAttentionCount`: settled rows that failed or wait on a pick) where it cannot (P6, below), and is drawn only
+  with a hub configured, like the menu's Needs attention row (`attentionDotShown`, fix round B1); the
   menu's Autoplay switch goes through `RadioManager.setAutoplayOn` (the manager keeps its own flow: writing the
   preference alone would not reach the driver).
 - **Arrival: `rememberArrivalGate()` per page visit, `Modifier.arrive(gate, key, index)` per tile (P1).** The gate is
@@ -2041,7 +2048,8 @@ true of invented *album art*, and not of an icon naming the kind.
   does not arrive on its own.
 - **Home and the shell (P6).** Home is Continue listening, Recently added, Fresh, **Recently played**, **Frequently
   played** (Navidrome's recent and frequent lists from Room, twelve each, a never-played album left out of "recently
-  played": the recent order has no filter of its own) and **Your mixes** (`mixTiles`: Your mix first while the station
+  played": the recent order has no filter of its own; See all's `Recent` list filters `lastPlayedAt IS NOT NULL` and the
+  page is named after the shelf, `albumListTitle`, fix round B9) and **Your mixes** (`mixTiles`: Your mix first while the station
   engine is there, then every hub mix by last played, a mix never played by last changed, at most 30; a tile OPENS the
   mix's page, never plays it; "See all" is the Library tab on its Mixes chip), each absent when empty (`homeSections`).
   An album can be on three shelves: the open sheet is the shelf's whose tile was pressed. `HomeShelf`'s row has
