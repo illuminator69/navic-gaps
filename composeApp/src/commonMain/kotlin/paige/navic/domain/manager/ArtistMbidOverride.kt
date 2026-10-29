@@ -95,7 +95,9 @@ internal fun overrideScanToFollow(written: LbOverrideWrite): String? =
 internal data class LbRescanAnswer(
 	val ok: Boolean = false,
 	@SerialName("task_id") val taskId: String = "",
-	val covered: Boolean = false
+	val covered: Boolean = false,
+	/** Worbus P1: [taskId] is a scan of this artist already running (a tap's, or lb-bot's worker's). */
+	val running: Boolean = false
 )
 
 /** What a rescan request came to. */
@@ -111,7 +113,25 @@ sealed interface LbRescanStart {
 
 	/** The request failed, was refused, or was answered with no task and no reason. */
 	data object NotStarted : LbRescanStart
+
+	/**
+	 * Worbus P1: a Scan now by Navidrome id alone (no MBID) answered 400 `mbid is required`: an lb-bot
+	 * older than the field. The page goes back to today's choice for an untagged artist.
+	 */
+	data object Older : LbRescanStart
 }
+
+/** Worbus P1: lb-bot's answer to a scan with no MBID, from before it could resolve one itself. */
+fun scanByNdIdRefused(error: LbBotManager.LbError): Boolean =
+	error is LbBotManager.LbError.Rejected && error.status == 400
+
+/**
+ * What a Scan now came to: [rescanStart] for an answer, and for a refusal of a request that sent no MBID
+ * ([sentMbid] false) a 400 is [LbRescanStart.Older]. Every other failure started nothing.
+ */
+internal fun rescanStartOf(answer: LbRescanAnswer?, error: LbBotManager.LbError?, sentMbid: Boolean): LbRescanStart =
+	if (answer == null && error != null && !sentMbid && scanByNdIdRefused(error)) LbRescanStart.Older
+	else rescanStart(answer)
 
 /**
  * [answer] is null when the request did not come back as a 200.

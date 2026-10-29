@@ -1073,12 +1073,19 @@ class LbBotManager(
 	 * section appear when it appears.
 	 */
 	suspend fun indexArtist(mbid: String, name: String, ndId: String): LbRescanStart {
-		if (mbid.isBlank() || name.isBlank()) return LbRescanStart.NotStarted
+		// Worbus P1: a library artist with no MBID is scanned by its Navidrome id; lb-bot resolves the
+		// name. An lb-bot from before that answers 400 (`LbRescanStart.Older`).
+		if (mbid.isBlank() && ndId.isBlank()) return LbRescanStart.NotStarted
+		if (mbid.isNotBlank() && name.isBlank()) return LbRescanStart.NotStarted
 		val result = postJson<_, LbRescanAnswer>(
 			"/lb/artist/discography",
 			LbIndexRequest(mbid, name, ndId)
 		)
-		return rescanStart((result as? LbResult.Ok)?.value)
+		return rescanStartOf(
+			answer = (result as? LbResult.Ok)?.value,
+			error = (result as? LbResult.Failed)?.error,
+			sentMbid = mbid.isNotBlank()
+		)
 	}
 
 	/**
@@ -1105,19 +1112,30 @@ class LbBotManager(
 		ndId: String,
 		mbid: String?,
 		taskId: String,
-		scannedBefore: Double
+		scannedBefore: Double,
+		/** Worbus P1: every read of the scan record, for the page's "3 of 10". */
+		onScan: (LbArtistScan) -> Unit = {}
 	): LbScanOutcome {
 		val deadline = nowMs() + SCAN_WAIT_MS
+		// Worbus P1: every 3 s while lb-bot says the scan is running (the page shows its counts), back
+		// to the 15 s fallback once it says anything else. The first read is at once.
+		var interval = 0L
 		while (nowMs() < deadline) {
-			withTimeoutOrNull(SCAN_POLL_INTERVAL_MS) {
+			if (interval > 0L) withTimeoutOrNull(interval) {
 				libraryEvents.first { it.event == EVENT_ARTIST_SCANNED && it.ndArtistId == ndId }
 			}
+			interval = SCAN_POLL_INTERVAL_MS
 			val data = discography(ndId, mbid) ?: continue
 			val scan = data.scan?.takeIf { it.taskId == taskId }
+			if (scan != null) onScan(scan)
+			if (scan?.state == "running") interval = SCAN_RUNNING_POLL_MS
 			if (scan?.state == "failed") {
 				return LbScanOutcome.Failed(scan.error.ifBlank { "The discography scan failed" }, data)
 			}
 			if (data.indexed && data.scannedAt > scannedBefore) return LbScanOutcome.Done(data)
+			// Worbus P1: lb-bot says this scan finished and the index did not move (a worker scan of an
+			// artist whose row was already this fresh): nothing more will come of waiting.
+			if (scan?.state == "done") return if (data.indexed) LbScanOutcome.Done(data) else LbScanOutcome.TimedOut
 		}
 		return LbScanOutcome.TimedOut
 	}
@@ -4051,21 +4069,34 @@ private const val SCAN_WAIT_MS = 5 * 60_000L
 /** The scan poll's FALLBACK tick — the mirror Flow and the `artistScanned` frame are the
  *  feedback (see [LbBotManager.awaitArtistScan]). Was 5 s, when this poll was all there was. */
 private const val SCAN_POLL_INTERVAL_MS = 15_000L
+/** Worbus P1: the poll while lb-bot says the scan is running, so its counts move on the page. */
+private const val SCAN_RUNNING_POLL_MS = 3_000L
 
-/** The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. */
+/**
+ * The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. Since Worbus P1
+ * any scan of the artist, lb-bot's background worker's included (`taskId` "auto-index"), with how far
+ * it has got: [done] of [total] release groups, 0 of 0 while lb-bot is still listing them, and from an
+ * older lb-bot (no fields).
+ */
 @Serializable
 data class LbArtistScan(
 	val state: String = "",
 	val error: String = "",
 	val taskId: String = "",
 	val startedAt: Double = 0.0,
-	val finishedAt: Double = 0.0
+	val finishedAt: Double = 0.0,
+	val done: Int = 0,
+	val total: Int = 0
 )
 
+/**
+ * Scan now's body. Worbus P1: [mbid] (and [name]) may be "", which [lbWireJson] leaves out: lb-bot then
+ * resolves the library artist [ndId] itself, as its worker does.
+ */
 @Serializable
 private data class LbIndexRequest(
-	val mbid: String,
-	val name: String,
+	val mbid: String = "",
+	val name: String = "",
 	@SerialName("nd_id") val ndId: String
 )
 
@@ -4278,7 +4309,12 @@ data class LbDiscography(
 	@SerialName("scanned_at") val scannedAt: Double = 0.0,
 	val releases: List<LbRelease> = emptyList(),
 	/** The last scan lb-bot ran for this artist since it started, or null. */
-	val scan: LbArtistScan? = null
+	val scan: LbArtistScan? = null,
+	/**
+	 * Worbus P1: lb-bot scanned this artist and found no MusicBrainz artist for them (its row has no
+	 * MBID). Absent (an older lb-bot, or an artist it has not indexed) is false.
+	 */
+	val unresolved: Boolean = false
 )
 
 /**

@@ -1565,6 +1565,9 @@
 	<string name="info_wishlist_empty_hint_off">Add an album from its page and it waits here. Worbus looks for it once your server is set up to get albums.</string>
 	<string name="home_index_title">Indexing your library</string>
 	<string name="home_index_left">%1$s of %2$s artists left</string>
+	<string name="artist_scan_count">%1$s of %2$s done</string>
+	<string name="artist_unresolved">lb-bot couldn't find this artist on MusicBrainz.</string>
+	<string name="action_match_manually">Match manually</string>
 	<string name="find_it_title">Find it</string>
 	<string name="find_it_search">Search %1$s</string>
 	<string name="find_it_service_bandcamp">Bandcamp</string>

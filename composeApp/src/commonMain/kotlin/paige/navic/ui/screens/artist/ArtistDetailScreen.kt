@@ -531,8 +531,10 @@ fun ArtistDetailScreen(
 							// NOTE: above the similar-artists guard below, an early `return@Column`.
 							DiscographyScanAction(
 								ui = discography,
-								// The override when the user has set one, else Navidrome's tag.
-								canIndex = artistMbid.effective.isNotBlank(),
+								// The override when the user has set one, else Navidrome's tag; without
+								// either, Worbus P1's scan by Navidrome id where lb-bot can do one.
+								mbid = artistMbid.effective,
+								scanByNdId = scanByNdIdOffered(downloads, discography.ndIdScanRefused),
 								onIndex = { viewModel.indexArtist() },
 								onChooseMbid = if (artistMbid.canOverride) {
 									{ viewModel.openMbidMatch() }
