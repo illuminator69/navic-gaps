@@ -17,8 +17,38 @@ import kotlin.test.assertTrue
  */
 class AvatarMenuItemsTest {
 
-	private fun menu(lb: Boolean = true, share: Boolean = true, attention: Int = 0, webUrl: String = "") =
-		avatarMenuItems(lbConfigured = lb, canShare = share, attentionCount = attention, webUrl = webUrl)
+	private fun menu(lb: Boolean = true, share: Boolean = true, attention: Int = 0, webUrl: String = "", downloadsOn: Boolean = true) =
+		avatarMenuItems(lbConfigured = lb, canShare = share, attentionCount = attention, webUrl = webUrl, downloadsOn = downloadsOn)
+
+	// ---- Worbus P1: downloading off ------------------------------------------ //
+
+	@Test
+	fun avatar_menu_hides_source_rules_when_off() {
+		val tools = menu(webUrl = "http://lb:8899", downloadsOn = false).group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids()
+		assertFalse(AvatarMenuIds.SOURCE_RULES in tools)
+		// Source history is requests and transfers, and its name says "source": it goes too.
+		assertFalse(AvatarMenuIds.SOURCE_HISTORY in tools)
+		// What needs no downloading stays, in its order, with no gap.
+		assertEquals(
+			listOf(
+				AvatarMenuIds.ATTENTION, AvatarMenuIds.LIBRARY_MATCHES,
+				AvatarMenuIds.DUPLICATES, AvatarMenuIds.LOGS
+			),
+			tools
+		)
+	}
+
+	@Test
+	fun avatar_menu_hides_source_rules_when_off_unchanged_when_on() {
+		val tools = menu(webUrl = "http://lb:8899", downloadsOn = true).group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids()
+		assertEquals(
+			listOf(
+				AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.LIBRARY_MATCHES,
+				AvatarMenuIds.DUPLICATES, AvatarMenuIds.SOURCE_RULES, AvatarMenuIds.LOGS
+			),
+			tools
+		)
+	}
 
 	private fun List<AvatarMenuEntry>.flat(): List<AvatarMenuEntry> =
 		flatMap { if (it is AvatarMenuEntry.Group) listOf(it) + it.entries.flat() else listOf(it) }

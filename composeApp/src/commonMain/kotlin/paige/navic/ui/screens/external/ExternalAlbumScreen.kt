@@ -165,6 +165,7 @@ fun ExternalAlbumScreen(
 	val scope = rememberCoroutineScope()
 	// The fills this device knows of; the box reads its own row out of them by release-group.
 	val ledger by lbBot.ledger.collectAsState()
+	val downloads by lbBot.downloads.collectAsState()
 
 	// The library turns out to hold this release-group after all — only lb-bot's
 	// index knows which Navidrome album that is, so this can only be answered once
@@ -300,6 +301,8 @@ fun ExternalAlbumScreen(
 				RequestBox(
 					support = when {
 						!lbBot.isConfigured -> Support.ABSENT
+						// Worbus P1: lb-bot cannot download here (its advert, or its own 409).
+						!downloads.isOn -> Support.DOWNLOADS_OFF
 						!lbBot.supportsSourcePicker -> Support.NEEDS_HUB_RESTART
 						else -> Support.YES
 					},

@@ -102,6 +102,49 @@ class RequestStageTest {
 		assertEquals(RequestStage.NeedsHubRestart, requestStage(input(support = Support.NEEDS_HUB_RESTART)))
 	}
 
+	// ---- Worbus P1: downloading off ------------------------------------------ //
+
+	@Test
+	fun request_stage_downloads_off() {
+		// Nothing asked yet, a search on screen, a tap in flight: one plain line, nothing offered.
+		assertEquals(RequestStage.DownloadsOff, requestStage(input(support = Support.DOWNLOADS_OFF)))
+		assertEquals(
+			RequestStage.DownloadsOff,
+			requestStage(input(support = Support.DOWNLOADS_OFF, search = SourceSearch.Found("ed-1", listOf(source())), starting = true))
+		)
+		// It beats a settled fill's Retry, and a fill that lb-bot will never move again.
+		val failed = fill(state = "failed", outcome = "failed", settled = true, failureKind = "transfer_failed", retryable = true)
+		assertIs<RequestStage.Failed>(requestStage(input(fill = failed)))
+		assertEquals(RequestStage.DownloadsOff, requestStage(input(support = Support.DOWNLOADS_OFF, fill = failed)))
+		assertEquals(RequestStage.DownloadsOff, requestStage(input(support = Support.DOWNLOADS_OFF, fill = fill())))
+		// A failed search whose error was lb-bot's 409 is not shown as a failure.
+		val refused = SourceSearch.Failed(LbBotManager.LbError.Rejected(409, "Downloading is not set up on this server.", "downloads_off"))
+		assertEquals(RequestStage.DownloadsOff, requestStage(input(support = Support.DOWNLOADS_OFF, search = refused)))
+		// What the library holds is still said; lb-bot off is still nothing at all.
+		assertEquals(
+			RequestStage.InLibrary,
+			requestStage(input(support = Support.DOWNLOADS_OFF, indexed = LbRelease(rgid = "rg-1", status = "complete")))
+		)
+		assertEquals(
+			RequestStage.InLibrary,
+			requestStage(input(support = Support.DOWNLOADS_OFF, indexed = LbRelease(rgid = "rg-1", status = "incomplete", groupId = "g1")))
+		)
+		assertEquals(
+			RequestStage.DownloadsOff,
+			requestStage(input(support = Support.DOWNLOADS_OFF, indexed = LbRelease(rgid = "rg-1", status = "missing")))
+		)
+	}
+
+	@Test
+	fun request_stage_downloads_off_unchanged_when_on() {
+		// With downloading on (or an older peer, which is on) every stage is today's.
+		assertEquals(RequestStage.Idle(false), requestStage(input(support = Support.YES)))
+		assertIs<RequestStage.Active>(requestStage(input(support = Support.YES, fill = fill())))
+		val failed = fill(state = "failed", outcome = "failed", settled = true, failureKind = "transfer_failed", retryable = true)
+		assertIs<RequestStage.Failed>(requestStage(input(support = Support.YES, fill = failed)))
+		assertEquals(RequestStage.NeedsHubRestart, requestStage(input(support = Support.NEEDS_HUB_RESTART)))
+	}
+
 	@Test
 	fun aRunningFillBeatsStartingASearchAndTheIndex() {
 		val stage = requestStage(input(

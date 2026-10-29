@@ -85,6 +85,7 @@ import paige.navic.di.isLandscape
 import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbDownloads
 import paige.navic.domain.manager.MergeLeave
 import paige.navic.domain.manager.mergeLeave
 import paige.navic.domain.manager.PreferenceManager
@@ -121,6 +122,13 @@ import paige.navic.ui.screens.share.dialogs.ShareDialog
 import kotlin.time.Clock
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
+
+/**
+ * Worbus P1: the album sheet's Fill gaps on this page, offered for an album lb-bot has a gap group for
+ * and only while lb-bot can download ([LbDownloads.isOn]; an older peer can). The album page's gaps box
+ * still lists what is missing.
+ */
+internal fun artistSheetOffersFillGaps(hasGap: Boolean, downloads: LbDownloads): Boolean = hasGap && downloads.isOn
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -188,6 +196,7 @@ fun ArtistDetailScreen(
 	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
 	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
 	val lbBot = koinInject<LbBotManager>()
+	val downloads by lbBot.downloads.collectAsState()
 	val radioManager = koinInject<paige.navic.domain.manager.RadioManager>()
 
 	// A row's tap: the album, a just-landed one, or a missing release's own page (P4).
@@ -637,7 +646,7 @@ fun ArtistDetailScreen(
 			onSetRating = { viewModel.rateSelectedAlbum(it) },
 			missingTrackCount = gapEntry?.missingTracks,
 			// The album page's gaps box does the whole fill now (P4 round 2): open it unfolded.
-			onFillGaps = gapEntry?.let {
+			onFillGaps = gapEntry?.takeIf { artistSheetOffersFillGaps(hasGap = true, downloads = downloads) }?.let {
 				{
 					viewModel.clearAlbumSelection()
 					backStack.add(Screen.CollectionDetail(album.id, "artist", openGaps = true))

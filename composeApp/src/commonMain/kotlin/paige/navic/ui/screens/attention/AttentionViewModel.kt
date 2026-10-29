@@ -22,14 +22,15 @@ import paige.navic.domain.manager.matchesToShow
 class AttentionViewModel(private val lbBot: LbBotManager) : ViewModel() {
 
 	val page: StateFlow<AttentionPage> = combine(
-		lbBot.attention, lbBot.ledger, lbBot.matchesToCheck, lbBot.artistOverrides
-	) { state, ledger, toCheck, overrides ->
+		lbBot.attention, lbBot.ledger, lbBot.matchesToCheck, lbBot.artistOverrides, lbBot.downloads
+	) { state, ledger, toCheck, overrides, downloads ->
 		attentionPage(
 			read = state.status,
 			last = state.last,
 			lastAt = state.lastAt.takeIf { it > 0L },
 			ledger = ledger,
-			artistsToCheck = matchesToShow(toCheck, overrides)?.size
+			artistsToCheck = matchesToShow(toCheck, overrides)?.size,
+			downloadsOn = downloads.isOn
 		)
 	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttentionPage.Loading)
 

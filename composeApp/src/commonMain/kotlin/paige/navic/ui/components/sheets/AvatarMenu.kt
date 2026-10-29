@@ -211,7 +211,12 @@ internal fun avatarMenuItems(
 	lbConfigured: Boolean,
 	canShare: Boolean,
 	attentionCount: Int,
-	webUrl: String = ""
+	webUrl: String = "",
+	/**
+	 * Worbus P1: lb-bot can download. Off, Source rules (how lb-bot picks a source) and Source history
+	 * (requests and transfers) are not drawn: both are about downloading, and both say "source".
+	 */
+	downloadsOn: Boolean = true
 ): List<AvatarMenuEntry> = buildList {
 	add(
 		AvatarMenuEntry.Group(
@@ -239,10 +244,10 @@ internal fun avatarMenuItems(
 						AvatarMenuIds.ATTENTION, Icons.Outlined.Error, Res.string.title_needs_attention,
 						Screen.Attention, badge = attentionCount.takeIf { it > 0 }
 					),
-					AvatarMenuEntry.Link(
+					if (downloadsOn) AvatarMenuEntry.Link(
 						AvatarMenuIds.SOURCE_HISTORY, Icons.Outlined.History, Res.string.title_source_history,
 						Screen.SourceHistory()
-					),
+					) else null,
 					AvatarMenuEntry.Link(
 						AvatarMenuIds.LIBRARY_MATCHES, Icons.Brand.Musicbrainz,
 						Res.string.title_library_matches, Screen.LibraryMatches
@@ -251,7 +256,7 @@ internal fun avatarMenuItems(
 						AvatarMenuIds.DUPLICATES, Icons.Outlined.Copy, Res.string.title_duplicates_trash,
 						"library/cleanup"
 					) else null,
-					if (web) AvatarMenuEntry.External(
+					if (web && downloadsOn) AvatarMenuEntry.External(
 						AvatarMenuIds.SOURCE_RULES, Icons.Outlined.Sort, Res.string.title_source_rules,
 						"system/sources"
 					) else null,
@@ -387,11 +392,12 @@ private fun AvatarMenuContent() {
 
 	val attention by lbBot.attentionBadge.collectAsState()
 	val webUrl by lbBot.webUrl.collectAsState()
+	val downloads by lbBot.downloads.collectAsState()
 	val autoplayOn by radioManager.autoplayOn.collectAsState()
 	val lbConfigured = lbBot.isConfigured
 	val canShare = sessionManager.canUserShare()
-	val items = remember(lbConfigured, canShare, attention, webUrl) {
-		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl)
+	val items = remember(lbConfigured, canShare, attention, webUrl, downloads) {
+		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl, downloads.isOn)
 	}
 	val uriHandler = LocalUriHandler.current
 

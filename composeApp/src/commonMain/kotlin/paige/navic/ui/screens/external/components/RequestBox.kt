@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.label_quality_preference
 import navic.composeapp.generated.resources.label_version
 import navic.composeapp.generated.resources.lbbot_fill_cancelled
 import navic.composeapp.generated.resources.request_cancel
+import navic.composeapp.generated.resources.request_downloads_off
 import navic.composeapp.generated.resources.request_leave_any_time
 import navic.composeapp.generated.resources.request_refused
 import navic.composeapp.generated.resources.request_retry_from
@@ -273,6 +274,14 @@ private fun StageContent(
 			stringResource(Res.string.info_hub_needs_restart),
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.error
+		)
+
+		// Worbus P1: lb-bot cannot download here. Said plainly, in the ordinary colour (it is how this
+		// server is set up, not a fault), and nothing to press.
+		RequestStage.DownloadsOff -> Text(
+			stringResource(Res.string.request_downloads_off),
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
 		)
 
 		is RequestStage.Idle -> {

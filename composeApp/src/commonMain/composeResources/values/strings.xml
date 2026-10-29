@@ -1559,4 +1559,6 @@
 	<string name="title_popular_releases">Popular releases</string>
 	<string name="action_see_discography">See discography</string>
 	<string name="action_see_more">See more</string>
+	<!-- Worbus P1 -->
+	<string name="request_downloads_off">This server isn't set up to get albums.</string>
 </resources>

@@ -233,7 +233,12 @@ fun attentionPage(
 	last: LbAttention?,
 	lastAt: Long?,
 	ledger: List<LbFillEntry>,
-	artistsToCheck: Int?
+	artistsToCheck: Int?,
+	/**
+	 * Worbus P1: lb-bot can download. Off, no folder is listed: a folder row's only action is filing it
+	 * in lb-bot (`#/place/<id>`), the last step of a download. lb-bot's count is still its own.
+	 */
+	downloadsOn: Boolean = true
 ): AttentionPage {
 	val answer = when (read) {
 		is AttentionRead.Ok -> read.attention
@@ -272,7 +277,7 @@ fun attentionPage(
 	val deviceOnly = device.filter { it.key !in claimed }.sortedForAttention().map { it.asAttentionRow() }
 	return AttentionPage.Rows(
 		albums = serverRows,
-		folders = answer.folders,
+		folders = if (downloadsOn) answer.folders else emptyList(),
 		artistsToCheck = artistsToCheck,
 		toFix = answer.counts?.let(::toFixCount),
 		notices = notices,
