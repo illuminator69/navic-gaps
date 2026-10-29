@@ -935,12 +935,15 @@ class LbBotManager(
 		available: Boolean,
 		routes: List<String>,
 		webUrl: String = "",
-		downloads: LbDownloads = LbDownloads.UNKNOWN
+		downloads: LbDownloads = LbDownloads.UNKNOWN,
+		/** The advert is a `welcome`'s: a new connection says the mode from scratch. */
+		newConnection: Boolean = false
 	) {
 		_hubRoutes.value = routes
 		_hubHeard.value = true
-		// P1: `downloads` rides the advert when lb-bot reported it; silence keeps what is known.
-		_downloads.value = downloadsAfterAdvert(_downloads.value, downloads)
+		// P1: `downloads` rides the advert when lb-bot reported it; an `lb` frame's silence keeps what is
+		// known, a welcome's starts again from "unknown".
+		_downloads.value = downloadsAfterAdvert(_downloads.value, downloads, newConnection)
 		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()

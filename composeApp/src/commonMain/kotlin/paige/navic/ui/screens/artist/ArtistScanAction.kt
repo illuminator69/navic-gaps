@@ -45,7 +45,9 @@ sealed interface ArtistScanAction {
 fun artistScanAction(ui: DiscographyUi, mbid: String, canOverride: Boolean, scanByNdId: Boolean): ArtistScanAction = when {
 	!ui.available -> ArtistScanAction.None
 	ui.indexing -> ArtistScanAction.Scanning(ui.scanDone, ui.scanTotal)
-	ui.unresolved && ui.indexed && ui.sections.isEmpty() -> ArtistScanAction.Unresolved(canOverride)
+	// Whatever the library's own albums put on the page (the shelf is built Navidrome-first, so an artist
+	// lb-bot could not match still has sections): lb-bot's row holds nothing (seen on the AVD).
+	ui.unresolved && ui.indexed -> ArtistScanAction.Unresolved(canOverride)
 	ui.indexed && ui.sections.isNotEmpty() && ui.scanError.isBlank() && !ui.scanShared -> ArtistScanAction.None
 	mbid.isBlank() && !scanByNdId -> if (canOverride) ArtistScanAction.ChooseMbid else ArtistScanAction.NeedsMbid
 	else -> ArtistScanAction.ScanNow(rescan = ui.indexed && ui.sections.isNotEmpty())

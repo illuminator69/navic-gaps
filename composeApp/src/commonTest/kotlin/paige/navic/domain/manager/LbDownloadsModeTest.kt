@@ -109,6 +109,10 @@ class LbDownloadsModeTest {
 		// Off until an advert says otherwise; an advert that says nothing keeps it off.
 		assertEquals(LbDownloads.OFF, downloadsAfterAdvert(LbDownloads.OFF, LbDownloads.UNKNOWN))
 		assertEquals(LbDownloads.ON, downloadsAfterAdvert(LbDownloads.OFF, LbDownloads.ON))
+		// A new connection (a welcome) says from scratch: an older hub's silence is "unknown" (= on), and
+		// the next 409 turns it off again.
+		assertEquals(LbDownloads.UNKNOWN, downloadsAfterAdvert(LbDownloads.OFF, LbDownloads.UNKNOWN, newConnection = true))
+		assertEquals(LbDownloads.OFF, downloadsAfterAdvert(LbDownloads.ON, LbDownloads.OFF, newConnection = true))
 		assertFalse(LbDownloads.OFF.isOn)
 	}
 

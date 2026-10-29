@@ -1520,9 +1520,9 @@ class HubManager(
 	 * Returns the `available` it applied, or null when the advert carried no usable one — which touches
 	 * nothing.
 	 */
-	private fun applyLbAdvert(lb: JsonObject): Boolean? {
+	private fun applyLbAdvert(lb: JsonObject, welcome: Boolean = false): Boolean? {
 		val advert = lbAdvertOf(lb) ?: return null
-		lbBotManager.applyHubAdvert(advert.available, advert.routes, advert.webUrl, advert.downloads)
+		lbBotManager.applyHubAdvert(advert.available, advert.routes, advert.webUrl, advert.downloads, newConnection = welcome)
 		return advert.available
 	}
 
@@ -1634,7 +1634,7 @@ class HubManager(
 				// `/lb/status` probe first. Absent on an older hub, which keeps the probe path
 				// untouched; isolated because a malformed advert must not fail the handshake.
 				try {
-					(msg["lb"] as? JsonObject)?.let { applyLbAdvert(it) }
+					(msg["lb"] as? JsonObject)?.let { applyLbAdvert(it, welcome = true) }
 				} catch (e: Exception) {
 					Logger.e("HubManager", "lb advert ignored", e)
 				}

@@ -125,6 +125,9 @@ class ArtistPageStateTest {
 		assertEquals(ArtistScanAction.Unresolved(matchOffered = true), owned(ui))
 		// Match manually needs a hub that can store an override.
 		assertEquals(ArtistScanAction.Unresolved(matchOffered = false), owned(ui, canOverride = false))
+		// The library's own albums still make sections (the shelf is Navidrome-first): still no match.
+		val librarySections = listOf(DiscographySection("album", listOf(DiscographyEntry(key = "nd-1", title = "Mine", year = "2001"))))
+		assertEquals(ArtistScanAction.Unresolved(matchOffered = true), owned(ui.copy(sections = librarySections)))
 		// lb-bot's flag, read as sent.
 		val data = lbWireJson.decodeFromString(
 			LbDiscography.serializer(), """{"indexed":true,"artist_mbid":"","releases":[],"unresolved":true}"""

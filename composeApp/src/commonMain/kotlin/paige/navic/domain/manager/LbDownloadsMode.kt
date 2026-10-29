@@ -63,9 +63,14 @@ fun lbAdvertOf(lb: JsonObject): LbHubAdvert? {
 	return LbHubAdvert(available, routes, webUrl, lbDownloadsOf(downloads))
 }
 
-/** What an advert does to the mode: a word replaces it, silence (an older hub) leaves it where it is. */
-fun downloadsAfterAdvert(current: LbDownloads, advert: LbDownloads): LbDownloads =
-	if (advert == LbDownloads.UNKNOWN) current else advert
+/**
+ * What an advert does to the mode: a word replaces it, silence (an older hub) leaves it where it is — a
+ * 409 `downloads_off` is not undone by an advert that cannot say. Except on a new connection
+ * ([newConnection], a `welcome`): that hub, perhaps another one, says from scratch, and its silence is
+ * [LbDownloads.UNKNOWN] (seen on the AVD: a hub swapped for an older one kept the last one's "off").
+ */
+fun downloadsAfterAdvert(current: LbDownloads, advert: LbDownloads, newConnection: Boolean = false): LbDownloads =
+	if (newConnection || advert != LbDownloads.UNKNOWN) advert else current
 
 /** The machine-readable refusal lb-bot sends from every download route while downloading is off. */
 const val LB_CODE_DOWNLOADS_OFF = "downloads_off"
