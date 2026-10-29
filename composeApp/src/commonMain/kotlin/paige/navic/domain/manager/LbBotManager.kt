@@ -393,24 +393,50 @@ class LbBotManager(
 
 	private fun <T> LbResult<T>.valueOrNull(): T? = (this as? LbResult.Ok)?.value
 
-	/** lb-bot and the hub both answer errors as `{"error": "..."}`. */
-	@Serializable
-	private data class LbErrorBody(val error: String = "")
-
 	private fun failureFor(status: Int, path: String, raw: String): LbResult.Failed {
-		val message = try {
-			json.decodeFromString<LbErrorBody>(raw).error
-		} catch (e: Exception) {
-			""
-		}
+		val error = lbFailureOf(status, raw)
+		val message = (error as? LbError.Rejected)?.message.orEmpty()
 		Logger.w("LbBotManager", "$path -> HTTP $status ${message.ifBlank { raw.take(200) }}")
-		return LbResult.Failed(
-			when (status) {
-				404 -> LbError.RouteUnknown
-				502, 504 -> LbError.Busy
-				else -> LbError.Rejected(status, message)
-			}
-		)
+		noteDownloadsRefusal(status, raw)
+		return LbResult.Failed(error)
+	}
+
+	// ----- Worbus P1: whether lb-bot can download, and its index build ------------------------ //
+
+	/**
+	 * Whether lb-bot can download ([LbDownloads]; UNKNOWN, an older hub or lb-bot, reads as on). From
+	 * every advert ([applyHubAdvert], [probeAvailable]) and from lb-bot's own 409 `downloads_off` on any
+	 * route ([noteDownloadsRefusal]), which holds until an advert says otherwise. Never persisted: a
+	 * new process starts UNKNOWN and the first advert, or the first refusal, says.
+	 */
+	private val _downloads = MutableStateFlow(LbDownloads.UNKNOWN)
+	val downloads: StateFlow<LbDownloads> = _downloads.asStateFlow()
+
+	/** [downloads] as the one question most surfaces ask. */
+	val downloadsOn: Boolean get() = _downloads.value.isOn
+
+	/**
+	 * lb-bot's index build as the hub last said it (`welcome.lbIndex.progress`, the `index` frame), or
+	 * null: no build running, or a hub or lb-bot too old to say. Home shows it only while lb-bot is
+	 * [available]: the hub keeps the last progress while lb-bot is away.
+	 */
+	private val _indexProgress = MutableStateFlow<LbIndexProgress?>(null)
+	val indexProgress: StateFlow<LbIndexProgress?> = _indexProgress.asStateFlow()
+
+	/** The hub's index hint, from a `welcome` or an `index` frame: its progress replaces the last. */
+	fun applyIndexHint(progress: LbIndexProgress?) {
+		_indexProgress.value = progress
+	}
+
+	/**
+	 * Every non-2xx answer passes here, whichever reader read it: lb-bot's 409 `downloads_off` turns the
+	 * mode off at once, so the next frame of any surface drops its download actions, with no error line
+	 * and no spinner left behind (the surfaces decide on [downloads] before anything else).
+	 */
+	private fun noteDownloadsRefusal(status: Int, raw: String) {
+		if (!isDownloadsOffAnswer(status, raw)) return
+		if (_downloads.value != LbDownloads.OFF) Logger.i("LbBotManager", "lb-bot says downloading is off")
+		_downloads.value = LbDownloads.OFF
 	}
 
 	/**
@@ -432,6 +458,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
 	}
 
@@ -443,6 +470,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(metaRefreshError(status, body.error, body.retryable))
 	}
 
@@ -537,7 +565,10 @@ class LbBotManager(
 	private class LbRaw(val status: Int, val text: String)
 
 	private fun rawAnswer(call: String, status: Int, text: String): LbRaw {
-		if (status !in 200..299) Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+		if (status !in 200..299) {
+			Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+			noteDownloadsRefusal(status, text)
+		}
 		return LbRaw(status, text)
 	}
 
@@ -839,6 +870,7 @@ class LbBotManager(
 		_hubRoutes.value = probe.routes
 		_hubHeard.value = true
 		_webUrl.value = cleanWebUrl(probe.webUrl)
+		_downloads.value = downloadsAfterAdvert(_downloads.value, lbDownloadsOf(probe.downloads))
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
@@ -899,9 +931,16 @@ class LbBotManager(
 	 * touched, and the probe path works exactly as before — a missing advert must never be read as
 	 * "unavailable".
 	 */
-	fun applyHubAdvert(available: Boolean, routes: List<String>, webUrl: String = "") {
+	fun applyHubAdvert(
+		available: Boolean,
+		routes: List<String>,
+		webUrl: String = "",
+		downloads: LbDownloads = LbDownloads.UNKNOWN
+	) {
 		_hubRoutes.value = routes
 		_hubHeard.value = true
+		// P1: `downloads` rides the advert when lb-bot reported it; silence keeps what is known.
+		_downloads.value = downloadsAfterAdvert(_downloads.value, downloads)
 		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()
@@ -3963,7 +4002,9 @@ data class LbStatusProbe(
 	/** Routes this hub can proxy. Empty from a hub too old to advertise them. */
 	val routes: List<String> = emptyList(),
 	/** lb-bot's web UI for a person to open; empty from a hub too old to say. */
-	val webUrl: String = ""
+	val webUrl: String = "",
+	/** Worbus P1: "on" | "off" when lb-bot reported it; "" from an older hub or lb-bot ([lbDownloadsOf]). */
+	val downloads: String = ""
 )
 
 /**

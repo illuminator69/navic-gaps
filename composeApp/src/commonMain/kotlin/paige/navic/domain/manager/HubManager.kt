@@ -1515,22 +1515,45 @@ class HubManager(
 	// ------------------------------------------------------------------ //
 
 	/**
-	 * `welcome.lb`, or an `lb` frame: `{available: bool, routes: [...]}`, the same answer
-	 * `/lb/status` gives. Returns the `available` it applied, or null when the advert carried no
-	 * usable one — which touches nothing.
+	 * `welcome.lb`, or an `lb` frame: `{available: bool, routes: [...], webUrl, downloads?}`, the same
+	 * answer `/lb/status` gives (`downloads` since Worbus P1, absent from an older hub: [lbAdvertOf]).
+	 * Returns the `available` it applied, or null when the advert carried no usable one — which touches
+	 * nothing.
 	 */
 	private fun applyLbAdvert(lb: JsonObject): Boolean? {
-		val available = lb["available"]?.jsonPrimitive?.booleanOrNull ?: return null
-		val routes = (lb["routes"] as? JsonArray)
-			?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-			?: emptyList()
-		val webUrl = (lb["webUrl"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-		lbBotManager.applyHubAdvert(available, routes, webUrl)
-		return available
+		val advert = lbAdvertOf(lb) ?: return null
+		lbBotManager.applyHubAdvert(advert.available, advert.routes, advert.webUrl, advert.downloads)
+		return advert.available
+	}
+
+	/**
+	 * The last index hint's epoch and seq (`welcome.lbIndex`, an `index` frame), so a frame that only
+	 * moved lb-bot's build progress asks for no pull ([indexFrameIsProgressOnly]). Reset by every
+	 * `welcome`, which always pulls.
+	 */
+	private var lastIndexEpoch: String? = null
+	private var lastIndexSeq: Long? = null
+
+	/** Worbus P1: an index hint's progress goes to the Home bar, and its seq is remembered. */
+	private fun noteIndexHint(hint: JsonObject?) {
+		lbBotManager.applyIndexHint(lbIndexProgressOf(hint))
+		val (epoch, seq) = lbIndexSeqOf(hint)
+		lastIndexEpoch = epoch
+		lastIndexSeq = seq
 	}
 
 	private suspend fun handleFrame(msg: JsonObject) {
 		val frameType = msg["t"]?.jsonPrimitive?.content
+		// Worbus P1: an `index` frame that only moved lb-bot's build progress (same epoch, a seq already
+		// pulled) is not an index change: it re-reads nothing and pulls nothing, it moves the Home bar.
+		if (frameType == "index") {
+			val (epoch, seq) = lbIndexSeqOf(msg)
+			if (indexFrameIsProgressOnly(lastIndexEpoch, lastIndexSeq, epoch, seq, msg["progress"] != null)) {
+				lbBotManager.applyIndexHint(lbIndexProgressOf(msg))
+				return
+			}
+			noteIndexHint(msg)
+		}
 		// `GET /lb/overrides` — the override map and the album-override, merge and sibling lists
 		// that ride it — is read again on the frames that can have changed it
 		// (`frameRereadsOverrideLists`: `index` and `library`). A few seconds out and once per
@@ -1620,6 +1643,12 @@ class HubManager(
 				// `index` frame missed while this socket was down would make the hint stale.
 				// A new connection also starts the backoff afresh (R20b): whatever the last socket
 				// was contending with is gone.
+				// Worbus P1: the hint's `progress` is the Home bar's first value (absent: no bar).
+				try {
+					noteIndexHint(msg["lbIndex"] as? JsonObject)
+				} catch (e: Exception) {
+					Logger.e("HubManager", "lbIndex ignored", e)
+				}
 				lbIndexSync.requestSync("welcome", freshStart = true)
 				// Any `library` frame sent while this socket was down is lost, so every cached
 				// lb-bot answer that carries ownership (Fresh, the Discover rows) revalidates on
