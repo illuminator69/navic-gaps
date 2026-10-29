@@ -101,6 +101,7 @@ import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.StatePill
 import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
 import paige.navic.ui.screens.external.components.RequestBox
+import paige.navic.ui.screens.album.findItRow
 import paige.navic.icons.outlined.Favorite
 import paige.navic.icons.filled.Favorite
 import androidx.compose.runtime.collectAsState
@@ -337,6 +338,9 @@ fun ExternalAlbumScreen(
 				fallbackNotes = null,
 				onOpen = viewModel::openAbout
 			)
+			// Worbus P1: where the record can be found (lb-bot's `findIt`), its own section under the
+			// About row, in both downloads modes; no `findIt` is no section.
+			findItRow(state.meta?.findIt)
 			// Not fatal, and worth saying: the album is still fully downloadable through the
 			// picker above. What is lost is the index row, so this release keeps listing as
 			// missing on the artist page until a rescan.

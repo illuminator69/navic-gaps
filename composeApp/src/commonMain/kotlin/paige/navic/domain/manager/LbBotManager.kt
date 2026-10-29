@@ -4583,7 +4583,21 @@ data class LbMeta(
 	/** Artists only. */
 	val relations: LbMetaRelations = LbMetaRelations(),
 	/** Albums only: producer/engineer/writer, roles collapsed per person. */
-	val credits: List<LbMetaCredit> = emptyList()
+	val credits: List<LbMetaCredit> = emptyList(),
+	/**
+	 * Worbus P1, albums only: where the record can be found — links MusicBrainz confirms on the group's
+	 * releases, and a search on each of six services without one. **Null is "no section"**: an older
+	 * lb-bot, MusicBrainz down with nothing cached, no names to search. `FindItRow` draws it.
+	 */
+	val findIt: List<LbFindItLink>? = null
+)
+
+/** One Find-it link (Worbus P1): `service` an id (`spotify`, `apple-music`, …, `other`), `kind` `confirmed` | `search`. */
+@Serializable
+data class LbFindItLink(
+	val service: String = "",
+	val kind: String = "",
+	val url: String = ""
 )
 
 @Serializable
