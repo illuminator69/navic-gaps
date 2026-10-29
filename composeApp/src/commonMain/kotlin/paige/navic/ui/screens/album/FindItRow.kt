@@ -69,20 +69,42 @@ private val FIND_IT_SERVICES: Map<String, StringResource> = mapOf(
 	"soundcloud" to Res.string.find_it_service_soundcloud
 )
 
-/** `www.discogs.com/release/9` → `discogs.com`. */
-private fun hostOf(url: String): String =
-	url.substringAfter("://").substringBefore('/').substringBefore('?').substringBefore(':')
-		.removePrefix("www.")
+/**
+ * The host of a web link, lowercased and without `www.`: `https://www.discogs.com/release/9` →
+ * `discogs.com`, `https://user@host:8080/x` → `host`. "" when [url] is not an `http`/`https` link with a
+ * host: the scheme is checked here too, so a label never names a host a chip will not open.
+ */
+internal fun hostOf(url: String): String {
+	val schemeEnd = url.indexOf("://")
+	if (schemeEnd <= 0) return ""
+	val scheme = url.substring(0, schemeEnd).lowercase()
+	if (scheme != "http" && scheme != "https") return ""
+	// The authority ends at the path, the query or the fragment; a browser reads `\` as `/` too.
+	val authority = url.substring(schemeEnd + 3).takeWhile { it !in "/?#\\" }
+	val hostPort = authority.substringAfterLast('@')
+	val host = if (hostPort.startsWith('[')) hostPort.substringBefore(']') + "]" else hostPort.substringBefore(':')
+	return host.lowercase().removePrefix("www.")
+}
+
+/**
+ * Whether a Find-it link may be opened: an `http` or `https` link (any case) with a host, and nothing in
+ * it a browser or Android's URI parser could read differently from this check (spaces, control characters,
+ * a backslash, which a browser reads as `/` and a URI parser does not). lb-bot builds these
+ * from MusicBrainz's URL relations, which anyone can edit: a `javascript:`, `intent:` or `file:` link
+ * must never reach the system's URI handler.
+ */
+internal fun findItUrlSafe(url: String): Boolean =
+	url.none { it.code <= 0x20 || it.code == 0x7f || it == '\\' } && hostOf(url).let { it.isNotBlank() && it != "[]" }
 
 /**
  * The chips, in order: confirmed links, then searches, each in lb-bot's order. Null or empty is none. A
- * link without a URL, a kind this build does not know, and a search on a service it cannot name are left
- * out.
+ * link without a URL or that is not a web link ([findItUrlSafe]), a kind this build does not know, and a
+ * search on a service it cannot name are left out.
  */
 fun findItEntries(links: List<LbFindItLink>?): List<FindItEntry> {
 	if (links.isNullOrEmpty()) return emptyList()
 	val entries = links.mapNotNull { link ->
-		if (link.url.isBlank()) return@mapNotNull null
+		if (link.url.isBlank() || !findItUrlSafe(link.url)) return@mapNotNull null
 		val name = FIND_IT_SERVICES[link.service]
 		when (link.kind) {
 			"confirmed" -> FindItEntry(

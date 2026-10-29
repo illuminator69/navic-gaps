@@ -29,6 +29,8 @@ import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.isLandscape
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbDownloads
+import paige.navic.domain.manager.SourceHistorySection
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.common.SegmentedListItemDefaults
@@ -38,6 +40,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.downloads.viewmodels.WishlistViewModel
 import paige.navic.ui.screens.downloads.wishlistSection
+import paige.navic.ui.screens.sourcehistory.SourceHistoryScreen
 import paige.navic.ui.util.withoutTop
 
 /**
@@ -97,4 +100,19 @@ fun WishlistScreen() {
 			}
 		}
 	}
+}
+
+/**
+ * Worbus P1: whether Source history's page shows the Wishlist page instead. While downloading is off the
+ * avatar menu offers no Source history (its requests, sources and transfers are a download's), but a
+ * saved back stack or an old link can still name it; the wishlist is the one part of it that means
+ * something then.
+ */
+fun sourceHistoryShowsWishlist(downloads: LbDownloads): Boolean = !downloads.isOn
+
+/** Source history on [section], or, while downloading is off, the Wishlist page ([sourceHistoryShowsWishlist]). */
+@Composable
+fun SourceHistoryOrWishlist(section: SourceHistorySection) {
+	val downloads by koinInject<LbBotManager>().downloads.collectAsState()
+	if (sourceHistoryShowsWishlist(downloads)) WishlistScreen() else SourceHistoryScreen(section)
 }

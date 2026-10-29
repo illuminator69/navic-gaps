@@ -133,4 +133,89 @@ class LbDownloadsModeTest {
 		assertEquals(LbBotManager.LbError.Busy, lbFailureOf(504, ""))
 		assertEquals(LbBotManager.LbError.Rejected(500, ""), lbFailureOf(500, "<html>"))
 	}
+
+	// ---- the review's fixes: one state holder every reader passes through, kept per hub ---- //
+
+	private class Kept(var text: String = "") : LbDownloadsMemory {
+		var writes = 0
+		override fun read(): String = text
+		override fun write(value: String) {
+			text = value
+			writes++
+		}
+	}
+
+	private val off = """{"code":"downloads_off","error":"Downloading is not set up on this server."}"""
+
+	@Test
+	fun downloads_off_409_through_every_reader_turns_the_manager_off() {
+		// `failureFor` (getJson, postJson, getText): the error it returns, and the mode.
+		val viaFailure = LbDownloadsState()
+		val error = viaFailure.failureOf(409, off)
+		assertTrue(isDownloadsOffRefusal(error))
+		assertEquals(LbDownloads.OFF, viaFailure.current)
+		// `rawAnswer` (rawGet, rawPost) and the two override readers note the answer as read.
+		val viaRaw = LbDownloadsState()
+		assertTrue(viaRaw.noteAnswer(409, off))
+		assertEquals(LbDownloads.OFF, viaRaw.value.value)
+		// Nothing else moves it: another 409, a 400, a 2xx, an unreadable body.
+		val untouched = LbDownloadsState()
+		untouched.applyAdvert(LbDownloads.ON)
+		assertFalse(untouched.noteAnswer(409, """{"code":"busy"}"""))
+		untouched.failureOf(400, """{"error":"mbid is required"}""")
+		assertFalse(untouched.noteAnswer(200, off))
+		untouched.noteAnswer(409, "<html>")
+		assertEquals(LbDownloads.ON, untouched.current)
+		// Off holds through an `lb` frame that says nothing; a word replaces it.
+		viaRaw.applyAdvert(LbDownloads.UNKNOWN)
+		assertEquals(LbDownloads.OFF, viaRaw.current)
+		viaRaw.applyAdvert(LbDownloads.ON)
+		assertEquals(LbDownloads.ON, viaRaw.current)
+	}
+
+	@Test
+	fun every_welcome_resets_the_mode_lb_or_not() {
+		// A P1 hub said off; the next welcome is an older hub's, with no `lb` at all: unknown (= on).
+		val state = LbDownloadsState()
+		state.applyAdvert(LbDownloads.OFF, newConnection = true)
+		state.newConnection()
+		assertEquals(LbDownloads.UNKNOWN, state.current)
+		assertTrue(state.current.isOn)
+	}
+
+	@Test
+	fun the_last_word_per_hub_is_where_a_cold_start_begins() {
+		val kept = Kept()
+		var hub = "wss://hub.example/ws"
+		val first = LbDownloadsState(kept) { hub }
+		assertEquals(LbDownloads.UNKNOWN, first.current)
+		first.applyAdvert(LbDownloads.OFF, newConnection = true)
+		// A new process against the same hub starts off, before any welcome.
+		assertEquals(LbDownloads.OFF, LbDownloadsState(kept) { hub }.current)
+		// A refusal is kept the same way.
+		val second = LbDownloadsState(kept) { hub }
+		second.applyAdvert(LbDownloads.ON, newConnection = true)
+		assertEquals(LbDownloads.ON, LbDownloadsState(kept) { hub }.current)
+		second.noteAnswer(409, off)
+		assertEquals(LbDownloads.OFF, LbDownloadsState(kept) { hub }.current)
+		// Another hub knows nothing of it.
+		hub = "wss://other.example/ws"
+		assertEquals(LbDownloads.UNKNOWN, LbDownloadsState(kept) { hub }.current)
+		// An older hub's silence is not kept as a word: that hub's next launch starts unknown too.
+		hub = "wss://hub.example/ws"
+		val third = LbDownloadsState(kept) { hub }
+		third.newConnection()
+		assertEquals(LbDownloads.UNKNOWN, LbDownloadsState(kept) { hub }.current)
+		// A welcome still overrides what was kept.
+		third.applyAdvert(LbDownloads.OFF, newConnection = true)
+		val fourth = LbDownloadsState(kept) { hub }
+		assertEquals(LbDownloads.OFF, fourth.current)
+		fourth.applyAdvert(LbDownloads.ON, newConnection = true)
+		assertEquals(LbDownloads.ON, fourth.current)
+		// Garbage in the preference is an empty map, never a crash; no hub configured keeps nothing.
+		assertEquals(LbDownloads.UNKNOWN, LbDownloadsState(Kept("{not json")) { hub }.current)
+		val none = Kept()
+		LbDownloadsState(none) { "" }.applyAdvert(LbDownloads.OFF, newConnection = true)
+		assertEquals(0, none.writes)
+	}
 }

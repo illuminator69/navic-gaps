@@ -121,12 +121,18 @@ internal fun bodyCode(body: String): String = try {
 	""
 }
 
-/** lb-bot's to-fix number: failed gaps, failed requests and folders waiting to be filed. */
-fun toFixCount(c: AttentionCounts): Int = c.failedGaps + c.failedRequests + c.folders
+/**
+ * lb-bot's to-fix number: failed gaps, failed requests and folders waiting to be filed. Worbus P1: while
+ * downloading is off ([downloadsOn] false) the folders are not counted, since the page lists none (a
+ * folder's one action is filing a download in lb-bot); the failed albums still are, since their rows
+ * stay with Open album, Wishlist and Dismiss.
+ */
+fun toFixCount(c: AttentionCounts, downloadsOn: Boolean = true): Int =
+	c.failedGaps + c.failedRequests + (if (downloadsOn) c.folders else 0)
 
 /** The dot's and the badge's number: lb-bot's when one is known, else this device's own (P1). */
-fun attentionBadge(read: LbAttention?, ledgerCount: Int): Int =
-	read?.counts?.let(::toFixCount) ?: ledgerCount
+fun attentionBadge(read: LbAttention?, ledgerCount: Int, downloadsOn: Boolean = true): Int =
+	read?.counts?.let { toFixCount(it, downloadsOn) } ?: ledgerCount
 
 /**
  * Whether the avatar's dot is drawn: something to fix, the dot not turned off, and a hub configured.
@@ -279,7 +285,7 @@ fun attentionPage(
 		albums = serverRows,
 		folders = if (downloadsOn) answer.folders else emptyList(),
 		artistsToCheck = artistsToCheck,
-		toFix = answer.counts?.let(::toFixCount),
+		toFix = answer.counts?.let { toFixCount(it, downloadsOn) },
 		notices = notices,
 		deviceOnly = deviceOnly
 	)

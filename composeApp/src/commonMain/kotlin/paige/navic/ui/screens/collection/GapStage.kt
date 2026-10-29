@@ -91,7 +91,8 @@ fun gapStage(input: GapInput): GapStage {
 	}
 	val transferring = input.committed || gap.status == "downloading" ||
 		gap.tracks.any { it.state in IN_FLIGHT_TRACK_STATES }
-	if (transferring) {
+	// Worbus P1: with downloading off nothing is transferring, whatever a record from before says.
+	if (transferring && input.downloadsOn) {
 		return GapStage.Active(
 			done = gap.tracksDone,
 			wanted = gap.tracksWanted,
@@ -112,13 +113,14 @@ fun gapStage(input: GapInput): GapStage {
 	}
 	if (gap.status == "complete" || (missing.isEmpty() && gap.total > 0)) return GapStage.Absent
 	val searching = input.searchAsked || gap.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
-	if (gap.stalledPlacement || gap.awaitingMatch(searching)) return GapStage.Attention(gapReason(gap))
 	// Worbus P1: with downloading off the box is the user's fold over what is missing, whatever view
-	// or fill is left from before; none of the stages below can be acted on.
+	// or fill is left from before; none of the stages below can be acted on, and their words are a
+	// download's (Attention's "Downloaded, but needs sorting out in lb-bot" included).
 	if (!input.downloadsOn) {
 		return if (input.view == GapView.FOLDED) GapStage.Folded(missing.size.takeIf { it > 0 } ?: input.mirroredMissing)
 		else GapStage.Tracks(missing, gap.total)
 	}
+	if (gap.stalledPlacement || gap.awaitingMatch(searching)) return GapStage.Attention(gapReason(gap))
 	// A fill that failed keeps the box open, saying why, until it is dismissed or tried again: also
 	// over the sources it was requested from (seen on the AVD: the sources view, with no rows left
 	// and no search running, read as searching for good). A new search tap is the way out.

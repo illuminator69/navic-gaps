@@ -1580,4 +1580,6 @@
 	<string name="find_it_service_amazon">Amazon Music</string>
 	<string name="find_it_service_beatport">Beatport</string>
 	<string name="find_it_service_soundcloud">SoundCloud</string>
+	<string name="attention_missing_off">Missing</string>
+	<string name="info_external_album_index_failed_off">Couldn't add this release to the artist's index, so it may keep listing as missing.</string>
 </resources>

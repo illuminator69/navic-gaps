@@ -71,4 +71,38 @@ class FindItRowTest {
 			entries.map { it.label }
 		)
 	}
+
+	@Test
+	fun find_it_opens_only_web_links() {
+		// lb-bot builds these from MusicBrainz's URL relations, which anyone can edit.
+		val entries = findItEntries(
+			listOf(
+				LbFindItLink("other", "confirmed", "javascript:alert(1)"),
+				LbFindItLink("other", "confirmed", "javascript://alert(1)"),
+				LbFindItLink("other", "confirmed", "intent://scan/#Intent;scheme=zxing;end"),
+				LbFindItLink("other", "confirmed", "file:///sdcard/secret"),
+				LbFindItLink("spotify", "confirmed", "spotify:album:1"),
+				LbFindItLink("other", "confirmed", "https://"),
+				LbFindItLink("other", "confirmed", "https://a b.com/x"),
+				LbFindItLink("bandcamp", "search", "data:text/html,hi"),
+				LbFindItLink("other", "confirmed", "HTTPS://Shop.Example.com/r/1"),
+				LbFindItLink("other", "confirmed", "https://user@host.example.org:8443/x"),
+				LbFindItLink("other", "confirmed", "https://www.discogs.com\\@evil.example/x"),
+				LbFindItLink("qobuz", "search", "http://www.qobuz.com/search?q=a")
+			)
+		)
+		assertEquals(
+			listOf("HTTPS://Shop.Example.com/r/1", "https://user@host.example.org:8443/x", "http://www.qobuz.com/search?q=a"),
+			entries.map { it.url }
+		)
+		// A host label names the host the browser opens: no user part, no port, lowercased. A backslash
+		// (a browser's `/`, not a URI parser's) is not opened at all.
+		assertEquals(
+			listOf(FindItLabel.Host("shop.example.com"), FindItLabel.Host("host.example.org")),
+			entries.take(2).map { it.label }
+		)
+		assertEquals("discogs.com", hostOf("https://www.discogs.com\\@evil.example/x"))
+		assertEquals("", hostOf("javascript:alert('https://x')"))
+		assertEquals("", hostOf("ftp://example.com/x"))
+	}
 }

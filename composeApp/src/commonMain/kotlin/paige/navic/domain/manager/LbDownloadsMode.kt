@@ -1,6 +1,11 @@
 package paige.navic.domain.manager
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -78,7 +83,10 @@ const val LB_CODE_DOWNLOADS_OFF = "downloads_off"
 fun isDownloadsOffRefusal(error: LbBotManager.LbError): Boolean =
 	error is LbBotManager.LbError.Rejected && error.status == 409 && error.code == LB_CODE_DOWNLOADS_OFF
 
-/** What a failed call does to the mode: only lb-bot's own `downloads_off` turns it off. */
+/**
+ * What a failed call does to the mode: only lb-bot's own `downloads_off` turns it off. The one rule
+ * [LbDownloadsState.noteAnswer] applies to every non-2xx answer.
+ */
 fun downloadsAfterError(current: LbDownloads, error: LbBotManager.LbError): LbDownloads =
 	if (isDownloadsOffRefusal(error)) LbDownloads.OFF else current
 
@@ -133,3 +141,103 @@ fun lbIndexSeqOf(hint: JsonObject?): Pair<String?, Long?> =
  */
 fun indexFrameIsProgressOnly(lastEpoch: String?, lastSeq: Long?, epoch: String?, seq: Long?, hasProgress: Boolean): Boolean =
 	hasProgress && lastEpoch != null && lastSeq != null && seq != null && epoch == lastEpoch && seq <= lastSeq
+
+/**
+ * Where the last mode each hub reported is kept between launches: one string, written whole. In the
+ * app a preference ([PreferenceManager.lbDownloadsByHub]); in tests a variable.
+ */
+interface LbDownloadsMemory {
+	fun read(): String
+	fun write(value: String)
+}
+
+private val modeMapSerializer = MapSerializer(String.serializer(), String.serializer())
+
+/** The kept map (hub URL → "on" | "off"); anything unreadable is an empty map. */
+internal fun lbDownloadsMapOf(text: String): Map<String, String> = if (text.isBlank()) emptyMap() else try {
+	lbWireJson.decodeFromString(modeMapSerializer, text)
+} catch (e: Exception) {
+	emptyMap()
+}
+
+/** How many hubs' modes are kept: a phone talks to one hub, rarely two. */
+private const val KEPT_HUBS = 4
+
+/**
+ * Worbus P1: lb-bot's downloads mode, one value for the whole app ([LbBotManager.downloads]).
+ *
+ * - Every advert passes [applyAdvert] (a `welcome` says from scratch, an `lb` frame or `/lb/status`
+ *   that says nothing keeps what is known: [downloadsAfterAdvert]); a `welcome` with no usable `lb`
+ *   at all passes [newConnection].
+ * - Every non-2xx answer, whichever reader read it, passes [noteAnswer] ([failureOf] for the readers
+ *   that turn it into an [LbBotManager.LbError]): lb-bot's 409 `downloads_off` turns it off.
+ * - The last word for the hub [hubKey] names is kept in [memory] and is the value a new process
+ *   starts from, so a cold start against a server that cannot download does not draw download
+ *   actions until the welcome arrives. The welcome still overrides it. UNKNOWN is not kept: an older
+ *   hub's silence starts the next launch at UNKNOWN too.
+ */
+class LbDownloadsState(
+	private val memory: LbDownloadsMemory? = null,
+	private val hubKey: () -> String = { "" }
+) {
+	private val _value = MutableStateFlow(remembered())
+	val value: StateFlow<LbDownloads> = _value.asStateFlow()
+
+	val current: LbDownloads get() = _value.value
+
+	private fun remembered(): LbDownloads {
+		val key = hubKey().trim()
+		if (memory == null || key.isEmpty()) return LbDownloads.UNKNOWN
+		return lbDownloadsOf(lbDownloadsMapOf(memory.read())[key])
+	}
+
+	/** [always]: a welcome's word is kept even when it is the value already held (another hub may be the one now). */
+	private fun set(next: LbDownloads, always: Boolean = false) {
+		if (next == _value.value && !always) return
+		_value.value = next
+		keep(next)
+	}
+
+	private fun keep(next: LbDownloads) {
+		val memory = memory ?: return
+		val key = hubKey().trim()
+		if (key.isEmpty()) return
+		val kept = lbDownloadsMapOf(memory.read())
+		val word = when (next) {
+			LbDownloads.ON -> "on"
+			LbDownloads.OFF -> "off"
+			LbDownloads.UNKNOWN -> null
+		}
+		if (kept[key] == word) return
+		val updated = (kept - key).let { rest ->
+			if (word == null) rest else (rest.entries.toList().takeLast(KEPT_HUBS - 1).associate { it.key to it.value } + (key to word))
+		}
+		try {
+			memory.write(lbWireJson.encodeToString(modeMapSerializer, updated))
+		} catch (e: Exception) {
+			// A failed write costs the next cold start its head start, nothing else.
+		}
+	}
+
+	/** An advert's word (`welcome.lb`, an `lb` frame, `/lb/status`): see [downloadsAfterAdvert]. */
+	fun applyAdvert(advert: LbDownloads, newConnection: Boolean = false) =
+		set(downloadsAfterAdvert(_value.value, advert, newConnection), always = newConnection)
+
+	/** A `welcome` that carried no usable `lb` (an older hub): a new connection says nothing, UNKNOWN. */
+	fun newConnection() = applyAdvert(LbDownloads.UNKNOWN, newConnection = true)
+
+	/** Any non-2xx answer, read raw ([downloadsAfterError]). True when it was lb-bot's `downloads_off`. */
+	fun noteAnswer(status: Int, raw: String): Boolean {
+		if (status in 200..299) return false
+		val error = lbFailureOf(status, raw)
+		set(downloadsAfterError(_value.value, error))
+		return isDownloadsOffRefusal(error)
+	}
+
+	/** [lbFailureOf], noted: the refusal as an error, and a `downloads_off` one turns the mode off. */
+	fun failureOf(status: Int, raw: String): LbBotManager.LbError {
+		val error = lbFailureOf(status, raw)
+		set(downloadsAfterError(_value.value, error))
+		return error
+	}
+}

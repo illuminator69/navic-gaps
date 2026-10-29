@@ -109,6 +109,20 @@ class LbBotManager(
 
 	private val json = lbWireJson
 
+	/**
+	 * Worbus P1: lb-bot's downloads mode ([downloads]). Declared first: [attentionBadge] and other
+	 * flows built in the class body read it.
+	 */
+	private val downloadsMode = LbDownloadsState(
+		memory = object : LbDownloadsMemory {
+			override fun read(): String = preferenceManager.lbDownloadsByHub
+			override fun write(value: String) {
+				preferenceManager.lbDownloadsByHub = value
+			}
+		},
+		hubKey = { preferenceManager.hubUrl }
+	)
+
 	private val client by lazy {
 		HttpClient {
 			install(ContentNegotiation) { json(json) }
@@ -286,8 +300,8 @@ class LbBotManager(
 	 * The number behind the avatar's dot and the menu's badge: lb-bot's to-fix count while an
 	 * answer is known, else P1's count of this device's own ledger ([attentionBadge]).
 	 */
-	val attentionBadge: StateFlow<Int> = combine(_attention, _ledger) { state, ledger ->
-		attentionBadge(state.last, needsAttentionCount(ledger))
+	val attentionBadge: StateFlow<Int> = combine(_attention, _ledger, downloadsMode.value) { state, ledger, downloads ->
+		attentionBadge(state.last, needsAttentionCount(ledger), downloadsOn = downloads.isOn)
 	}.stateIn(scope, SharingStarted.Eagerly, 0)
 
 	/** Whether the hub carries the attention route: an older one is "older", not "nothing to fix". */
@@ -394,10 +408,11 @@ class LbBotManager(
 	private fun <T> LbResult<T>.valueOrNull(): T? = (this as? LbResult.Ok)?.value
 
 	private fun failureFor(status: Int, path: String, raw: String): LbResult.Failed {
-		val error = lbFailureOf(status, raw)
+		val wasOn = downloadsMode.current.isOn
+		val error = downloadsMode.failureOf(status, raw)
 		val message = (error as? LbError.Rejected)?.message.orEmpty()
 		Logger.w("LbBotManager", "$path -> HTTP $status ${message.ifBlank { raw.take(200) }}")
-		noteDownloadsRefusal(status, raw)
+		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
 		return LbResult.Failed(error)
 	}
 
@@ -405,15 +420,28 @@ class LbBotManager(
 
 	/**
 	 * Whether lb-bot can download ([LbDownloads]; UNKNOWN, an older hub or lb-bot, reads as on). From
-	 * every advert ([applyHubAdvert], [probeAvailable]) and from lb-bot's own 409 `downloads_off` on any
-	 * route ([noteDownloadsRefusal]), which holds until an advert says otherwise. Never persisted: a
-	 * new process starts UNKNOWN and the first advert, or the first refusal, says.
+	 * every advert ([applyHubAdvert], [probeAvailable], a welcome with no `lb` at all
+	 * ([noteNewConnection])) and from lb-bot's own 409 `downloads_off` on any route, which holds until
+	 * an advert says otherwise. The last word per hub is kept, and a new process starts from it
+	 * ([LbDownloadsState]).
 	 */
-	private val _downloads = MutableStateFlow(LbDownloads.UNKNOWN)
-	val downloads: StateFlow<LbDownloads> = _downloads.asStateFlow()
+	val downloads: StateFlow<LbDownloads> = downloadsMode.value
 
 	/** [downloads] as the one question most surfaces ask. */
-	val downloadsOn: Boolean get() = _downloads.value.isOn
+	val downloadsOn: Boolean get() = downloadsMode.current.isOn
+
+	/**
+	 * A peer that knows the P1 fields: lb-bot said its downloads mode (on the advert, or by its 409).
+	 * UNKNOWN is a hub or lb-bot older than that, which gets today's reads and today's cadence.
+	 */
+	val isP1Peer: Boolean get() = downloadsMode.current != LbDownloads.UNKNOWN
+
+	/** A `welcome` with no usable `lb`: an older hub, and its silence is UNKNOWN (= on). */
+	fun noteNewConnection() {
+		val before = downloadsMode.current
+		downloadsMode.newConnection()
+		if (before != downloadsMode.current) Logger.i("LbBotManager", "a new hub connection: downloads mode unknown")
+	}
 
 	/**
 	 * lb-bot's index build as the hub last said it (`welcome.lbIndex.progress`, the `index` frame), or
@@ -434,9 +462,9 @@ class LbBotManager(
 	 * and no spinner left behind (the surfaces decide on [downloads] before anything else).
 	 */
 	private fun noteDownloadsRefusal(status: Int, raw: String) {
-		if (!isDownloadsOffAnswer(status, raw)) return
-		if (_downloads.value != LbDownloads.OFF) Logger.i("LbBotManager", "lb-bot says downloading is off")
-		_downloads.value = LbDownloads.OFF
+		val wasOn = downloadsMode.current.isOn
+		downloadsMode.noteAnswer(status, raw)
+		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
 	}
 
 	/**
@@ -870,7 +898,7 @@ class LbBotManager(
 		_hubRoutes.value = probe.routes
 		_hubHeard.value = true
 		_webUrl.value = cleanWebUrl(probe.webUrl)
-		_downloads.value = downloadsAfterAdvert(_downloads.value, lbDownloadsOf(probe.downloads))
+		downloadsMode.applyAdvert(lbDownloadsOf(probe.downloads))
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
@@ -943,7 +971,7 @@ class LbBotManager(
 		_hubHeard.value = true
 		// P1: `downloads` rides the advert when lb-bot reported it; an `lb` frame's silence keeps what is
 		// known, a welcome's starts again from "unknown".
-		_downloads.value = downloadsAfterAdvert(_downloads.value, downloads, newConnection)
+		downloadsMode.applyAdvert(downloads, newConnection)
 		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()

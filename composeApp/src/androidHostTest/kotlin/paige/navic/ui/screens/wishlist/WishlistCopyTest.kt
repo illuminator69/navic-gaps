@@ -1,5 +1,9 @@
 package paige.navic.ui.screens.wishlist
 
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.attention_missing_off
+import navic.composeapp.generated.resources.info_external_album_index_failed_off
+import navic.composeapp.generated.resources.request_downloads_off
 import paige.navic.ui.screens.downloads.WISHLIST_OFF_STRINGS
 import java.io.File
 import kotlin.test.Test
@@ -22,6 +26,17 @@ class WishlistCopyTest {
 	fun wishlist_copy_off_has_no_searching_words() {
 		assertTrue(WISHLIST_OFF_STRINGS.size >= 3, "the OFF list is only ${WISHLIST_OFF_STRINGS.size} long")
 		for (res in WISHLIST_OFF_STRINGS) {
+			val text = strings[res.key]
+			assertTrue(text != null, "${res.key} is not in values/strings.xml")
+			val lower = text.lowercase()
+			banned.forEach { word -> assertTrue(word !in lower, "${res.key} says \"$word\": $text") }
+		}
+	}
+
+	/** The lane N review's OFF strings: Needs attention's pill and line, and the missing album's index note. */
+	@Test
+	fun review_off_copy_has_no_searching_words() {
+		for (res in listOf(Res.string.attention_missing_off, Res.string.request_downloads_off, Res.string.info_external_album_index_failed_off)) {
 			val text = strings[res.key]
 			assertTrue(text != null, "${res.key} is not in values/strings.xml")
 			val lower = text.lowercase()

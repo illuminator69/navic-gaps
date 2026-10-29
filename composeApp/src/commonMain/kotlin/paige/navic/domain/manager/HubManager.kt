@@ -1633,10 +1633,14 @@ class HubManager(
 				// contract §1a), so the first lb-bot read after a connect needn't pay a
 				// `/lb/status` probe first. Absent on an older hub, which keeps the probe path
 				// untouched; isolated because a malformed advert must not fail the handshake.
+				// Worbus P1: a welcome says lb-bot's downloads mode from scratch, with or without an
+				// `lb` (an older hub after a P1 one said "off" must not keep that "off").
 				try {
-					(msg["lb"] as? JsonObject)?.let { applyLbAdvert(it, welcome = true) }
+					val applied = (msg["lb"] as? JsonObject)?.let { applyLbAdvert(it, welcome = true) }
+					if (applied == null) lbBotManager.noteNewConnection()
 				} catch (e: Exception) {
 					Logger.e("HubManager", "lb advert ignored", e)
+					lbBotManager.noteNewConnection()
 				}
 				// Pull the lb-bot index mirror on EVERY welcome. `lbIndex` is only a hint and is
 				// not trusted to skip the pull: an up-to-date pull costs ~100 bytes, and an

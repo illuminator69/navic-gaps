@@ -245,7 +245,8 @@ fun GapBox(
 							working = ui.working
 						)
 					}
-					if (ui.error != null) {
+					// Worbus P1: no error line while downloading is off: what failed was a way to fetch.
+					if (ui.error != null && fillOffered) {
 						Box(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) { LbErrorLine(ui.error) }
 					}
 				}

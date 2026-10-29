@@ -82,6 +82,7 @@ import navic.composeapp.generated.resources.action_preview_track
 import navic.composeapp.generated.resources.preview_none_found
 import navic.composeapp.generated.resources.action_view_artist
 import navic.composeapp.generated.resources.info_external_album_index_failed
+import navic.composeapp.generated.resources.info_external_album_index_failed_off
 import navic.composeapp.generated.resources.title_missing_album
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -347,7 +348,11 @@ fun ExternalAlbumScreen(
 			if (state.indexAddFailed) {
 				item(key = "index-failed") {
 					Text(
-						stringResource(Res.string.info_external_album_index_failed),
+						// Worbus P1: "Downloading still works" only where it does.
+						stringResource(
+							if (downloads.isOn) Res.string.info_external_album_index_failed
+							else Res.string.info_external_album_index_failed_off
+						),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						textAlign = TextAlign.Center,

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.AttentionPage
@@ -35,6 +36,11 @@ class AttentionViewModel(private val lbBot: LbBotManager) : ViewModel() {
 	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttentionPage.Loading)
 
 	val webUrl: StateFlow<String> = lbBot.webUrl
+
+	/** Worbus P1: whether lb-bot can download; off, the album rows offer nothing that fetches. */
+	val downloadsOn: StateFlow<Boolean> = lbBot.downloads
+		.map { it.isOn }
+		.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), lbBot.downloadsOn)
 
 	/** Read again: on opening the page and on a pull. The hub's 20 s cache keeps this cheap. */
 	fun refresh(): Job = viewModelScope.launch { lbBot.refreshAttention(force = true) }

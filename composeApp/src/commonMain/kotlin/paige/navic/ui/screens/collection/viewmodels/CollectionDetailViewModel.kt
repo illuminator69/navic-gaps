@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
 import paige.navic.domain.manager.LbGapSource
+import paige.navic.domain.manager.isDownloadsOffRefusal
 import paige.navic.domain.manager.LbSourceFiles
 import paige.navic.ui.screens.collection.GapView
 import paige.navic.ui.screens.collection.gapFillLanded
@@ -228,7 +229,7 @@ class CollectionDetailViewModel(
 		_gapBox.update { it.copy(view = GapView.SOURCES, searchAsked = true, selected = null, error = null) }
 		viewModelScope.launch {
 			val result = lbBotManager.gapSearch(groupId)
-			if (result is LbBotManager.LbResult.Failed) _gapBox.update { it.copy(error = result.error) }
+			if (result is LbBotManager.LbResult.Failed) _gapBox.update { it.copy(error = gapError(result.error)) }
 			else lbBotManager.refreshGap(groupId)
 			_gapBox.update { it.copy(searchAsked = false) }
 		}
@@ -257,7 +258,7 @@ class CollectionDetailViewModel(
 		_gapBox.update { it.copy(working = true, error = null) }
 		viewModelScope.launch {
 			when (val result = lbBotManager.gapFetch(groupId, source.id)) {
-				is LbBotManager.LbResult.Failed -> _gapBox.update { it.copy(working = false, error = result.error) }
+				is LbBotManager.LbResult.Failed -> _gapBox.update { it.copy(working = false, error = gapError(result.error)) }
 				is LbBotManager.LbResult.Ok -> {
 					// The sources are done with: when the fill ends the box answers from its line.
 					_gapBox.update { it.copy(working = false, committed = true, fetched = source, view = GapView.TRACKS) }
@@ -277,7 +278,7 @@ class CollectionDetailViewModel(
 		viewModelScope.launch {
 			val result = lbBotManager.gapAuto(groupId)
 			_gapBox.update {
-				if (result is LbBotManager.LbResult.Failed) it.copy(working = false, error = result.error)
+				if (result is LbBotManager.LbResult.Failed) it.copy(working = false, error = gapError(result.error))
 				else it.copy(working = false, committed = true, view = GapView.TRACKS)
 			}
 			if (result is LbBotManager.LbResult.Ok) {
@@ -299,7 +300,7 @@ class CollectionDetailViewModel(
 		_gapBox.update { it.copy(working = true, error = null) }
 		viewModelScope.launch {
 			val result = lbBotManager.allowMp3(groupId)
-			_gapBox.update { it.copy(working = false, error = (result as? LbBotManager.LbResult.Failed)?.error) }
+			_gapBox.update { it.copy(working = false, error = (result as? LbBotManager.LbResult.Failed)?.error?.let(::gapError)) }
 			if (result is LbBotManager.LbResult.Ok) searchGap()
 		}
 	}
@@ -324,7 +325,7 @@ class CollectionDetailViewModel(
 			val result = block(groupId)
 			_gapBox.update { ui ->
 				val settled = ui.copy(working = false)
-				if (result is LbBotManager.LbResult.Failed) settled.copy(error = result.error) else after(settled)
+				if (result is LbBotManager.LbResult.Failed) settled.copy(error = gapError(result.error)) else after(settled)
 			}
 		}
 	}
@@ -800,6 +801,13 @@ private const val GAP_COMMIT_RELEASE_MS = 30_000L
 
 /** When the album is read again after a fill lands: Navidrome scans the placed files on its own time. */
 private val GAP_LANDED_REFRESH_DELAYS = listOf(5_000L, 10_000L, 30_000L)
+
+/**
+ * Worbus P1: what a failed gaps-box call leaves on the box's error line. lb-bot's 409 `downloads_off`
+ * leaves none: it has turned the mode off (`LbDownloadsState`), and the box drops its fill actions for
+ * the missing-songs list on the next frame, with no red line left behind.
+ */
+internal fun gapError(error: LbBotManager.LbError): LbBotManager.LbError? = error.takeUnless(::isDownloadsOffRefusal)
 
 /** The gaps box's own state; which stage it shows is `gapStage`'s, from this and lb-bot's record. */
 data class GapBoxUi(
