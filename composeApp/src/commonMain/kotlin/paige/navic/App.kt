@@ -142,6 +142,7 @@ import paige.navic.ui.navigation.normalizedStack
 import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.ui.screens.attention.AttentionScreen
 import paige.navic.ui.screens.sourcehistory.SourceHistoryScreen
+import paige.navic.ui.screens.wishlist.WishlistScreen
 import paige.navic.domain.manager.SourceHistorySection
 import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
@@ -650,6 +651,9 @@ private fun entryProvider(
 		}
 		entry<Screen.SourceHistory> { key ->
 			Washed { SourceHistoryScreen(key.section) }
+		}
+		entry<Screen.Wishlist> {
+			Washed { WishlistScreen() }
 		}
 		entry<Screen.SavedQueues> {
 			Washed { SavedQueuesScreen() }

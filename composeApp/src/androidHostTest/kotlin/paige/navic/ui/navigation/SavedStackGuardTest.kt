@@ -75,6 +75,17 @@ class SavedStackGuardTest {
 	}
 
 	@Test
+	fun saved_stack_round_trips_wishlist() {
+		// Worbus P1: the avatar menu's Wishlist page is registered, and a stack saved on it comes back.
+		assertTrue(Screen.Wishlist::class in registeredScreens(), "Screen.Wishlist is not registered")
+		val serializer = PolymorphicSerializer(NavKey::class)
+		val json = Json { serializersModule = navSavedStateConfiguration.serializersModule }
+		val stack: List<NavKey> = listOf(Screen.Home, Screen.Wishlist)
+		val saved = stack.map { json.encodeToString(serializer, it) }
+		assertEquals(stack, saved.map { json.decodeFromString(serializer, it) })
+	}
+
+	@Test
 	fun enumsSavedByPositionKeepTheirOrder() {
 		assertEquals(listOf("Device", "Fills", "Wishlist"), DownloadsSection.entries.map { it.name })
 		assertEquals(listOf("Requests", "Transfers", "Wishlist"), SourceHistorySection.entries.map { it.name })

@@ -31,7 +31,7 @@ class AvatarMenuItemsTest {
 		// What needs no downloading stays, in its order, with no gap.
 		assertEquals(
 			listOf(
-				AvatarMenuIds.ATTENTION, AvatarMenuIds.LIBRARY_MATCHES,
+				AvatarMenuIds.ATTENTION, AvatarMenuIds.WISHLIST, AvatarMenuIds.LIBRARY_MATCHES,
 				AvatarMenuIds.DUPLICATES, AvatarMenuIds.LOGS
 			),
 			tools
@@ -43,7 +43,7 @@ class AvatarMenuItemsTest {
 		val tools = menu(webUrl = "http://lb:8899", downloadsOn = true).group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids()
 		assertEquals(
 			listOf(
-				AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.LIBRARY_MATCHES,
+				AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.WISHLIST, AvatarMenuIds.LIBRARY_MATCHES,
 				AvatarMenuIds.DUPLICATES, AvatarMenuIds.SOURCE_RULES, AvatarMenuIds.LOGS
 			),
 			tools
@@ -65,12 +65,25 @@ class AvatarMenuItemsTest {
 		flat().filterIsInstance<AvatarMenuEntry.External>().first { it.id == id }
 
 	@Test
+	fun wishlist_in_avatar_menu_both_modes() {
+		// Worbus P1: the wishlist has its own row beside the library tools, whatever the mode, and opens
+		// its own page (it was reachable only from Source history, a download surface).
+		for (on in listOf(true, false)) {
+			val link = menu(downloadsOn = on).link(AvatarMenuIds.WISHLIST)
+			assertEquals(Screen.Wishlist, link.destination)
+			assertTrue(AvatarMenuIds.WISHLIST in menu(downloadsOn = on).group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids())
+		}
+		// Like every lb-bot row, not without lb-bot.
+		assertFalse(AvatarMenuIds.WISHLIST in menu(lb = false).flat().ids())
+	}
+
+	@Test
 	fun withoutLbBotThereIsNoLibraryToolsAtAll() {
 		val all = menu(lb = false, attention = 4, webUrl = "http://lb:8899").flat().ids()
 		listOf(
 			AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.LIBRARY_TOOLS,
 			AvatarMenuIds.LIBRARY_MATCHES, AvatarMenuIds.DUPLICATES, AvatarMenuIds.SOURCE_RULES,
-			AvatarMenuIds.LOGS
+			AvatarMenuIds.LOGS, AvatarMenuIds.WISHLIST
 		).forEach { assertFalse(it in all, "$it should be absent without lb-bot") }
 		// ...and what is left has no gap: the groups and rows that need nothing are all still there.
 		assertEquals(
@@ -88,7 +101,7 @@ class AvatarMenuItemsTest {
 		assertFalse(AvatarMenuIds.ATTENTION in top)
 		assertFalse(AvatarMenuIds.SOURCE_HISTORY in top)
 		assertEquals(
-			listOf(AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.LIBRARY_MATCHES),
+			listOf(AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.WISHLIST, AvatarMenuIds.LIBRARY_MATCHES),
 			menu().group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids()
 		)
 	}
@@ -97,12 +110,12 @@ class AvatarMenuItemsTest {
 	fun theRareToolsAreThereOnlyWithAWebUrlInOrder() {
 		assertEquals(
 			listOf(
-				AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.LIBRARY_MATCHES,
+				AvatarMenuIds.ATTENTION, AvatarMenuIds.SOURCE_HISTORY, AvatarMenuIds.WISHLIST, AvatarMenuIds.LIBRARY_MATCHES,
 				AvatarMenuIds.DUPLICATES, AvatarMenuIds.SOURCE_RULES, AvatarMenuIds.LOGS
 			),
 			menu(webUrl = "http://lb:8899").group(AvatarMenuIds.LIBRARY_TOOLS).entries.ids()
 		)
-		assertEquals(3, menu(webUrl = "  ").group(AvatarMenuIds.LIBRARY_TOOLS).entries.size)
+		assertEquals(4, menu(webUrl = "  ").group(AvatarMenuIds.LIBRARY_TOOLS).entries.size)
 		val items = menu(webUrl = "http://lb:8899")
 		assertEquals("library/cleanup", items.external(AvatarMenuIds.DUPLICATES).path)
 		assertEquals("system/sources", items.external(AvatarMenuIds.SOURCE_RULES).path)

@@ -1561,4 +1561,6 @@
 	<string name="action_see_more">See more</string>
 	<!-- Worbus P1 -->
 	<string name="request_downloads_off">This server isn't set up to get albums.</string>
+	<string name="wishlist_saved_off">Saved for when your server can get albums</string>
+	<string name="info_wishlist_empty_hint_off">Add an album from its page and it waits here. Worbus looks for it once your server is set up to get albums.</string>
 </resources>
