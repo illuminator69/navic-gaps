@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.artist
 
+import paige.navic.domain.manager.LbArtistScan
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.domain.manager.LbDownloads
 import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
@@ -18,6 +19,9 @@ import paige.navic.ui.screens.artist.viewmodels.DiscographyUi
  *   hub can store an override.
  * - **waiting** (lb-bot out of reach, MusicBrainz down): today's fail-soft, i.e. nothing, or the
  *   scan's failure in lb-bot's words under the button.
+ * - **updated**: a scan this page watched has just landed with releases. The slot says so in one quiet
+ *   line instead of folding away in the frame the releases arrive, which at the end of the page pulled
+ *   it up by the slot's height (the scroll offset clamped to the shorter page; seen on the AVD).
  */
 sealed interface ArtistScanAction {
 	/** The page's slot for the action: one place, whichever state it is in. */
@@ -30,8 +34,13 @@ sealed interface ArtistScanAction {
 	data class Unresolved(val matchOffered: Boolean) : ArtistScanAction
 	/** An older lb-bot and no MBID: the picker, in place of a button that could only be disabled. */
 	data object ChooseMbid : ArtistScanAction
-	/** An older lb-bot, no MBID and no override to store one: a disabled button and why. */
-	data object NeedsMbid : ArtistScanAction
+	/**
+	 * An older lb-bot, no MBID and no override to store one: a disabled button and why. [rescan]: the
+	 * index already has releases (today's "Rescan discography" label).
+	 */
+	data class NeedsMbid(val rescan: Boolean) : ArtistScanAction
+	/** A scan this page watched landed with releases: "Updated just now" holds the slot. */
+	data object Updated : ArtistScanAction
 
 	companion object {
 		const val SLOT_KEY = "discography-scan"
@@ -48,8 +57,11 @@ fun artistScanAction(ui: DiscographyUi, mbid: String, canOverride: Boolean, scan
 	// Whatever the library's own albums put on the page (the shelf is built Navidrome-first, so an artist
 	// lb-bot could not match still has sections): lb-bot's row holds nothing (seen on the AVD).
 	ui.unresolved && ui.indexed -> ArtistScanAction.Unresolved(canOverride)
-	ui.indexed && ui.sections.isNotEmpty() && ui.scanError.isBlank() && !ui.scanShared -> ArtistScanAction.None
-	mbid.isBlank() && !scanByNdId -> if (canOverride) ArtistScanAction.ChooseMbid else ArtistScanAction.NeedsMbid
+	ui.indexed && ui.sections.isNotEmpty() && ui.scanError.isBlank() && !ui.scanShared ->
+		if (ui.justScanned) ArtistScanAction.Updated else ArtistScanAction.None
+	mbid.isBlank() && !scanByNdId ->
+		if (canOverride) ArtistScanAction.ChooseMbid
+		else ArtistScanAction.NeedsMbid(rescan = ui.indexed && ui.sections.isNotEmpty())
 	else -> ArtistScanAction.ScanNow(rescan = ui.indexed && ui.sections.isNotEmpty())
 }
 
@@ -69,3 +81,19 @@ fun scanByNdIdOffered(downloads: LbDownloads, refused: Boolean): Boolean =
  */
 fun discographyUnresolved(data: LbDiscography): Boolean =
 	data.indexed && data.artistMbid.isBlank() && data.releases.isEmpty()
+
+/**
+ * Whether the page asks lb-bot's own read whether a mirrored row is "no match": only for data from the
+ * mirror (a network read already carries `unresolved`), only from a P1 peer ([p1Peer]: an older lb-bot
+ * would answer without the flag, one more read per page open for nothing), once per page.
+ */
+fun unresolvedReadDue(data: LbDiscography, fromNetwork: Boolean, p1Peer: Boolean, asked: Boolean): Boolean =
+	!fromNetwork && p1Peer && !asked && discographyUnresolved(data)
+
+/**
+ * A scan of the artist the page did not start, running now, to follow like its own: only a record that
+ * carries lb-bot's counts, i.e. a P1 lb-bot's (its worker's scans included). An older lb-bot's record of
+ * another device's scan is not followed: its page shows today's action, not a spinner.
+ */
+fun runningScanToFollow(data: LbDiscography): LbArtistScan? =
+	data.scan?.takeIf { it.state == "running" && it.taskId.isNotBlank() && it.hasCounts }

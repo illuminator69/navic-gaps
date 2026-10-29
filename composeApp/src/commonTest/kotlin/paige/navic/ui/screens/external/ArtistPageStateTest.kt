@@ -9,6 +9,9 @@ import paige.navic.domain.manager.LbRescanStart
 import paige.navic.domain.manager.rescanStartOf
 import paige.navic.domain.manager.lbWireJson
 import paige.navic.domain.manager.scanByNdIdRefused
+import paige.navic.domain.manager.scanPollDelayMs
+import paige.navic.ui.screens.artist.runningScanToFollow
+import paige.navic.ui.screens.artist.unresolvedReadDue
 import paige.navic.ui.screens.artist.ArtistScanAction
 import paige.navic.ui.screens.artist.artistScanAction
 import paige.navic.ui.screens.artist.discographyUnresolved
@@ -151,15 +154,16 @@ class ArtistPageStateTest {
 		// "mbid is required"): with no MBID, today's choice — the picker where the hub can store one,
 		// else the disabled button that says why.
 		assertEquals(ArtistScanAction.ChooseMbid, owned(DiscographyUi(available = true), byNdId = false))
-		assertEquals(ArtistScanAction.NeedsMbid, owned(DiscographyUi(available = true), canOverride = false, byNdId = false))
+		assertEquals(ArtistScanAction.NeedsMbid(rescan = false), owned(DiscographyUi(available = true), canOverride = false, byNdId = false))
 		assertEquals(ArtistScanAction.ScanNow(rescan = false), owned(DiscographyUi(available = true), mbid = "mb-1", byNdId = false))
 		// The refusal that says so.
 		assertTrue(scanByNdIdRefused(LbBotManager.LbError.Rejected(400, "mbid is required")))
 		assertFalse(scanByNdIdRefused(LbBotManager.LbError.Rejected(409, "busy")))
 		assertFalse(scanByNdIdRefused(LbBotManager.LbError.Unreachable("")))
-		// A scan record from an older lb-bot has no counts: 0 of 0, a spinner.
+		// A scan record from an older lb-bot has no counts.
 		val scan = lbWireJson.decodeFromString(LbArtistScan.serializer(), """{"state":"running","taskId":"t"}""")
-		assertEquals(0, scan.total)
+		assertEquals(null, scan.total)
+		assertFalse(scan.hasCounts)
 		// Scan now answered 400 for a POST with no MBID is an older lb-bot; with an MBID it is a refusal.
 		val refused = LbBotManager.LbError.Rejected(400, "mbid is required")
 		assertEquals(LbRescanStart.Older, rescanStartOf(answer = null, error = refused, sentMbid = false))
@@ -171,11 +175,11 @@ class ArtistPageStateTest {
 	}
 
 	@Test
-	fun completion_keeps_scroll_key() {
-		// The scan's slot moves Scan now -> Scanning -> nothing, in place: when the index lands the
-		// action folds away in the same frame the releases arrive above it (the page's scroll offset is
-		// the view model's and nothing above the reader is replaced), and a rescan of an artist with
-		// releases never takes them off the page.
+	fun completion_holds_the_slot_with_a_freshness_line() {
+		// The scan's slot moves Scan now -> Scanning -> "Updated just now", in place. It does not fold
+		// away in the frame the releases land: at the end of the page that shortened the page under the
+		// reader and the scroll offset clamped (the page jumped ~228 px on the AVD). The slot draws the
+		// line at the height the scan had (DiscographyScanAction).
 		val sections = listOf(
 			DiscographySection("album", listOf(DiscographyEntry(key = "rg-1", title = "After", year = "2020", release = LbRelease(rgid = "rg-1"))))
 		)
@@ -183,15 +187,99 @@ class ArtistPageStateTest {
 			DiscographyUi(available = true),
 			DiscographyUi(available = true, indexing = true),
 			DiscographyUi(available = true, indexing = true, scanDone = 5, scanTotal = 10),
-			DiscographyUi(available = true, indexed = true, sections = sections)
+			DiscographyUi(available = true, indexed = true, sections = sections, justScanned = true)
 		).map { owned(it) }
 		assertEquals(
 			listOf(
 				ArtistScanAction.ScanNow(rescan = false), ArtistScanAction.Scanning(0, 0),
-				ArtistScanAction.Scanning(5, 10), ArtistScanAction.None
+				ArtistScanAction.Scanning(5, 10), ArtistScanAction.Updated
 			),
 			steps
 		)
-		assertTrue(steps.all { it.slotKey == ArtistScanAction.SLOT_KEY })
+		assertTrue(steps.none { it == ArtistScanAction.None })
+		// A page opened on an artist already indexed (no scan watched here) has no slot, as today.
+		assertEquals(ArtistScanAction.None, owned(DiscographyUi(available = true, indexed = true, sections = sections)))
+		// A scan that lands as "no match" says so, not "Updated".
+		assertEquals(
+			ArtistScanAction.Unresolved(matchOffered = true),
+			owned(DiscographyUi(available = true, indexed = true, unresolved = true, justScanned = true))
+		)
+	}
+
+	@Test
+	fun older_peer_choose_and_needs_mbid_read_as_today() {
+		val sections = listOf(
+			DiscographySection("album", listOf(DiscographyEntry(key = "rg-1", title = "After", year = "2020", release = LbRelease(rgid = "rg-1"))))
+		)
+		// Today's "Rescan discography" on the disabled button once there are releases (with a failed
+		// rescan to show), "Scan discography" before.
+		val failed = DiscographyUi(available = true, indexed = true, sections = sections, scanError = "MusicBrainz did not answer")
+		assertEquals(ArtistScanAction.NeedsMbid(rescan = true), owned(failed, canOverride = false, byNdId = false))
+		assertEquals(ArtistScanAction.NeedsMbid(rescan = false), owned(DiscographyUi(available = true), canOverride = false, byNdId = false))
+	}
+
+	@Test
+	fun older_peer_scan_poll_waits_15_s_every_time() {
+		// Today's cadence: 15 s (or the `artistScanned` frame) before the first read and every one after,
+		// whatever an older lb-bot's record says, its own scans running included.
+		assertEquals(15_000L, scanPollDelayMs(first = true, p1Peer = false, last = null))
+		val olderRunning = lbWireJson.decodeFromString(LbArtistScan.serializer(), """{"state":"running","taskId":"t"}""")
+		assertEquals(15_000L, scanPollDelayMs(first = false, p1Peer = false, last = olderRunning))
+		assertEquals(15_000L, scanPollDelayMs(first = false, p1Peer = true, last = olderRunning))
+		// A P1 lb-bot: the first read at once, then 3 s while its record (with counts) says running.
+		val p1Running = lbWireJson.decodeFromString(
+			LbArtistScan.serializer(), """{"state":"running","taskId":"t","done":0,"total":0}"""
+		)
+		assertEquals(0L, scanPollDelayMs(first = true, p1Peer = true, last = null))
+		assertEquals(3_000L, scanPollDelayMs(first = false, p1Peer = true, last = p1Running))
+		assertEquals(15_000L, scanPollDelayMs(first = false, p1Peer = true, last = p1Running.copy(state = "done")))
+		assertEquals(15_000L, scanPollDelayMs(first = false, p1Peer = true, last = null))
+	}
+
+	@Test
+	fun older_peer_no_extra_unresolved_read() {
+		val looksUnresolved = LbDiscography(indexed = true, artistMbid = "")
+		// An older peer: the mirror row is today's page, with no extra read.
+		assertFalse(unresolvedReadDue(looksUnresolved, fromNetwork = false, p1Peer = false, asked = false))
+		// Data from lb-bot's own read already carries the flag: never asked again.
+		assertFalse(unresolvedReadDue(looksUnresolved, fromNetwork = true, p1Peer = true, asked = false))
+		// Once per page.
+		assertFalse(unresolvedReadDue(looksUnresolved, fromNetwork = false, p1Peer = true, asked = true))
+		// A P1 peer's mirror row that looks like "no match": asked.
+		assertTrue(unresolvedReadDue(looksUnresolved, fromNetwork = false, p1Peer = true, asked = false))
+		assertFalse(unresolvedReadDue(LbDiscography(indexed = true, artistMbid = "mb"), fromNetwork = false, p1Peer = true, asked = false))
+	}
+
+	@Test
+	fun older_peer_no_follow_of_a_foreign_scan() {
+		// An older lb-bot's record of a scan this page did not start (another device's): not followed,
+		// so the page shows today's action and no spinner.
+		val older = lbWireJson.decodeFromString(
+			LbDiscography.serializer(), """{"indexed":false,"scan":{"state":"running","taskId":"t-other"}}"""
+		)
+		assertEquals(null, runningScanToFollow(older))
+		// A P1 lb-bot's (its worker's included) is followed, with its counts.
+		val p1 = lbWireJson.decodeFromString(
+			LbDiscography.serializer(), """{"indexed":false,"scan":{"state":"running","taskId":"auto-index","done":3,"total":40}}"""
+		)
+		assertEquals("auto-index", runningScanToFollow(p1)?.taskId)
+		// Nothing running, or no task: nothing to follow.
+		val done = lbWireJson.decodeFromString(
+			LbDiscography.serializer(), """{"indexed":true,"scan":{"state":"done","taskId":"t","done":40,"total":40}}"""
+		)
+		assertEquals(null, runningScanToFollow(done))
+	}
+
+	@Test
+	fun only_mbid_is_required_reads_as_older() {
+		assertTrue(scanByNdIdRefused(LbBotManager.LbError.Rejected(400, "mbid is required")))
+		assertTrue(scanByNdIdRefused(LbBotManager.LbError.Rejected(400, " MBID is required ")))
+		// Any other 400 is a scan that did not start, not an older lb-bot.
+		assertFalse(scanByNdIdRefused(LbBotManager.LbError.Rejected(400, "nd_id is not a library artist")))
+		assertFalse(scanByNdIdRefused(LbBotManager.LbError.Rejected(400, "")))
+		assertEquals(
+			LbRescanStart.NotStarted,
+			rescanStartOf(answer = null, error = LbBotManager.LbError.Rejected(400, "bad request"), sentMbid = false)
+		)
 	}
 }

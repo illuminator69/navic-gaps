@@ -53,6 +53,8 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbCachePolicy
 import paige.navic.domain.manager.LbDiscography
 import paige.navic.ui.screens.artist.discographyUnresolved
+import paige.navic.ui.screens.artist.runningScanToFollow
+import paige.navic.ui.screens.artist.unresolvedReadDue
 import paige.navic.domain.manager.LbIndexSync
 import paige.navic.domain.manager.LbLibraryEvent
 import paige.navic.domain.manager.LbMeta
@@ -161,7 +163,12 @@ data class DiscographyUi(
 	/** Worbus P1: lb-bot scanned this artist and found no MusicBrainz artist (its `unresolved`). */
 	val unresolved: Boolean = false,
 	/** Worbus P1: lb-bot answered a Scan now by Navidrome id with 400: older than that; today's page. */
-	val ndIdScanRefused: Boolean = false
+	val ndIdScanRefused: Boolean = false,
+	/**
+	 * Worbus P1: a scan this page watched landed with releases during this visit. The scan's slot then
+	 * says "Updated just now" instead of folding away as the releases land (`ArtistScanAction.Updated`).
+	 */
+	val justScanned: Boolean = false
 )
 
 /**
@@ -422,7 +429,7 @@ class ArtistDetailViewModel(
 						builtAlbums = domainAlbums
 						_discography.value = discographyUiFor(mirrored, sections, _discography.value, mirror = true)
 					}
-					askUnresolvedIfDue(mirrored)
+					askUnresolvedIfDue(mirrored, fromNetwork = false)
 				}
 
 				artistState.value = UiState.Success(
@@ -714,7 +721,7 @@ class ArtistDetailViewModel(
 			builtAlbums = albums
 			_discography.value = discographyUiFor(data, sections, _discography.value, mirror)
 		}
-		askUnresolvedIfDue(data)
+		askUnresolvedIfDue(data, fromNetwork = !mirror)
 		if (!mirror) followRunningScan(data)
 	}
 
@@ -738,7 +745,8 @@ class ArtistDetailViewModel(
 			scanShared = previous.scanShared,
 			scanDone = previous.scanDone,
 			scanTotal = previous.scanTotal,
-			ndIdScanRefused = previous.ndIdScanRefused
+			ndIdScanRefused = previous.ndIdScanRefused,
+			justScanned = previous.justScanned
 		)
 	} else {
 		DiscographyUi(
@@ -755,19 +763,21 @@ class ArtistDetailViewModel(
 			// lb-bot's own read says it; the mirror cannot, so a mirror row keeps what the read said
 			// for as long as it still looks like "no match" ([discographyUnresolved]).
 			unresolved = if (mirror) previous.unresolved && discographyUnresolved(data) else data.unresolved,
-			ndIdScanRefused = previous.ndIdScanRefused
+			ndIdScanRefused = previous.ndIdScanRefused,
+			justScanned = previous.justScanned
 		)
 	}
 
 	/**
 	 * Worbus P1: a mirrored row that looks like lb-bot's "no MusicBrainz match" (indexed, no MBID, no
-	 * releases) is asked about once per page, from lb-bot's own read, which says `unresolved`. An older
-	 * lb-bot does not: the page stays today's.
+	 * releases) is asked about once per page, from lb-bot's own read, which says `unresolved`. Not for
+	 * data that came from that read already ([fromNetwork]), and not for an older peer, whose answer
+	 * would carry no flag: today's page, with no extra read ([unresolvedReadDue]).
 	 */
 	private var unresolvedAsked = false
 
-	private fun askUnresolvedIfDue(data: LbDiscography) {
-		if (!discographyUnresolved(data) || unresolvedAsked) return
+	private fun askUnresolvedIfDue(data: LbDiscography, fromNetwork: Boolean) {
+		if (!unresolvedReadDue(data, fromNetwork, lbBotManager.isP1Peer, unresolvedAsked)) return
 		unresolvedAsked = true
 		viewModelScope.launch {
 			val read = lbBotManager.discography(artistId, _artistMbid.value.effective) ?: return@launch
@@ -780,14 +790,16 @@ class ArtistDetailViewModel(
 	/**
 	 * Worbus P1: a scan of this artist lb-bot is running that this page did not start (its background
 	 * worker's, or one from another device): followed like the page's own, so the page shows its counts
-	 * and fills in when it lands. Seen on the network read, which carries the scan record.
+	 * and fills in when it lands. Seen on the network read, which carries the scan record; only a P1
+	 * lb-bot's record ([runningScanToFollow]): an older lb-bot's page shows today's action.
 	 */
 	private fun followRunningScan(data: LbDiscography) {
-		val scan = data.scan?.takeIf { it.state == "running" && it.taskId.isNotBlank() } ?: return
+		val scan = runningScanToFollow(data) ?: return
 		if (scanJob?.isActive == true) return
 		val mbid = _artistMbid.value.effective
 		_discography.value = _discography.value.copy(
-			indexing = true, scanError = "", scanShared = false, scanDone = scan.done, scanTotal = scan.total
+			indexing = true, scanError = "", scanShared = false,
+			scanDone = scan.done ?: 0, scanTotal = scan.total ?: 0, justScanned = false
 		)
 		scanJob = viewModelScope.launch { followScan(mbid, scan.taskId, data.scannedAt.takeIf { data.indexed } ?: 0.0) }
 	}
@@ -807,7 +819,7 @@ class ArtistDetailViewModel(
 		scanJob?.cancel()
 		scanJob = viewModelScope.launch {
 			_discography.value = _discography.value.copy(
-				indexing = true, scanError = "", scanShared = false, scanDone = 0, scanTotal = 0
+				indexing = true, scanError = "", scanShared = false, scanDone = 0, scanTotal = 0, justScanned = false
 			)
 			val scannedAtBefore = scannedAtShown(mbid)
 			val start = lbBotManager.indexArtist(mbid, state.artist.name, state.artist.id)
@@ -861,7 +873,7 @@ class ArtistDetailViewModel(
 	 */
 	private suspend fun followScan(mbid: String, taskId: String, scannedAtBefore: Double) {
 		// A big discography takes 10-60s at MusicBrainz's one request a second.
-		val outcome = coroutineScope {
+		val answered = coroutineScope {
 			val viaMirror = async<LbScanOutcome> {
 				try {
 					LbScanOutcome.Done(
@@ -882,28 +894,36 @@ class ArtistDetailViewModel(
 				lbBotManager.awaitArtistScan(artistId, mbid, taskId, scannedAtBefore) { scan ->
 					// Worbus P1: lb-bot's counts, while this wait is still the page's.
 					if (scan.state == "running" && _discography.value.indexing) {
-						_discography.value = _discography.value.copy(scanDone = scan.done, scanTotal = scan.total)
+						_discography.value = _discography.value.copy(scanDone = scan.done ?: 0, scanTotal = scan.total ?: 0)
 					}
 				}
 			}
-			select<LbScanOutcome> {
-				viaMirror.onAwait { it }
-				viaPoll.onAwait { it }
+			select<Pair<LbScanOutcome, Boolean>> {
+				viaMirror.onAwait { it to false }
+				viaPoll.onAwait { it to true }
 			}.also {
 				viaMirror.cancel()
 				viaPoll.cancel()
 			}
 		}
+		val (outcome, fromNetwork) = answered
 		when (outcome) {
 			is LbScanOutcome.Done -> {
-				_discography.value = _discography.value.copy(indexing = false)
+				// Worbus P1: the slot says "Updated just now" rather than folding away as the releases
+				// land (it holds the reader's place at the end of the page).
+				_discography.value = _discography.value.copy(indexing = false, justScanned = true)
 				// A scan that lands with no MBID and no releases is asked about again ("no match").
 				unresolvedAsked = false
 				// The mirror Flow may already have painted this; applyLbData skips it then.
 				// A network Done for an artist the mirror does not hold yet is the one case
 				// where this paints the result.
 				applyLbData(outcome.data, mirror = fromMirror)
-				askUnresolvedIfDue(outcome.data)
+				// lb-bot's own read carries `unresolved`; the mirror's row is asked about.
+				if (fromNetwork && outcome.data.indexed) {
+					_discography.value = _discography.value.copy(unresolved = outcome.data.unresolved)
+				} else {
+					askUnresolvedIfDue(outcome.data, fromNetwork = false)
+				}
 			}
 			is LbScanOutcome.Failed -> _discography.value = _discography.value.copy(
 				indexing = false,

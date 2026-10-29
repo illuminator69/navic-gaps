@@ -1148,18 +1148,20 @@ class LbBotManager(
 		onScan: (LbArtistScan) -> Unit = {}
 	): LbScanOutcome {
 		val deadline = nowMs() + SCAN_WAIT_MS
-		// Worbus P1: every 3 s while lb-bot says the scan is running (the page shows its counts), back
-		// to the 15 s fallback once it says anything else. The first read is at once.
-		var interval = 0L
+		// Worbus P1: from a P1 peer the first read is at once and the next ones every 3 s while lb-bot's
+		// record says the scan is running (the page shows its counts); an older peer waits as it always
+		// did ([scanPollDelayMs]).
+		val p1Peer = isP1Peer
+		var interval = scanPollDelayMs(first = true, p1Peer = p1Peer, last = null)
 		while (nowMs() < deadline) {
 			if (interval > 0L) withTimeoutOrNull(interval) {
 				libraryEvents.first { it.event == EVENT_ARTIST_SCANNED && it.ndArtistId == ndId }
 			}
-			interval = SCAN_POLL_INTERVAL_MS
+			interval = scanPollDelayMs(first = false, p1Peer = p1Peer, last = null)
 			val data = discography(ndId, mbid) ?: continue
 			val scan = data.scan?.takeIf { it.taskId == taskId }
 			if (scan != null) onScan(scan)
-			if (scan?.state == "running") interval = SCAN_RUNNING_POLL_MS
+			interval = scanPollDelayMs(first = false, p1Peer = p1Peer, last = scan)
 			if (scan?.state == "failed") {
 				return LbScanOutcome.Failed(scan.error.ifBlank { "The discography scan failed" }, data)
 			}
@@ -4104,6 +4106,18 @@ private const val SCAN_POLL_INTERVAL_MS = 15_000L
 private const val SCAN_RUNNING_POLL_MS = 3_000L
 
 /**
+ * Worbus P1: how long [LbBotManager.awaitArtistScan] waits before its next read. The first read is at
+ * once only for a P1 peer ([p1Peer]); every later one is 3 s while the last record says a P1 lb-bot's
+ * scan is running (it carries counts to move), else the 15 s fallback. An older peer gets exactly
+ * today's wait: 15 s (or the `artistScanned` frame) before every read.
+ */
+internal fun scanPollDelayMs(first: Boolean, p1Peer: Boolean, last: LbArtistScan?): Long = when {
+	first -> if (p1Peer) 0L else SCAN_POLL_INTERVAL_MS
+	last?.state == "running" && last.hasCounts -> SCAN_RUNNING_POLL_MS
+	else -> SCAN_POLL_INTERVAL_MS
+}
+
+/**
  * The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. Since Worbus P1
  * any scan of the artist, lb-bot's background worker's included (`taskId` "auto-index"), with how far
  * it has got: [done] of [total] release groups, 0 of 0 while lb-bot is still listing them, and from an
@@ -4116,9 +4130,13 @@ data class LbArtistScan(
 	val taskId: String = "",
 	val startedAt: Double = 0.0,
 	val finishedAt: Double = 0.0,
-	val done: Int = 0,
-	val total: Int = 0
-)
+	/** Null from an older lb-bot, which keeps no counts: [hasCounts] is how a P1 record is told apart. */
+	val done: Int? = null,
+	val total: Int? = null
+) {
+	/** The record is a P1 lb-bot's: it carries its counts (0 of 0 while it lists the release groups). */
+	val hasCounts: Boolean get() = done != null && total != null
+}
 
 /**
  * Scan now's body. Worbus P1: [mbid] (and [name]) may be "", which [lbWireJson] leaves out: lb-bot then

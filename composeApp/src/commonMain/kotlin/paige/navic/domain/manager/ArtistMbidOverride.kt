@@ -121,9 +121,17 @@ sealed interface LbRescanStart {
 	data object Older : LbRescanStart
 }
 
-/** Worbus P1: lb-bot's answer to a scan with no MBID, from before it could resolve one itself. */
+/**
+ * Worbus P1: lb-bot's answer to a scan with no MBID, from before it could resolve one itself: 400
+ * `{"error": "mbid is required"}`, its own words. Any other 400 (a bad `nd_id`, a hub's own refusal) is
+ * a scan that did not start, not an older lb-bot.
+ */
 fun scanByNdIdRefused(error: LbBotManager.LbError): Boolean =
-	error is LbBotManager.LbError.Rejected && error.status == 400
+	error is LbBotManager.LbError.Rejected && error.status == 400 &&
+		error.message.trim().equals(LB_MBID_REQUIRED, ignoreCase = true)
+
+/** An older lb-bot's sentence for a discography scan sent without an MBID. */
+const val LB_MBID_REQUIRED = "mbid is required"
 
 /**
  * What a Scan now came to: [rescanStart] for an answer, and for a refusal of a request that sent no MBID

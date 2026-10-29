@@ -40,4 +40,26 @@ class HomeAnimateItemPlacementTest {
 			assertTrue("animateItem(" !in body, "$shelf: animateItem inside Fold is inert")
 		}
 	}
+
+	/**
+	 * Worbus P1: the index card's item is a root `Box` (its one pixel keeps the item laid out while the
+	 * card is folded), so the placement animation is the Box's: it takes `animateItem` in its own
+	 * arguments, and nothing inside it calls it again. Every Home item whose root is a `Box` is held to
+	 * the same rule.
+	 */
+	@Test
+	fun everyRootBoxAnimatesItsPlacementFromItsArguments() {
+		val boxes = Regex("""item\(key = "([^"]+)"\) \{\s*Box\(""").findAll(text).toList()
+		val keys = boxes.map { it.groupValues[1] }
+		assertTrue("index" in keys, "the index card's item is not a root Box any more: $keys")
+		for (m in boxes) {
+			val argsOpen = m.range.last
+			val args = span(argsOpen)
+			val bodyOpen = text.indexOf('{', argsOpen + args.length + 1)
+			val body = span(bodyOpen)
+			val item = m.groupValues[1]
+			assertTrue("animateItem(" in args, "$item: its root Box does not take animateItem")
+			assertTrue("animateItem(" !in body, "$item: animateItem below the root is inert")
+		}
+	}
 }

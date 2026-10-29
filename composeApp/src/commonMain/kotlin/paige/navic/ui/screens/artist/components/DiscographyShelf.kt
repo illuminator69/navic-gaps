@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -27,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -36,6 +40,7 @@ import navic.composeapp.generated.resources.action_choose_musicbrainz_artist
 import navic.composeapp.generated.resources.action_match_manually
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.artist_scan_count
+import navic.composeapp.generated.resources.artist_scan_updated
 import navic.composeapp.generated.resources.artist_unresolved
 import navic.composeapp.generated.resources.action_index_artist
 import navic.composeapp.generated.resources.action_rescan_discography
@@ -81,8 +86,10 @@ import paige.navic.ui.util.rememberFoldMotion
  */
 /**
  * Worbus P1: which state the scan is in is [artistScanAction]'s; this draws it. The slot folds in and
- * out with the page's fold motion and cross-fades between states, so the page never jumps: Scan now,
- * then "Searching MusicBrainz… 3 of 10" over a bar, then nothing once the releases land above it.
+ * out with the page's fold motion and cross-fades between states: Scan now, then "Searching
+ * MusicBrainz… 3 of 10" over a bar, then, once the releases land above it, "Updated just now" at the
+ * slot's last height. Folding it away in that frame shortened the page under a reader at its end, and
+ * the scroll offset clamped: the page jumped by the slot's height (about 228 px on the AVD).
  *
  * [mbid] is the effective MBID (override, else tag); [scanByNdId] lb-bot can scan without one
  * ([scanByNdIdOffered]); [onChooseMbid] opens the MusicBrainz picker, null where there is none (the
@@ -102,6 +109,9 @@ fun DiscographyScanAction(
 	var shown by remember { mutableStateOf<ArtistScanAction>(ArtistScanAction.None) }
 	if (action != ArtistScanAction.None && action != shown) shown = action
 	val motion = rememberFoldMotion()
+	// The slot's height before it said "Updated": the line holds it, so nothing below moves up.
+	val density = LocalDensity.current
+	var held by remember { mutableStateOf(0.dp) }
 	Fold(visible = action != ArtistScanAction.None) {
 		AnimatedContent(
 			targetState = shown,
@@ -111,10 +121,12 @@ fun DiscographyScanAction(
 				fadeIn(motion.effects()) togetherWith fadeOut(motion.effects()) using
 					SizeTransform(clip = false) { _, _ -> snap() }
 			},
-			modifier = Modifier.animateContentSize(motion.spatial<IntSize>()),
+			modifier = Modifier
+				.animateContentSize(motion.spatial<IntSize>())
+				.onSizeChanged { if (shown != ArtistScanAction.Updated) held = with(density) { it.height.toDp() } },
 			label = "artistScanAction"
 		) { current ->
-			ScanActionContent(current, ui, onIndex, onChooseMbid)
+			ScanActionContent(current, ui, onIndex, onChooseMbid, minHeight = if (current == ArtistScanAction.Updated) held else 0.dp)
 		}
 	}
 }
@@ -124,14 +136,22 @@ private fun ScanActionContent(
 	action: ArtistScanAction,
 	ui: DiscographyUi,
 	onIndex: () -> Unit,
-	onChooseMbid: (() -> Unit)?
+	onChooseMbid: (() -> Unit)?,
+	minHeight: Dp = 0.dp
 ) {
 	Column(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-		horizontalAlignment = Alignment.CenterHorizontally
+		modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).padding(horizontal = 16.dp, vertical = 8.dp),
+		horizontalAlignment = Alignment.CenterHorizontally,
+		verticalArrangement = Arrangement.Center
 	) {
 		when (action) {
 			ArtistScanAction.None -> Unit
+			// The quiet line a finished scan leaves, at the height the scan had.
+			ArtistScanAction.Updated -> Text(
+				stringResource(Res.string.artist_scan_updated),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant
+			)
 			is ArtistScanAction.Scanning -> {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					CircularProgressIndicator(Modifier.size(18.dp))
@@ -186,9 +206,23 @@ private fun ScanActionContent(
 				Button(onClick = { onChooseMbid?.invoke() }) {
 					Text(stringResource(Res.string.action_choose_musicbrainz_artist))
 				}
+				// Why there is a picker and no scan (today's line under it).
+				Text(
+					stringResource(Res.string.info_index_needs_mbid),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					textAlign = TextAlign.Center,
+					modifier = Modifier.padding(top = 6.dp)
+				)
 			}
-			ArtistScanAction.NeedsMbid -> {
-				Button(onClick = onIndex, enabled = false) { Text(stringResource(Res.string.action_index_artist)) }
+			is ArtistScanAction.NeedsMbid -> {
+				Button(onClick = onIndex, enabled = false) {
+					Text(
+						stringResource(
+							if (action.rescan) Res.string.action_rescan_discography else Res.string.action_index_artist
+						)
+					)
+				}
 				// A disabled button explains nothing on its own, and this one has a real reason.
 				Text(
 					stringResource(Res.string.info_index_needs_mbid),
