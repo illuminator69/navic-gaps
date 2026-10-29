@@ -151,6 +151,15 @@ fun HomeScreen() {
 	val frequent by viewModel.frequent.collectAsStateWithLifecycle()
 	val mixTiles by viewModel.mixTiles.collectAsStateWithLifecycle()
 	val shell = koinInject<ShellController>()
+	// Worbus P1: lb-bot's first index build, while lb-bot is up (the hub keeps the last progress while
+	// it is away).
+	val lbBot = koinInject<LbBotManager>()
+	val indexProgress by lbBot.indexProgress.collectAsStateWithLifecycle()
+	val lbAvailable by lbBot.available.collectAsStateWithLifecycle()
+	val bar = indexBar(indexProgress, lbAvailable)
+	// The card keeps the last count while it folds away.
+	var shownBar by remember { mutableStateOf<IndexBar?>(null) }
+	if (bar != null && bar != shownBar) shownBar = bar
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val moodCatalogue by viewModel.moodCatalogue.collectAsStateWithLifecycle()
@@ -173,7 +182,8 @@ fun HomeScreen() {
 		freshCount = fresh.size,
 		playedCount = played.size,
 		frequentCount = frequent.size,
-		mixTileCount = mixTiles.size
+		mixTileCount = mixTiles.size,
+		indexBar = bar
 	)
 	// Waiting is not empty: a section whose first read is out shows tinted boxes of its final size.
 	val recentWaiting = recentAlbums.isEmpty() && (recent is UiState.Loading || syncing)
@@ -329,6 +339,14 @@ fun HomeScreen() {
 						onSeeAll = dropUnlessResumed { backStack.add(Screen.SavedQueues) }
 					)
 					}
+				}
+			}
+
+			// Worbus P1: always one item, so the card folds out as well as in (an item that left with its
+			// section would go at once); its height is 0 without a build.
+			item(key = "index") {
+				Fold(visible = shelves && HomeSection.IndexProgress in sections, modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
+					shownBar?.let { IndexProgressCard(it) }
 				}
 			}
 

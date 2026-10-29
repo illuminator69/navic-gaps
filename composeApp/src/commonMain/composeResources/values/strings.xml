@@ -1563,6 +1563,8 @@
 	<string name="request_downloads_off">This server isn't set up to get albums.</string>
 	<string name="wishlist_saved_off">Saved for when your server can get albums</string>
 	<string name="info_wishlist_empty_hint_off">Add an album from its page and it waits here. Worbus looks for it once your server is set up to get albums.</string>
+	<string name="home_index_title">Indexing your library</string>
+	<string name="home_index_left">%1$s of %2$s artists left</string>
 	<string name="find_it_title">Find it</string>
 	<string name="find_it_search">Search %1$s</string>
 	<string name="find_it_service_bandcamp">Bandcamp</string>

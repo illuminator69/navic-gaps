@@ -1,5 +1,10 @@
 package paige.navic.ui.screens.home
 
+import paige.navic.domain.manager.LbIndexProgress
+import paige.navic.ui.components.common.FillText
+import paige.navic.ui.screens.radio.custom.formatCount
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.home_index_left
 import paige.navic.ui.screens.fresh.viewmodels.FreshFilters
 import paige.navic.ui.screens.fresh.viewmodels.FreshScope
 import paige.navic.ui.screens.fresh.viewmodels.FreshSort
@@ -115,7 +120,7 @@ fun continueListening(
 	.take(limit)
 
 /** Home's sections, in the order the page draws them. */
-enum class HomeSection { ContinueListening, RecentlyAdded, Fresh, RecentlyPlayed, FrequentlyPlayed, YourMixes }
+enum class HomeSection { ContinueListening, IndexProgress, RecentlyAdded, Fresh, RecentlyPlayed, FrequentlyPlayed, YourMixes }
 
 /** How many albums Recently played and Frequently played each read (P6). */
 const val HOME_ALBUMS_PER_SHELF = 12
@@ -136,9 +141,12 @@ fun homeSections(
 	freshCount: Int,
 	playedCount: Int,
 	frequentCount: Int,
-	mixTileCount: Int
+	mixTileCount: Int,
+	/** Worbus P1: lb-bot's index build ([indexBar]); null is no bar. */
+	indexBar: IndexBar? = null
 ): List<HomeSection> = buildList {
 	if (queueCount > 0) add(HomeSection.ContinueListening)
+	if (indexBar != null) add(HomeSection.IndexProgress)
 	if (recentCount > 0) add(HomeSection.RecentlyAdded)
 	if (freshAvailable && freshCount > 0) add(HomeSection.Fresh)
 	if (playedCount > 0) add(HomeSection.RecentlyPlayed)
@@ -176,3 +184,27 @@ fun mixTiles(mixes: List<Mix>, yourMixAvailable: Boolean): List<MixTile> = build
  */
 fun continueStartsExpanded(nothingPlaying: Boolean, queueCount: Int): Boolean =
 	nothingPlaying && queueCount > 0
+
+/**
+ * Worbus P1: Home's index bar, lb-bot's first index build: [left] artists of [total] still to scan,
+ * [current] the one being scanned now ("" when lb-bot names none).
+ */
+data class IndexBar(val left: Int, val total: Int, val current: String) {
+	/** How much of the library is indexed: the bar fills as [left] goes down. */
+	val fraction: Float get() = if (total > 0) ((total - left).coerceIn(0, total)) / total.toFloat() else 0f
+}
+
+/**
+ * The bar, or none. Shown while lb-bot is up and says artists are left; lb-bot's last push of a build
+ * says 0 and the bar goes; no progress at all (an older hub or lb-bot, no build, its auto-index off) is
+ * no bar. The hub keeps the last progress while lb-bot is away, so an lb-bot that is not available
+ * shows none either.
+ */
+fun indexBar(progress: LbIndexProgress?, lbAvailable: Boolean): IndexBar? =
+	progress?.takeIf { lbAvailable && it.unindexed > 0 }?.let { IndexBar(it.unindexed, it.total, it.current) }
+
+/** The bar's second line: "412 of 2,337 artists left", then the artist being scanned when lb-bot names one. */
+fun indexBarLine(bar: IndexBar): FillText {
+	val counts = FillText.Res(Res.string.home_index_left, listOf(formatCount(bar.left), formatCount(bar.total)))
+	return if (bar.current.isBlank()) counts else FillText.Joined(listOf(counts, FillText.Raw(bar.current)))
+}
