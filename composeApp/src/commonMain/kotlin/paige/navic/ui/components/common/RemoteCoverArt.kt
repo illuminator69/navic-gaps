@@ -18,7 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
-import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -90,11 +90,12 @@ fun RemoteCoverArt(
 		)
 
 	if (url.isNullOrBlank()) return Box(commonModifier)
-	SubcomposeAsyncImage(
+	// AsyncImage (row 12): a failure draws nothing over the placeholder box, as the empty error
+	// slot did, with no subcomposition per tile.
+	AsyncImage(
 		model = model,
 		contentDescription = contentDescription,
 		modifier = commonModifier,
-		contentScale = ContentScale.Crop,
-		error = { Box(Modifier) }
+		contentScale = ContentScale.Crop
 	)
 }

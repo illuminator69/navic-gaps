@@ -20,6 +20,8 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,7 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.ImageLoader
-import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
@@ -161,61 +163,70 @@ fun CoverArt(
 	// worked out now, at low priority, and the page it opens is coloured in its first frame.
 	val prefetcher = koinInject<CoverSeedPrefetcher>()
 	LaunchedEffect(coverArtId) { prefetcher.request(coverArtId) }
-	SubcomposeAsyncImage(
-		model = model,
-		imageLoader = imageLoader,
-		contentDescription = contentDescription,
-		modifier = commonModifier,
-		contentScale = contentScale,
-		error = {
-			LaunchedEffect(it.result.throwable) {
-				Logger.w(
-					"CoverArt",
-					"Failed to load cover art, falling back to placeholder",
-					it.result.throwable
+	// AsyncImage, not SubcomposeAsyncImage (row 12, adapted from upstream f9f69ef0): subcomposition
+	// per tile was the cost of an error slot nearly no tile ever shows. A failure is noted from
+	// `onError` and the error content then takes the image's place, in the same box.
+	var failure by remember(model) { mutableStateOf<Throwable?>(null) }
+	val failed = failure
+	if (failed == null) {
+		AsyncImage(
+			model = model,
+			imageLoader = imageLoader,
+			contentDescription = contentDescription,
+			modifier = commonModifier,
+			contentScale = contentScale,
+			onError = { failure = it.result.throwable }
+		)
+		return
+	}
+	Box(commonModifier, contentAlignment = Alignment.Center, propagateMinConstraints = true) {
+		LaunchedEffect(failed) {
+			Logger.w(
+				"CoverArt",
+				"Failed to load cover art, falling back to placeholder",
+				failed
+			)
+		}
+		if (fallbackAlbumId != null) {
+			val albumDao = koinInject<AlbumDao>()
+			val fallback by produceState<String?>(FALLBACK_PENDING, fallbackAlbumId) {
+				value = try {
+					albumDao.getAlbumCoverArtId(fallbackAlbumId)
+				} catch (e: Exception) {
+					null
+				}
+			}
+			if (fallback == FALLBACK_PENDING) return@Box
+			val albumCover = fallback
+			if (!albumCover.isNullOrBlank() && albumCover != coverArtId) {
+				CoverArt(
+					coverArtId = albumCover,
+					modifier = Modifier.fillMaxSize(),
+					contentScale = contentScale,
+					square = false,
+					crossfadeMs = 0,
+					shape = shape
 				)
-			}
-			if (fallbackAlbumId != null) {
-				val albumDao = koinInject<AlbumDao>()
-				val fallback by produceState<String?>(FALLBACK_PENDING, fallbackAlbumId) {
-					value = try {
-						albumDao.getAlbumCoverArtId(fallbackAlbumId)
-					} catch (e: Exception) {
-						null
-					}
-				}
-				if (fallback == FALLBACK_PENDING) return@SubcomposeAsyncImage
-				val albumCover = fallback
-				if (!albumCover.isNullOrBlank() && albumCover != coverArtId) {
-					CoverArt(
-						coverArtId = albumCover,
-						modifier = Modifier.fillMaxSize(),
-						contentScale = contentScale,
-						square = false,
-						crossfadeMs = 0,
-						shape = shape
-					)
-					return@SubcomposeAsyncImage
-				}
-			}
-			LazyColumn(
-				horizontalAlignment = Alignment.CenterHorizontally,
-				verticalArrangement = Arrangement.Center
-			) {
-				item { Icon(Icons.Outlined.Error, null) }
-				item {
-					Text(
-						stringResource(Res.string.info_image_failed_to_load),
-						maxLines = 1,
-						autoSize = TextAutoSize.StepBased(
-							minFontSize = 1.sp,
-							maxFontSize = 14.sp
-						),
-						fontFamily = defaultFont(grade = 10, round = 100f),
-						modifier = Modifier.semantics { hideFromAccessibility() }
-					)
-				}
+				return@Box
 			}
 		}
-	)
+		LazyColumn(
+			horizontalAlignment = Alignment.CenterHorizontally,
+			verticalArrangement = Arrangement.Center
+		) {
+			item { Icon(Icons.Outlined.Error, null) }
+			item {
+				Text(
+					stringResource(Res.string.info_image_failed_to_load),
+					maxLines = 1,
+					autoSize = TextAutoSize.StepBased(
+						minFontSize = 1.sp,
+						maxFontSize = 14.sp
+					),
+					fontFamily = defaultFont(grade = 10, round = 100f),
+					modifier = Modifier.semantics { hideFromAccessibility() }
+				)
+			}
+		}
+	}
 }
