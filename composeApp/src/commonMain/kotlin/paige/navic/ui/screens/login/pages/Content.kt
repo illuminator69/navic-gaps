@@ -46,6 +46,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_log_in
 import navic.composeapp.generated.resources.action_open_settings
 import navic.composeapp.generated.resources.info_login_description
+import navic.composeapp.generated.resources.info_login_sign_in_again
 import navic.composeapp.generated.resources.notice_local_network_denied
 import navic.composeapp.generated.resources.notice_notifications_denied
 import navic.composeapp.generated.resources.option_custom_headers
@@ -157,6 +158,15 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 					text = stringResource(Res.string.info_login_description),
 					modifier = Modifier.padding(horizontal = 16.dp)
 				)
+				// B-279: a session whose password could not be read here (a restore, a transfer, a lost key).
+				if (viewModel.signInAgain) {
+					Spacer(Modifier.height(8.dp))
+					Text(
+						text = stringResource(Res.string.info_login_sign_in_again),
+						color = MaterialTheme.colorScheme.error,
+						modifier = Modifier.padding(horizontal = 16.dp)
+					)
+				}
 
 				Spacer(Modifier.height(8.dp))
 

@@ -35,7 +35,8 @@ import paige.navic.util.Logger
  */
 class NativeApiManager(
 	private val settings: Settings,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val secrets: SecretStore
 ) {
 	private var token: String? = null
 
@@ -57,7 +58,7 @@ class NativeApiManager(
 			preferenceManager.customHeadersMap().forEach { (key, value) -> header(key, value) }
 			setBody(buildJsonObject {
 				put("username", settings.getString("username", ""))
-				put("password", settings.getString("password", ""))
+				put("password", secrets.navidromePassword)
 			}.toString())
 		}.body()
 		val newToken = response["token"]?.jsonPrimitive?.content

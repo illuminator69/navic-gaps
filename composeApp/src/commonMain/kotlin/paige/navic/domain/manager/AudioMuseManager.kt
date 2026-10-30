@@ -41,7 +41,8 @@ import androidx.compose.runtime.LaunchedEffect
  */
 class AudioMuseManager(
 	private val settings: Settings,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val secrets: SecretStore
 ) {
 	/** Which service a call is going to, and how it authenticates. */
 	private data class Endpoint(val base: String, val token: String, val viaHub: Boolean)
@@ -152,7 +153,7 @@ class AudioMuseManager(
 					parameter("n", count)
 					if (!ep.viaHub) {
 						parameter("navidrome_user", settings.getString("username", ""))
-						parameter("navidrome_password", settings.getString("password", ""))
+						parameter("navidrome_password", secrets.navidromePassword)
 					}
 				}.body()
 			results.map { it.itemId }

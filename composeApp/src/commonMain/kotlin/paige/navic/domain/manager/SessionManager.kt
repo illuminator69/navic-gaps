@@ -36,7 +36,9 @@ import kotlin.random.Random
 
 class SessionManager(
 	private val settings: Settings,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	// B-279: the password is sealed there, and read only through it.
+	private val secrets: SecretStore
 ) {
 	private val _isLoggedIn = MutableStateFlow(false)
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
@@ -73,13 +75,26 @@ class SessionManager(
 	var api: SubsonicClient = createClient(
 		instanceUrl = settings.getString("instanceUrl", ""),
 		username = settings.getString("username", ""),
-		password = settings.getString("password", ""),
+		password = secrets.navidromePassword,
 	)
 		private set
 
 	init {
-		_isLoggedIn.value = settings.getStringOrNull("username") != null
+		// A username with no password is not a session: the password could not be read on this
+		// device (its Keystore key did not come with a restore or a transfer) or was never moved
+		// here. The login screen then asks again, with the server and name filled in (B-279).
+		_isLoggedIn.value = settings.getStringOrNull("username") != null && secrets.navidromePassword.isNotEmpty()
 		if (_isLoggedIn.value) getCachedUser()
+	}
+
+	/**
+	 * The server and name of a session whose password is missing, for the login screen to fill
+	 * in; null when there is none (never logged in, or logged out).
+	 */
+	fun signInAgainAs(): Pair<String, String>? {
+		if (_isLoggedIn.value) return null
+		val username = settings.getStringOrNull("username") ?: return null
+		return settings.getString("instanceUrl", "") to username
 	}
 
 	private fun createClient(
@@ -143,7 +158,7 @@ class SessionManager(
 
 		settings["instanceUrl"] = instanceUrl
 		settings["username"] = username
-		settings["password"] = password
+		secrets.navidromePassword = password
 
 		api = client
 		_isLoggedIn.value = true
@@ -151,7 +166,8 @@ class SessionManager(
 
 	fun logout() {
 		settings["username"] = null
-		settings["password"] = null
+		// The password and both tokens (B-279): a logout leaves no secret on the device.
+		secrets.clearAll()
 		_isLoggedIn.value = false
 		currentUser = null
 	}
@@ -160,7 +176,7 @@ class SessionManager(
 		api = createClient(
 			instanceUrl = settings.getString("instanceUrl", ""),
 			username = settings.getString("username", ""),
-			password = settings.getString("password", ""),
+			password = secrets.navidromePassword,
 		)
 	}
 
@@ -208,7 +224,7 @@ class SessionManager(
 	suspend fun fetchAlbumArtists(): List<RawArtist> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -255,7 +271,7 @@ class SessionManager(
 	suspend fun fetchArtistInfo2(artistId: String, maxSimilar: Int = 20): ArtistInfo2Dto? {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -289,7 +305,7 @@ class SessionManager(
 	suspend fun fetchSimilarSongIds(id: String, count: Int = 50): List<String> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -323,7 +339,7 @@ class SessionManager(
 	suspend fun fetchOpenSubsonicExtensions(): List<String> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -370,7 +386,7 @@ class SessionManager(
 	): Boolean {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -422,7 +438,7 @@ class SessionManager(
 	suspend fun fetchSonicSimilarTrackIds(id: String, count: Int = 50): List<String> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -455,7 +471,7 @@ class SessionManager(
 	suspend fun findSonicPathIds(startId: String, endId: String, count: Int = 25): List<String> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -496,7 +512,7 @@ class SessionManager(
 	suspend fun fetchAllArtists(pageSize: Int = 500): List<RawArtist> {
 		val base = settings.getString("instanceUrl", "").trimEnd('/')
 		val username = settings.getString("username", "")
-		val password = settings.getString("password", "")
+		val password = secrets.navidromePassword
 
 		val salt = Random.nextBytes(12)
 			.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }

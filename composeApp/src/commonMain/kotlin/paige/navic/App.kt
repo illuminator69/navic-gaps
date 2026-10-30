@@ -218,6 +218,14 @@ fun App() {
 		val normalized = normalizedStack(backStack.toList())
 		if (normalized.size != backStack.size) backStack.add(0, normalized.first())
 	}
+	// B-279: a stack restored from before the session was lost (the password could not be read
+	// on this device) goes to the login screen instead of pages that can load nothing.
+	LaunchedEffect(isLoggedIn) {
+		if (!isLoggedIn && Screen.Login !in backStack) {
+			backStack.clear()
+			backStack.add(Screen.Login)
+		}
+	}
 	val snackBarState = remember { SnackbarHostState() }
 	val snackBarManager = koinInject<SnackBarManager>()
 

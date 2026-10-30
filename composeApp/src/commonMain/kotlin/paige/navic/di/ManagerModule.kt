@@ -21,6 +21,7 @@ import paige.navic.domain.manager.PlaylistDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.manager.SecretStore
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.ShellController
 import paige.navic.ui.viewmodel.RootEventBus
@@ -58,6 +59,9 @@ val managerModule = module {
 	singleOf(::AlbumModeSmartPlaylists)
 	singleOf(::SessionManager)
 	singleOf(::PreferenceManager)
+	// B-279: the password and the two tokens, sealed in their own file. The vault (the file and the
+	// cipher) is registered by each platform module; an explicit lambda for the default parameter.
+	single { SecretStore(get(), get()) }
 	singleOf(::AudioMuseManager)
 	// Lazy, unlike LbBotManager below: previews have no background work to resume —
 	// nothing is watched, nothing outlives the process — so the first screen that

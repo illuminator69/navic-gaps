@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -33,6 +34,13 @@ class LoginManager(
 	var usernameError by mutableStateOf(false)
 		private set
 	var passwordError by mutableStateOf(false)
+		private set
+
+	/**
+	 * A session whose password is missing on this device (B-279): the screen says why it asks
+	 * again, with the server and name already filled in.
+	 */
+	var signInAgain by mutableStateOf(false)
 		private set
 
 	fun validateInstance() {
@@ -69,6 +77,11 @@ class LoginManager(
 	}
 
 	fun loadUser() {
+		sessionManager.signInAgainAs()?.let { (instanceUrl, username) ->
+			signInAgain = true
+			if (instanceState.text.isEmpty()) instanceState.setTextAndPlaceCursorAtEnd(instanceUrl)
+			if (usernameState.text.isEmpty()) usernameState.setTextAndPlaceCursorAtEnd(username)
+		}
 		scope.launch {
 			if (sessionManager.isLoggedIn.value) {
 				loginState.value = LoginUiState.Success
@@ -116,6 +129,7 @@ class LoginManager(
 
 	fun logout() {
 		loginState.value = LoginUiState.Idle
+		signInAgain = false
 		sessionManager.logout()
 		scope.launch {
 			repository.removeEverything()

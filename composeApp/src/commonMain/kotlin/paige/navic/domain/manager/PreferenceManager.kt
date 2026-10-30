@@ -30,7 +30,9 @@ import paige.navic.domain.models.settings.ToolbarPosition
 import com.russhwolf.settings.Settings as KmpSettings
 
 class PreferenceManager(
-	settings: KmpSettings
+	settings: KmpSettings,
+	// B-279: the hub and AudioMuse tokens are SecretStore's; the two properties below pass through.
+	private val secrets: SecretStore
 ) : BasePreferenceManager(settings) {
     var queueInfoType by (preference(QueueInfoType.Full))
     var appIconVariant by preference(AppIconVariant.Default)
@@ -226,12 +228,18 @@ class PreferenceManager(
 	// navi-connect Tier 2: AudioMuse-AI core API (direct HTTP, Bearer token).
 	// Unlocks Sonic Fingerprint autoplay (+ later: adaptive/chat/mood search).
 	var audioMuseUrl by preference("")
-	var audioMuseToken by preference("")
+	/** Sealed in the secrets file (B-279); never a preference again. */
+	var audioMuseToken: String
+		get() = secrets.audioMuseToken
+		set(value) { secrets.audioMuseToken = value }
 
 	// navi-connect hub (Spotify-Connect-style remote control)
 	var hubEnabled by preference(false)
 	var hubUrl by preference("")
-	var hubToken by preference("")
+	/** Sealed in the secrets file (B-279); never a preference again. */
+	var hubToken: String
+		get() = secrets.hubToken
+		set(value) { secrets.hubToken = value }
 	var hubDeviceName by preference("Navic")
 	var hubDeviceId by preference("")
 	// Comma-joined device ids the user manually hid from the device picker.

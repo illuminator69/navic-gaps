@@ -32,6 +32,8 @@ import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.exoplayer.AudioGainProcessor
+import paige.navic.domain.manager.SecretVault
+import paige.navic.domain.manager.androidSecretVault
 import paige.navic.shared.AppPresence
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
@@ -110,6 +112,9 @@ actual val platformModule = module {
 	// What the hub is told this phone is, and its media volume, read from the system and set
 	// there. HubManager's other fork-only binding: lost, every launch fails the same way.
 	single<HubLocalDevice> { AndroidHubLocalDevice(androidApplication()) }
+	// B-279: the secrets file and its Keystore cipher, read by SecretStore only. Lost, the app dies
+	// at launch with NoDefinitionFoundException (PreferenceManager needs SecretStore).
+	single<SecretVault> { androidSecretVault(androidApplication()) }
 
 	// Eager: discovery has to already be running when the picker opens, and the bridge has to be
 	// up for the speaker to appear in OTHER clients' pickers whether or not this phone's UI is

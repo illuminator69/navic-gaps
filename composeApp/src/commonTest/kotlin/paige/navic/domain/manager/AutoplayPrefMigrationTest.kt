@@ -17,6 +17,8 @@ import kotlin.test.assertTrue
  */
 class AutoplayPrefMigrationTest {
 
+	private fun prefs(settings: Settings) = PreferenceManager(settings, testSecrets(settings))
+
 	private fun store(vararg ints: Pair<String, Int>) = MemorySettings().apply {
 		ints.forEach { (key, value) -> putInt(key, value) }
 	}
@@ -28,7 +30,7 @@ class AutoplayPrefMigrationTest {
 		for (mode in 0..3) {
 			for (character in 0..2) {
 				val settings = store("autoplayMode" to mode, "moodCharacter" to character)
-				val prefs = PreferenceManager(settings)
+				val prefs = prefs(settings)
 				assertEquals(expectedOn[mode], prefs.autoplayOn, "mode $mode")
 				assertEquals(expectedCharacter[character], prefs.stationCharacter, "character $character")
 				assertNull(settings.getIntOrNull("autoplayMode"), "the old key is removed")
@@ -40,14 +42,14 @@ class AutoplayPrefMigrationTest {
 	@Test
 	fun moodFlowAndTransitionMaestroLandOnOnAndExplore() {
 		// The plan's S6: an upgrade from Mood Flow + Transition Maestro.
-		val prefs = PreferenceManager(store("autoplayMode" to 3, "moodCharacter" to 2))
+		val prefs = prefs(store("autoplayMode" to 3, "moodCharacter" to 2))
 		assertTrue(prefs.autoplayOn)
 		assertEquals(StationCharacter.Explore, prefs.stationCharacter)
 	}
 
 	@Test
 	fun aFreshInstallIsOffAndBalanced() {
-		val prefs = PreferenceManager(MemorySettings())
+		val prefs = prefs(MemorySettings())
 		assertFalse(prefs.autoplayOn)
 		assertEquals(StationCharacter.Balanced, prefs.stationCharacter)
 	}
@@ -55,22 +57,22 @@ class AutoplayPrefMigrationTest {
 	@Test
 	fun theMigrationRunsOnceAndDoesNotOverruleALaterChoice() {
 		val settings = store("autoplayMode" to 1)
-		val first = PreferenceManager(settings)
+		val first = prefs(settings)
 		assertTrue(first.autoplayOn)
 		first.autoplayOn = false
 		// A later launch: nothing at the old key any more, and the user's Off stands.
-		val second = PreferenceManager(settings)
+		val second = prefs(settings)
 		assertFalse(second.autoplayOn)
 		// Even a stray old value written back is not read again.
 		settings.putInt("autoplayMode", 3)
-		assertFalse(PreferenceManager(settings).autoplayOn)
+		assertFalse(prefs(settings).autoplayOn)
 	}
 
 	@Test
 	fun anOrdinalThisBuildDoesNotKnowIsTheDefaultNotACrash() {
-		val prefs = PreferenceManager(store("moodCharacter" to 7, "theme" to 99))
+		val prefs = prefs(store("moodCharacter" to 7, "theme" to 99))
 		assertEquals(StationCharacter.Balanced, prefs.stationCharacter)
-		val negative = PreferenceManager(store("moodCharacter" to -1))
+		val negative = prefs(store("moodCharacter" to -1))
 		assertEquals(StationCharacter.Balanced, negative.stationCharacter)
 	}
 
@@ -85,6 +87,10 @@ class AutoplayPrefMigrationTest {
 		assertNull(StationCharacter.fromWire(""))
 	}
 }
+
+/** A [SecretStore] over [legacy], its secrets in memory and stored as they are. */
+internal fun testSecrets(legacy: Settings) =
+	SecretStore(legacy, SecretVault(MemorySettings(), PlainSecretCipher()), onError = { _, _ -> })
 
 /** An in-memory [Settings], for constructing [PreferenceManager] on the JVM. */
 internal class MemorySettings : Settings {

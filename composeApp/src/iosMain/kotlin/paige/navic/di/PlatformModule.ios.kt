@@ -22,6 +22,10 @@ import paige.navic.domain.manager.LinkManager
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.NoopCastBridgeStatus
 import paige.navic.domain.manager.PermissionManager
+import paige.navic.domain.manager.PlainSecretCipher
+import paige.navic.domain.manager.SecretVault
+import com.russhwolf.settings.NSUserDefaultsSettings
+import platform.Foundation.NSUserDefaults
 import paige.navic.domain.manager.PlainHubLocalDevice
 import paige.navic.domain.manager.DownloadForegroundController
 import paige.navic.domain.manager.HubLocalDevice
@@ -98,6 +102,11 @@ actual val platformModule = module {
 	}
 	// HubManager's second platform binding: a phone that reports no volume and sets none.
 	single<HubLocalDevice> { PlainHubLocalDevice() }
+	// B-279: the secrets in their own defaults suite. NOT encrypted on iOS (PlainSecretCipher):
+	// iOS does not ship, and this only has to compile.
+	single<SecretVault> {
+		SecretVault(NSUserDefaultsSettings(NSUserDefaults(suiteName = "navic_secrets")), PlainSecretCipher())
+	}
 	singleOf(::AppIconManager)
 	singleOf(::PermissionManager)
 	singleOf(::LinkManager)
