@@ -1,9 +1,6 @@
 package paige.navic.domain.manager
 
 import coil3.ImageLoader
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.size.Size
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.HttpTimeoutConfig
@@ -11,6 +8,7 @@ import io.ktor.client.plugins.onDownload
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -128,6 +126,7 @@ class DownloadManager(
 			notificationManager.cancelNotification(NotificationIds.DOWNLOAD_LIBRARY)
 			totalSongsToDownload = 0
 			completedSongsDownloaded = 0
+			forgetCoversOfThisRun()
 			// The queue drained. Nothing left to protect, and a service outliving
 			// its work is a permanent notification over an idle process.
 			foregroundController.stop(ForegroundReason.DOWNLOADS)
@@ -749,24 +748,61 @@ class DownloadManager(
 		}
 	}
 
+	/**
+	 * The covers this run of the queue has already put on disk, or found there (row 7, upstream
+	 * `45e24afa`'s seen-set). An album downloaded song by song asked for its cover twice per song
+	 * (the song's and the album's), with up to ten songs at once; cleared when the queue drains,
+	 * so a cover evicted since is fetched again next time.
+	 */
+	private val coversThisRun = mutableSetOf<String>()
+	private val coversMutex = Mutex()
+
+	/**
+	 * Put [coverId]'s cover in Coil's disk cache under its BARE id (B-038: an offline song row
+	 * falls back to its album's cover by that key), unless it is there already. The bytes go
+	 * straight to disk: a download only needs the disk entry, and asking Coil for it decoded a
+	 * bitmap at `Size.ORIGINAL` (the cover-art quality, 4096 px by default) per call. An entry
+	 * written with no metadata is one Coil's network fetcher serves as it is.
+	 */
 	private suspend fun cacheCoverArt(coverId: String?) {
 		if (coverId == null) return
+		if (!coversMutex.withLock { coversThisRun.add(coverId) }) return
+		val diskCache = imageLoader.diskCache ?: return
+		if (diskCache.openSnapshot(coverId)?.use { true } == true) return
 
-		Logger.i("DownloadManager", "caching cover art for $coverId")
-		val coverArtUrl = sessionManager.getCoverArtUrl(coverId)
-
-		val imageRequest = ImageRequest.Builder(coilPlatformContext)
-			.data(coverArtUrl)
-			.size(Size.ORIGINAL)
-			.memoryCacheKey(coverId)
-			.diskCacheKey(coverId)
-			.diskCachePolicy(CachePolicy.ENABLED)
-			.memoryCachePolicy(CachePolicy.DISABLED)
-			.build()
-
-		imageLoader.execute(imageRequest)
-		Logger.i("DownloadManager", "cached cover art for $coverId")
+		try {
+			Logger.i("DownloadManager", "caching cover art for $coverId")
+			val bytes = client.prepareRequest(sessionManager.getCoverArtUrl(coverId)) {
+				method = HttpMethod.Get
+			}.execute { response ->
+				if (!response.status.isSuccess()) {
+					throw IllegalStateException("Server answered ${response.status.value}")
+				}
+				val type = response.contentType()
+				if (type != null && NOT_AUDIO.any { type.match(it) }) {
+					throw IllegalStateException("Server sent an error instead of a cover")
+				}
+				response.bodyAsBytes()
+			}
+			if (bytes.isEmpty()) throw IllegalStateException("Server sent an empty cover")
+			val editor = diskCache.openEditor(coverId) ?: return
+			try {
+				diskCache.fileSystem.write(editor.data) { write(bytes) }
+				editor.commit()
+			} catch (e: Exception) {
+				editor.abort()
+				throw e
+			}
+			Logger.i("DownloadManager", "cached cover art for $coverId")
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			// Not a reason to fail the song: the cover is fetched again when a tile shows it.
+			coversMutex.withLock { coversThisRun.remove(coverId) }
+			Logger.w("DownloadManager", "could not cache cover art for $coverId", e)
+		}
 	}
+
+	private suspend fun forgetCoversOfThisRun() = coversMutex.withLock { coversThisRun.clear() }
 
 	private suspend fun cacheAlbumCoverArt(albumId: String?) {
 		if (albumId == null) return
