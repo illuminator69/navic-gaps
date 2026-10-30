@@ -15,6 +15,9 @@ import kotlin.test.assertTrue
 class SecretStoreTest {
 	private class FakeCipher(var key: Byte = 0x5A, var failSeal: Boolean = false) : SecretCipher {
 		var seals = 0
+		var opens = 0
+		/** A Keystore fault of the moment (`KeyStoreException`, a binder error): not the value's. */
+		var failOpen: Exception? = null
 		override val encrypts = true
 
 		override fun seal(plain: ByteArray): ByteArray {
@@ -25,7 +28,10 @@ class SecretStoreTest {
 		}
 
 		override fun open(sealed: ByteArray): ByteArray {
-			require(sealed.size >= 3 && sealed[2] == key) { "tag mismatch" }
+			opens++
+			failOpen?.let { throw it }
+			if (sealed.size < 3) throw SecretUnrecoverableException("too short")
+			if (sealed[2] != key) throw SecretUnrecoverableException("tag mismatch")
 			return sealed.copyOfRange(3, sealed.size).map { (it.toInt() xor key.toInt()).toByte() }.toByteArray()
 		}
 	}
@@ -189,19 +195,71 @@ class SecretStoreTest {
 	}
 
 	@Test
-	fun logoutClearsAllThree() {
+	fun aFaultOfTheMomentKeepsTheStoredValueAndTheNextReadTriesAgain() {
+		store().navidromePassword = "hunter2"
+		val sealed = vaultFile.getStringOrNull("password")!!
+		cipher.failOpen = IllegalStateException("KeyStoreException: the keystore is restarting")
+
+		val s = store()
+		assertEquals("", s.navidromePassword, "missing for this read")
+		assertEquals(sealed, vaultFile.getStringOrNull("password"), "the stored value is kept")
+		assertEquals(setOf(Secret.NavidromePassword), s.unreadable.value, "the login screen may say why")
+		assertTrue(errors.single().startsWith("NavidromePassword"))
+		assertFalse(errors.single().contains("hunter2"), "no secret in a log line")
+
+		// The miss is not kept: the next read asks the cipher again, and then it opens.
+		val opensBefore = cipher.opens
+		assertEquals("", s.navidromePassword)
+		assertEquals(opensBefore + 1, cipher.opens, "asked again, not answered from memory")
+		cipher.failOpen = null
+		assertEquals("hunter2", s.navidromePassword)
+		assertEquals(emptySet(), s.unreadable.value, "read after all")
+		assertEquals("hunter2", store().navidromePassword)
+	}
+
+	@Test
+	fun aFaultOfTheMomentNeverFallsBackToRemovingAnything() {
+		// Every exception that is not proof is a fault of the moment, whatever its type.
+		for (fault in listOf(IllegalStateException("binder"), RuntimeException("ProviderException"), IllegalArgumentException("x"))) {
+			store().hubToken = "tok"
+			cipher.failOpen = fault
+			assertEquals("", store().hubToken, "$fault")
+			assertTrue(vaultFile.getString("hubToken", "").startsWith(SecretStore.PREFIX), "$fault: kept")
+			cipher.failOpen = null
+			assertEquals("tok", store().hubToken, "$fault: readable again")
+		}
+	}
+
+	@Test
+	fun clearingOneSecretLeavesTheOthers() {
+		// What a logout does since the owner's ruling (2026-10-30): the password only.
 		legacy.putString("password", "hunter2")
 		val s = store()
 		s.hubToken = "tok"
 		s.audioMuseToken = "am"
 		s.navidromePassword
 
-		s.clearAll()
-		for (secret in Secret.entries) assertEquals("", s.get(secret), "$secret")
-		assertTrue(vaultFile.keys.isEmpty())
-		for (key in listOf("password", "hubToken", "audioMuseToken")) assertNull(legacy.getStringOrNull(key))
+		s.navidromePassword = ""
+		assertEquals("", s.navidromePassword)
+		assertEquals("tok", s.hubToken)
+		assertEquals("am", s.audioMuseToken)
+		assertEquals(setOf("hubToken", "audioMuseToken"), vaultFile.keys)
+		assertNull(legacy.getStringOrNull("password"))
 		val again = store()
-		for (secret in Secret.entries) assertEquals("", again.get(secret), "$secret after a restart")
+		assertEquals("", again.navidromePassword, "after a restart")
+		assertEquals("tok", again.hubToken)
+		assertEquals("am", again.audioMuseToken)
+	}
+
+	@Test
+	fun settingASecretClearsItsUnreadableMark() {
+		store().navidromePassword = "hunter2"
+		cipher.key = 0x11
+		val s = store()
+		s.navidromePassword
+		assertEquals(setOf(Secret.NavidromePassword), s.unreadable.value)
+		s.navidromePassword = "" // a logout
+		assertEquals(emptySet(), s.unreadable.value)
 	}
 
 	@Test

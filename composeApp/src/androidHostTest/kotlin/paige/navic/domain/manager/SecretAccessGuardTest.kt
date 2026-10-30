@@ -24,6 +24,10 @@ class SecretAccessGuardTest {
 		Regex("""\[\s*"$keys"\s*]"""),
 		Regex("""\b(var|val)\s+$keys\s+by\s+preference\b"""),
 		Regex("""\bpreference\(\s*"$keys""""),
+		// A named argument: `getString(key = "password", …)`, `preference(key = "hubToken")`.
+		Regex("""\bkey\s*=\s*"$keys""""),
+		// Where the store keeps a secret is the store's alone (`Secret.key` is private to it).
+		Regex("""\bSecret\.\w+\.key\b"""),
 	)
 
 	private fun rel(f: File) = f.invariantSeparatorsPath
@@ -77,14 +81,32 @@ class SecretAccessGuardTest {
 			"""var hubToken by preference("")""",
 			"""var audioMuseToken by preference("")""",
 			"""val x = settings.get<String>("audioMuseToken")""",
+			"""settings.getString(key = "password", defaultValue = "")""",
+			"""var hubToken by preference(key = "hubToken", default = "")""",
+			"""vault.settings.remove(Secret.HubToken.key)""",
 		)
 		for (line in bad) assertTrue(legacyAccess.any { it.containsMatchIn(line) }, line)
 		val fine = listOf(
 			"""put("password", secrets.navidromePassword)""",
 			"""put("token", preferenceManager.hubToken)""",
 			"""parameter("navidrome_password", secrets.navidromePassword)""",
+			"""val key = "passwordState"""",
+			"""Secret.HubToken.name""",
 		)
 		for (line in fine) assertTrue(legacyAccess.none { it.containsMatchIn(line) }, line)
+	}
+
+	@Test
+	fun noSecretIsKeptInSavedState() {
+		// A `rememberSaveable` value goes into the saved-state Bundle, which outlives the screen.
+		val saved = Regex("""rememberSaveable[^\n]*\b(hubToken|audioMuseToken|navidromePassword)\b""")
+		val offenders = sources.flatMap { f ->
+			f.readLines().mapIndexedNotNull { i, line ->
+				if (saved.containsMatchIn(line)) "${rel(f)}:${i + 1}: ${line.trim()}" else null
+			}
+		}
+		assertEquals(emptyList(), offenders)
+		assertTrue(saved.containsMatchIn("""var token by rememberSaveable { mutableStateOf(preferenceManager.hubToken) }"""))
 	}
 
 	@Test

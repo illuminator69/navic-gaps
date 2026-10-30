@@ -22,6 +22,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import okio.ByteString.Companion.encodeUtf8
+import paige.navic.di.synchronized
 import paige.navic.util.Logger
 
 /**
@@ -31,14 +33,15 @@ import paige.navic.util.Logger
  *
  * Auth: `POST {base}/auth/login {username,password}` returns a JWT in `token`;
  * subsequent requests carry `X-ND-Authorization: Bearer <token>`. The token is
- * cached and refreshed once on 401.
+ * cached and refreshed once on 401. It is cached for the server, user and password it was issued
+ * to ([NativeTokenCache]): after a logout or a login as anyone else it is never sent again.
  */
 class NativeApiManager(
 	private val settings: Settings,
 	private val preferenceManager: PreferenceManager,
 	private val secrets: SecretStore
 ) {
-	private var token: String? = null
+	private val tokens = NativeTokenCache()
 
 	private val client = HttpClient {
 		install(ContentNegotiation) {
@@ -52,18 +55,28 @@ class NativeApiManager(
 
 	private fun base(): String = settings.getString("instanceUrl", "").trimEnd('/')
 
+	private fun credentials() = NativeCredentials(base(), settings.getString("username", ""), secrets.navidromePassword)
+
+	/** The cached token, if it was issued to the credentials in force now. */
+	private val token: String?
+		get() = tokens.current(credentials().identity())
+
+	/** Forgets the token: logging out. */
+	fun forget() = tokens.clear()
+
 	private suspend fun login(): String {
-		val response: JsonObject = client.post("${base()}/auth/login") {
+		val credentials = credentials()
+		val response: JsonObject = client.post("${credentials.base}/auth/login") {
 			contentType(ContentType.Application.Json)
 			preferenceManager.customHeadersMap().forEach { (key, value) -> header(key, value) }
 			setBody(buildJsonObject {
-				put("username", settings.getString("username", ""))
-				put("password", secrets.navidromePassword)
+				put("username", credentials.username)
+				put("password", credentials.password)
 			}.toString())
 		}.body()
 		val newToken = response["token"]?.jsonPrimitive?.content
 			?: throw IllegalStateException("Navidrome login returned no token")
-		token = newToken
+		tokens.store(credentials.identity(), newToken)
 		return newToken
 	}
 
@@ -248,5 +261,38 @@ class NativeApiManager(
 			Logger.e("NativeApiManager", "updateSmartPlaylist failed", e)
 			Result.failure(e)
 		}
+	}
+}
+
+internal class NativeCredentials(val base: String, val username: String, val password: String) {
+	/** A digest of all three, so the cache keeps no second copy of the password. */
+	fun identity(): String = "$base\u0000$username\u0000$password".encodeUtf8().sha256().hex()
+}
+
+/**
+ * Navidrome's native token, kept only for the credentials it was issued to: [current] with any
+ * other identity (another server, user or password, or none after a logout) forgets it.
+ */
+internal class NativeTokenCache {
+	private val lock = Any()
+	private var token: String? = null
+	private var issuedTo: String? = null
+
+	fun current(identity: String): String? = synchronized(lock) {
+		if (identity != issuedTo) {
+			token = null
+			issuedTo = null
+		}
+		token
+	}
+
+	fun store(identity: String, token: String) = synchronized(lock) {
+		this.token = token
+		issuedTo = identity
+	}
+
+	fun clear() = synchronized(lock) {
+		token = null
+		issuedTo = null
 	}
 }

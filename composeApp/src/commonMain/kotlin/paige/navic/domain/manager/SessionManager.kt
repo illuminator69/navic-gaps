@@ -97,6 +97,14 @@ class SessionManager(
 		return settings.getString("instanceUrl", "") to username
 	}
 
+	/**
+	 * True only when a password was stored and could not be read on this launch (a key lost with a
+	 * restore, a corrupt value, a Keystore fault): then the login screen says why it asks again.
+	 * A username with no password stored at all (a device transfer, which never carries the
+	 * secrets file) is not this.
+	 */
+	fun passwordWasUnreadable(): Boolean = Secret.NavidromePassword in secrets.unreadable.value
+
 	private fun createClient(
 		instanceUrl: String,
 		username: String,
@@ -166,8 +174,9 @@ class SessionManager(
 
 	fun logout() {
 		settings["username"] = null
-		// The password and both tokens (B-279): a logout leaves no secret on the device.
-		secrets.clearAll()
+		// The Navidrome password only (B-279, the owner's ruling 2026-10-30): the hub and AudioMuse
+		// tokens are the household's hub's, not this Navidrome user's, and stay as they always did.
+		secrets.navidromePassword = ""
 		_isLoggedIn.value = false
 		currentUser = null
 	}

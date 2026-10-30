@@ -29,11 +29,11 @@ import paige.navic.domain.manager.HubNetworkKick
 import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.domain.manager.NotificationManager
+import paige.navic.domain.manager.SecretVault
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
-import paige.navic.exoplayer.AudioGainProcessor
-import paige.navic.domain.manager.SecretVault
 import paige.navic.domain.manager.androidSecretVault
+import paige.navic.exoplayer.AudioGainProcessor
 import paige.navic.shared.AppPresence
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel

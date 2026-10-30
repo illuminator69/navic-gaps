@@ -19,7 +19,9 @@ import paige.navic.ui.util.AddressUtil
 
 class LoginManager(
     private val repository: DbRepository,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    // B-279 review: its cached token is this user's; a logout forgets it.
+    private val nativeApi: NativeApiManager
 ) {
 	val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -38,8 +40,9 @@ class LoginManager(
 		private set
 
 	/**
-	 * A session whose password is missing on this device (B-279): the screen says why it asks
-	 * again, with the server and name already filled in.
+	 * A stored password that could not be read on this launch (B-279): the screen says why it
+	 * asks again. A session whose password is missing for any other reason (a device transfer)
+	 * only has its server and name filled in.
 	 */
 	var signInAgain by mutableStateOf(false)
 		private set
@@ -79,7 +82,7 @@ class LoginManager(
 
 	fun loadUser() {
 		sessionManager.signInAgainAs()?.let { (instanceUrl, username) ->
-			signInAgain = true
+			signInAgain = sessionManager.passwordWasUnreadable()
 			if (instanceState.text.isEmpty()) instanceState.setTextAndPlaceCursorAtEnd(instanceUrl)
 			if (usernameState.text.isEmpty()) usernameState.setTextAndPlaceCursorAtEnd(username)
 		}
@@ -134,6 +137,7 @@ class LoginManager(
 		// B-279: the login form outlives the session (a singleton), and kept the password typed.
 		passwordState.clearText()
 		sessionManager.logout()
+		nativeApi.forget()
 		scope.launch {
 			repository.removeEverything()
 		}

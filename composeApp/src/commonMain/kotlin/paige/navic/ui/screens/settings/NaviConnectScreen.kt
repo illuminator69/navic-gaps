@@ -83,11 +83,13 @@ fun NaviConnectScreen() {
 
 	var enabled by rememberSaveable { mutableStateOf(preferenceManager.hubEnabled) }
 	var url by rememberSaveable { mutableStateOf(preferenceManager.hubUrl) }
-	var token by rememberSaveable { mutableStateOf(preferenceManager.hubToken) }
+	// The two tokens are plain `remember` (B-279 review): a saveable value goes into the saved-state
+	// Bundle, which outlives the screen. Recreated, they are read again from the secrets store.
+	var token by remember { mutableStateOf(preferenceManager.hubToken) }
 	var deviceName by rememberSaveable { mutableStateOf(preferenceManager.hubDeviceName) }
 
 	var audioMuseUrl by rememberSaveable { mutableStateOf(preferenceManager.audioMuseUrl) }
-	var audioMuseToken by rememberSaveable { mutableStateOf(preferenceManager.audioMuseToken) }
+	var audioMuseToken by remember { mutableStateOf(preferenceManager.audioMuseToken) }
 
 	// Counts the saves. The hub's settings are plain preferences: writing them changes no
 	// Compose state, so with the hub out of reach (nothing else on this screen moves then)

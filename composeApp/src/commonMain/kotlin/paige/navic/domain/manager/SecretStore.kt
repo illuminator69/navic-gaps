@@ -13,15 +13,31 @@ import paige.navic.util.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-/**
- * The three secrets this app keeps, under the keys they had in the settings file before B-279.
- * The key names a value in the secrets file too.
- */
-enum class Secret(internal val key: String) {
-	NavidromePassword("password"),
-	HubToken("hubToken"),
-	AudioMuseToken("audioMuseToken")
+/** The three secrets this app keeps (B-279). */
+enum class Secret {
+	NavidromePassword,
+	HubToken,
+	AudioMuseToken
 }
+
+/**
+ * The key a secret had in the settings file before B-279, and has in the secrets file. Private to
+ * this file: nothing but [SecretStore] may name where a secret is stored (`SecretAccessGuardTest`).
+ */
+private val Secret.key: String
+	get() = when (this) {
+		Secret.NavidromePassword -> "password"
+		Secret.HubToken -> "hubToken"
+		Secret.AudioMuseToken -> "audioMuseToken"
+	}
+
+/**
+ * A stored value that can never be opened on this device: the key that sealed it is gone, it was
+ * sealed under another key, or it is not a sealed value at all. Removing it loses nothing.
+ * Anything else [SecretCipher.open] throws is a fault of the moment (the Keystore busy or
+ * restarting, a binder error) and the stored value is kept for a later read.
+ */
+class SecretUnrecoverableException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * Seals and opens a secret's bytes. Android: AES-256-GCM under a non-exportable Android
@@ -34,7 +50,11 @@ interface SecretCipher {
 
 	fun seal(plain: ByteArray): ByteArray
 
-	/** Throws when [sealed] cannot be opened: a key that is gone, a value that is corrupt. */
+	/**
+	 * Throws [SecretUnrecoverableException] when [sealed] can never be opened here (the key is gone
+	 * or is not the one that sealed it, the value is malformed), and anything else for a fault that
+	 * may pass.
+	 */
 	fun open(sealed: ByteArray): ByteArray
 }
 
@@ -65,9 +85,14 @@ class SecretVault(internal val settings: Settings, internal val cipher: SecretCi
  *   removed from the settings file, so a crash in between loses nothing: the next launch finds
  *   the sealed one and removes the leftover.
  *   A plaintext value found in the secrets file is sealed again.
- * - **What cannot be opened is dropped** (the Keystore key went with a restore or a transfer, a
- *   corrupt value): the stored value is removed, the secret reads as never set, and it is
- *   listed in [unreadable] for the login screen to say why it is asking again.
+ * - **Only what can never be opened is dropped** (the Keystore key did not come with a restore or a
+ *   transfer, a corrupt value: [SecretUnrecoverableException], bad base64, bytes that are not
+ *   UTF-8): the stored value is removed and the secret reads as never set.
+ * - **A fault of the moment keeps the stored value** (any other exception from the cipher): the
+ *   read is "" this once, nothing is removed and nothing is kept in memory, so the next read tries
+ *   again.
+ * - Either way the secret is listed in [unreadable] until a read or a set succeeds, for the login
+ *   screen to say why it is asking again.
  * - **A seal that fails stores nothing.** The value is kept in memory for this process only,
  *   never written in plaintext; a migration that cannot seal leaves the old value where it was.
  *
@@ -110,7 +135,9 @@ class SecretStore(
 
 	fun get(secret: Secret): String {
 		changes // read, so a set recomposes whoever read this
-		return synchronized(lock) { loaded.getOrPut(secret) { load(secret) } }
+		return synchronized(lock) {
+			loaded[secret] ?: load(secret)?.also { loaded[secret] = it } ?: ""
+		}
 	}
 
 	/** "" removes the secret. */
@@ -120,29 +147,32 @@ class SecretStore(
 			legacy.remove(secret.key)
 			loaded[secret] = value
 		}
-		if (value.isNotEmpty()) _unreadable.update { it - secret }
+		_unreadable.update { it - secret }
 		changes++
 	}
 
-	/** Every secret removed: logging out. */
-	fun clearAll() {
-		for (secret in Secret.entries) set(secret, "")
-		_unreadable.value = emptySet()
-	}
-
-	private fun load(secret: Secret): String {
+	/** The secret's value, or null for a miss that a later read should try again (not kept). */
+	private fun load(secret: Secret): String? {
 		var lost = false
 		val stored = vault.settings.getStringOrNull(secret.key)
 		if (stored != null) {
-			val opened = openStored(secret, stored)
-			if (opened != null) {
-				if (vault.cipher.encrypts && !stored.startsWith(PREFIX)) writeVault(secret, opened)
-				// A migration that stopped between its two steps left the old copy behind.
-				legacy.remove(secret.key)
-				return opened
+			when (val opened = openStored(secret, stored)) {
+				is Opened.Value -> {
+					if (vault.cipher.encrypts && !stored.startsWith(PREFIX)) writeVault(secret, opened.plain)
+					// A migration that stopped between its two steps left the old copy behind.
+					legacy.remove(secret.key)
+					_unreadable.update { it - secret }
+					return opened.plain
+				}
+				Opened.NotNow -> {
+					_unreadable.update { it + secret }
+					return null
+				}
+				Opened.Never -> {
+					vault.settings.remove(secret.key)
+					lost = true
+				}
 			}
-			vault.settings.remove(secret.key)
-			lost = true
 		}
 		val old = legacy.getStringOrNull(secret.key)
 		val result = when {
@@ -161,15 +191,37 @@ class SecretStore(
 		return result
 	}
 
-	/** The plaintext of a stored value, or null when it cannot be opened. */
-	private fun openStored(secret: Secret, stored: String): String? {
-		if (!stored.startsWith(PREFIX)) return stored
-		if (!vault.cipher.encrypts) return null
-		return try {
-			vault.cipher.open(Base64.decode(stored.removePrefix(PREFIX))).decodeToString(throwOnInvalidSequence = true)
+	private sealed interface Opened {
+		class Value(val plain: String) : Opened
+		/** Can never be opened here: the stored value is removed. */
+		data object Never : Opened
+		/** Could not be opened this time: the stored value is kept. */
+		data object NotNow : Opened
+	}
+
+	private fun openStored(secret: Secret, stored: String): Opened {
+		if (!stored.startsWith(PREFIX)) return Opened.Value(stored)
+		if (!vault.cipher.encrypts) return Opened.Never
+		val bytes = try {
+			Base64.decode(stored.removePrefix(PREFIX))
+		} catch (e: IllegalArgumentException) {
+			onError("${secret.name} is not a sealed value; it is dropped", e)
+			return Opened.Never
+		}
+		val plain = try {
+			vault.cipher.open(bytes)
+		} catch (e: SecretUnrecoverableException) {
+			onError("${secret.name} can never be opened on this device; it is dropped", e)
+			return Opened.Never
 		} catch (e: Exception) {
-			onError("${secret.name} could not be read; it is dropped", e)
-			null
+			onError("${secret.name} could not be opened this time; it is kept for the next read", e)
+			return Opened.NotNow
+		}
+		return try {
+			Opened.Value(plain.decodeToString(throwOnInvalidSequence = true))
+		} catch (e: CharacterCodingException) {
+			onError("${secret.name} did not open to text; it is dropped", e)
+			Opened.Never
 		}
 	}
 

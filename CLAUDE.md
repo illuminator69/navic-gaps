@@ -1365,10 +1365,18 @@ Rules, each with a reason:
   non-exportable Keystore key `navic_secrets_v1` (`KeystoreSecretCipher`, `androidSecretVault`,
   registered as `SecretVault` in **both** platform modules; iOS stores them **unencrypted**,
   `PlainSecretCipher`). A plaintext value under the old key in the settings file is sealed into the
-  secrets file when the store is made (at launch) and only then removed. A value that cannot be opened (the key did not
-  come with a restore or transfer, a corrupt value) reads as never set and is removed; a saved username
-  with no password is then not a session (`SessionManager.isLoggedIn`), so the app opens on the login
-  screen with the server and name filled in and says why. Logging out removes all three.
+  secrets file when the store is made (at launch) and only then removed. A value that can never be opened
+  (no key under the alias, a tag that does not verify, bad base64 or bytes that are not text:
+  `SecretUnrecoverableException` and the store's own checks) reads as never set and is removed; any other
+  failure (a Keystore fault of the moment) reads as missing for that read only, keeps the stored value and
+  is tried again on the next read. A saved username with no password is then not a session
+  (`SessionManager.isLoggedIn`), so the app opens on the login screen with the server and name filled in;
+  it says "couldn't be read" only when a stored password could not be read on this launch
+  (`SecretStore.unreadable`), not after a device transfer, which never carries one. **Logging out removes the
+  Navidrome password only** (the owner's ruling, 2026-10-30): the hub and AudioMuse tokens are the
+  household's hub's, not the Navidrome user's, and stay. Navidrome's native-API token is cached for the
+  server, user and password it was issued to (`NativeTokenCache`) and forgotten on logout. The tokens are
+  never in `rememberSaveable` (the saved-state Bundle).
   `SecretAccessGuardTest` fails when any other file reads the old keys or the secrets file: **a new
   reader of a secret goes through `SecretStore`**, never `settings`. The secrets file is excluded from
   cloud backup, device transfer and full backup; the settings file stays out of cloud backup and

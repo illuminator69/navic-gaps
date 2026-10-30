@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import com.russhwolf.settings.SharedPreferencesSettings
 import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -19,10 +20,12 @@ import javax.crypto.spec.GCMParameterSpec
 class KeystoreSecretCipher : SecretCipher {
 	override val encrypts = true
 
+	private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+
+	/** The key, made on the first seal. */
 	@Synchronized
 	private fun key(): SecretKey {
-		val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-		(keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+		(keyStore().getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
 		val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
 		generator.init(
 			KeyGenParameterSpec.Builder(
@@ -45,15 +48,32 @@ class KeystoreSecretCipher : SecretCipher {
 		return iv + cipher.doFinal(plain)
 	}
 
+	/**
+	 * [SecretUnrecoverableException] only on proof the value can never be opened here: too short
+	 * to be one, no key under the alias (it did not come with a restore or a transfer; opening
+	 * never makes one), or a tag that does not verify (another key sealed it, or it is corrupt).
+	 * Every other failure (`KeyStoreException`, `ProviderException`, a binder error…) is thrown
+	 * as it is, and the store keeps the value for a later read.
+	 */
 	override fun open(sealed: ByteArray): ByteArray {
-		require(sealed.size > IV_BYTES) { "sealed value too short" }
+		if (sealed.size <= IV_BYTES) throw SecretUnrecoverableException("sealed value too short")
+		val key = synchronized(this) {
+			val keyStore = keyStore()
+			if (!keyStore.containsAlias(KEY_ALIAS)) throw SecretUnrecoverableException("no key on this device")
+			keyStore.getKey(KEY_ALIAS, null) as? SecretKey
+				?: throw IllegalStateException("the key entry is not a secret key")
+		}
 		val cipher = Cipher.getInstance(TRANSFORMATION)
 		cipher.init(
 			Cipher.DECRYPT_MODE,
-			key(),
+			key,
 			GCMParameterSpec(TAG_BITS, sealed, 0, IV_BYTES)
 		)
-		return cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES)
+		return try {
+			cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES)
+		} catch (e: AEADBadTagException) {
+			throw SecretUnrecoverableException("the tag does not verify", e)
+		}
 	}
 
 	private companion object {
