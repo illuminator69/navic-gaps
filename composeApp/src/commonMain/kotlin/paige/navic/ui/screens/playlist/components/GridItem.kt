@@ -55,9 +55,6 @@ fun PlaylistListScreenGridItem(
 	val downloadManager = koinInject<DownloadManager>()
 	val nativeApi = koinInject<NativeApiManager>()
 	val albumMode = koinInject<AlbumModeSmartPlaylists>()
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(playlist.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 
 	Box(modifier) {
 		ArtGridItem(
@@ -88,7 +85,7 @@ fun PlaylistListScreenGridItem(
 		// API hides the edit row rather than offering an edit that cannot load.
 		var hasRules by remember(playlist.id) { mutableStateOf(false) }
 		var autoDownloadShown by remember { mutableStateOf(false) }
-		LaunchedEffect(playlist.id) {
+		if (selected) LaunchedEffect(playlist.id) {
 			// An album-mode playlist is an ordinary playlist on the server, so
 			// Navidrome rightly answers that it has no rules — its recipe is stored
 			// locally. Checked first, and it costs no network call.
@@ -96,6 +93,11 @@ fun PlaylistListScreenGridItem(
 				nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
 		}
 		if (selected) {
+			// Read only while its sheet is open (row 8), as the album tile does; null until it
+			// answers, so no "Download" is offered for a playlist already on the device.
+			val downloadStatus: DownloadStatus? by remember(downloadManager, playlist.id, playlist.songs.size) {
+				downloadManager.getCollectionDownloadStatus(playlist.songs.map { it.id })
+			}.collectAsState(initial = null)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = playlist,

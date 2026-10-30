@@ -77,9 +77,10 @@ fun CollectionDetailScreenHeadingRowButtons(
 	val downloadManager = koinInject<DownloadManager>()
 	val scope = rememberCoroutineScope()
 
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(collection.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+	// One flow per collection and song list, not one per recomposition.
+	val downloadStatus by remember(downloadManager, collection.id, collection.songs) {
+		downloadManager.getCollectionDownloadStatus(collection.songs.map { it.id })
+	}.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 
 	var downloadMenuOpen by remember { mutableStateOf(false) }
 

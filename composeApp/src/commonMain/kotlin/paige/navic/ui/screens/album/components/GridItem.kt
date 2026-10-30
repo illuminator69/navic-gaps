@@ -8,10 +8,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.dropUnlessResumed
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -24,6 +24,7 @@ import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainSong
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
@@ -53,7 +54,10 @@ fun AlbumListScreenGridItem(
 	val radioManager = koinInject<RadioManager>()
 	val scope = rememberCoroutineScope()
 
-	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	// The songs "Add to playlist" acts on, captured at the tap (null = no dialog). The sheet closes
+	// right after the tap and that clears the selection, so `album` is then the list's row again,
+	// which carries no songs (row 4a): a dialog reading `album.songs` added nothing.
+	var playlistSongs by remember { mutableStateOf<ImmutableList<DomainSong>?>(null) }
 
 	val downloadManager = koinInject<DownloadManager>()
 
@@ -76,9 +80,11 @@ fun AlbumListScreenGridItem(
 		if (selected) {
 			// Read only while its sheet is open (row 8): every tile used to watch the download
 			// table for a status nothing but the sheet shows.
-			val downloadStatus by remember(downloadManager, album.id, album.songs.size) {
+			// Null until the first answer: the sheet hides its download row rather than offer a
+			// "Download" for an album that is already on the device.
+			val downloadStatus: DownloadStatus? by remember(downloadManager, album.id, album.songs.size) {
 				downloadManager.getCollectionDownloadStatus(album.songs.map { it.id })
-			}.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+			}.collectAsState(initial = null)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = album,
@@ -106,7 +112,7 @@ fun AlbumListScreenGridItem(
 				},
 				starred = starred,
 				onSetStarred = onSetStarred,
-				onAddAllToPlaylist = { playlistDialogShown = true },
+				onAddAllToPlaylist = { playlistSongs = album.songs.toPersistentList() },
 				onViewArtist = dropUnlessResumed {
 					backStack.add(Screen.ArtistDetail(album.artistId))
 				},
@@ -115,10 +121,10 @@ fun AlbumListScreenGridItem(
 			)
 		}
 
-		if (playlistDialogShown) {
+		playlistSongs?.let { songs ->
 			PlaylistUpdateDialog(
-				songs = album.songs.toPersistentList(),
-				onDismissRequest = { playlistDialogShown = false }
+				songs = songs,
+				onDismissRequest = { playlistSongs = null }
 			)
 		}
 	}

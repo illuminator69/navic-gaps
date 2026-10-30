@@ -62,10 +62,11 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 				}
 			)
 			if (selectedAlbum != null && selectedAlbum == album) {
-				// Read only while its sheet is open (row 8).
-				val downloadStatus by downloadManager
-					.getCollectionDownloadStatus(album.songs.map { it.id })
-					.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+				// Read only while its sheet is open (row 8), one flow for the sheet's life; null until
+				// it answers, so no "Download" is offered for an album already on the device.
+				val downloadStatus: DownloadStatus? by remember(downloadManager, album.id, album.songs.size) {
+					downloadManager.getCollectionDownloadStatus(album.songs.map { it.id })
+				}.collectAsState(initial = null)
 				CollectionSheet(
 					onDismissRequest = onDeselect,
 					collection = album,

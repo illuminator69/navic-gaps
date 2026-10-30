@@ -106,9 +106,9 @@ fun LazyListScope.collectionDetailScreenSimilarAlbumsRow(
 				}
 			)
 			if (album != null && selectedAlbum != null && selectedAlbum == album) {
-				val downloadStatus by downloadManager
-					.getCollectionDownloadStatus(album.songs.map { it.id })
-					.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+				val downloadStatus: DownloadStatus? by remember(downloadManager, album.id, album.songs.size) {
+					downloadManager.getCollectionDownloadStatus(album.songs.map { it.id })
+				}.collectAsState(initial = null)
 				CollectionSheet(
 					onDismissRequest = onDeselect,
 					collection = album,

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -503,27 +504,32 @@ fun SearchScreen(
 		)
 	}
 
+	// The songs "Add to playlist" acts on, captured at the tap: the sheet closes right after it,
+	// which clears the selection and leaves the composition the sheet's own dialog was in.
+	var playlistSongs by remember { mutableStateOf<ImmutableList<DomainSong>?>(null) }
+
 	albumListSelection?.let { album ->
-		SearchAlbumSheet(album, albumListStarred, selectedAlbumRating, albumListViewModel, player)
+		SearchAlbumSheet(album, albumListStarred, selectedAlbumRating, albumListViewModel, player) {
+			playlistSongs = it
+		}
 	}
 
 	artistListSelection?.let { artist ->
-		var playlistDialogShown by remember(artist.id) { mutableStateOf(false) }
 		ArtistSheet(
 			onDismissRequest = { artistListViewModel.clearSelection() },
 			artist = artist,
 			onPlayNext = { artistListViewModel.playArtistAlbumsNext(player) },
 			onAddToQueue = { artistListViewModel.addArtistAlbumsToQueue(player) },
-			onAddAllToPlaylist = { playlistDialogShown = true },
+			onAddAllToPlaylist = {
+				playlistSongs = artistListSelectionAlbums?.flatMap { it.songs }.orEmpty().toPersistentList()
+			},
 			starred = artistListStarred,
 			onSetStarred = { artistListViewModel.starArtist(!artistListStarred) }
 		)
-		if (playlistDialogShown) {
-			PlaylistUpdateDialog(
-				songs = artistListSelectionAlbums?.flatMap { it.songs }.orEmpty().toPersistentList(),
-				onDismissRequest = { playlistDialogShown = false }
-			)
-		}
+	}
+
+	playlistSongs?.let { songs ->
+		PlaylistUpdateDialog(songs = songs, onDismissRequest = { playlistSongs = null })
 	}
 
 	selectedPlaylist?.let { playlist ->
@@ -862,17 +868,19 @@ private fun SearchAlbumSheet(
 	starred: Boolean,
 	rating: Int,
 	albumListViewModel: AlbumListViewModel,
-	player: MediaPlayerViewModel
+	player: MediaPlayerViewModel,
+	onAddToPlaylist: (ImmutableList<DomainSong>) -> Unit
 ) {
 	val backStack = LocalNavStack.current
 	val radioManager = koinInject<RadioManager>()
 	val downloadManager = koinInject<DownloadManager>()
 	val snackBarManager = koinInject<SnackBarManager>()
 	val scope = rememberCoroutineScope()
-	var playlistDialogShown by remember(album.id) { mutableStateOf(false) }
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(album.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+	// Remembered (a new flow per recomposition was a new collection); null until it answers, so
+	// the sheet offers no download action before it knows the album's state.
+	val downloadStatus: DownloadStatus? by remember(downloadManager, album.id, album.songs.size) {
+		downloadManager.getCollectionDownloadStatus(album.songs.map { it.id })
+	}.collectAsState(initial = null)
 	CollectionSheet(
 		onDismissRequest = { albumListViewModel.clearSelection() },
 		collection = album,
@@ -897,15 +905,9 @@ private fun SearchAlbumSheet(
 		},
 		starred = starred,
 		onSetStarred = { albumListViewModel.starAlbum(it) },
-		onAddAllToPlaylist = { playlistDialogShown = true },
+		onAddAllToPlaylist = { onAddToPlaylist(album.songs.toPersistentList()) },
 		onViewArtist = dropUnlessResumed { backStack.add(Screen.ArtistDetail(album.artistId)) },
 		rating = rating,
 		onSetRating = { albumListViewModel.setRating(it) }
 	)
-	if (playlistDialogShown) {
-		PlaylistUpdateDialog(
-			songs = album.songs.toPersistentList(),
-			onDismissRequest = { playlistDialogShown = false }
-		)
-	}
 }

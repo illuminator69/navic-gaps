@@ -96,9 +96,10 @@ fun PlaylistListScreenListItem(
 		if (selected) {
 			// Read only while its sheet is open (row 8): every tile used to watch the download
 			// table for a status nothing but the sheet shows.
-			val downloadStatus by remember(downloadManager, playlist.id, playlist.songs.size) {
+			// Null until it answers: no "Download" offered for a playlist already on the device.
+			val downloadStatus: DownloadStatus? by remember(downloadManager, playlist.id, playlist.songs.size) {
 				downloadManager.getCollectionDownloadStatus(playlist.songs.map { it.id })
-			}.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+			}.collectAsState(initial = null)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = playlist,
