@@ -33,6 +33,10 @@ interface SongDao {
 	@RawQuery
 	suspend fun getSongsByQuery(query: RoomRawQuery): List<SongEntity>
 
+	/** The Songs list's ids, in its order (`songListSql`); the rows are read typed (`rowsInOrder`). */
+	@RawQuery
+	suspend fun getSongIdsByQuery(query: RoomRawQuery): List<String>
+
 	@Query("SELECT SUM(playCount) FROM SongEntity")
 	fun getTotalPlayCount(): Flow<Int?>
 

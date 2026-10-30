@@ -45,11 +45,18 @@ interface AlbumDao {
 	suspend fun getAlbumsByQuery(query: RoomRawQuery): List<AlbumWithSongs>
 
 	/**
-	 * Album ROWS for a whole-library list (row 4a): no songs relation, so no second walk and no
-	 * song read at all. Build [query] with `DomainAlbumListType.albumListSql`.
+	 * A whole-library list's album ids, filtered and sorted (row 4a): build [query] with
+	 * `DomainAlbumListType.albumListSql(select = "albumId")`. The rows come from [getAllAlbumRows]
+	 * or [getAlbumRowsByIds], typed queries, with no songs relation.
 	 */
 	@RawQuery
-	suspend fun getAlbumRowsByQuery(query: RoomRawQuery): List<AlbumEntity>
+	suspend fun getAlbumIdsByQuery(query: RoomRawQuery): List<String>
+
+	@Query("SELECT * FROM AlbumEntity")
+	suspend fun getAllAlbumRows(): List<AlbumEntity>
+
+	@Query("SELECT * FROM AlbumEntity WHERE albumId IN (:ids)")
+	suspend fun getAlbumRowsByIds(ids: List<String>): List<AlbumEntity>
 
 	/** Android Auto's Albums node, one page of rows, in the Albums list's A–Z order. */
 	@Query("SELECT * FROM AlbumEntity ORDER BY LOWER(name) ASC, rowid ASC LIMIT :limit OFFSET :offset")

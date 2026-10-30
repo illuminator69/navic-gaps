@@ -36,8 +36,40 @@ data class SqlQuery(val sql: String, val args: List<Any>) {
 fun idsAsJson(ids: Collection<String>): String = JsonArray(ids.map(::JsonPrimitive)).toString()
 
 /**
+ * A whole-library list is read in two parts: the ids, filtered and sorted in SQL through a raw
+ * query (one column), then the rows through Room's typed queries, put in the ids' order here.
+ * Room maps a RAW query's rows looking each column up by name on every row: measured on the VM
+ * AVD over 11,821 songs, the sorted full rows took 4.0 to 4.3 s through `@RawQuery`, the sorted
+ * ids 25 ms and every row through a typed `@Query` 0.42 s.
+ */
+const val ROWS_BY_ID_MAX = 2000
+
+/** [rows] in the order of [ids]; an id with no row (a sync between the two reads) is left out. */
+fun <T> arrangeByIds(ids: List<String>, rows: List<T>, id: (T) -> String): List<T> {
+	val byId = rows.associateBy(id)
+	return ids.mapNotNull { byId[it] }
+}
+
+/**
+ * The rows for [ids], in their order: by id in chunks under SQLite's oldest bind ceiling for a
+ * short list (an artist's songs, a filter), else the whole table, which a whole-library list
+ * reads anyway.
+ */
+suspend fun <T> rowsInOrder(
+	ids: List<String>,
+	all: suspend () -> List<T>,
+	byIds: suspend (List<String>) -> List<T>,
+	id: (T) -> String
+): List<T> {
+	if (ids.isEmpty()) return emptyList()
+	val rows = if (ids.size > ROWS_BY_ID_MAX) all() else ids.chunked(500).flatMap { byIds(it) }
+	return arrangeByIds(ids, rows, id)
+}
+
+/**
  * The Songs list's query: its sort, its filters and its scope in SQL, where it used to read every
- * song, map it and sort it in Kotlin (upstream `12f75c49`'s idea).
+ * song, map it and sort it in Kotlin (upstream `12f75c49`'s idea). It selects the ids alone
+ * ([rowsInOrder] reads the rows).
  *
  * Ties keep the table's own order (`rowid`), which is the order the old Kotlin sort kept them in
  * (a stable sort over `SELECT *`); [reversed] turns every key, ties included, so the list is the
@@ -100,11 +132,11 @@ fun DomainSongListType.songListSql(
 	else "$key DESC, rowid ASC"
 
 	val whereClause = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
-	return SqlQuery("SELECT * FROM SongEntity$whereClause ORDER BY $orderBy", args)
+	return SqlQuery("SELECT songId FROM SongEntity$whereClause ORDER BY $orderBy", args)
 }
 
 /**
- * An album list's query, rows only (no songs): the sort, plus the Library's two filters in SQL.
+ * An album list's query, with no songs: the sort, plus the Library's two filters in SQL.
  *
  * - [starredOnly]: the Starred filter.
  * - [downloadedSongIdsJson]: the Downloaded filter. An album passes when none of its songs is
@@ -114,7 +146,9 @@ fun DomainSongListType.songListSql(
 fun DomainAlbumListType.albumListSql(
 	limit: Int? = null,
 	starredOnly: Boolean = false,
-	downloadedSongIdsJson: String? = null
+	downloadedSongIdsJson: String? = null,
+	/** `albumId` for a whole-library list ([rowsInOrder]); `*` for the relation reads. */
+	select: String = "*"
 ): SqlQuery {
 	val where = mutableListOf<String>()
 	val orderBy: String
@@ -164,7 +198,7 @@ fun DomainAlbumListType.albumListSql(
 	// Ties in the table's own order, as before, whichever index the filters make SQLite use.
 	val tieBreak = if (this == DomainAlbumListType.Random) "" else ", rowid ASC"
 	val whereClause = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
-	val sql = "SELECT * FROM AlbumEntity$whereClause ORDER BY $orderBy$tieBreak" +
+	val sql = "SELECT $select FROM AlbumEntity$whereClause ORDER BY $orderBy$tieBreak" +
 		(limit?.let { " LIMIT $it" } ?: "")
 	return SqlQuery(sql, args)
 }

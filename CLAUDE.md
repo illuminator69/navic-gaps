@@ -2050,8 +2050,10 @@ true of invented *album art*, and not of an icon naming the kind.
   (`downloadedArtistIds`, one pass; it was every song, one query each, and matched almost nobody).
   Songs' "Recently added" sorts by the album's added time (it searched every album per comparison).
   **Since 2026-10-30 (upstream beta01's row 4a) both whole-library lists sort and filter in SQL**
-  (`util/SortUtils.kt`: `albumListSql`, `songListSql`): the Albums list reads album ROWS with no songs
-  (`AlbumDao.getAlbumRowsByQuery`; a row's sheet reads the album whole when it opens,
+  (`util/SortUtils.kt`: `albumListSql`, `songListSql`), as ids through a raw query, then the rows
+  through Room's TYPED queries (`rowsInOrder`: Room maps a raw query's rows by looking every column up
+  by name on every row, 4 s for the songs on the AVD against 0.42 s typed). The Albums list reads album
+  rows with no songs (`AlbumDao.getAlbumIdsByQuery` + `getAllAlbumRows`; a row's sheet reads the album whole when it opens,
   `AlbumRepository.getAlbumWithSongs`, and selection is by id, `selectedOr`), and the Downloaded filter
   passes the DOWNLOADED ids from `downloads.db` as ONE JSON argument read with `json_each(?)` (the two
   files cannot JOIN, and one bind per id passes SQLite's ceiling). Ties keep the table's order

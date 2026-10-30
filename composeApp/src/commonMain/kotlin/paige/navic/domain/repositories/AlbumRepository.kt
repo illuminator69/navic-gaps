@@ -20,6 +20,7 @@ import paige.navic.domain.models.DomainFilter
 import paige.navic.ui.core.UiState
 import paige.navic.util.albumListSql
 import paige.navic.util.idsAsJson
+import paige.navic.util.rowsInOrder
 import paige.navic.util.toSqlQuery
 import kotlin.time.Clock
 import kotlinx.coroutines.withContext
@@ -51,9 +52,11 @@ class AlbumRepository(
 		val query = (if (listType == DomainAlbumListType.Random) DomainAlbumListType.AlphabeticalByName else listType)
 			.albumListSql(
 				starredOnly = filters.contains(DomainFilter.Starred),
-				downloadedSongIdsJson = downloadedSongIdsJson
+				downloadedSongIdsJson = downloadedSongIdsJson,
+				select = "albumId"
 			)
-		val rows = albumDao.getAlbumRowsByQuery(query.toRoomRawQuery())
+		val ids = albumDao.getAlbumIdsByQuery(query.toRoomRawQuery())
+		val rows = rowsInOrder(ids, { albumDao.getAllAlbumRows() }, { albumDao.getAlbumRowsByIds(it) }) { it.albumId }
 			.map { it.toDomainModel() }
 			.let { if (listType == DomainAlbumListType.Random) it.shuffled() else it }
 

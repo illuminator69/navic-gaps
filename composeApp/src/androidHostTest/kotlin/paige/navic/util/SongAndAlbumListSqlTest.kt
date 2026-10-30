@@ -168,9 +168,12 @@ class SongAndAlbumListSqlTest {
 	private fun newAlbums(type: DomainAlbumListType, reversed: Boolean, filters: Set<DomainFilter>): List<String> {
 		val q = type.albumListSql(
 			starredOnly = DomainFilter.Starred in filters,
-			downloadedSongIdsJson = if (DomainFilter.Downloaded in filters) idsAsJson(downloaded) else null
+			downloadedSongIdsJson = if (DomainFilter.Downloaded in filters) idsAsJson(downloaded) else null,
+			select = "albumId"
 		)
-		return ids(q.sql, q.args, "albumId").let { if (reversed) it.asReversed() else it }
+		val order = ids(q.sql, q.args, "albumId")
+		val rows = ids("SELECT * FROM AlbumEntity", emptyList(), "albumId")
+		return arrangeByIds(order, rows) { it }.let { if (reversed) it.asReversed() else it }
 	}
 
 	@Test
@@ -247,7 +250,12 @@ class SongAndAlbumListSqlTest {
 			downloadedSongIdsJson = if (DomainFilter.Downloaded in filters) idsAsJson(downloaded) else null,
 			albumIdsJson = scope?.let(::idsAsJson)
 		)
-		return ids(q.sql, q.args, "songId")
+		// As SongRepository reads it: the ids in order, then the rows (here the whole table), put
+		// in the ids' order.
+		val order = ids(q.sql, q.args, "songId")
+		assertTrue(q.sql.startsWith("SELECT songId FROM"))
+		val rows = ids("SELECT * FROM SongEntity", emptyList(), "songId")
+		return arrangeByIds(order, rows) { it }
 	}
 
 	private val songTypes = listOf(
@@ -293,6 +301,24 @@ class SongAndAlbumListSqlTest {
 	}
 
 	@Test
+	fun rowsArePutInTheIdsOrderAndAMissingOneIsLeftOut() {
+		assertEquals(listOf("c", "a"), arrangeByIds(listOf("c", "x", "a"), listOf("a", "b", "c")) { it })
+	}
+
+	@Test
+	fun aShortListIsReadByIdAndALongOneWhole() = kotlinx.coroutines.runBlocking {
+		var whole = 0
+		val chunks = mutableListOf<Int>()
+		val few = rowsInOrder(listOf("b", "a"), { whole++; listOf("a", "b") }, { chunks += it.size; it }) { it }
+		assertEquals(listOf("b", "a"), few)
+		assertEquals(0, whole)
+		val many = (0..ROWS_BY_ID_MAX).map { "s$it" }
+		assertEquals(many, rowsInOrder(many, { whole++; many.reversed() }, { error("not by id") }) { it })
+		assertEquals(1, whole)
+		assertEquals(emptyList<String>(), rowsInOrder<String>(emptyList(), { error("no read") }, { error("no read") }) { it })
+	}
+
+	@Test
 	fun idsAsJsonQuotesWhatItMust() {
 		assertEquals("""["a","b\"c","d\\e"]""", idsAsJson(listOf("a", "b\"c", "d\\e")))
 		assertEquals(listOf("b\"c"), ids("SELECT value FROM json_each(?) WHERE value = ?", listOf(idsAsJson(listOf("a", "b\"c")), "b\"c"), "value"))
@@ -302,13 +328,12 @@ class SongAndAlbumListSqlTest {
 	fun theListsReadNoSongsRelation() {
 		val repo = File("src/commonMain/kotlin/paige/navic/domain/repositories/AlbumRepository.kt").readText()
 		val albums = repo.substringAfter("private suspend fun getLocalData(").substringBefore("suspend fun getAlbumWithSongs")
-		assertTrue("getAlbumRowsByQuery" in albums && "getAlbumsByQuery" !in albums && ".songs" !in albums && "AlbumWithSongs" !in albums, albums)
+		assertTrue("getAlbumIdsByQuery" in albums && "getAlbumsByQuery" !in albums && ".songs" !in albums && "AlbumWithSongs" !in albums, albums)
 		val dao = File("src/commonMain/kotlin/paige/navic/data/database/dao/AlbumDao.kt").readText()
-		val rowsQuery = dao.substringBefore("suspend fun getAlbumRowsByQuery").substringAfterLast("*/")
-		assertTrue("@Transaction" !in rowsQuery, rowsQuery)
-		assertTrue("suspend fun getAlbumRowsByQuery(query: RoomRawQuery): List<AlbumEntity>" in dao)
+		assertTrue("@Query(\"SELECT * FROM AlbumEntity\")\n\tsuspend fun getAllAlbumRows(): List<AlbumEntity>" in dao)
+		assertTrue("suspend fun getAlbumRowsByIds(ids: List<String>): List<AlbumEntity>" in dao)
 		val songs = File("src/commonMain/kotlin/paige/navic/domain/repositories/SongRepository.kt").readText()
 			.substringAfter("private suspend fun getLocalData(").substringBefore("private suspend fun refreshLocalData(")
-		assertTrue("getAllSongs" !in songs && "getAlbumsByArtist(" !in songs && ".songs" !in songs, songs)
+		assertTrue("getAlbumsByArtist(" !in songs && ".songs" !in songs && "getSongsByQuery" !in songs, songs)
 	}
 }

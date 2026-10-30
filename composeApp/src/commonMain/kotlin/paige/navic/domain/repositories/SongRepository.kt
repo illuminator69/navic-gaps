@@ -22,6 +22,7 @@ import paige.navic.domain.models.DomainFilter
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.ui.core.UiState
+import paige.navic.util.rowsInOrder
 import paige.navic.util.idsAsJson
 import paige.navic.util.songListSql
 import kotlin.time.Clock
@@ -79,7 +80,8 @@ class SongRepository(
 			downloadedSongIdsJson = downloadedSongIdsJson,
 			albumIdsJson = artist?.let { idsAsJson(artistAlbumIds(it)) }
 		)
-		return songDao.getSongsByQuery(query.toRoomRawQuery())
+		val ids = songDao.getSongIdsByQuery(query.toRoomRawQuery())
+		return rowsInOrder(ids, { songDao.getAllSongs() }, { songDao.getSongsByIds(it) }) { it.songId }
 			.map { it.toDomainModel() }
 			.toImmutableList()
 	}
