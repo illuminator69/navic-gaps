@@ -27,18 +27,22 @@ fun initializeSingletonImageLoader(context: CoilPlatformContext): ImageLoader {
 		.build()
 }
 
+private var sharedStaticImageLoader: ImageLoader? = null
+
 /**
  * image loader which doesn't animate GIFs
  *
- * only used in `BlendBackground.kt` right now
+ * only used in `BlendBackground.kt` right now. ONE for the process (adapted from upstream
+ * `6947d2f9`): it used to be built per `BlendBackground`, so each of the three washes on screen
+ * had its own memory cache and decoded the same cover again.
  */
 fun getStaticImageLoader(context: CoilPlatformContext): ImageLoader {
-	return ImageLoader.Builder(context)
+	return sharedStaticImageLoader ?: ImageLoader.Builder(context)
 		.serviceLoaderEnabled(false)
 		.components {
 			add(KtorNetworkFetcherFactory())
 		}
 		.diskCache { getDiskCache() }
 		.crossfade(true)
-		.build()
+		.build().also { sharedStaticImageLoader = it }
 }
