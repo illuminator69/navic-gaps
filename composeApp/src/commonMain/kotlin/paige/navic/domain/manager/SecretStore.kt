@@ -60,9 +60,10 @@ class SecretVault(internal val settings: Settings, internal val cipher: SecretCi
  *
  * - **Read once, then from memory.** The first read of a secret opens it; later reads are the
  *   kept value. A read never returns the stored form: what cannot be opened is "" (missing).
- * - **Migration on first read.** A plaintext value under the old key in the settings file is
- *   sealed into the secrets file and only then removed from the settings file, so a crash in
- *   between loses nothing: the next read finds the sealed one and removes the leftover.
+ * - **Migration when the store is made** (at launch, as PreferenceManager needs it). A plaintext
+ *   value under the old key in the settings file is sealed into the secrets file and only then
+ *   removed from the settings file, so a crash in between loses nothing: the next launch finds
+ *   the sealed one and removes the leftover.
  *   A plaintext value found in the secrets file is sealed again.
  * - **What cannot be opened is dropped** (the Keystore key went with a restore or a transfer, a
  *   corrupt value): the stored value is removed, the secret reads as never set, and it is
@@ -86,6 +87,14 @@ class SecretStore(
 
 	/** Secrets that were stored but could not be read on this device, since this launch. */
 	val unreadable: StateFlow<Set<Secret>> = _unreadable.asStateFlow()
+
+	init {
+		// What the settings file still holds is moved now, not at that secret's first read: the
+		// settings file travels in a device transfer, and a token nothing reads (AudioMuse behind
+		// the hub) would otherwise stay there in plaintext. Once per secret per install; later
+		// launches only look for the key.
+		for (secret in Secret.entries) if (legacy.hasKey(secret.key)) get(secret)
+	}
 
 	var navidromePassword: String
 		get() = get(Secret.NavidromePassword)

@@ -60,6 +60,21 @@ class SecretStoreTest {
 	}
 
 	@Test
+	fun theSettingsFileIsEmptiedAtLaunchNotAtEachSecretsFirstRead() {
+		// A token nothing reads would otherwise stay in the file a device transfer carries.
+		legacy.putString("audioMuseToken", "am-tok")
+		legacy.putString("password", "hunter2")
+		store()
+		assertNull(legacy.getStringOrNull("audioMuseToken"))
+		assertNull(legacy.getStringOrNull("password"))
+		assertTrue(vaultFile.getString("audioMuseToken", "").startsWith(SecretStore.PREFIX))
+		assertEquals(2, cipher.seals)
+		// Nothing to move: a later launch seals nothing and opens nothing until asked.
+		store()
+		assertEquals(2, cipher.seals)
+	}
+
+	@Test
 	fun aLaterLaunchReadsTheSealedValue() {
 		legacy.putString("password", "hunter2")
 		store().navidromePassword

@@ -1365,7 +1365,7 @@ Rules, each with a reason:
   non-exportable Keystore key `navic_secrets_v1` (`KeystoreSecretCipher`, `androidSecretVault`,
   registered as `SecretVault` in **both** platform modules; iOS stores them **unencrypted**,
   `PlainSecretCipher`). A plaintext value under the old key in the settings file is sealed into the
-  secrets file on its first read and only then removed. A value that cannot be opened (the key did not
+  secrets file when the store is made (at launch) and only then removed. A value that cannot be opened (the key did not
   come with a restore or transfer, a corrupt value) reads as never set and is removed; a saved username
   with no password is then not a session (`SessionManager.isLoggedIn`), so the app opens on the login
   screen with the server and name filled in and says why. Logging out removes all three.
