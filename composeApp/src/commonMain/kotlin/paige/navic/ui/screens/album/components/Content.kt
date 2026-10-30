@@ -57,8 +57,8 @@ fun LazyGridScope.albumListScreenContent(
 						AlbumListScreenGridItem(
 							modifier = Modifier.animateItem(),
 							tab = "albums",
-							album = album,
-							selected = album == selectedAlbum,
+							album = album.selectedOr(selectedAlbum),
+							selected = album.id == selectedAlbum?.id,
 							starred = starred,
 							onSelect = { onUpdateSelection(album) },
 							onDeselect = { onClearSelection() },
@@ -74,8 +74,8 @@ fun LazyGridScope.albumListScreenContent(
 							modifier = Modifier.animateItem(),
 							index = index,
 							count = albums.size,
-							album = album,
-							selected = album == selectedAlbum,
+							album = album.selectedOr(selectedAlbum),
+							selected = album.id == selectedAlbum?.id,
 							starred = starred,
 							onSelect = { onUpdateSelection(album) },
 							onDeselect = { onClearSelection() },
@@ -95,8 +95,8 @@ fun LazyGridScope.albumListScreenContent(
 					AlbumListScreenGridItem(
 						modifier = Modifier.animateItem(),
 						tab = "albums",
-						album = album,
-						selected = album == selectedAlbum,
+						album = album.selectedOr(selectedAlbum),
+						selected = album.id == selectedAlbum?.id,
 						starred = starred,
 						onSelect = { onUpdateSelection(album) },
 						onDeselect = { onClearSelection() },
@@ -112,8 +112,8 @@ fun LazyGridScope.albumListScreenContent(
 						modifier = Modifier.animateItem(),
 						index = index,
 						count = data.size,
-						album = album,
-						selected = album == selectedAlbum,
+						album = album.selectedOr(selectedAlbum),
+						selected = album.id == selectedAlbum?.id,
 						starred = starred,
 						onSelect = { onUpdateSelection(album) },
 						onDeselect = { onClearSelection() },
@@ -144,3 +144,11 @@ fun LazyGridScope.albumListScreenContent(
 		}
 	}
 }
+
+/**
+ * The album a row draws and acts on: the selected one, read whole with its songs, while its
+ * sheet is open; the list's song-less row otherwise (row 4a). Selection is by id, as everywhere
+ * (§7: a row's identity is its id).
+ */
+internal fun DomainAlbum.selectedOr(selected: DomainAlbum?): DomainAlbum =
+	if (selected != null && selected.id == id) selected else this

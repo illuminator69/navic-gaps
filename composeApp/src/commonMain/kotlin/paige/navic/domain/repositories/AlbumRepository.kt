@@ -18,6 +18,8 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainFilter
 import paige.navic.ui.core.UiState
+import paige.navic.util.albumListSql
+import paige.navic.util.idsAsJson
 import paige.navic.util.toSqlQuery
 import kotlin.time.Clock
 import kotlinx.coroutines.withContext
@@ -28,41 +30,39 @@ class AlbumRepository(
 	private val syncManager: SyncManager,
 	private val dbRepository: DbRepository
 ) {
+	/**
+	 * A whole-library album list: rows only, sorted and filtered in SQL (row 4a). It used to read
+	 * every album WITH every song (`AlbumWithSongs`, the whole library twice over once the Songs
+	 * chip had been opened too, since both view models live for the process) and filter in Kotlin.
+	 * The rows come back in the same order as before (`SongAndAlbumListSqlTest`).
+	 */
 	private suspend fun getLocalData(
 		listType: DomainAlbumListType,
 		reversed: Boolean,
 		filters: Set<DomainFilter> = emptySet()
 	): ImmutableList<DomainAlbum> {
-		val downloadedSongIds = if (filters.contains(DomainFilter.Downloaded)) {
-			downloadDao.getAllDownloadsList()
-				.filter { it.status == DownloadStatus.DOWNLOADED }
-				.map { it.songId }
-				.toSet()
+		val downloadedSongIdsJson = if (filters.contains(DomainFilter.Downloaded)) {
+			idsAsJson(downloadDao.getSongIdsByStatus(DownloadStatus.DOWNLOADED))
 		} else null
 
-		// Same trap as `getAlbumsLimited`: `ORDER BY RANDOM()` is re-evaluated on
-		// each execution and `AlbumWithSongs` executes the parent query twice.
-		// Shuffled here rather than drawn by id, because this path is unbounded and
-		// an `IN (...)` over the whole library would exceed SQLite's bind-variable
-		// ceiling — the list is read in full either way.
-		val rows = if (listType == DomainAlbumListType.Random) {
-			albumDao.getAlbumsByQuery(DomainAlbumListType.AlphabeticalByName.toSqlQuery()).shuffled()
-		} else {
-			albumDao.getAlbumsByQuery(listType.toSqlQuery())
-		}
-
-		return rows
+		// Random is still a shuffle of the A–Z rows, not `ORDER BY RANDOM()`: one random order
+		// per read, the same as before. (Rows carry no relation now, so RANDOM() would be safe;
+		// the shuffle is kept so nothing about the draw changes.)
+		val query = (if (listType == DomainAlbumListType.Random) DomainAlbumListType.AlphabeticalByName else listType)
+			.albumListSql(
+				starredOnly = filters.contains(DomainFilter.Starred),
+				downloadedSongIdsJson = downloadedSongIdsJson
+			)
+		val rows = albumDao.getAlbumRowsByQuery(query.toRoomRawQuery())
 			.map { it.toDomainModel() }
-			.filter { album ->
-				filters.all { filter ->
-					when (filter) {
-						DomainFilter.Starred -> album.starredAt != null
-						DomainFilter.Downloaded -> downloadedSongIds != null && downloadedSongIds.containsAll(album.songs.map { it.id })
-					}
-				}
-			}
-			.let { if (reversed) it.asReversed() else it }
-			.toImmutableList()
+			.let { if (listType == DomainAlbumListType.Random) it.shuffled() else it }
+
+		return (if (reversed) rows.asReversed() else rows).toImmutableList()
+	}
+
+	/** One album with its songs: what a list row's sheet acts on (the rows carry none). */
+	suspend fun getAlbumWithSongs(albumId: String): DomainAlbum? = withContext(Dispatchers.IO) {
+		albumDao.getAlbumById(albumId)?.toDomainModel()
 	}
 
 	private suspend fun refreshLocalData(

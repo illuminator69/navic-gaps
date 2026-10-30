@@ -507,10 +507,12 @@ class PlaybackService : MediaLibraryService(), KoinComponent {
 				val children: List<MediaItem> = when {
 					parentId == MEDIA_ROOT_ID -> rootChildren()
 
-					parentId == MEDIA_ALBUMS_ID -> albumDao.getAllAlbumsList()
-						.map { it.toDomainModel() }
-						.sortedBy { it.name?.lowercase() }
-						.map { it.toBrowsableAlbumItem() }
+					// One page of rows, no songs (row 4a): this read every album with every song
+					// and ignored the page it was asked for.
+					parentId == MEDIA_ALBUMS_ID -> browsePage(page, pageSize)
+						?.let { (limit, offset) -> albumDao.getAlbumRowsPage(limit, offset) }
+						.orEmpty()
+						.map { it.toDomainModel().toBrowsableAlbumItem() }
 
 					parentId == MEDIA_ARTISTS_ID -> artistDao.getArtistsAlphabeticalByName()
 						.map { it.toDomainModel() }

@@ -32,6 +32,33 @@ fun ApiAlbum.toEntity(
 	isExternal = this.isExternal
 )
 
+/**
+ * An album row with NO songs (row 4a): what a whole-library list draws. A caller that needs the
+ * songs (a long press's sheet, a download) reads the album again with them
+ * (`AlbumRepository.getAlbumWithSongs`).
+ */
+fun AlbumEntity.toDomainModel() = DomainAlbum(
+	id = albumId,
+	name = name,
+	artistId = artistId,
+	artistName = artistName,
+	coverArtId = coverArtId,
+	songCount = songCount,
+	duration = duration,
+	year = year,
+	genre = genre,
+	starredAt = starredAt,
+	userRating = userRating,
+	musicBrainzId = musicBrainzId,
+	createdAt = createdAt,
+	lastPlayedAt = lastPlayedAt,
+	playCount = playCount,
+	genres = genres,
+	version = version,
+	songs = emptyList(),
+	isExternal = isExternal
+)
+
 fun AlbumWithSongs.toDomainModel() = DomainAlbum(
 	id = album.albumId,
 	name = album.name,

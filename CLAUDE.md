@@ -2048,8 +2048,15 @@ true of invented *album art*, and not of an icon naming the kind.
   read in flight when a sort or filter changes** (`refreshing`): reads overlapped and the last to finish
   won, so fast taps left 0 or 46 artists. An artist is Downloaded when any song crediting them is
   (`downloadedArtistIds`, one pass; it was every song, one query each, and matched almost nobody).
-  Songs' "Recently added" sorts by a map of album added-times (`AlbumDao.getAlbumAddedTimes`; it
-  searched every album per comparison). **Home's Fresh shelf is the Fresh page's first releases**
+  Songs' "Recently added" sorts by the album's added time (it searched every album per comparison).
+  **Since 2026-10-30 (upstream beta01's row 4a) both whole-library lists sort and filter in SQL**
+  (`util/SortUtils.kt`: `albumListSql`, `songListSql`): the Albums list reads album ROWS with no songs
+  (`AlbumDao.getAlbumRowsByQuery`; a row's sheet reads the album whole when it opens,
+  `AlbumRepository.getAlbumWithSongs`, and selection is by id, `selectedOr`), and the Downloaded filter
+  passes the DOWNLOADED ids from `downloads.db` as ONE JSON argument read with `json_each(?)` (the two
+  files cannot JOIN, and one bind per id passes SQLite's ceiling). Ties keep the table's order
+  (`rowid`), so the rows and their order are the old ones (`SongAndAlbumListSqlTest`, on a real
+  SQLite through sqlite-jdbc). Paging (row 4b) is not done: the Songs list still holds every song. **Home's Fresh shelf is the Fresh page's first releases**
   under its stored scope, type and sort (`freshOrdered`, `FreshFilters.of`), redrawn on each Home
   visit. **The mini player is Now Playing's mini header** (the queue fully open): 56 dp cover rounded
   10 dp, title and line, Devices, a filled play / pause; swipes still skip.

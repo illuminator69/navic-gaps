@@ -194,6 +194,11 @@ kotlin {
 		commonTest.dependencies {
 			implementation(kotlin("test"))
 		}
+
+		// Fork: SongAndAlbumListSqlTest runs the list queries on a real SQLite (JVM driver).
+		getByName("androidHostTest").dependencies {
+			implementation(libs.sqlite.jdbc)
+		}
 	}
 
 	compilerOptions {

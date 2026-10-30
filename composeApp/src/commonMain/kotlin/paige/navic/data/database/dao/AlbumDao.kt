@@ -45,6 +45,25 @@ interface AlbumDao {
 	suspend fun getAlbumsByQuery(query: RoomRawQuery): List<AlbumWithSongs>
 
 	/**
+	 * Album ROWS for a whole-library list (row 4a): no songs relation, so no second walk and no
+	 * song read at all. Build [query] with `DomainAlbumListType.albumListSql`.
+	 */
+	@RawQuery
+	suspend fun getAlbumRowsByQuery(query: RoomRawQuery): List<AlbumEntity>
+
+	/** Android Auto's Albums node, one page of rows, in the Albums list's A–Z order. */
+	@Query("SELECT * FROM AlbumEntity ORDER BY LOWER(name) ASC, rowid ASC LIMIT :limit OFFSET :offset")
+	suspend fun getAlbumRowsPage(limit: Int, offset: Int): List<AlbumEntity>
+
+	/** An artist's album ids, for the artist's song list ("See more"), with no songs read. */
+	@Query("SELECT albumId FROM AlbumEntity WHERE artistId = :artistId")
+	suspend fun getAlbumIdsByArtist(artistId: String): List<String>
+
+	/** The same by name, for an album filed under another spelling of the artist. */
+	@Query("SELECT albumId FROM AlbumEntity WHERE artistName = :artistName")
+	suspend fun getAlbumIdsByArtistName(artistName: String): List<String>
+
+	/**
 	 * Random album ids, with **no** relation attached.
 	 *
 	 * The two halves of a random read have to be separated, and this is the first

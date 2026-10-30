@@ -32,6 +32,7 @@ import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.components.AlbumListScreenGridItem
+import paige.navic.ui.screens.album.components.selectedOr
 import paige.navic.ui.util.withoutTop
 
 @Composable
@@ -137,8 +138,8 @@ fun GenreDetailScreenContent(
 			AlbumListScreenGridItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "genre",
-				album = album,
-				selected = album == selectedAlbum,
+				album = album.selectedOr(selectedAlbum),
+				selected = album.id == selectedAlbum?.id,
 				starred = selectedAlbumIsStarred,
 				onSelect = { onSelectAlbum(album) },
 				onDeselect = onClearAlbumSelection,

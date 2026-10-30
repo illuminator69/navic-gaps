@@ -1,4 +1,6 @@
 [versions]
+# Fork: the host tests run the list SQL on a real SQLite (androidHostTest only).
+sqlite-jdbc = "3.50.3.0"
 agp = "9.3.2"
 #noinspection UnusedVersionCatalogEntry
 android-compileSdk = "37"
@@ -38,6 +40,7 @@ coil = "3.6.2"
 koin = "4.2.2"
 
 [libraries]
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 # Compose
 cmp-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
 cmp-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }

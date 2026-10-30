@@ -29,7 +29,7 @@ interface SongDao {
 	@Query("SELECT * FROM SongEntity")
 	suspend fun getAllSongs(): List<SongEntity>
 
-	/** Sorted/filtered song list. Build [query] with `DomainSongListType.toSongSqlQuery`. */
+	/** Sorted/filtered song list. Build [query] with `DomainSongListType.songListSql`. */
 	@RawQuery
 	suspend fun getSongsByQuery(query: RoomRawQuery): List<SongEntity>
 

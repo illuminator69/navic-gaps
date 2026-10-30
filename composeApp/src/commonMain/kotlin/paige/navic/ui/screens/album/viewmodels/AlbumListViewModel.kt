@@ -76,7 +76,9 @@ class AlbumListViewModel(
 
 	fun selectAlbum(album: DomainAlbum) {
 		viewModelScope.launch {
-			selectedAlbum.value = album
+			// The list's rows carry no songs (row 4a); the sheet's actions (play next, download,
+			// add to a playlist) act on them, so the album is read whole before the sheet opens.
+			selectedAlbum.value = repository.getAlbumWithSongs(album.id) ?: album
 			starred.value = repository.isAlbumStarred(album)
 			rating.value = repository.getAlbumRating(album)
 		}

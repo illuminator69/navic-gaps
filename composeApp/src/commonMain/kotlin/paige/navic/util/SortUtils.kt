@@ -1,86 +1,17 @@
 package paige.navic.util
 
 import androidx.room3.RoomRawQuery
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import paige.navic.domain.models.DomainAlbumListType
-import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 
-// TODO: sort with sql instead
 /**
- * [albumAddedAt] is when each album was added, by id, read only for [DomainSongListType.Newest]. It
- * was every album with its songs, searched once per comparison: some two billion steps over the
- * VM's 15,679 songs, the long wait on "Recently added" (P5 round 3).
+ * A raw query's SQL and its arguments, kept apart so the host tests can run the very SQL the
+ * repositories hand Room (`SongAndAlbumListSqlTest`, on a real SQLite).
  */
-fun ImmutableList<DomainSong>.sortedByListType(
-	listType: DomainSongListType,
-	albumAddedAt: Map<String, kotlin.time.Instant> = emptyMap()
-): ImmutableList<DomainSong> {
-	return when (listType) {
-		DomainSongListType.FrequentlyPlayed -> sortedByDescending { it.playCount }
-		DomainSongListType.Newest -> sortedByDescending { song -> song.albumId?.let { albumAddedAt[it] } }
-
-		DomainSongListType.Random -> shuffled()
-
-		DomainSongListType.Rating -> sortedByDescending { it.userRating ?: 0 }
-		DomainSongListType.Year -> sortedByDescending { it.year }
-
-		is DomainSongListType.ByArtist -> filter {
-			it.artistId == listType.artistId
-		}.sortedByDescending { it.playCount }
-
-		is DomainSongListType.ByGenre -> filter {
-			it.genre == listType.genre
-				|| listType.genre in it.genres
-		}.sortedByDescending { it.playCount }
-	}.toImmutableList()
-}
-
-fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery {
-	var where: String? = null
-	var orderBy: String
-	val args = mutableListOf<Any>()
-
-	when (this) {
-		DomainAlbumListType.AlphabeticalByArtist -> orderBy = "LOWER(artistName) ASC"
-		DomainAlbumListType.AlphabeticalByName -> orderBy = "LOWER(name) ASC"
-		DomainAlbumListType.Frequent -> {
-			where = "playCount != 0"
-			orderBy = "playCount DESC"
-		}
-
-		DomainAlbumListType.Highest -> orderBy = "userRating DESC"
-		DomainAlbumListType.Newest -> orderBy = "createdAt DESC"
-		DomainAlbumListType.Random -> orderBy = "RANDOM()"
-		// What Home's Recently played shelf is the first twelve of: played albums only (audit W-11).
-		DomainAlbumListType.Recent -> {
-			where = "lastPlayedAt IS NOT NULL"
-			orderBy = "lastPlayedAt DESC"
-		}
-
-		DomainAlbumListType.Year -> {
-			orderBy = "year DESC"
-		}
-
-		is DomainAlbumListType.ByGenre -> {
-			where = "genre = ?"
-			orderBy = "LOWER(name) ASC"
-			args.add(genre)
-		}
-
-		is DomainAlbumListType.ByYear -> {
-			where = "COALESCE(year, 0) BETWEEN ? AND ?"
-			orderBy = "LOWER(name) ASC"
-			args.add(fromYear)
-			args.add(toYear)
-		}
-	}
-
-	val whereClause = where?.let { " WHERE $it" } ?: ""
-	val sql = "SELECT * FROM AlbumEntity$whereClause ORDER BY $orderBy" + (limit?.let { " LIMIT $it" } ?: "")
-
-	return RoomRawQuery(sql) { statement ->
+data class SqlQuery(val sql: String, val args: List<Any>) {
+	fun toRoomRawQuery(): RoomRawQuery = RoomRawQuery(sql) { statement ->
 		args.forEachIndexed { index, arg ->
 			val bindIndex = index + 1
 			when (arg) {
@@ -94,3 +25,149 @@ fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery {
 		}
 	}
 }
+
+/**
+ * Ids as ONE bound argument, a JSON array, read back in SQL with `json_each(?)`.
+ *
+ * The downloaded songs live in another database file (`downloads.db`), so a list can't JOIN
+ * them; and binding each id would pass SQLite's bind-variable ceiling on a large library. One
+ * JSON text has no ceiling, and the bundled SQLite has the JSON functions built in.
+ */
+fun idsAsJson(ids: Collection<String>): String = JsonArray(ids.map(::JsonPrimitive)).toString()
+
+/**
+ * The Songs list's query: its sort, its filters and its scope in SQL, where it used to read every
+ * song, map it and sort it in Kotlin (upstream `12f75c49`'s idea).
+ *
+ * Ties keep the table's own order (`rowid`), which is the order the old Kotlin sort kept them in
+ * (a stable sort over `SELECT *`); [reversed] turns every key, ties included, so the list is the
+ * old one read backwards. Nulls go last in a descending sort and first in a reversed one, as they
+ * did in Kotlin.
+ *
+ * - [starredOnly]: the Starred filter.
+ * - [downloadedSongIdsJson]: the Downloaded filter, the DOWNLOADED song ids ([idsAsJson]); null = off.
+ * - [albumIdsJson]: an artist page's "See more", the artist's album ids ([idsAsJson]); null = the library.
+ */
+fun DomainSongListType.songListSql(
+	reversed: Boolean = false,
+	starredOnly: Boolean = false,
+	downloadedSongIdsJson: String? = null,
+	albumIdsJson: String? = null
+): SqlQuery {
+	val where = mutableListOf<String>()
+	val args = mutableListOf<Any>()
+
+	when (this) {
+		is DomainSongListType.ByArtist -> {
+			where += "artistId = ?"
+			args += artistId
+		}
+
+		is DomainSongListType.ByGenre -> {
+			// `genres` is stored "a||b" (Converters); an exact element match, as `genre in genres` was.
+			where += "(genre = ? OR (? <> '' AND instr('||' || genres || '||', '||' || ? || '||') > 0))"
+			args += genre
+			args += genre
+			args += genre
+		}
+
+		else -> {}
+	}
+	if (starredOnly) where += "starredAt IS NOT NULL"
+	if (downloadedSongIdsJson != null) {
+		where += "songId IN (SELECT value FROM json_each(?))"
+		args += downloadedSongIdsJson
+	}
+	if (albumIdsJson != null) {
+		where += "belongsToAlbumId IN (SELECT value FROM json_each(?))"
+		args += albumIdsJson
+	}
+
+	val key = when (this) {
+		DomainSongListType.FrequentlyPlayed,
+		is DomainSongListType.ByArtist,
+		is DomainSongListType.ByGenre -> "playCount"
+
+		DomainSongListType.Newest ->
+			"(SELECT a.createdAt FROM AlbumEntity a WHERE a.albumId = SongEntity.belongsToAlbumId)"
+
+		DomainSongListType.Rating -> "COALESCE(userRating, 0)"
+		DomainSongListType.Year -> "year"
+		DomainSongListType.Random -> null
+	}
+	val orderBy = if (key == null) "RANDOM()"
+	else if (reversed) "$key ASC, rowid DESC"
+	else "$key DESC, rowid ASC"
+
+	val whereClause = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
+	return SqlQuery("SELECT * FROM SongEntity$whereClause ORDER BY $orderBy", args)
+}
+
+/**
+ * An album list's query, rows only (no songs): the sort, plus the Library's two filters in SQL.
+ *
+ * - [starredOnly]: the Starred filter.
+ * - [downloadedSongIdsJson]: the Downloaded filter. An album passes when none of its songs is
+ *   missing from these ids (upstream `AlbumQueryBuilder`'s `NOT EXISTS`, against the ids since
+ *   the downloads are in another database file), which is what `containsAll(album.songs)` was.
+ */
+fun DomainAlbumListType.albumListSql(
+	limit: Int? = null,
+	starredOnly: Boolean = false,
+	downloadedSongIdsJson: String? = null
+): SqlQuery {
+	val where = mutableListOf<String>()
+	val orderBy: String
+	val args = mutableListOf<Any>()
+
+	when (this) {
+		DomainAlbumListType.AlphabeticalByArtist -> orderBy = "LOWER(artistName) ASC"
+		DomainAlbumListType.AlphabeticalByName -> orderBy = "LOWER(name) ASC"
+		DomainAlbumListType.Frequent -> {
+			where += "playCount != 0"
+			orderBy = "playCount DESC"
+		}
+
+		DomainAlbumListType.Highest -> orderBy = "userRating DESC"
+		DomainAlbumListType.Newest -> orderBy = "createdAt DESC"
+		DomainAlbumListType.Random -> orderBy = "RANDOM()"
+		// What Home's Recently played shelf is the first twelve of: played albums only (audit W-11).
+		DomainAlbumListType.Recent -> {
+			where += "lastPlayedAt IS NOT NULL"
+			orderBy = "lastPlayedAt DESC"
+		}
+
+		DomainAlbumListType.Year -> {
+			orderBy = "year DESC"
+		}
+
+		is DomainAlbumListType.ByGenre -> {
+			where += "genre = ?"
+			orderBy = "LOWER(name) ASC"
+			args.add(genre)
+		}
+
+		is DomainAlbumListType.ByYear -> {
+			where += "COALESCE(year, 0) BETWEEN ? AND ?"
+			orderBy = "LOWER(name) ASC"
+			args.add(fromYear)
+			args.add(toYear)
+		}
+	}
+	if (starredOnly) where += "starredAt IS NOT NULL"
+	if (downloadedSongIdsJson != null) {
+		where += "NOT EXISTS (SELECT 1 FROM SongEntity s WHERE s.belongsToAlbumId = AlbumEntity.albumId " +
+			"AND s.songId NOT IN (SELECT value FROM json_each(?)))"
+		args.add(downloadedSongIdsJson)
+	}
+
+	// Ties in the table's own order, as before, whichever index the filters make SQLite use.
+	val tieBreak = if (this == DomainAlbumListType.Random) "" else ", rowid ASC"
+	val whereClause = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
+	val sql = "SELECT * FROM AlbumEntity$whereClause ORDER BY $orderBy$tieBreak" +
+		(limit?.let { " LIMIT $it" } ?: "")
+	return SqlQuery(sql, args)
+}
+
+fun DomainAlbumListType.toSqlQuery(limit: Int? = null): RoomRawQuery =
+	albumListSql(limit).toRoomRawQuery()

@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.first
-import paige.navic.data.database.entities.SongEntity
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import paige.navic.data.database.dao.AlbumDao
@@ -24,7 +22,8 @@ import paige.navic.domain.models.DomainFilter
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.ui.core.UiState
-import paige.navic.util.sortedByListType
+import paige.navic.util.idsAsJson
+import paige.navic.util.songListSql
 import kotlin.time.Clock
 
 /** A song was starred ([starred]) or unstarred on this device. */
@@ -60,58 +59,39 @@ class SongRepository(
 		return songDao.getRandomSongs(count).map { it.toDomainModel() }
 	}
 
+	/**
+	 * The Songs list: sorted and filtered in SQL (row 4a), where it used to read every song, map
+	 * every one and sort in Kotlin. Same rows, same order (`SongAndAlbumListSqlTest`); an
+	 * artist's list ("See more") breaks ties by the table's order now, not by album year.
+	 */
 	private suspend fun getLocalData(
 		listType: DomainSongListType,
 		reversed: Boolean,
 		filters: Set<DomainFilter> = emptySet(),
 		artist: SongListArtist? = null
 	): ImmutableList<DomainSong> {
-		val songs = (if (artist == null) songDao.getAllSongs() else artistSongs(artist))
+		val downloadedSongIdsJson = if (filters.contains(DomainFilter.Downloaded)) {
+			idsAsJson(downloadDao.getSongIdsByStatus(DownloadStatus.DOWNLOADED))
+		} else null
+		val query = listType.songListSql(
+			reversed = reversed,
+			starredOnly = filters.contains(DomainFilter.Starred),
+			downloadedSongIdsJson = downloadedSongIdsJson,
+			albumIdsJson = artist?.let { idsAsJson(artistAlbumIds(it)) }
+		)
+		return songDao.getSongsByQuery(query.toRoomRawQuery())
 			.map { it.toDomainModel() }
-
-		val downloadedIds = if (filters.contains(DomainFilter.Downloaded)) {
-			downloadDao.getAllDownloadsList()
-				.filter { it.status == DownloadStatus.DOWNLOADED }
-				.map { it.songId }
-				.toSet()
-		} else emptySet()
-
-		val filteredByFilters = songs.filter { song ->
-			filters.all { filter ->
-				when (filter) {
-					DomainFilter.Starred -> song.starredAt != null
-					DomainFilter.Downloaded -> downloadedIds.contains(song.id)
-				}
-			}
-		}
-
-		val sorted = filteredByFilters
 			.toImmutableList()
-			.sortedByListType(
-				listType,
-				albumAddedAt = if (listType == DomainSongListType.Newest) {
-					albumDao.getAlbumAddedTimes().associate { it.albumId to it.createdAt }
-				} else emptyMap()
-			)
-
-		return if (reversed) {
-			sorted.reversed().toImmutableList()
-		} else {
-			sorted
-		}
 	}
 
 	/**
-	 * The songs on [artist]'s albums, as the artist page's Frequently played picks them (by the
-	 * album's artist id, else by name for an album filed under another spelling).
+	 * The albums whose songs make [artist]'s list, as the artist page's Frequently played picks
+	 * them (by the album's artist id, else by name for an album filed under another spelling).
 	 */
-	private suspend fun artistSongs(artist: SongListArtist): List<SongEntity> {
-		val byId = albumDao.getAlbumsByArtist(artist.id).first()
-		val albums = byId.ifEmpty {
-			artist.name.takeIf { it.isNotBlank() }?.let { albumDao.getAlbumsByArtistName(it).first() }.orEmpty()
+	private suspend fun artistAlbumIds(artist: SongListArtist): List<String> =
+		albumDao.getAlbumIdsByArtist(artist.id).ifEmpty {
+			artist.name.takeIf { it.isNotBlank() }?.let { albumDao.getAlbumIdsByArtistName(it) }.orEmpty()
 		}
-		return albums.flatMap { it.songs }
-	}
 
 	private suspend fun refreshLocalData(
 		listType: DomainSongListType,
