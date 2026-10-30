@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -53,6 +55,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.Logger
+import paige.navic.util.idsAsJson
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_status_downloading
 import kotlin.time.Clock
@@ -675,26 +678,16 @@ class DownloadManager(
 		return downloadDao.getDownloadById(songId)?.status == DownloadStatus.DOWNLOADED
 	}
 
+	/**
+	 * A collection's status from its own rows (row 8): one DAO flow per collection, where every
+	 * tile and page used to read and filter the whole table.
+	 */
 	fun getCollectionDownloadStatus(songIds: List<String>): Flow<DownloadStatus> {
-		return storedDownloads.map { downloads ->
-			val collectionDownloads = downloads.filter { it.songId in songIds }
-			when {
-				collectionDownloads.isEmpty() -> DownloadStatus.NOT_DOWNLOADED
-				// Queued counts as in-progress to the rest of the app: the collection-level button
-				// should read "downloading" (and offer cancel) the moment work is accepted, not
-				// only once a permit frees up.
-				collectionDownloads.any {
-					it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED
-				} -> DownloadStatus.DOWNLOADING
-
-				collectionDownloads.any { it.status == DownloadStatus.FAILED } -> DownloadStatus.FAILED
-				(collectionDownloads.size == songIds.size &&
-					collectionDownloads.all { it.status == DownloadStatus.DOWNLOADED })
-					-> DownloadStatus.DOWNLOADED
-
-				else -> DownloadStatus.NOT_DOWNLOADED
-			}
-		}
+		val ids = songIds.distinct()
+		if (ids.isEmpty()) return flowOf(DownloadStatus.NOT_DOWNLOADED)
+		return downloadDao.getDownloadsForSongs(idsAsJson(ids))
+			.map { collectionDownloadStatus(it, ids.size) }
+			.distinctUntilChanged()
 	}
 
 	fun clearAllDownloads() {
@@ -974,4 +967,18 @@ class DownloadManager(
 		 */
 		const val MAX_DOWNLOAD_RETRIES = 3
 	}
+}
+
+/**
+ * What a collection of [songCount] distinct songs reads as, from the download rows it has.
+ * QUEUED counts as downloading (upstream's version lacks it): the collection's button should read
+ * "downloading" and offer cancel the moment work is accepted, not only once a permit frees up.
+ * Downloaded only when every song is.
+ */
+internal fun collectionDownloadStatus(rows: List<DownloadEntity>, songCount: Int): DownloadStatus = when {
+	rows.isEmpty() -> DownloadStatus.NOT_DOWNLOADED
+	rows.any { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED } -> DownloadStatus.DOWNLOADING
+	rows.any { it.status == DownloadStatus.FAILED } -> DownloadStatus.FAILED
+	rows.size == songCount && rows.all { it.status == DownloadStatus.DOWNLOADED } -> DownloadStatus.DOWNLOADED
+	else -> DownloadStatus.NOT_DOWNLOADED
 }

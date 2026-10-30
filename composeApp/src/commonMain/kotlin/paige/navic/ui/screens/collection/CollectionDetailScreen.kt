@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.collection
 
+import paige.navic.data.database.entities.bySongId
 import paige.navic.ui.util.WASH_MS
 import paige.navic.ui.screens.collection.components.GapBox
 import androidx.compose.runtime.mutableLongStateOf
@@ -150,6 +151,7 @@ fun CollectionDetailScreen(
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
 	val similarAlbums by viewModel.similarAlbums.collectAsState()
 	val allDownloads by viewModel.allDownloads.collectAsState()
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
 
@@ -559,7 +561,7 @@ fun CollectionDetailScreen(
 								}
 							}
 							itemsIndexed(group.value) { index, song ->
-								val download = allDownloads.find { it.songId == song.id }
+								val download = downloadsBySong[song.id]
 								Box {
 									CollectionDetailScreenSongRow(
 										song = song,
@@ -617,7 +619,7 @@ fun CollectionDetailScreen(
 					}
 				} else {
 					itemsIndexed(collection.songs) { index, song ->
-						val download = allDownloads.find { it.songId == song.id }
+						val download = downloadsBySong[song.id]
 						Box {
 							CollectionDetailScreenSongRow(
 								song = song,

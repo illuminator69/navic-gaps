@@ -22,6 +22,15 @@ interface DownloadDao {
 	@Query("SELECT * FROM DownloadEntity")
 	suspend fun getAllDownloadsList(): List<DownloadEntity>
 
+	/**
+	 * One collection's rows (row 8, adapted from upstream `dca900ab`): a collection's status reads
+	 * these instead of the whole table. The ids are ONE JSON argument (`idsAsJson`), so a long
+	 * playlist passes no bind-variable ceiling; served by the `(status, songId)` index's songId
+	 * half through the primary key.
+	 */
+	@Query("SELECT * FROM DownloadEntity WHERE songId IN (SELECT value FROM json_each(:songIdsJson))")
+	fun getDownloadsForSongs(songIdsJson: String): Flow<List<DownloadEntity>>
+
 	@Query("SELECT COUNT(*) FROM DownloadEntity WHERE status = :status")
 	fun getDownloadsCount(status: DownloadStatus = DownloadStatus.DOWNLOADED): Flow<Int>
 

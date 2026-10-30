@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.queue
 
+import paige.navic.data.database.entities.bySongId
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -222,6 +223,7 @@ internal fun QueueContent(layout: QueueLayout) {
 	val selectedStarred by viewModel.starred.collectAsStateWithLifecycle()
 	val selectedRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	var queueShareId by remember { mutableStateOf<String?>(null) }
 	var queuePlaylistSong by remember { mutableStateOf<DomainSong?>(null) }
 
@@ -767,7 +769,7 @@ internal fun QueueContent(layout: QueueLayout) {
 	// with no per-row actions at all — the only reachable sheet was the playing track's, through the
 	// player's own "more" button.
 	selectedQueueSong?.let { selected ->
-		val download = allDownloads.find { it.songId == selected.id }
+		val download = downloadsBySong[selected.id]
 		val selectedIsQueued = queue.any { it.id == selected.id }
 		SongSheet(
 			onDismissRequest = { viewModel.clearSelection() },
@@ -1155,6 +1157,7 @@ private fun RelatedTab(
 	allDownloads: List<DownloadEntity>,
 	onSelect: (DomainSong) -> Unit
 ) {
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	val viewModel = koinViewModel<RelatedSongsViewModel>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val platformContext = LocalPlatformContext.current
@@ -1177,7 +1180,7 @@ private fun RelatedTab(
 		) {
 			// Keyed by id, so a song added to the queue animates out and the next one moves up.
 			itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
-				val download = allDownloads.find { it.songId == song.id }
+				val download = downloadsBySong[song.id]
 				RelatedSongItem(
 					modifier = Modifier.animateItem(),
 					index = index,

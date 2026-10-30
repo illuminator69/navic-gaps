@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.album.components
 
+import androidx.compose.runtime.remember
 import paige.navic.ui.util.COVER_FADE_MS
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
@@ -55,9 +56,6 @@ fun AlbumListScreenGridItem(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val downloadManager = koinInject<DownloadManager>()
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(album.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 
 	Box(modifier) {
 		ArtGridItem(
@@ -76,6 +74,11 @@ fun AlbumListScreenGridItem(
 			crossfadeMs = crossfadeMs
 		)
 		if (selected) {
+			// Read only while its sheet is open (row 8): every tile used to watch the download
+			// table for a status nothing but the sheet shows.
+			val downloadStatus by remember(downloadManager, album.id, album.songs.size) {
+				downloadManager.getCollectionDownloadStatus(album.songs.map { it.id })
+			}.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = album,

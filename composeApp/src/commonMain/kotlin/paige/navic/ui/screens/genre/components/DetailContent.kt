@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.genre.components
 
+import paige.navic.data.database.entities.bySongId
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -71,6 +72,7 @@ fun GenreDetailScreenContent(
 	onPlayAlbumNext: () -> Unit,
 	onAddAlbumToQueue: () -> Unit,
 ) {
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	val songs = songsState.data.orEmpty().take(12)
 
 	LazyVerticalGrid(
@@ -103,7 +105,7 @@ fun GenreDetailScreenContent(
 				modifier = Modifier.fillMaxWidth().height(gridHeight)
 			) {
 				itemsIndexed(songs) { index, song ->
-					val download = allDownloads.find { it.songId == song.id }
+					val download = downloadsBySong[song.id]
 					SongRow(
 						song = song,
 						selected = selectedSong == song,

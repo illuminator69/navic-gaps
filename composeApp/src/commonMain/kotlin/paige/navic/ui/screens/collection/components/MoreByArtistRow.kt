@@ -52,9 +52,6 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 			title = stringResource(Res.string.title_more_by_artist, artistName),
 			items = artistAlbums.sortedByDescending { it.playCount }.toImmutableList()
 		) { album ->
-			val downloadStatus by downloadManager
-				.getCollectionDownloadStatus(album.songs.map { it.id })
-				.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 			ArtCarouselItem(
 				coverArtId = album.coverArtId,
 				title = album.name ?: "[unknown album]",
@@ -65,6 +62,10 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 				}
 			)
 			if (selectedAlbum != null && selectedAlbum == album) {
+				// Read only while its sheet is open (row 8).
+				val downloadStatus by downloadManager
+					.getCollectionDownloadStatus(album.songs.map { it.id })
+					.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 				CollectionSheet(
 					onDismissRequest = onDeselect,
 					collection = album,

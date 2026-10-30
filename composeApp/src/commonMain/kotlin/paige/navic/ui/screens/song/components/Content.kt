@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.song.components
 
+import paige.navic.data.database.entities.bySongId
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 import paige.navic.ui.components.common.rowPlaceholders
@@ -36,9 +37,10 @@ fun LazyListScope.songListScreenContent(
 	onDeleteDownload: (DomainSong) -> Unit
 ) {
 	val data = state.data.orEmpty()
+	val downloadsBySong = allDownloads.bySongId()
 	if (data.isNotEmpty()) {
 		itemsIndexed(data) { index, song ->
-			val download = allDownloads.find { it.songId == song.id }
+			val download = downloadsBySong[song.id]
 			SongListScreenItem(
 				modifier = Modifier.animateItem(),
 				index = index,

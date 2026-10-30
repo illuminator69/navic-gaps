@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.artist
 
+import paige.navic.data.database.entities.bySongId
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -158,6 +159,7 @@ fun ArtistDetailScreen(
 	val starred by viewModel.starred.collectAsState()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	val discography by viewModel.discography.collectAsStateWithLifecycle()
 	// Which MusicBrainz artist lb-bot is asked about, and the picker that changes it (I-019).
 	val artistMbid by viewModel.artistMbid.collectAsStateWithLifecycle()
@@ -444,7 +446,7 @@ fun ArtistDetailScreen(
 								)
 								Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 									songs.forEachIndexed { index, song ->
-										val download = allDownloads.find { it.songId == song.id }
+										val download = downloadsBySong[song.id]
 										// Rounded segments in the page's gutter, as the release rows
 										// under them are (the mockup's list, not the grid's slabs).
 										val shape = segmentedShapes(index, songs.size).shape

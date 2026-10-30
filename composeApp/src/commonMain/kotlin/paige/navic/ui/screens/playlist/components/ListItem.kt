@@ -63,9 +63,6 @@ fun PlaylistListScreenListItem(
 	val downloadManager = koinInject<DownloadManager>()
 	val nativeApi = koinInject<NativeApiManager>()
 	val albumMode = koinInject<AlbumModeSmartPlaylists>()
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(playlist.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 
 	Box(modifier) {
 		// The Library's row (P5 round 2): Recents' look, the cover, the name, its size and comment.
@@ -97,6 +94,11 @@ fun PlaylistListScreenListItem(
 				nativeApi.fetchPlaylistRules(playlist.id).getOrNull() != null
 		}
 		if (selected) {
+			// Read only while its sheet is open (row 8): every tile used to watch the download
+			// table for a status nothing but the sheet shows.
+			val downloadStatus by remember(downloadManager, playlist.id, playlist.songs.size) {
+				downloadManager.getCollectionDownloadStatus(playlist.songs.map { it.id })
+			}.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = playlist,

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.home.mood
 
+import paige.navic.data.database.entities.bySongId
 import paige.navic.ui.components.common.rowPlaceholders
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -123,6 +124,7 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 	val selectedLiked by viewModel.selectedLiked.collectAsStateWithLifecycle()
 	val liked by viewModel.liked.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+	val downloadsBySong = remember(allDownloads) { allDownloads.bySongId() }
 	val playerState by player.steadyState.collectAsStateWithLifecycle()
 
 	val songs = if (draw.state is MixState.Ready) draw.songs else emptyList()
@@ -217,7 +219,7 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 							onPlayNext = { player.playNextSingle(song) },
 							onAddToQueue = { player.addToQueueSingle(song) },
 							isStarred = liked[song.id] ?: (song.starredAt != null),
-							download = allDownloads.find { it.songId == song.id }
+							download = downloadsBySong[song.id]
 						)
 					}
 					item(key = "footer") {
@@ -248,7 +250,7 @@ fun MoodMixScreen(moodId: String, variantId: String) {
 				dropUnlessResumed { backStack.add(Screen.CollectionDetail(albumId, "mood")) }
 			},
 			onAddToPlaylist = { addingToPlaylist = song },
-			downloadStatus = allDownloads.find { it.songId == song.id }?.status ?: DownloadStatus.NOT_DOWNLOADED,
+			downloadStatus = downloadsBySong[song.id]?.status ?: DownloadStatus.NOT_DOWNLOADED,
 			onDownload = { viewModel.download(song) },
 			onCancelDownload = { viewModel.cancelDownload(song) },
 			onDeleteDownload = { viewModel.deleteDownload(song) }

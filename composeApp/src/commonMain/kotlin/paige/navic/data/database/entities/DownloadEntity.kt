@@ -71,3 +71,9 @@ enum class DownloadStatus {
 	DOWNLOADED,
 	FAILED
 }
+
+/**
+ * The download rows by song id (row 8, upstream `597be8ab`): a song row looks itself up here
+ * instead of searching the whole table, which every row of a list did on every composition.
+ */
+fun Iterable<DownloadEntity>.bySongId(): Map<String, DownloadEntity> = associateBy { it.songId }
