@@ -39,11 +39,11 @@ import navic.composeapp.generated.resources.title_playback
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
-import paige.navic.domain.manager.AudioGainManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Info
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -59,7 +59,8 @@ import kotlin.math.round
 @Composable
 fun AudioEffectsScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val audioGainManager = koinInject<AudioGainManager>()
+	// The gain goes through the player, which resolves Dynamic by the same rule as at each song.
+	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
 
 	Scaffold(
@@ -127,7 +128,7 @@ fun AudioEffectsScreen() {
 							selected = selected,
 							onClick = {
 								preferenceManager.replayGainMode = mode
-								audioGainManager.applyGainMode(mode)
+								player.applyAudioGain()
 							},
 							interactionSource = interactionSource,
 							leadingContent = {
@@ -152,10 +153,7 @@ fun AudioEffectsScreen() {
 						valueRange = -12f..12f,
 						onValueChange = {
 							preferenceManager.rgAmpGain = it.round(1)
-							audioGainManager.setAmplifierValues(
-								withReplayGain = it,
-								withoutReplayGain = preferenceManager.ampGain
-							)
+							player.applyAudioGain()
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
 					)
@@ -166,10 +164,7 @@ fun AudioEffectsScreen() {
 						valueRange = -12f..12f,
 						onValueChange = {
 							preferenceManager.ampGain = it.round(1)
-							audioGainManager.setAmplifierValues(
-								withReplayGain = preferenceManager.rgAmpGain,
-								withoutReplayGain = it
-							)
+							player.applyAudioGain()
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
 					)

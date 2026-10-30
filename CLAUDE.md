@@ -594,6 +594,17 @@ for the permission, and with the permission declined the re-query raised it agai
 (`BridgeLiveness.kt`), looked at every 5 s; the permission itself is still asked for by
 `checkLocalNetworkPermission` in `App.kt`.
 
+**The gain processor (B-278, from upstream `d8380643`).** `exoplayer/AudioGainProcessor.kt` is 0 dB =
+unity (it used to add 1 dB and clip every song), 16-bit only, samples rounded. Everything the output
+gain depends on goes in through ONE call, `AudioGainManager.update(rgAmp, amp, tags, mode)`, made only
+by the player's `applyAudioGain` (the settings screen calls `MediaPlayerViewModel.applyAudioGain()` after
+writing the preferences), which flushes at most once and only when the gain changed. Dynamic is resolved
+by `resolveGainMode` (Album while the whole queue is the song's album), the same rule the song's details
+show. **A song without tags no longer keeps the previous song's gain for the whole song; the first
+fraction of a second after a transition still can** (the gain is set on the main thread at
+`onMediaItemTransition`, after the processor has run ahead by the AudioTrack's buffer; pre-existing,
+B-282, which also holds the missing peak-based clip protection).
+
 ### Radio and autoplay are the hub's stations (I-040)
 
 With `station` in `welcome.features` and the probe (`GET /sonic/station/characters`) saying

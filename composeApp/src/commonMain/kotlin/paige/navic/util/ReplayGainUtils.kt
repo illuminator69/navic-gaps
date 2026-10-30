@@ -1,6 +1,7 @@
 package paige.navic.util
 
 import paige.navic.domain.models.DomainReplayGain
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.ReplayGainMode
 import kotlin.math.abs
 import kotlin.math.pow
@@ -17,6 +18,18 @@ fun DomainReplayGain.effectiveGain(mode: ReplayGainMode = ReplayGainMode.Track):
 		ReplayGainMode.Album -> albumGain ?: trackGain ?: fallbackGain ?: baseGain
 		ReplayGainMode.Track, ReplayGainMode.Dynamic -> trackGain ?: albumGain ?: fallbackGain ?: baseGain
 	}
+}
+
+/**
+ * The mode the gain is applied in, Dynamic resolved: Album while every song in [queue] is from
+ * [song]'s album, else Track; any other mode as it is. The ONE rule for the player
+ * (`applyAudioGain`, which the settings screen goes through) and the song's details, which
+ * used to read Dynamic as Track (B-278 review).
+ */
+fun resolveGainMode(queue: List<DomainSong>, song: DomainSong?, mode: ReplayGainMode): ReplayGainMode = when {
+	mode != ReplayGainMode.Dynamic -> mode
+	song != null && queue.all { it.albumId == song.albumId } -> ReplayGainMode.Album
+	else -> ReplayGainMode.Track
 }
 
 fun Float.decibelsToLinear(): Float {

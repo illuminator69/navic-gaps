@@ -659,6 +659,13 @@ abstract class MediaPlayerViewModel(
 	): LoadOutcome = LoadOutcome(true)
 
 	open fun setPlayerVolume(volume: Float) {}
+
+	/**
+	 * Applies the gain settings (ReplayGain mode, pre-amp, amplifier) to the playing song now. The
+	 * settings screen calls it after writing them, so the mode is resolved by the player's one rule
+	 * (`resolveGainMode`). No-op where there is no gain processor (iOS).
+	 */
+	open fun applyAudioGain() {}
 	open fun applyRemoteRepeat(mode: Int) {}
 	open fun applyRemoteShuffle(enabled: Boolean) {}
 

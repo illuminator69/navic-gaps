@@ -9,22 +9,7 @@ import paige.navic.exoplayer.AudioGainProcessor
 actual class AudioGainManager(
 	private val audioGainProcessor: AudioGainProcessor
 ) {
-    actual fun applyGainMode(
-        mode: ReplayGainMode
-    ) {
-		audioGainProcessor.applyGainMode(mode)
-    }
-
-    actual fun resetGain() {
-		audioGainProcessor.resetGain()
-    }
-
-	actual fun setAmplifierValues(withReplayGain: Float, withoutReplayGain: Float) {
-		audioGainProcessor.rgAmpValue = withReplayGain
-		audioGainProcessor.ampValue = withoutReplayGain
-	}
-
-	actual fun setReplayGainMetadata(metadata: DomainReplayGain?) {
-		audioGainProcessor.setReplayGainMetadata(metadata)
+	actual fun update(withReplayGain: Float, withoutReplayGain: Float, metadata: DomainReplayGain?, mode: ReplayGainMode) {
+		audioGainProcessor.update(withReplayGain, withoutReplayGain, metadata, mode)
 	}
 }

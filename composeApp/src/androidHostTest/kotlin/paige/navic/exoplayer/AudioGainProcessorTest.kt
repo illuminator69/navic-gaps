@@ -15,8 +15,9 @@ import kotlin.test.assertTrue
 
 /*
  * B-278: the processor driven as media3 drives it, on the JVM. Unity leaves the samples alone
- * (it used to add 1 dB and clip), a song without tags drops the gain the song before had, the
- * ReplayGain pre-amp applies only with ReplayGain and the plain amp otherwise.
+ * (it used to add 1 dB and clip), a song without tags drops the gain the song before had from the
+ * update on, the ReplayGain pre-amp applies only with ReplayGain and the plain amp otherwise; one
+ * update flushes at most once, and samples are rounded.
  */
 @UnstableApi
 class AudioGainProcessorTest {
@@ -51,10 +52,18 @@ class AudioGainProcessorTest {
 		return b.array()
 	}
 
+	/** What the player does at each song and on a settings change: one call with everything. */
+	private fun AudioGainProcessor.set(
+		meta: DomainReplayGain?,
+		mode: ReplayGainMode,
+		rgAmp: Float = 0f,
+		amp: Float = 0f
+	) = update(rgAmp, amp, meta, mode)
+
 	@Test
 	fun replayGainOffAndNoAmpIsUnityAndOutOfTheChain() {
 		val p = processor()
-		p.applyGainMode(ReplayGainMode.Off)
+		p.set(null, ReplayGainMode.Off)
 		assertEquals(1f, p.linearGain)
 		assertFalse(p.isActive)
 	}
@@ -69,8 +78,7 @@ class AudioGainProcessorTest {
 	@Test
 	fun unityPassesEverySampleBitForBit() {
 		val p = processor()
-		p.applyGainMode(ReplayGainMode.Track) // on, but this song has no tags
-		p.setReplayGainMetadata(null)
+		p.set(null, ReplayGainMode.Track) // on, but this song has no tags
 		assertEquals(1f, p.linearGain)
 		val out = run(p, samples)
 		assertContentEquals(bytesOf(samples), bytesOf(out))
@@ -81,46 +89,35 @@ class AudioGainProcessorTest {
 		// media3 reads isActive only when it sets the chain up, so a tagged song after an
 		// untagged one must still find the processor there.
 		val p = processor()
-		p.setReplayGainMetadata(null)
-		p.applyGainMode(ReplayGainMode.Track)
+		p.set(null, ReplayGainMode.Track)
 		assertTrue(p.isActive)
 		assertEquals(1f, p.linearGain)
 	}
 
 	@Test
-	fun aSongWithoutTagsNeverInheritsThePreviousSongsGain() {
+	fun aSongWithoutTagsDoesNotKeepThePreviousSongsGain() {
+		// From the update on. What reached the processor before it (up to the AudioTrack's buffer
+		// after a transition) still went through at the old gain: B-282.
 		val p = processor()
-		p.setReplayGainMetadata(rg(track = -6f))
-		p.applyGainMode(ReplayGainMode.Track)
+		p.set(rg(track = -6f), ReplayGainMode.Track)
 		assertEquals(0.501f, p.linearGain, 0.001f)
-
-		p.setReplayGainMetadata(null)
-		assertEquals(1f, p.linearGain, "dropped at once, before any applyGainMode")
-		p.applyGainMode(ReplayGainMode.Track)
+		p.set(null, ReplayGainMode.Track)
 		assertEquals(1f, p.linearGain)
 	}
 
 	@Test
 	fun theReplayGainPreAmpAppliesOnlyWithReplayGain() {
 		val p = processor()
-		p.rgAmpValue = 6f
-		p.ampValue = 0f
-		p.setReplayGainMetadata(null)
-		p.applyGainMode(ReplayGainMode.Track)
+		p.set(null, ReplayGainMode.Track, rgAmp = 6f, amp = 0f)
 		assertEquals(1f, p.linearGain, "no tags: the plain amp (0 dB), not the pre-amp")
-
-		p.setReplayGainMetadata(rg(track = -6f))
-		p.applyGainMode(ReplayGainMode.Track)
+		p.set(rg(track = -6f), ReplayGainMode.Track, rgAmp = 6f, amp = 0f)
 		assertEquals(1f, p.linearGain, 0.0001f) // -6 + 6
 	}
 
 	@Test
 	fun thePlainAmpAppliesWithoutReplayGain() {
 		val p = processor()
-		p.rgAmpValue = 6f
-		p.ampValue = -6f
-		p.setReplayGainMetadata(rg(track = 3f))
-		p.applyGainMode(ReplayGainMode.Off)
+		p.set(rg(track = 3f), ReplayGainMode.Off, rgAmp = 6f, amp = -6f)
 		assertEquals(0.501f, p.linearGain, 0.001f) // -6 dB, the song's tags ignored
 		assertTrue(p.isActive)
 	}
@@ -128,37 +125,45 @@ class AudioGainProcessorTest {
 	@Test
 	fun offThenOnAppliesThePlayingSongsTags() {
 		val p = processor()
-		p.setReplayGainMetadata(rg(track = -6f, album = -3f))
-		p.applyGainMode(ReplayGainMode.Off)
+		val tags = rg(track = -6f, album = -3f)
+		p.set(tags, ReplayGainMode.Off)
 		assertEquals(1f, p.linearGain)
-		p.applyGainMode(ReplayGainMode.Album)
+		p.set(tags, ReplayGainMode.Album)
 		assertEquals(0.708f, p.linearGain, 0.001f)
 	}
 
 	@Test
-	fun resetForgetsTheTags() {
+	fun oneUpdateFlushesAtMostOnceAndOnlyOnAChange() {
+		// B-278 review: a transition used to make up to three main-thread flushes (the amps, the
+		// tags, the mode), each of which can skip a bit of the music.
 		val p = processor()
-		p.setReplayGainMetadata(rg(track = -6f))
-		p.applyGainMode(ReplayGainMode.Track)
-		p.resetGain()
-		assertEquals(1f, p.linearGain)
-		assertFalse(p.isActive)
-		p.applyGainMode(ReplayGainMode.Track)
-		assertEquals(1f, p.linearGain, "the tags went with the reset")
+		p.set(rg(track = -6f), ReplayGainMode.Track, rgAmp = 2f, amp = 1f)
+		assertEquals(1, p.gainFlushes, "the amps, the tags and the mode changed: one flush")
+		p.set(rg(track = -6f), ReplayGainMode.Track, rgAmp = 2f, amp = 1f)
+		assertEquals(1, p.gainFlushes, "nothing changed: no flush")
+		p.set(rg(track = -6f, album = -9f), ReplayGainMode.Track, rgAmp = 2f, amp = 1f)
+		assertEquals(1, p.gainFlushes, "new tags, same output gain: no flush")
+		p.set(null, ReplayGainMode.Off, rgAmp = 5f, amp = 3f)
+		assertEquals(2, p.gainFlushes)
+	}
+
+	@Test
+	fun samplesAreRoundedNotTruncated() {
+		// B-278 review: toInt() truncated toward zero, a bias of up to one step on every sample.
+		val p = processor()
+		p.set(null, ReplayGainMode.Off, amp = -6f) // x0.501
+		// 1.504, -1.504, 50.62, -50.62: truncated these were 1, -1, 50, -50.
+		assertContentEquals(shortArrayOf(2, -2, 51, -51, 0), run(p, shortArrayOf(3, -3, 101, -101, 0)))
 	}
 
 	@Test
 	fun aGainScalesAndClipsAtFullScale() {
 		val p = processor()
-		p.ampValue = 6.0206f // x2
+		p.set(null, ReplayGainMode.Off, amp = 6.0206f) // x2
 		assertTrue(p.isActive)
 		val out = run(p, shortArrayOf(0, 100, -100, 20_000, -20_000, Short.MAX_VALUE, Short.MIN_VALUE))
 		val expected = shortArrayOf(0, 200, -200, Short.MAX_VALUE, Short.MIN_VALUE, Short.MAX_VALUE, Short.MIN_VALUE)
-		assertEquals(expected.size, out.size)
-		// x2 within the float's rounding (truncation may give 199), clipped exactly at full scale.
-		for (i in expected.indices) assertTrue(kotlin.math.abs(expected[i] - out[i]) <= 1, "sample $i: ${out[i]}")
-		assertEquals(Short.MAX_VALUE, out[3])
-		assertEquals(Short.MIN_VALUE, out[4])
+		assertContentEquals(expected, out)
 	}
 
 	@Test

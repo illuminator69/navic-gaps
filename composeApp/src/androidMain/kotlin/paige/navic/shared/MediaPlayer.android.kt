@@ -118,7 +118,6 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import coil3.PlatformContext as CoilPlatformContext
 import paige.navic.domain.models.settings.EqualiserMode
-import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
@@ -135,7 +134,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.SavedQueueRepository
-import paige.navic.util.effectiveGain
+import paige.navic.util.resolveGainMode
 import paige.navic.domain.models.displayName
 
 @OptIn(UnstableApi::class)
@@ -1527,20 +1526,20 @@ class AndroidMediaPlayerViewModel(
 		if (order != _playOrder.value) _playOrder.value = order
 	}
 
-	private fun applyAudioGain() {
-		audioGainManager.setAmplifierValues(preferenceManager.rgAmpGain, preferenceManager.ampGain)
-
-		// The tags always follow the playing song, so a song without them never keeps the
-		// previous song's gain (B-278); with the mode Off they are kept but not applied.
-		val currentSong = _uiState.value.currentSong
-		audioGainManager.setReplayGainMetadata(currentSong?.replayGain)
-		val mode = preferenceManager.replayGainMode
-		audioGainManager.applyGainMode(
-			when {
-				mode != ReplayGainMode.Dynamic -> mode
-				currentSong != null && _uiState.value.queue.all { it.albumId == currentSong.albumId } -> ReplayGainMode.Album
-				else -> ReplayGainMode.Track
-			}
+	/**
+	 * The output gain for the playing song, from the settings, in one update (one flush at most).
+	 * The tags always follow the playing song, so a song without them does not keep the previous
+	 * song's gain for the whole song (B-278); the first fraction of a second after a transition
+	 * still can, since this runs on the main thread after the processor has moved on (B-282).
+	 */
+	override fun applyAudioGain() {
+		val state = _uiState.value
+		val song = state.currentSong
+		audioGainManager.update(
+			withReplayGain = preferenceManager.rgAmpGain,
+			withoutReplayGain = preferenceManager.ampGain,
+			metadata = song?.replayGain,
+			mode = resolveGainMode(state.queue, song, preferenceManager.replayGainMode)
 		)
 	}
 

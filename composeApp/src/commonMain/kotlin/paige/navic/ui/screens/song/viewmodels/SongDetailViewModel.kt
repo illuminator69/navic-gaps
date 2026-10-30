@@ -31,15 +31,18 @@ import org.jetbrains.compose.resources.StringResource
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.CollectionRepository
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import paige.navic.util.effectiveGain
+import paige.navic.util.resolveGainMode
 import paige.navic.util.toFileSize
 import paige.navic.util.toHoursMinutesSeconds
 
 class SongDetailViewModel(
 	songId: String,
 	private val repository: CollectionRepository,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val player: MediaPlayerViewModel
 ) : ViewModel() {
 	val songState: StateFlow<UiState<DomainSong>>
 		field = MutableStateFlow<UiState<DomainSong>>(UiState.Loading())
@@ -82,8 +85,9 @@ class SongDetailViewModel(
 
 			Res.string.info_track_replay_gain to song.replayGain?.trackGain?.let { "$it dB" },
 			Res.string.info_album_replay_gain to song.replayGain?.albumGain?.let { "$it dB" },
+			// The player's own rule (Dynamic: Album while the queue is this song's album).
 			Res.string.info_track_replay_gain_effective to song.replayGain?.effectiveGain(
-				preferenceManager.replayGainMode
+				resolveGainMode(player.uiState.value.queue, song, preferenceManager.replayGainMode)
 			)?.toString(),
 			Res.string.title_statistics to song.playCount.toString()
 		)
