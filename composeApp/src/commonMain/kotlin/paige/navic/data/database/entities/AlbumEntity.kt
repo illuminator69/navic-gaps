@@ -1,11 +1,18 @@
 package paige.navic.data.database.entities
 
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 import kotlin.time.Duration
 import kotlin.time.Instant
 
-@Entity
+// CacheDatabase 24 (fork; MIGRATION_CACHE_23_24): indices the relations and the Liked lists scan by.
+@Entity(
+	indices = [
+		Index(value = ["artistId"]),
+		Index(value = ["starredAt"])
+	]
+)
 data class AlbumEntity(
 	@PrimaryKey val albumId: String,
 	val name: String?,

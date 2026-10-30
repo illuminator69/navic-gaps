@@ -14,7 +14,9 @@ import paige.navic.data.database.MIGRATION_CACHE_16_17
 import paige.navic.data.database.MIGRATION_CACHE_17_18
 import paige.navic.data.database.MIGRATION_CACHE_18_19
 import paige.navic.data.database.MIGRATION_CACHE_22_23
+import paige.navic.data.database.MIGRATION_CACHE_23_24
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
+import paige.navic.data.database.MIGRATION_DOWNLOAD_4_5
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.ConnectivityManager
@@ -56,7 +58,9 @@ actual val platformModule = module {
 				MIGRATION_CACHE_17_18,
 				MIGRATION_CACHE_18_19,
 				// Additive (the lb-bot index mirror). Without it the 23 bump wipes the library.
-				MIGRATION_CACHE_22_23
+				MIGRATION_CACHE_22_23,
+				// Additive (indices only). Without it the 24 bump wipes the library.
+				MIGRATION_CACHE_23_24
 			)
 			.fallbackToDestructiveMigration(true)
 			.build()
@@ -68,7 +72,7 @@ actual val platformModule = module {
 			.databaseBuilder<DownloadDatabase>(dbPath)
 			.setDriver(BundledSQLiteDriver())
 			// See the Android module: dropping this table would orphan every downloaded file.
-			.addMigrations(MIGRATION_DOWNLOAD_3_4)
+			.addMigrations(MIGRATION_DOWNLOAD_3_4, MIGRATION_DOWNLOAD_4_5)
 			.fallbackToDestructiveMigration(true)
 			.build()
 	}

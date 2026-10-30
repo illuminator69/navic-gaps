@@ -9,7 +9,8 @@ import paige.navic.data.database.entities.DownloadEntity
 
 @Database(
 	// v4 adds the download-center columns. Migrated, NOT dropped — see [MIGRATION_DOWNLOAD_3_4].
-	version = 4,
+	// v5 adds the (status, songId) index — [MIGRATION_DOWNLOAD_4_5], additive.
+	version = 5,
 	entities = [DownloadEntity::class]
 )
 @ConstructedBy(DownloadDatabaseConstructor::class)

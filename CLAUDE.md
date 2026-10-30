@@ -58,10 +58,11 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Library tools (P6) | lb-bot's operator half, in the avatar menu's Library tools group. Every rule pure: `domain/manager/Attention.kt` (`/lb/attention`'s answer and how one read is taken, `toFixCount`, `attentionBadge`, `folderTitle` / `folderDetail`, `attentionPage`, `shouldRefreshAttention`, `fillFrameForcesAttention`; `AttentionTest`) and `SourceHistory.kt` (`/lb/activity`, `mergeHistory`, `historyGroups`; `SourceHistoryTest`); the count and its reads in `LbBotManager` (`attention`, `attentionBadge`, `refreshAttention`, `activity()`). Pages: `ui/screens/attention/*` (`Screen.Attention`), `ui/screens/sourcehistory/*` (`Screen.SourceHistory(section)`); the fill row both draw, `ui/components/common/FillRows.kt` (moved out of `DownloadsScreen`). Statistics' Find sources: `unownedRowAction` (`Listening.kt`), `Screen.ExternalAlbum.findSources`, `arrivalSearchShouldStart` (§7) |
 | Playback reporting | `domain/manager/PlaybackReporter.kt` (OpenSubsonic `reportPlayback`, §4). **Two upstream files carry its wiring, and a merge must keep the fork's lines in both.** `androidMain/.../domain/manager/ScrobbleManager.android.kt` is upstream's `AndroidScrobbleManager` listener; it holds the `playbackReporter` field and `snapshot()`, the reporter call in each listener callback, the `nowPlayingReported` hook assignment and the `isRemoteActive` takeover collector in `init`, and `playbackReporter.release(snapshot())` in `release()` (B-009, B-027). Taking upstream's copy silently drops all reporting, the takeover close and the teardown `stopped`. `commonMain/.../ScrobbleManager.kt` holds the `nowPlayingReported` hook and its guard in `scrobbleNowPlaying` (B-027); lose them and the legacy now-playing ping comes back, resetting the entry's position to 0. `PlaybackReportLedger` (same file) persists the mediaId Navidrome confirmed, so the next start closes what a force stop left open (Q-042, §4) |
 
-Two Room databases. **`CacheDatabase` is at 23** and is `fallbackToDestructiveMigration(true)` — it
-is a cache, and saved queues re-reconcile from the hub. **`DownloadDatabase` (at 4) holds real user
+Two Room databases. **`CacheDatabase` is at 24** and is `fallbackToDestructiveMigration(true)` — it
+is a cache, and saved queues re-reconcile from the hub. **`DownloadDatabase` (at 5) holds real user
 data** and must never be treated that way. 23 added the lb-bot index mirror (§5) through a
-hand-written `MIGRATION_CACHE_22_23`, so an upgrade keeps the cached library rather than wiping it.
+hand-written `MIGRATION_CACHE_22_23`, and 24 (with downloads 5) only indices (§2 rule 5), so an
+upgrade keeps the cached library rather than wiping it.
 
 ---
 
@@ -149,6 +150,12 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    regenerated `N.json`'s `createSql` by script rather than by eye (that is how 22→23 was
    verified). A migration that is merged away does not fail the build — the upgrade silently falls
    back to destructive and wipes the cached library, and the mirror re-pulls from zero.
+   **Since 2026-10-30 the fork is at `CacheDatabase` 24 and `DownloadDatabase` 5** (indices only,
+   adapted from upstream `6d266f46`: `MIGRATION_CACHE_23_24` and `MIGRATION_DOWNLOAD_4_5` in
+   `DownloadMigrations.kt`, both platform modules; `CacheDatabase24MigrationTest` holds their SQL to
+   `24.json` / `5.json`). **Upstream's own `CacheDatabase` 24, 25, 26 and 27 (beta01) are different
+   schemas** — so a future upstream merge goes to **28 or higher**, re-chained from the fork's 24,
+   never onto a number upstream has already used.
 6. **Translations** (`values-*/strings.xml`): upstream's wholesale, re-add the fork's keys, then
    grep for duplicate `name=` attributes — a duplicate breaks
    `convertXmlValueResourcesForCommonMain` with an error that doesn't name the key.

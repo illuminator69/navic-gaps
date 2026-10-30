@@ -1,6 +1,7 @@
 package paige.navic.data.database.entities
 
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 import kotlinx.serialization.Serializable
 
@@ -16,7 +17,12 @@ import kotlinx.serialization.Serializable
  * `ALTER TABLE ADD COLUMN`s and existing rows — and the files they point at — survive untouched.
  */
 @Serializable
-@Entity
+// DownloadDatabase 5 / CacheDatabase 24 (fork; MIGRATION_DOWNLOAD_4_5, MIGRATION_CACHE_23_24).
+@Entity(
+	indices = [
+		Index(value = ["status", "songId"])
+	]
+)
 data class DownloadEntity(
 	@PrimaryKey val songId: String,
 	val status: DownloadStatus,

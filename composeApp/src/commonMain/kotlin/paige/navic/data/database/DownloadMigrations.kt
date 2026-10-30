@@ -239,3 +239,49 @@ val MIGRATION_CACHE_22_23 = object : Migration(22, 23) {
 		)
 	}
 }
+
+/**
+ * The download table's one index, `(status, songId)`: the per-collection status flows and the
+ * Downloaded filters ask "which of these songs are DOWNLOADED", which without it reads the whole
+ * table. [DownloadEntity] is an entity of BOTH databases, so both migrations below create it.
+ */
+internal val DOWNLOAD_INDEX_SQL = listOf(
+	"CREATE INDEX IF NOT EXISTS `index_DownloadEntity_status_songId` " +
+		"ON `DownloadEntity` (`status`, `songId`)"
+)
+
+/**
+ * The cache's indices added in 24 (adapted from upstream `6d266f46`): an album's songs
+ * (`belongsToAlbumId`), an artist's songs and albums (`artistId`), and the Liked lists
+ * (`starredAt`) each used to be a full scan of their table.
+ */
+internal val CACHE_24_INDEX_SQL = listOf(
+	"CREATE INDEX IF NOT EXISTS `index_SongEntity_belongsToAlbumId` ON `SongEntity` (`belongsToAlbumId`)",
+	"CREATE INDEX IF NOT EXISTS `index_SongEntity_artistId` ON `SongEntity` (`artistId`)",
+	"CREATE INDEX IF NOT EXISTS `index_SongEntity_starredAt` ON `SongEntity` (`starredAt`)",
+	"CREATE INDEX IF NOT EXISTS `index_AlbumEntity_artistId` ON `AlbumEntity` (`artistId`)",
+	"CREATE INDEX IF NOT EXISTS `index_AlbumEntity_starredAt` ON `AlbumEntity` (`starredAt`)",
+	"CREATE INDEX IF NOT EXISTS `index_ArtistEntity_starredAt` ON `ArtistEntity` (`starredAt`)"
+) + DOWNLOAD_INDEX_SQL
+
+/**
+ * v23 → v24: indices only. Purely additive, like 22 → 23, so the cached library and the lb-bot
+ * mirror survive the upgrade. Upstream's own CacheDatabase 24–27 are DIFFERENT schemas (rule 5):
+ * a future upstream merge goes above this, to 28 or higher. `CacheDatabase24MigrationTest` holds
+ * this SQL to the regenerated `24.json`.
+ */
+val MIGRATION_CACHE_23_24 = object : Migration(23, 24) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		CACHE_24_INDEX_SQL.forEach { connection.execSQL(it) }
+	}
+}
+
+/**
+ * v4 → v5: the `(status, songId)` index. Additive and never destructive: dropping this table
+ * would orphan every downloaded file on disk.
+ */
+val MIGRATION_DOWNLOAD_4_5 = object : Migration(4, 5) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		DOWNLOAD_INDEX_SQL.forEach { connection.execSQL(it) }
+	}
+}

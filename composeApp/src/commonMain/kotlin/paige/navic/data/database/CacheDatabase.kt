@@ -53,7 +53,10 @@ import kotlinx.coroutines.launch
 	// (MIGRATION_CACHE_22_23, registered in BOTH PlatformModule.android.kt and .ios.kt), and the
 	// destructive fallback stays only for versions with no path. If upstream bumps this database,
 	// renumber above both parents (the alpha59 "two 21s" rule) and keep this migration.
-	version = 23,
+	//
+	// 24: indices only (MIGRATION_CACHE_23_24, additive, both platform modules). Upstream's own
+	// 24, 25, 26 and 27 (beta01) are DIFFERENT schemas, so a future upstream merge goes to 28+.
+	version = 24,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,
