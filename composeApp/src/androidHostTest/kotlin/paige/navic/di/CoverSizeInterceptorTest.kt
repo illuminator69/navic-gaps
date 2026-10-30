@@ -2,6 +2,7 @@ package paige.navic.di
 
 import paige.navic.exoplayer.NOTIFICATION_ARTWORK_MAX_PX
 import paige.navic.exoplayer.notificationArtworkKeys
+import paige.navic.exoplayer.notificationArtworkUrl
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,16 +56,88 @@ class CoverSizeInterceptorTest {
 	}
 
 	@Test
-	fun theNotificationReadsTheBareIdThenTheSizedFilesAndIsCapped() {
+	fun theNotificationNeverTakesATinyEntryAndNeverFetchesTheCap() {
 		assertEquals(512, NOTIFICATION_ARTWORK_MAX_PX)
-		assertEquals(listOf("c", "c#size=512", "c#size=1024", "c#size=200", "c#size=100", "c#size=50"), notificationArtworkKeys("c"))
+		// 512 and 1024 the tiles keep, then the bare id; never 200, 100 or 50.
+		assertEquals(listOf("c#size=512", "c#size=1024", "c"), notificationArtworkKeys("c"))
+		// Nothing on disk: fetched at 512, not at the cover-art quality.
+		assertEquals(url.replace("size=4096", "size=512"), notificationArtworkUrl(url))
+		assertEquals("https://nd/rest/getCoverArt?id=x&size=512", notificationArtworkUrl("https://nd/rest/getCoverArt?id=x"))
+		// A quality under 512 is kept; a picture that is not a Subsonic cover is left alone.
+		assertEquals("https://nd/rest/getCoverArt?id=x&size=300", notificationArtworkUrl("https://nd/rest/getCoverArt?id=x&size=300"))
+		assertEquals("https://hub.example/lb/art?id=x&size=4096", notificationArtworkUrl("https://hub.example/lb/art?id=x&size=4096"))
 		val loader = File("src/androidMain/kotlin/paige/navic/exoplayer/ExoPlayerCoilBitmapLoader.kt").readText()
 		assertTrue(".setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_PX)" in loader)
 	}
 
 	@Test
-	fun bothLoadersCarryTheInterceptor() {
+	fun theNotificationReadsTheDiskOffTheCallersThread() {
+		// media3 calls loadBitmap on its application thread: the whole body is the IO future.
+		val loader = File("src/androidMain/kotlin/paige/navic/exoplayer/ExoPlayerCoilBitmapLoader.kt").readText()
+		val body = loader.substringAfter("override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap>").substringBefore("\n}\n")
+		assertTrue(body.trimStart().startsWith("= scope.future {"), body)
+		assertTrue("CoroutineScope(SupervisorJob() + Dispatchers.IO)" in loader)
+		assertTrue("openSnapshot" !in body, body)
+	}
+
+	@Test
+	fun bothLoadersCarryTheInterceptorWithTheirMemoryCache() {
 		val init = File("src/commonMain/kotlin/paige/navic/di/SingletonImageLoaderInit.kt").readText()
-		assertEquals(2, Regex("""add\(CoverSizeInterceptor \{ getDiskCache\(\) \}\)""").findAll(init).count())
+		assertEquals(2, Regex("""add\(CoverSizeInterceptor\(\{ getDiskCache\(\) \}, \{ memoryCache \}\)\)""").findAll(init).count())
+		assertEquals(2, Regex("""\.memoryCache \{ memoryCache \}""").findAll(init).count())
+		// One disk cache, made once even when both loaders ask at once.
+		assertTrue("private val sharedDiskCache: DiskCache by lazy {" in init)
+	}
+
+	@Test
+	fun theTargetIsTheLargerSideKnown() {
+		assertEquals(300, coverTargetPx(150, 300))
+		assertEquals(150, coverTargetPx(150, null))
+		assertEquals(300, coverTargetPx(null, 300))
+		assertNull(coverTargetPx(null, null))
+		// A 150 x 300 tile is the 512 bucket, not the 200 the width alone gave.
+		assertEquals(512, coverSizeBucket(coverTargetPx(150, 300)!!, 4096))
+	}
+
+	@Test
+	fun aCoverInMemoryOrChosenBeforeNeedsNoDiskProbe() {
+		val memo = CoverKeyMemo()
+		val candidates = listOf("a#size=200", "a#size=512", "a")
+		// Nothing in memory, nothing chosen: only the disk can tell.
+		assertNull(fastCoverKey(candidates, "m", memo) { false })
+		// In memory under a larger key: that one, no disk.
+		assertEquals("a#size=512", fastCoverKey(candidates, "m", memo) { it == "a#size=512" })
+		// Memory first, in the candidates' order.
+		assertEquals("a#size=200", fastCoverKey(candidates, "m", memo) { true })
+		// Chosen before (the disk was probed once): remembered.
+		memo["m"] = "a"
+		assertEquals("a", fastCoverKey(candidates, "m", memo) { false })
+	}
+
+	@Test
+	fun theMemoForgetsTheEldestPastItsSize() {
+		val memo = CoverKeyMemo(maxEntries = 2)
+		memo["a"] = "1"; memo["b"] = "2"; memo["a"] = "1"; memo["c"] = "3"
+		assertNull(memo["b"])
+		assertEquals("1", memo["a"])
+		assertEquals("3", memo["c"])
+	}
+
+	@Test
+	fun aFailedFetchFallsBackToTheLargestSmallerFile() {
+		assertEquals(listOf("a#size=200", "a#size=100", "a#size=50"), smallerCoverKeys("a", 512))
+		assertEquals(emptyList(), smallerCoverKeys("a", 50))
+		val onDisk = setOf("a#size=100", "a#size=50")
+		assertEquals("a#size=100", smallerCoverKeys("a", 512).firstOrNull { it in onDisk })
+	}
+
+	@Test
+	fun theInterceptorAsksMemoryBeforeItLeavesTheThread() {
+		val src = File("src/commonMain/kotlin/paige/navic/di/CoverSizeInterceptor.kt").readText()
+		val body = src.substringAfter("override suspend fun intercept(")
+		val fast = body.indexOf("fastCoverKey(")
+		val hop = body.indexOf("withContext(Dispatchers.IO)")
+		assertTrue(fast in 0 until hop, "the memory and memo lookup must come before the IO hop")
+		assertTrue("val key = fast ?: withContext(Dispatchers.IO)" in body)
 	}
 }

@@ -2,6 +2,9 @@ package paige.navic.di
 
 import coil3.disk.DiskCache
 import coil3.intercept.Interceptor
+import coil3.memory.MemoryCache
+import coil3.request.ErrorResult
+import coil3.request.ImageRequest
 import coil3.request.ImageResult
 import coil3.size.Dimension
 import kotlinx.coroutines.Dispatchers
@@ -73,34 +76,123 @@ internal fun pickCoverKey(
 ): String = (listOf(sizedKey) + largerKeys + baseKey).firstOrNull(onDisk) ?: sizedKey
 
 /**
+ * The px a cover request is bucketed by: the larger of its width and height, whichever are known
+ * (a tile drawn 150 wide and 300 tall needs the 512 file, not the 200). Null = neither is known
+ * (`Size.ORIGINAL`, or undefined both ways): the request goes through as it is.
+ */
+internal fun coverTargetPx(width: Int?, height: Int?): Int? =
+	listOfNotNull(width, height).maxOrNull()
+
+/**
+ * The sized keys under [bucket], largest first: what a failed fetch falls back to (B-038 offline),
+ * a smaller file stretched being better than the error box.
+ */
+internal fun smallerCoverKeys(id: String, bucket: Int): List<String> =
+	COVER_SIZE_BUCKETS.filter { it < bucket }.sortedDescending().map { sizedCoverKey(id, it) }
+
+/**
+ * Which key each (sized key, cap) was given, so a cover's disk entries are probed once per
+ * process and every later request for it (a scroll back, a Back to the list) is answered without
+ * leaving the caller's thread. Shared by both loaders, which share one disk cache. Bounded: the
+ * eldest choice is dropped past [maxEntries], and a dropped one is only probed again.
+ *
+ * A remembered choice can go stale (the disk cache evicts its file): the request then fetches
+ * under that key, as any miss does, and a failed fetch still falls back ([smallerCoverKeys]).
+ */
+internal class CoverKeyMemo(private val maxEntries: Int = 4096) {
+	private val lock = Any()
+	private val chosen = LinkedHashMap<String, String>()
+
+	operator fun get(memoKey: String): String? = synchronized(lock) { chosen[memoKey] }
+
+	operator fun set(memoKey: String, key: String) {
+		synchronized(lock) {
+			chosen.remove(memoKey)
+			chosen[memoKey] = key
+			while (chosen.size > maxEntries) chosen.remove(chosen.keys.first())
+		}
+	}
+}
+
+/**
+ * The key a request reads without leaving its thread, or null when only the disk can tell:
+ * a candidate already decoded in memory at least [targetPx] wide or tall ([inMemory]), in
+ * [candidates]' order, else the key remembered for [memoKey]. Neither touches the disk.
+ */
+internal fun fastCoverKey(
+	candidates: List<String>,
+	memoKey: String,
+	memo: CoverKeyMemo,
+	inMemory: (String) -> Boolean
+): String? = candidates.firstOrNull(inMemory) ?: memo[memoKey]
+
+/** The process's one memo, for both loaders (they share [getDiskCache]'s files). */
+internal val coverKeyMemo = CoverKeyMemo()
+
+/**
  * Row 9: a Subsonic cover is asked for at the bucket its target needs, not always at the user's
  * cover-art quality (4096 px by default), and kept under `id#size=N`. Only `getCoverArt` URLs
  * are touched: lb-bot's and the Cover Art Archive's pictures (`RemoteCoverArt`, `LbArtImage`)
  * and anything asked for at `Size.ORIGINAL` go through as they were. The palette fetch (§6
  * rule 2) is its own Ktor path and never comes here.
+ *
+ * Coil runs this before its memory cache (`EngineInterceptor` is last), so a request must not
+ * suspend here when its cover is already at hand: a cover in [memoryCache] under one of its keys,
+ * or one whose key was chosen before ([coverKeyMemo]), goes straight on, on the caller's thread,
+ * and a cover already seen draws in the frame it is composed in. Only a cover's first request in
+ * the process probes the disk, on IO.
  */
-class CoverSizeInterceptor(private val diskCache: () -> DiskCache?) : Interceptor {
+class CoverSizeInterceptor internal constructor(
+	private val diskCache: () -> DiskCache?,
+	private val memoryCache: () -> MemoryCache? = { null },
+	private val memo: CoverKeyMemo = coverKeyMemo
+) : Interceptor {
 	override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
 		val request = chain.request
 		val url = request.data as? String ?: return chain.proceed()
-		val width = (chain.size.width as? Dimension.Pixels)?.px ?: return chain.proceed()
+		val target = coverTargetPx(
+			(chain.size.width as? Dimension.Pixels)?.px,
+			(chain.size.height as? Dimension.Pixels)?.px
+		) ?: return chain.proceed()
 		val (id, cap) = parseCoverArtUrl(url) ?: return chain.proceed()
-		val bucket = coverSizeBucket(width, cap) ?: return chain.proceed()
+		val bucket = coverSizeBucket(target, cap) ?: return chain.proceed()
 
 		val baseKey = request.diskCacheKey ?: id
-		val larger = COVER_SIZE_BUCKETS.filter { it > bucket && (cap == null || it < cap) }
-		val cache = diskCache()
-		val key = withContext(Dispatchers.IO) {
-			pickCoverKey(sizedCoverKey(id, bucket), larger.map { sizedCoverKey(id, it) }, baseKey) { key ->
-				cache?.openSnapshot(key)?.use { true } == true
-			}
+		val sizedKey = sizedCoverKey(id, bucket)
+		val largerKeys = COVER_SIZE_BUCKETS.filter { it > bucket && (cap == null || it < cap) }
+			.map { sizedCoverKey(id, it) }
+		val memoKey = "$sizedKey|$cap|$baseKey"
+		val keepsMemoryKey = request.memoryCacheKey != null
+		val memory = if (keepsMemoryKey) memoryCache() else null
+		val extras = request.memoryCacheKeyExtras
+		val fast = fastCoverKey(listOf(sizedKey) + largerKeys + baseKey, memoKey, memo) { key ->
+			val image = memory?.get(MemoryCache.Key(key, extras))?.image
+			image != null && (image.width >= target || image.height >= target)
 		}
+		val cache = diskCache()
+		val key = fast ?: withContext(Dispatchers.IO) {
+			pickCoverKey(sizedKey, largerKeys, baseKey) { cache.has(it) }
+		}.also { memo[memoKey] = it }
+
+		val result = chain.withRequest(request.sizedTo(url, key, baseKey, bucket, keepsMemoryKey)).proceed()
+		if (result !is ErrorResult) return result
+		// B-038 offline: the fetch failed; a smaller file of the same cover on disk beats the error
+		// box (and the album fallback `CoverArt` tries after it).
+		val smaller = withContext(Dispatchers.IO) {
+			smallerCoverKeys(id, bucket).firstOrNull { it != key && cache.has(it) }
+		} ?: return result
+		return chain.withRequest(request.sizedTo(url, smaller, baseKey, bucket, keepsMemoryKey)).proceed()
+	}
+
+	private fun DiskCache?.has(key: String): Boolean = this?.openSnapshot(key)?.use { true } == true
+
+	private fun ImageRequest.sizedTo(url: String, key: String, baseKey: String, bucket: Int, keepsMemoryKey: Boolean): ImageRequest {
 		val data = when (key) {
 			baseKey -> url
 			else -> withCoverSize(url, key.substringAfterLast("#size=").toIntOrNull() ?: bucket)
 		}
-		val builder = request.newBuilder().data(data).diskCacheKey(key)
-		if (request.memoryCacheKey != null) builder.memoryCacheKey(key)
-		return chain.withRequest(builder.build()).proceed()
+		val builder = newBuilder().data(data).diskCacheKey(key)
+		if (keepsMemoryKey) builder.memoryCacheKey(key)
+		return builder.build()
 	}
 }

@@ -85,14 +85,18 @@ fun BlendBackground(
 	// Reduced motion: one still frame, no rotation and no cross-fade (audit L1-03).
 	val reduced = rememberReducedMotion()
 	val fadeMs = crossfadeMsFor(reduced, 400)
-	// 256 px, with the size in the memory key (adapted from upstream 6947d2f9): the request had no
-	// size, so the cover was decoded to fill the screen, up to ~2400 px square per bitmap. The disk
-	// entry stays the bare id (B-038), shared with the tiles.
+	// 256 px (adapted from upstream 6947d2f9): the request had no size, so the cover was decoded to
+	// fill the screen, up to ~2400 px square per bitmap. The keys set here are the bare id, and at
+	// run time they are the CoverSizeInterceptor's (row 9): 256 px is the 512 bucket, so the wash
+	// reads and writes `id#size=512` on disk (shared with the tiles at that bucket, or a larger
+	// file / the bare id when one is there) and keeps its 256 px decode under the same key in the
+	// static loader's own small memory cache, where nothing else decodes. With a cover-art quality
+	// of 512 or less the interceptor passes it through and both keys stay the bare id.
 	val model = remember(coverArtId, fadeMs) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.size(BLEND_ART_SIZE_PX, BLEND_ART_SIZE_PX)
-			.memoryCacheKey(coverArtId?.let { "${it}_static_$BLEND_ART_SIZE_PX" })
+			.memoryCacheKey(coverArtId)
 			.diskCacheKey(coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
