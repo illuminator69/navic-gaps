@@ -63,6 +63,13 @@ interface ArtistDao {
 	@Query("SELECT EXISTS(SELECT 1 FROM ArtistEntity WHERE artistId = :artistId AND starredAt IS NOT NULL)")
 	suspend fun isArtistStarred(artistId: String): Boolean
 
+	// Row 10 (adapted from upstream ce5861ed … 33e28839): a star or a rating is ONE column written
+	// by id. It used to REPLACE the whole row from the domain object the screen held, which could
+	// be stale (or, since row 4a, a list row with no songs), and put back whatever it remembered.
+	// Each returns the rows it changed: 0 = no such row, and the caller then inserts as before.
+	@Query("UPDATE ArtistEntity SET starredAt = :starredAtMillis WHERE artistId = :artistId")
+	suspend fun setArtistStarredAt(artistId: String, starredAtMillis: Long?): Int
+
 	@Query("SELECT * FROM ArtistEntity WHERE name LIKE '%' || :query || '%' COLLATE NOCASE")
 	suspend fun searchArtistsList(query: String): List<ArtistEntity>
 

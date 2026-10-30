@@ -118,18 +118,17 @@ class ArtistRepository(
 	suspend fun isArtistStarred(artist: DomainArtist) = artistDao.isArtistStarred(artist.id)
 
 	suspend fun starArtist(artist: DomainArtist) {
-		val starredEntity = artist.toEntity().copy(
-			starredAt = Clock.System.now()
-		)
-		artistDao.insertArtist(starredEntity)
+		val now = Clock.System.now()
+		if (artistDao.setArtistStarredAt(artist.id, now.toEpochMilliseconds()) == 0) {
+			artistDao.insertArtist(artist.toEntity().copy(starredAt = now))
+		}
 		syncManager.enqueueAction(SyncActionType.STAR, artist.id)
 	}
 
 	suspend fun unstarArtist(artist: DomainArtist) {
-		val unstarredEntity = artist.toEntity().copy(
-			starredAt = null
-		)
-		artistDao.insertArtist(unstarredEntity)
+		if (artistDao.setArtistStarredAt(artist.id, null) == 0) {
+			artistDao.insertArtist(artist.toEntity().copy(starredAt = null))
+		}
 		syncManager.enqueueAction(SyncActionType.UNSTAR, artist.id)
 	}
 }

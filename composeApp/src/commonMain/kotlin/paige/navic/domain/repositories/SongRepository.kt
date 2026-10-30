@@ -127,28 +127,26 @@ class SongRepository(
 	suspend fun isSongStarred(song: DomainSong) = songDao.isSongStarred(song.id)
 	suspend fun getSongRating(song: DomainSong) = songDao.getSongRating(song.id) ?: 0
 	suspend fun starSong(song: DomainSong) {
-		val starredEntity = song.toEntity().copy(
-			starredAt = Clock.System.now()
-		)
-		songDao.insertSong(starredEntity)
+		val now = Clock.System.now()
+		if (songDao.setSongStarredAt(song.id, now.toEpochMilliseconds()) == 0) {
+			songDao.insertSong(song.toEntity().copy(starredAt = now))
+		}
 		syncManager.enqueueAction(SyncActionType.STAR, song.id)
 		_starChanges.tryEmit(StarChange(song.id, starred = true))
 	}
 
 	suspend fun unstarSong(song: DomainSong) {
-		val unstarredEntity = song.toEntity().copy(
-			starredAt = null
-		)
-		songDao.insertSong(unstarredEntity)
+		if (songDao.setSongStarredAt(song.id, null) == 0) {
+			songDao.insertSong(song.toEntity().copy(starredAt = null))
+		}
 		syncManager.enqueueAction(SyncActionType.UNSTAR, song.id)
 		_starChanges.tryEmit(StarChange(song.id, starred = false))
 	}
 
 	suspend fun rateSong(song: DomainSong, rating: Int) {
-		val ratedEntity = song.toEntity().copy(
-			userRating = rating
-		)
-		songDao.insertSong(ratedEntity)
+		if (songDao.setSongRating(song.id, rating) == 0) {
+			songDao.insertSong(song.toEntity().copy(userRating = rating))
+		}
 		when (rating) {
 			0 -> syncManager.enqueueAction(SyncActionType.STAR_0, song.id)
 			1 -> syncManager.enqueueAction(SyncActionType.STAR_1, song.id)

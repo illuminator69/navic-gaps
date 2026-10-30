@@ -124,26 +124,24 @@ class AlbumRepository(
 	suspend fun getAlbumRating(album: DomainAlbum) = albumDao.getAlbumRating(album.id) ?: 0
 
 	suspend fun starAlbum(album: DomainAlbum) {
-		val starredEntity = album.toEntity().copy(
-			starredAt = Clock.System.now()
-		)
-		albumDao.insertAlbum(starredEntity)
+		val now = Clock.System.now()
+		if (albumDao.setAlbumStarredAt(album.id, now.toEpochMilliseconds()) == 0) {
+			albumDao.insertAlbum(album.toEntity().copy(starredAt = now))
+		}
 		syncManager.enqueueAction(SyncActionType.STAR, album.id)
 	}
 
 	suspend fun unstarAlbum(album: DomainAlbum) {
-		val unstarredEntity = album.toEntity().copy(
-			starredAt = null
-		)
-		albumDao.insertAlbum(unstarredEntity)
+		if (albumDao.setAlbumStarredAt(album.id, null) == 0) {
+			albumDao.insertAlbum(album.toEntity().copy(starredAt = null))
+		}
 		syncManager.enqueueAction(SyncActionType.UNSTAR, album.id)
 	}
 
 	suspend fun rateAlbum(album: DomainAlbum, rating: Int) {
-		val ratedEntity = album.toEntity().copy(
-			userRating = rating
-		)
-		albumDao.insertAlbum(ratedEntity)
+		if (albumDao.setAlbumRating(album.id, rating) == 0) {
+			albumDao.insertAlbum(album.toEntity().copy(userRating = rating))
+		}
 		when (rating) {
 			0 -> syncManager.enqueueAction(SyncActionType.STAR_0, album.id)
 			1 -> syncManager.enqueueAction(SyncActionType.STAR_1, album.id)

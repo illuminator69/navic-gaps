@@ -73,6 +73,16 @@ interface SongDao {
 	@Query("SELECT userRating FROM SongEntity WHERE songId = :songId")
 	suspend fun getSongRating(songId: String): Int?
 
+	// Row 10 (adapted from upstream ce5861ed … 33e28839): a star or a rating is ONE column written
+	// by id. It used to REPLACE the whole row from the domain object the screen held, which could
+	// be stale (or, since row 4a, a list row with no songs), and put back whatever it remembered.
+	// Each returns the rows it changed: 0 = no such row, and the caller then inserts as before.
+	@Query("UPDATE SongEntity SET starredAt = :starredAtMillis WHERE songId = :songId")
+	suspend fun setSongStarredAt(songId: String, starredAtMillis: Long?): Int
+
+	@Query("UPDATE SongEntity SET userRating = :rating WHERE songId = :songId")
+	suspend fun setSongRating(songId: String, rating: Int): Int
+
 	@Query("DELETE FROM SongEntity")
 	suspend fun clearAllSongs()
 

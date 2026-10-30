@@ -100,6 +100,16 @@ interface AlbumDao {
 	@Query("SELECT userRating FROM AlbumEntity WHERE albumId = :albumId")
 	suspend fun getAlbumRating(albumId: String): Int?
 
+	// Row 10 (adapted from upstream ce5861ed … 33e28839): a star or a rating is ONE column written
+	// by id. It used to REPLACE the whole row from the domain object the screen held, which could
+	// be stale (or, since row 4a, a list row with no songs), and put back whatever it remembered.
+	// Each returns the rows it changed: 0 = no such row, and the caller then inserts as before.
+	@Query("UPDATE AlbumEntity SET starredAt = :starredAtMillis WHERE albumId = :albumId")
+	suspend fun setAlbumStarredAt(albumId: String, starredAtMillis: Long?): Int
+
+	@Query("UPDATE AlbumEntity SET userRating = :rating WHERE albumId = :albumId")
+	suspend fun setAlbumRating(albumId: String, rating: Int): Int
+
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC")
 	fun getAlbumsByArtist(artistId: String): Flow<List<AlbumWithSongs>>
