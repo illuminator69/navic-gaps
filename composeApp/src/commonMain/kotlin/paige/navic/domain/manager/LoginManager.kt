@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -130,6 +131,8 @@ class LoginManager(
 	fun logout() {
 		loginState.value = LoginUiState.Idle
 		signInAgain = false
+		// B-279: the login form outlives the session (a singleton), and kept the password typed.
+		passwordState.clearText()
 		sessionManager.logout()
 		scope.launch {
 			repository.removeEverything()
