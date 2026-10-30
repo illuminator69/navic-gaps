@@ -1,16 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?><!--
    Backup / transfer rules for API 31+. See backup_rules.xml for the same policy on older
-   devices, and for why the preferences file is excluded: it is the single file holding the
-   Navidrome password, the hub token and the AudioMuse token.
+   devices.
 
-   cloud-backup and device-transfer are separated on purpose. A cloud backup leaves the
-   user's hardware entirely, so credentials and cached library both stay out of it. A
-   device-transfer is a direct handset-to-handset copy the user initiated, where carrying
-   the credentials across is the behaviour they are asking for; the re-syncable library
-   caches are still left behind rather than moved as a stale snapshot.
+   The Navidrome password, the hub token and the AudioMuse token are in their own file,
+   navic_secrets.xml, sealed with a key that lives in this device's Android Keystore (B-279).
+   That key never leaves the device, so a copy of the file anywhere else could not be opened:
+   the file is excluded from cloud backup AND device transfer, and a new device asks for the
+   password and the tokens again (the login screen says why).
+
+   The settings file (<applicationId>_preferences.xml) no longer holds any of them. It stays
+   out of cloud backup, which leaves the user's hardware entirely, and keeps travelling in a
+   device transfer, a direct handset-to-handset copy the user started: the server address,
+   the user name and every setting arrive, and only the credentials are typed again. (An
+   install that has not opened since this change can still hold the old plaintext values
+   there until its first launch moves them, which is one more reason cloud backup leaves it
+   out.) The re-syncable library caches are left behind rather than moved as a stale snapshot.
 -->
 <data-extraction-rules>
 	<cloud-backup>
+		<exclude
+			domain="sharedpref"
+			path="navic_secrets.xml" />
 		<exclude
 			domain="sharedpref"
 			path="paige.navic_preferences.xml" />
@@ -25,6 +35,9 @@
 			path="downloads.db" />
 	</cloud-backup>
 	<device-transfer>
+		<exclude
+			domain="sharedpref"
+			path="navic_secrets.xml" />
 		<exclude
 			domain="database"
 			path="cache.db" />

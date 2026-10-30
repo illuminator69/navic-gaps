@@ -1,20 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?><!--
    Android auto-backup rules (API 30 and below; API 31+ uses data_extraction_rules.xml).
 
-   Everything the app stores in preferences lives in ONE file, and that file holds the
-   Navidrome password, the hub token and the AudioMuse token. Backup would copy them to
-   Google's servers and onto whatever device a restore lands on, which is not somewhere a
-   self-hosted setup's credentials should end up by default.
+   The Navidrome password, the hub token and the AudioMuse token are in navic_secrets.xml,
+   sealed with a key in this device's Android Keystore (B-279). The key is not backed up, so
+   a restored copy could not be opened: the file is excluded, and a restored install asks for
+   the password and the tokens again. The name is the same on debug and release builds (the
+   file is named in code, not after the applicationId).
 
-   Multiplatform-Settings' `Settings()` factory maps to the default SharedPreferences
-   file, i.e. <applicationId>_preferences.xml — "paige.navic" here, plus the ".debug"
-   suffix on debug builds, so both are named.
+   The settings file stays excluded as before. It no longer holds a credential, but an install
+   that has not opened since this change can still hold the old plaintext values until its
+   first launch moves them. Multiplatform-Settings' `Settings()` maps to the default
+   SharedPreferences file, <applicationId>_preferences.xml: "paige.navic", plus ".debug" on
+   debug builds, so both are named.
 
-   The trade is real and deliberate: a restored install asks for the server details again.
-   Cached library data lives in the Room databases and is re-syncable, so it is excluded
-   too rather than dragging a stale copy of the library onto a new device.
+   Cached library data lives in the Room databases and is re-syncable, so it is excluded too
+   rather than dragging a stale copy of the library onto a new device.
 -->
 <full-backup-content>
+	<exclude
+		domain="sharedpref"
+		path="navic_secrets.xml" />
 	<exclude
 		domain="sharedpref"
 		path="paige.navic_preferences.xml" />

@@ -295,9 +295,9 @@ an unexplained failure to update:
 
 - **A new machine silently generates a fresh `~/.android/debug.keystore`.** The phone then refuses
   the APK with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Back the keystore up; the private key cannot
-  be recovered from an installed APK, and the app's preferences file (the one holding the Navidrome
-  password and the hub / AudioMuse tokens) is excluded from Android backup on purpose, so an
-  uninstall really does cost the login.
+  be recovered from an installed APK, and the secrets file (the Navidrome password and the hub /
+  AudioMuse tokens, sealed under a Keystore key, §5) is excluded from every backup and transfer
+  on purpose, so an uninstall really does cost the login.
 - **A merge eats the fallback.** Upstream writes
   `signingConfig = signingConfigs.findByName("release")?.takeIf { it.storeFile != null }`, which is
   **null** when `SIGNING_*` is unset — their CI always sets it, so upstream never sees an unsigned
@@ -1357,8 +1357,23 @@ Rules, each with a reason:
   a cancel is restarted from the album page — and Cancel is offered from the server's own
   `cancellable` field, never on `placing`/`placed`. `cancelFill` answers "too late" when lb-bot
   says placement has begun, and applies lb-bot's status instead of settling the row as cancelled.
-- **Android backup excludes the preferences file** — the one holding the Navidrome password, hub
-  token and AudioMuse token. A restored install asks for the server details again, on purpose.
+- **The credentials are sealed, in a file of their own, and every read goes through `SecretStore`
+  (B-279, from upstream `4bd24206` / `313589af`).** The Navidrome password, the hub token and the
+  AudioMuse token are `SecretStore.navidromePassword` / `hubToken` / `audioMuseToken`
+  (`PreferenceManager.hubToken` / `audioMuseToken` pass through to it). On Android they live in
+  `navic_secrets.xml`, each `enc:v1:<base64(iv | ciphertext)>`, AES-256-GCM under the
+  non-exportable Keystore key `navic_secrets_v1` (`KeystoreSecretCipher`, `androidSecretVault`,
+  registered as `SecretVault` in **both** platform modules; iOS stores them **unencrypted**,
+  `PlainSecretCipher`). A plaintext value under the old key in the settings file is sealed into the
+  secrets file on its first read and only then removed. A value that cannot be opened (the key did not
+  come with a restore or transfer, a corrupt value) reads as never set and is removed; a saved username
+  with no password is then not a session (`SessionManager.isLoggedIn`), so the app opens on the login
+  screen with the server and name filled in and says why. Logging out removes all three.
+  `SecretAccessGuardTest` fails when any other file reads the old keys or the secrets file: **a new
+  reader of a secret goes through `SecretStore`**, never `settings`. The secrets file is excluded from
+  cloud backup, device transfer and full backup; the settings file stays out of cloud backup and
+  keeps travelling in a device transfer, so a new phone keeps the settings and asks for the
+  credentials only.
 - **Release builds no longer trust user-installed CAs** (they moved to `debug-overrides`, since the
   base config applied them to every HTTPS destination the app touches). Plain-HTTP LAN servers are
   unaffected; a self-signed HTTPS server needs its certificate in the system store.

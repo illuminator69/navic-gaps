@@ -86,4 +86,16 @@ class SecretAccessGuardTest {
 		)
 		for (line in fine) assertTrue(legacyAccess.none { it.containsMatchIn(line) }, line)
 	}
+
+	@Test
+	fun theSecretsFileTravelsNowhere() {
+		val transfer = File("../androidApp/src/main/res/xml/data_extraction_rules.xml").readText()
+		val backup = File("../androidApp/src/main/res/xml/backup_rules.xml").readText()
+		val exclude = Regex("""<exclude\s+domain="sharedpref"\s+path="navic_secrets\.xml"\s*/>""")
+		val cloud = transfer.substringAfter("<cloud-backup>").substringBefore("</cloud-backup>")
+		val device = transfer.substringAfter("<device-transfer>").substringBefore("</device-transfer>")
+		assertTrue(exclude.containsMatchIn(cloud), "cloud backup")
+		assertTrue(exclude.containsMatchIn(device), "device transfer")
+		assertTrue(exclude.containsMatchIn(backup), "full backup (API 30 and below)")
+	}
 }
