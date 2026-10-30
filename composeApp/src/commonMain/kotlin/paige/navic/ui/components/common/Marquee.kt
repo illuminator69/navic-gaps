@@ -39,10 +39,16 @@ import kotlin.time.Duration.Companion.seconds
 fun MarqueeText(
 	text: String,
 	style: TextStyle = LocalTextStyle.current,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	/**
+	 * False: the line's start with an ellipsis, as under reduced motion. The queue scrolls only the
+	 * current song's row (row 11, the idea of upstream `ecde4c76`): every row of a long queue ran
+	 * its own endless animation, and a scroll composed them by the dozen.
+	 */
+	scrolls: Boolean = true
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	if (preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled && !rememberReducedMotion()) {
+	if (scrolls && preferenceManager.marqueeSpeed != MarqueeSpeed.Disabled && !rememberReducedMotion()) {
 		Marquee(modifier) {
 			Text(text, maxLines = 1, style = style)
 		}

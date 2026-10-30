@@ -292,8 +292,8 @@ private fun QueueSongCard(
 			),
 			shapes = shapes,
 			verticalAlignment = Alignment.CenterVertically,
-			content = { MarqueeText(song.title) },
-			supportingContent = { MarqueeText(song.creditText) },
+			content = { MarqueeText(song.title, scrolls = isCurrentTrack) },
+			supportingContent = { MarqueeText(song.creditText, scrolls = isCurrentTrack) },
 			leadingContent = {
 				CoverArt(
 					modifier = Modifier.size(SongRowDefaults.CoverSize),
