@@ -21,6 +21,8 @@ fun initializeSingletonImageLoader(context: CoilPlatformContext): ImageLoader {
 	return ImageLoader.Builder(context)
 		.components {
 			add(KtorNetworkFetcherFactory())
+			// Row 9: Subsonic covers at the bucket their target needs (B-038's bare id kept).
+			add(CoverSizeInterceptor { getDiskCache() })
 		}
 		.diskCache { getDiskCache() }
 		.crossfade(true)
@@ -41,6 +43,8 @@ fun getStaticImageLoader(context: CoilPlatformContext): ImageLoader {
 		.serviceLoaderEnabled(false)
 		.components {
 			add(KtorNetworkFetcherFactory())
+			// Row 9: Subsonic covers at the bucket their target needs (B-038's bare id kept).
+			add(CoverSizeInterceptor { getDiskCache() })
 		}
 		.diskCache { getDiskCache() }
 		.crossfade(true)

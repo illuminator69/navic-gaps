@@ -8,6 +8,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSourceBitmapLoader
 import coil3.ImageLoader
 import com.google.common.util.concurrent.ListenableFuture
+import paige.navic.di.sizedCoverKey
 import paige.navic.util.Logger
 
 /**
@@ -19,7 +20,11 @@ class ExoPlayerCoilBitmapLoader(
 	context: Context,
 	private val imageLoader: ImageLoader,
 ): BitmapLoader {
-	private val bitmapLoader = DataSourceBitmapLoader.Builder(context).build()
+	// Row 9: the notification's artwork is decoded to at most this, whatever the file on disk
+	// or the URL hold (it decoded the user's cover-art quality, 4096 px by default, uncapped).
+	private val bitmapLoader = DataSourceBitmapLoader.Builder(context)
+		.setMaximumOutputDimension(NOTIFICATION_ARTWORK_MAX_PX)
+		.build()
 
 	override fun supportsMimeType(mimeType: String): Boolean {
 		return bitmapLoader.supportsMimeType(mimeType)
@@ -36,7 +41,9 @@ class ExoPlayerCoilBitmapLoader(
 		if (coverId != null) {
 			try {
 				val diskCache = imageLoader.diskCache
-				val snapshot = diskCache?.openSnapshot(coverId)
+				// The bare id (a download's, or the cover-art quality's), else the sized entries
+				// the tiles keep since row 9, the ones nearest the cap first.
+				val snapshot = notificationArtworkKeys(coverId).firstNotNullOfOrNull { diskCache?.openSnapshot(it) }
 				val imageBytes = snapshot.use {
 					it?.data?.toFile()?.readBytes()
 				}
@@ -51,3 +58,10 @@ class ExoPlayerCoilBitmapLoader(
 		return bitmapLoader.loadBitmap(uri)
 	}
 }
+
+/** The notification's artwork is decoded to at most this many pixels on its longer side. */
+internal const val NOTIFICATION_ARTWORK_MAX_PX = 512
+
+/** The disk keys a cover's artwork is looked for under, best first for a [NOTIFICATION_ARTWORK_MAX_PX] decode. */
+internal fun notificationArtworkKeys(coverId: String): List<String> =
+	listOf(coverId) + listOf(512, 1024, 200, 100, 50).map { sizedCoverKey(coverId, it) }
