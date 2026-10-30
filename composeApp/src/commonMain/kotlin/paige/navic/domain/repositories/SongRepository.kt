@@ -62,8 +62,8 @@ class SongRepository(
 
 	/**
 	 * The Songs list: sorted and filtered in SQL (row 4a), where it used to read every song, map
-	 * every one and sort in Kotlin. Same rows, same order (`SongAndAlbumListSqlTest`); an
-	 * artist's list ("See more") breaks ties by the table's order now, not by album year.
+	 * every one and sort in Kotlin. Same rows, same order (`SongAndAlbumListSqlTest`), an
+	 * artist's list ("See more") included: its ties go by album year, disc and track as before.
 	 */
 	private suspend fun getLocalData(
 		listType: DomainSongListType,

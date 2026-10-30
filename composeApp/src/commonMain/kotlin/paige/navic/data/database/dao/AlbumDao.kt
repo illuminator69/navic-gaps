@@ -62,12 +62,15 @@ interface AlbumDao {
 	@Query("SELECT * FROM AlbumEntity ORDER BY LOWER(name) ASC, rowid ASC LIMIT :limit OFFSET :offset")
 	suspend fun getAlbumRowsPage(limit: Int, offset: Int): List<AlbumEntity>
 
-	/** An artist's album ids, for the artist's song list ("See more"), with no songs read. */
-	@Query("SELECT albumId FROM AlbumEntity WHERE artistId = :artistId")
+	/**
+	 * An artist's album ids, for the artist's song list ("See more"), with no songs read: in
+	 * `getAlbumsByArtist`'s order (newest year first), which the list's tie order follows.
+	 */
+	@Query("SELECT albumId FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC")
 	suspend fun getAlbumIdsByArtist(artistId: String): List<String>
 
 	/** The same by name, for an album filed under another spelling of the artist. */
-	@Query("SELECT albumId FROM AlbumEntity WHERE artistName = :artistName")
+	@Query("SELECT albumId FROM AlbumEntity WHERE artistName = :artistName ORDER BY year DESC")
 	suspend fun getAlbumIdsByArtistName(artistName: String): List<String>
 
 	/**

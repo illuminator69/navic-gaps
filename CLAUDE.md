@@ -161,6 +161,11 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    `convertXmlValueResourcesForCommonMain` with an error that doesn't name the key.
 7. **`.github/`, `app-repo.json`, `Gemfile*`, `.gitignore`, `libs.versions.toml`,
    `settings.gradle.kts`, `fastlane/`: upstream's.** Release plumbing and dependency wiring.
+   **The exceptions, which a merge that takes upstream's file must put back by hand:**
+
+   | Fork line | In | Lost, it breaks |
+   |---|---|---|
+   | `sqlite-jdbc` (the version and the library, marked `# Fork:`) | `gradle/libs.versions.toml`, used by `androidHostTest` only (`composeApp/build.gradle.kts`) | the host-test build: `SongAndAlbumListSqlTest` runs the list SQL on a real SQLite through it (2026-10-30) |
 8. **Check every new upstream screen against the fork's ambient** (§6). Upstream writes screens
    against its own flat theme; a new one needs checking both that it lets the ambient through and
    that its own colour choices survive a scheme it was never designed for. At alpha59 one screen
@@ -2057,7 +2062,8 @@ true of invented *album art*, and not of an icon naming the kind.
   `AlbumRepository.getAlbumWithSongs`, and selection is by id, `selectedOr`), and the Downloaded filter
   passes the DOWNLOADED ids from `downloads.db` as ONE JSON argument read with `json_each(?)` (the two
   files cannot JOIN, and one bind per id passes SQLite's ceiling). Ties keep the table's order
-  (`rowid`), so the rows and their order are the old ones (`SongAndAlbumListSqlTest`, on a real
+  (`rowid`); an artist's "See more" keeps its old album-year, disc and track order (the album ids'
+  place in the JSON argument), so the rows and their order are the old ones (`SongAndAlbumListSqlTest`, on a real
   SQLite through sqlite-jdbc). Paging (row 4b) is not done: the Songs list still holds every song. **Home's Fresh shelf is the Fresh page's first releases**
   under its stored scope, type and sort (`freshOrdered`, `FreshFilters.of`), redrawn on each Home
   visit. **The mini player is Now Playing's mini header** (the queue fully open): 56 dp cover rounded

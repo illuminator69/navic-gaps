@@ -72,13 +72,14 @@ suspend fun <T> rowsInOrder(
  * ([rowsInOrder] reads the rows).
  *
  * Ties keep the table's own order (`rowid`), which is the order the old Kotlin sort kept them in
- * (a stable sort over `SELECT *`); [reversed] turns every key, ties included, so the list is the
- * old one read backwards. Nulls go last in a descending sort and first in a reversed one, as they
+ * (a stable sort over `SELECT *`), or for an artist's list the old album, disc and track order
+ * (below); [reversed] turns every key, ties included, so the list is the old one read backwards. Nulls go last in a descending sort and first in a reversed one, as they
  * did in Kotlin.
  *
  * - [starredOnly]: the Starred filter.
  * - [downloadedSongIdsJson]: the Downloaded filter, the DOWNLOADED song ids ([idsAsJson]); null = off.
- * - [albumIdsJson]: an artist page's "See more", the artist's album ids ([idsAsJson]); null = the library.
+ * - [albumIdsJson]: an artist page's "See more", the artist's album ids ([idsAsJson]) newest year
+ *   first, as `AlbumDao.getAlbumIdsByArtist` reads them; null = the library.
  */
 fun DomainSongListType.songListSql(
 	reversed: Boolean = false,
@@ -127,9 +128,22 @@ fun DomainSongListType.songListSql(
 		DomainSongListType.Year -> "year"
 		DomainSongListType.Random -> null
 	}
+	// An artist's list ("See more") was the artist's albums, newest year first, each album's songs
+	// in disc and track order, then the stable sort by the key: so that is its tie order, the
+	// album's place in [albumIdsJson] (which the caller reads in that year order), then disc,
+	// track and the table's order. The library's list keeps the table's order alone.
+	val ties = if (albumIdsJson != null) {
+		args += albumIdsJson
+		listOf(
+			"(SELECT a.key FROM json_each(?) a WHERE a.value = SongEntity.belongsToAlbumId)",
+			"COALESCE(discNumber, 0)",
+			"COALESCE(trackNumber, 0)",
+			"rowid"
+		)
+	} else listOf("rowid")
 	val orderBy = if (key == null) "RANDOM()"
-	else if (reversed) "$key ASC, rowid DESC"
-	else "$key DESC, rowid ASC"
+	else if (reversed) (listOf("$key ASC") + ties.map { "$it DESC" }).joinToString()
+	else (listOf("$key DESC") + ties.map { "$it ASC" }).joinToString()
 
 	val whereClause = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
 	return SqlQuery("SELECT songId FROM SongEntity$whereClause ORDER BY $orderBy", args)

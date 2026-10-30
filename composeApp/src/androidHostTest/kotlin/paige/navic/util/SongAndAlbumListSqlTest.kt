@@ -72,8 +72,9 @@ class SongAndAlbumListSqlTest {
 			ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(column)) } }
 		}
 
-	private fun rows(sql: String): List<Map<String, Any?>> = db.createStatement().use { st ->
-		st.executeQuery(sql).use { rs ->
+	private fun rows(sql: String, args: List<Any> = emptyList()): List<Map<String, Any?>> = db.prepareStatement(sql).use { ps ->
+		args.forEachIndexed { i, v -> ps.setObject(i + 1, v) }
+		ps.executeQuery().use { rs ->
 			val n = rs.metaData.columnCount
 			buildList {
 				while (rs.next()) add((1..n).associate { rs.metaData.getColumnName(it) to rs.getObject(it) })
@@ -107,27 +108,30 @@ class SongAndAlbumListSqlTest {
 			))
 		}
 		data class S(val id: String, val album: String?, val artistId: String, val plays: Int, val year: Int?,
-			val rating: Int?, val starred: Long?, val genre: String?, val genres: String)
+			val rating: Int?, val starred: Long?, val genre: String?, val genres: String,
+			val disc: Int? = null, val track: Int? = null)
 		listOf(
 			S("s20", "al2", "ar3", 3, 2001, null, null, "Rock", "Rock||Pop"),
-			S("s01", "al1", "ar1", 5, null, 4, 1, "Jazz", "Jazz"),
+			S("s01", "al1", "ar1", 5, null, 4, 1, "Jazz", "Jazz", disc = 1, track = 2),
 			S("s10", "al3", "ar2", 5, 2001, 2, null, null, "Pop"),
-			S("s02", "al1", "ar1", 0, 1999, null, null, "Jazz", ""),
+			S("s02", "al1", "ar1", 0, 1999, null, null, "Jazz", "", disc = 2, track = 1),
 			S("s30", null, "ar9", 7, 2010, 5, 2, "Pop", "Pop||Rock"),
 			S("s11", "al3", "ar2", 3, 2001, 4, null, "Rock", "Rock"),
-			S("s03", "al1", "ar1", 5, null, null, 3, "Jazz", "Jazz||Popular"),
+			S("s03", "al1", "ar1", 5, null, null, 3, "Jazz", "Jazz||Popular", disc = 1, track = 1),
 			S("s21", "al2", "ar1", 1, 2001, 1, null, "Pop", "Pop"),
 			S("s40", "gone", "ar2", 2, 1987, 3, null, "Rock", "Rock"),
 			S("s12", "al3", "ar2", 0, null, null, 4, "Popular", "Popular"),
-			S("s50", "al5", "ar1", 3, 1999, 4, null, "Rock", "Rock"),
-			S("s51", "al5", "ar1", 9, 1999, null, null, "Rock", "Rock||Jazz"),
-			S("s60", "al6", "ar1", 1, 2010, 2, 5, "Pop", "Pop"),
-			S("s41", "al4", "ar2", 5, 1999, 2, null, "Rock", "Rock")
+			S("s50", "al5", "ar1", 3, 1999, 4, null, "Rock", "Rock", track = 2),
+			S("s51", "al5", "ar1", 9, 1999, null, null, "Rock", "Rock||Jazz", track = 1),
+			S("s60", "al6", "ar1", 1, 2010, 2, 5, "Pop", "Pop", track = 1),
+			S("s41", "al4", "ar2", 5, 1999, 2, null, "Rock", "Rock"),
+			// After s60 in the table, before it on the album (no track = 0), and tied with it on plays.
+			S("s61", "al6", "ar1", 1, 2010, 2, null, "Rock", "Rock")
 		).forEach {
 			insert("SongEntity", mapOf(
 				"songId" to it.id, "belongsToAlbumId" to it.album, "artistId" to it.artistId, "title" to it.id,
 				"playCount" to it.plays, "year" to it.year, "userRating" to it.rating, "starredAt" to it.starred,
-				"genre" to it.genre, "genres" to it.genres
+				"genre" to it.genre, "genres" to it.genres, "discNumber" to it.disc, "trackNumber" to it.track
 			))
 		}
 	}
@@ -212,9 +216,20 @@ class SongAndAlbumListSqlTest {
 		filters: Set<DomainFilter>,
 		scope: List<String>? = null
 	): List<String> {
-		val added = rows("SELECT albumId, createdAt FROM AlbumEntity").associate { it["albumId"] as String to (it["createdAt"] as Number).toLong() }
 		val songs = rows("SELECT * FROM SongEntity")
 			.filter { scope == null || it["belongsToAlbumId"] in scope }
+		return oldFilterAndSort(songs, type, reversed, filters)
+	}
+
+	/** The old Kotlin half: the filters, the stable sort by the list type, the reversal. */
+	private fun oldFilterAndSort(
+		all: List<Map<String, Any?>>,
+		type: DomainSongListType,
+		reversed: Boolean,
+		filters: Set<DomainFilter>
+	): List<String> {
+		val added = rows("SELECT albumId, createdAt FROM AlbumEntity").associate { it["albumId"] as String to (it["createdAt"] as Number).toLong() }
+		val songs = all
 			.filter { song ->
 				filters.all {
 					when (it) {
@@ -285,12 +300,36 @@ class SongAndAlbumListSqlTest {
 		}
 	}
 
-	@Test
-	fun anArtistsSongsAreTheSongsOfTheirAlbums() {
-		val scope = listOf("al1", "al5", "al6", "al7")
-		for (type in songTypes) for (reversed in listOf(false, true)) for (filters in filterSets) {
-			assertEquals(oldSongs(type, reversed, filters, scope), newSongs(type, reversed, filters, scope), "$type $filters")
+	/**
+	 * The base commit's artist path (`SongRepository.artistSongs`): the artist's albums by
+	 * `getAlbumsByArtist` (`ORDER BY year DESC`), each album's songs through the relation in disc
+	 * and track order (`AlbumWithSongs.toDomainModel`), flattened, then the old Kotlin half.
+	 */
+	private fun oldArtistSongs(type: DomainSongListType, reversed: Boolean, filters: Set<DomainFilter>, artistId: String): List<String> {
+		val albums = rows("SELECT * FROM AlbumEntity WHERE artistId = ? ORDER BY year DESC", listOf(artistId)).map { it["albumId"] as String }
+		val relation = rows("SELECT * FROM SongEntity WHERE belongsToAlbumId IN (${albums.joinToString { "?" }})", albums)
+			.groupBy { it["belongsToAlbumId"] as String }
+		fun Map<String, Any?>.int(column: String) = (this[column] as Number?)?.toInt()
+		val songs = albums.flatMap { album ->
+			relation[album].orEmpty().sortedWith(compareBy({ it.int("discNumber") ?: 0 }, { it.int("trackNumber") ?: 0 }))
 		}
+		return oldFilterAndSort(songs, type, reversed, filters)
+	}
+
+	/** `AlbumDao.getAlbumIdsByArtist`'s SQL, which the new path reads the scope with. */
+	private val artistAlbumIdsSql = "SELECT albumId FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC"
+
+	@Test
+	fun anArtistsSongsAreInTheOldArtistOrder() {
+		val dao = File("src/commonMain/kotlin/paige/navic/data/database/dao/AlbumDao.kt").readText()
+		assertTrue("@Query(\"$artistAlbumIdsSql\")\n\tsuspend fun getAlbumIdsByArtist(" in dao)
+		val scope = ids(artistAlbumIdsSql.replace(":artistId", "?"), listOf("ar1"), "albumId")
+		for (type in songTypes) for (reversed in listOf(false, true)) for (filters in filterSets) {
+			assertEquals(oldArtistSongs(type, reversed, filters, "ar1"), newSongs(type, reversed, filters, scope), "$type reversed=$reversed $filters")
+		}
+		// Ties go by album and track, not by the table: s03 (track 1) before s01 (track 2), s61
+		// (no track) before s60, on the same plays.
+		assertEquals(listOf("s51", "s03", "s01", "s50", "s61", "s60", "s02"), newSongs(DomainSongListType.FrequentlyPlayed, false, emptySet(), scope))
 		assertEquals(emptyList(), newSongs(DomainSongListType.FrequentlyPlayed, false, emptySet(), emptyList()))
 	}
 
