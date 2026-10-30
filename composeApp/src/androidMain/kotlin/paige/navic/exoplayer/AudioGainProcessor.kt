@@ -1,6 +1,6 @@
 package paige.navic.exoplayer
 
-import android.media.AudioFormat
+import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.StreamMetadata
 import androidx.media3.common.audio.BaseAudioProcessor
@@ -9,66 +9,107 @@ import paige.navic.domain.models.DomainReplayGain
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.util.decibelsToLinear
 import paige.navic.util.effectiveGain
+import paige.navic.util.isUnityGain
+import paige.navic.util.outputGainDb
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-
+/**
+ * ReplayGain and the two amplifiers, on 16-bit PCM only (B-278, adapted from upstream d8380643).
+ *
+ * Gains are in dB and 0 dB is unity. With no ReplayGain in force (mode Off, or a song without
+ * tags) the plain amplifier applies; with ReplayGain the song's gain plus the ReplayGain
+ * pre-amp. At unity the samples pass through bit for bit. The default used to be 1 read as
+ * dB, so every song played 1 dB hot and was clipped, and a song without tags kept the previous
+ * song's gain.
+ *
+ * Written on the main thread (the player's listener, the settings screen) and read on the
+ * playback thread; the fields are volatile, and a change of the output gain flushes once.
+ */
 @UnstableApi
 class AudioGainProcessor : BaseAudioProcessor() {
-	private companion object {
-		const val DEFAULT_GAIN = 1f
-	}
-
+	/** The playing song's tags, kept while the mode is Off so turning it on applies them. */
+	@Volatile
 	private var replayGainMetadata: DomainReplayGain? = null
 
-	private val finalVolume: Float
-		get() {
-			// ugly hack: we are checking the volume here because the metadata may get returned anyway, but with its parameters values null
-			return if (this.replayGainMetadata != null && this.volume.toDouble() != 0.0) {
-				(volume + rgAmpValue).decibelsToLinear()
-			} else {
-				(volume + ampValue).decibelsToLinear()
-			}
+	/** The ReplayGain in force, in dB; null when none applies. */
+	@Volatile
+	private var replayGainDb: Float? = null
+
+	/**
+	 * ReplayGain is switched on, whatever the song carries. It keeps the processor in the
+	 * chain (see [isActive]) so that the next song's gain is not missed.
+	 */
+	@Volatile
+	private var replayGainEnabled = false
+
+	@Volatile
+	var rgAmpValue = 0f
+		set(value) {
+			val before = linearGain
+			field = value
+			flushIfChanged(before)
 		}
+
+	@Volatile
+	var ampValue = 0f
+		set(value) {
+			val before = linearGain
+			field = value
+			flushIfChanged(before)
+		}
+
+	/** The output gain as a linear factor. */
+	val linearGain: Float
+		get() = outputGainDb(replayGainDb, rgAmpValue, ampValue).decibelsToLinear()
+
+	fun applyGainMode(mode: ReplayGainMode) = changeGain {
+		replayGainEnabled = mode != ReplayGainMode.Off
+		replayGainDb = replayGainMetadata?.effectiveGain(mode)
+	}
+
+	/**
+	 * The playing song's tags. Null (a song without tags) drops the gain in force at once, so
+	 * it is never carried over from the song before; a song with tags takes effect on the
+	 * [applyGainMode] that follows.
+	 */
+	fun setReplayGainMetadata(metadata: DomainReplayGain?) = changeGain {
+		replayGainMetadata = metadata
+		if (metadata == null) replayGainDb = null
+	}
+
+	/** ReplayGain off and forgotten; the plain amplifier stays. */
+	fun resetGain() = changeGain {
+		replayGainMetadata = null
+		replayGainDb = null
+		replayGainEnabled = false
+	}
 
 	// we should ONLY flush if the gain has changed, flushing needlessly will cause some "bits" of the music to skip
 	// flushing the stream is needed because otherwise the user might hear some crackling after changing values
-	private var volume = DEFAULT_GAIN
-		set(value) {
-			if (field != value) flush(StreamMetadata.DEFAULT)
-			field = value
-		}
-
-	var rgAmpValue = 0f
-		set(value) {
-			if (field != value) flush(StreamMetadata.DEFAULT)
-			field = value
-		}
-
-	var ampValue = 0f
-		set(value) {
-			if (field != value) flush(StreamMetadata.DEFAULT)
-			field = value
-		}
-
-	fun applyGainMode(mode: ReplayGainMode) {
-		volume = replayGainMetadata?.effectiveGain(mode) ?: DEFAULT_GAIN
+	private inline fun changeGain(change: () -> Unit) {
+		val before = linearGain
+		change()
+		flushIfChanged(before)
 	}
 
-	fun setReplayGainMetadata(metadata: DomainReplayGain?) {
-		replayGainMetadata = metadata
+	private fun flushIfChanged(before: Float) {
+		if (linearGain != before) flush(StreamMetadata.DEFAULT)
 	}
 
-	fun resetGain() {
-		volume = DEFAULT_GAIN
-	}
-
+	/**
+	 * Out of the chain only when nothing can apply a gain: ReplayGain off and the plain
+	 * amplifier at 0 dB. media3 reads this only when it sets the chain up (a new format, a seek),
+	 * not per song: with ReplayGain on, a song without tags (unity) followed gaplessly by one with
+	 * tags would otherwise play the second without its gain. In the chain at unity the samples
+	 * are copied unchanged.
+	 */
 	override fun isActive(): Boolean {
-		return super.isActive() && finalVolume != DEFAULT_GAIN
+		return super.isActive() && (replayGainEnabled || !isUnityGain(linearGain))
 	}
 
 	override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-		if (inputAudioFormat.encoding == AudioFormat.ENCODING_PCM_16BIT) {
+		if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
 			return inputAudioFormat
 		}
 		throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
@@ -82,9 +123,9 @@ class AudioGainProcessor : BaseAudioProcessor() {
 		inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
 		outputBuffer.order(ByteOrder.LITTLE_ENDIAN)
 
-		val computedVolume = finalVolume
+		val computedVolume = linearGain
 
-		if (computedVolume == DEFAULT_GAIN) {
+		if (isUnityGain(computedVolume)) {
 			outputBuffer.put(inputBuffer)
 		} else {
 			val shortBufferInput = inputBuffer.asShortBuffer()

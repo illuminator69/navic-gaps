@@ -1530,28 +1530,18 @@ class AndroidMediaPlayerViewModel(
 	private fun applyAudioGain() {
 		audioGainManager.setAmplifierValues(preferenceManager.rgAmpGain, preferenceManager.ampGain)
 
-		if (preferenceManager.replayGainMode != ReplayGainMode.Off) {
-			val currentSong = _uiState.value.currentSong
-			val replayGain = currentSong?.replayGain
-
-			if (replayGain != null) {
-				audioGainManager.setReplayGainMetadata(replayGain)
-
-				if (preferenceManager.replayGainMode != ReplayGainMode.Dynamic) {
-					audioGainManager.applyGainMode(preferenceManager.replayGainMode)
-				} else {
-					if (_uiState.value.queue.all { it.albumId == currentSong.albumId }) {
-						audioGainManager.applyGainMode(ReplayGainMode.Album)
-					} else {
-						audioGainManager.applyGainMode(ReplayGainMode.Track)
-					}
-				}
-			} else {
-				audioGainManager.setReplayGainMetadata(null)
+		// The tags always follow the playing song, so a song without them never keeps the
+		// previous song's gain (B-278); with the mode Off they are kept but not applied.
+		val currentSong = _uiState.value.currentSong
+		audioGainManager.setReplayGainMetadata(currentSong?.replayGain)
+		val mode = preferenceManager.replayGainMode
+		audioGainManager.applyGainMode(
+			when {
+				mode != ReplayGainMode.Dynamic -> mode
+				currentSong != null && _uiState.value.queue.all { it.albumId == currentSong.albumId } -> ReplayGainMode.Album
+				else -> ReplayGainMode.Track
 			}
-		} else {
-			audioGainManager.resetGain()
-		}
+		)
 	}
 
 	override fun syncPlayerWithState(state: PlayerUiState) {
