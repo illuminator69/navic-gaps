@@ -73,7 +73,10 @@ fun StreamingKeys.choice(network: StreamNetwork, platform: PlatformType): Stream
  *  - Custom with the flag off turns it on, and first copies the other network's preset into its
  *    custom keys (the same request), so it keeps streaming as it did;
  *  - a preset with the flag on is written into the network's custom keys (the preset's own request);
- *  - the flag is cleared, and the presets stored, as soon as both networks read as presets.
+ *  - the flag is cleared, and the presets stored, as soon as both networks read as presets AND their
+ *    stored custom text is exactly the preset's request. A network that reads as a preset only
+ *    because "Opus" or " aac " matches ignoring case and spaces keeps the flag on: with it off the
+ *    player would send the lowercase preset text instead of what is stored.
  */
 fun StreamingKeys.choose(network: StreamNetwork, choice: StreamChoice, platform: PlatformType): StreamingKeys {
 	val wifi = network == StreamNetwork.Wifi
@@ -97,7 +100,17 @@ fun StreamingKeys.choose(network: StreamNetwork, choice: StreamChoice, platform:
 	keys = if (wifi) keys.copy(presetWifi = choice.quality) else keys.copy(presetCellular = choice.quality)
 	val nowWifi = keys.choice(StreamNetwork.Wifi, platform)
 	val nowCellular = keys.choice(StreamNetwork.Cellular, platform)
-	return if (nowWifi is StreamChoice.Preset && nowCellular is StreamChoice.Preset) {
+	return if (nowWifi is StreamChoice.Preset && nowCellular is StreamChoice.Preset &&
+		keys.storedExactly(StreamNetwork.Wifi, nowWifi.quality, platform) &&
+		keys.storedExactly(StreamNetwork.Cellular, nowCellular.quality, platform)
+	) {
 		keys.copy(advanced = false, presetWifi = nowWifi.quality, presetCellular = nowCellular.quality)
 	} else keys
+}
+
+/** Whether [network]'s stored custom bitrate and format are, character for character, what [quality] asks for. */
+private fun StreamingKeys.storedExactly(network: StreamNetwork, quality: StreamingQuality, platform: PlatformType): Boolean {
+	val (bitrate, format) = quality.equivalent(platform)
+	return if (network == StreamNetwork.Wifi) bitrateWifi == bitrate && formatWifi == format
+	else bitrateCellular == bitrate && formatCellular == format
 }

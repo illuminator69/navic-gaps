@@ -98,6 +98,31 @@ class QualityChoiceMappingTest {
 	}
 
 	@Test
+	fun aPresetDoesNotRewriteTheOtherNetworksStoredCaseOrSpacing() {
+		// Mobile data holds "Opus" (Medium's request, typed with another case) and " aac " for Wi-Fi.
+		for ((stored, quality) in listOf("Opus" to StreamingQuality.Medium, " OPUS " to StreamingQuality.Medium)) {
+			val before = StreamingKeys(advanced = true, bitrateWifi = 320, formatWifi = "mp3", bitrateCellular = 128, formatCellular = stored)
+			assertEquals(preset(quality), before.choice(cellular, android))
+			val after = before.choose(wifi, preset(StreamingQuality.High), android)
+			// The flag stays on, so mobile data keeps sending exactly what is stored.
+			assertTrue(after.advanced, "the flag was cleared for \"$stored\"")
+			assertEquals(stored, after.formatCellular)
+			assertEquals(128, after.bitrateCellular)
+			assertEquals(preset(StreamingQuality.High), after.choice(wifi, android))
+			assertEquals(preset(quality), after.choice(cellular, android))
+		}
+	}
+
+	@Test
+	fun theFlagStillClearsWhenTheOtherNetworkIsStoredExactly() {
+		val before = StreamingKeys(advanced = true, bitrateWifi = 320, formatWifi = "mp3", bitrateCellular = 128, formatCellular = "opus")
+		val after = before.choose(wifi, preset(StreamingQuality.High), android)
+		assertFalse(after.advanced)
+		assertEquals(StreamingQuality.High, after.presetWifi)
+		assertEquals(StreamingQuality.Medium, after.presetCellular)
+	}
+
+	@Test
 	fun theFlagOffIgnoresStoredCustomValues() {
 		val stored = StreamingKeys(presetWifi = StreamingQuality.High, bitrateWifi = 320, formatWifi = "mp3")
 		assertEquals(preset(StreamingQuality.High), stored.choice(wifi, android))
