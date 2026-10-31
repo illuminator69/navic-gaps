@@ -7,10 +7,13 @@ package paige.navic.util
  * `UnknownHostException` (a documented filter), and `Log.e(tag, msg, tr)` goes through the same
  * helper, so a login typo crashed to a blank screen with nothing in logcat. Kotlin's
  * `stackTraceToString()` prints through `printStackTrace` and filters nothing.
+ *
+ * The trace goes through [redactSecrets]: it is shown on the crash screen, which offers to copy
+ * it, and a failed request's exception names its URL, login query included.
  */
 fun crashReportText(t: Throwable, appVersion: String? = null): String = buildString {
 	append("Navic ").append(appVersion?.ifBlank { null } ?: "(version unknown)").append('\n')
-	append(t.stackTraceToString())
+	append(redactSecrets(t.stackTraceToString()))
 }
 
 /**

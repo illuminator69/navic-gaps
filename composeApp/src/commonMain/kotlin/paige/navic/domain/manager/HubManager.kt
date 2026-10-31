@@ -539,6 +539,15 @@ class HubManager(
 		reconnectKick.trySend(reason)
 	}
 
+	/**
+	 * Called when the app comes back to the navi-connect settings (B-108): if the last dial failed
+	 * for want of the local network permission and it is granted now (Open settings), dial at once
+	 * rather than at the end of the backoff.
+	 */
+	fun retryIfLocalNetworkGranted() {
+		if (_localNetworkBlocked.value && localNetwork.granted()) kickReconnect("local network permission granted")
+	}
+
 	/** Controller action: hand playback to another device (state preserved). */
 	fun transfer(targetDeviceId: String) {
 		// Transferring to the device that's already active is a no-op. (The hub guards
@@ -1035,7 +1044,17 @@ class HubManager(
 				connectOnce()
 			} catch (e: Exception) {
 				Logger.e("HubManager", "hub connection failed: ${e.message}", e)
-				if (e !is CancellationException) noteDialFailure()
+				if (e !is CancellationException) {
+					// Nothing this explains may end the loop: a throw from here would leave the
+					// SupervisorJob scope with no handler, i.e. a process crash.
+					try {
+						noteDialFailure(e)
+					} catch (ce: CancellationException) {
+						throw ce
+					} catch (t: Throwable) {
+						Logger.w("HubManager", "could not explain the failed dial: ${t::class.simpleName}")
+					}
+				}
 			}
 			val wasConnected = _connected.value
 			wsSession = null
@@ -1075,9 +1094,10 @@ class HubManager(
 	 * connected" with no reason, while Android 17 was refusing the app its own subnet. When the
 	 * permission is the likely cause, say so; a hub-side error (`onHubError`) is never overwritten.
 	 */
-	private suspend fun noteDialFailure() {
+	private suspend fun noteDialFailure(e: Throwable) {
 		if (authFailed) return
-		val blocked = localNetworkBlocked(localNetwork.sdk, localNetwork.granted(), hostOfUrl(preferenceManager.hubUrl))
+		// A hub name that never resolved is a wrong address, not the permission (finding 1).
+		val blocked = failureLooksLocalNetworkBlocked(e, localNetwork.sdk, localNetwork.granted(), hostOfUrl(preferenceManager.hubUrl))
 		if (blocked) {
 			if (!_localNetworkBlocked.value) Logger.w("HubManager", "hub dial failed with the local network permission not granted")
 			_connectionError.value = getString(Res.string.notice_local_network_blocked)

@@ -2,6 +2,7 @@ package paige.navic.domain.manager
 
 import dev.zt64.subsonic.api.model.SubsonicErrorCode
 import dev.zt64.subsonic.api.model.SubsonicException
+import io.ktor.client.plugins.ResponseException
 
 /**
  * Which of the login's failures happened (B-302). Each kind has one sentence on the login page;
@@ -58,8 +59,24 @@ private val UNREACHABLE_NAMES = setOf(
 	"PortUnreachableException",
 	"SocketTimeoutException",
 	"ConnectTimeoutException",
-	"HttpRequestTimeoutException"
+	"HttpRequestTimeoutException",
+	// A connection reset, a refused socket (EPERM), a broken pipe: the server went away mid-talk.
+	"SocketException"
 )
+
+/** A name lookup that found nothing: the address is wrong, nothing on the network is refusing it. */
+private val NAME_NOT_FOUND_NAMES = setOf("UnknownHostException", "UnresolvedAddressException")
+
+/** A reverse proxy answering for a server behind it that is down: Bad Gateway, Unavailable, Timeout. */
+private val GATEWAY_STATUSES = 502..504
+
+/**
+ * Ktor's "this body is not what was asked for" names the status it came with
+ * ("Response status `502 Bad Gateway`", ktor-client-core 3.5.2's `NoTransformationFoundException`).
+ * That is the shape a proxy's error page takes on the login: the Subsonic client leaves
+ * `expectSuccess` off, so a 502 is not thrown as a status, it fails as an HTML body.
+ */
+private val GATEWAY_STATUS_IN_MESSAGE = Regex("Response status `(50[234])\\b")
 
 /** What a body that is not Subsonic's JSON fails with, in Ktor and kotlinx.serialization. */
 private val NOT_SUBSONIC_NAMES = setOf(
@@ -83,7 +100,7 @@ fun loginFailureKind(t: Throwable): LoginFailureKind {
 	val chain = causeChain(t)
 	if (chain.any { it.isWrongCredentials() }) return LoginFailureKind.WRONG_CREDENTIALS
 	if (chain.any { it.isPlainHttpHandshake() }) return LoginFailureKind.TLS_TO_PLAIN_HTTP
-	if (chain.any { it.simpleName() in UNREACHABLE_NAMES }) return LoginFailureKind.UNREACHABLE
+	if (chain.any { it.simpleName() in UNREACHABLE_NAMES || it.isGatewayFailure() }) return LoginFailureKind.UNREACHABLE
 	if (chain.any { it.simpleName() in NOT_SUBSONIC_NAMES }) return LoginFailureKind.NOT_SUBSONIC
 	return LoginFailureKind.OTHER
 }
@@ -93,6 +110,26 @@ private fun Throwable.isWrongCredentials(): Boolean = when (this) {
 	is SubsonicStatusException -> code == 40
 	else -> false
 }
+
+private fun Throwable.isGatewayFailure(): Boolean {
+	if (this is ResponseException) return runCatching { response.status.value }.getOrNull() in GATEWAY_STATUSES
+	return GATEWAY_STATUS_IN_MESSAGE.containsMatchIn(message ?: "")
+}
+
+/**
+ * Did a name lookup fail somewhere in [t]'s causes? Then the address is wrong (a typo, a name only
+ * another network knows), and Android's local network permission is not what stopped it: that
+ * permission gates connections to this network, not a unicast DNS lookup.
+ */
+fun nameNeverResolved(t: Throwable): Boolean = causeChain(t).any { it.simpleName() in NAME_NOT_FOUND_NAMES }
+
+/**
+ * Is Android's local network permission the likely reason [t] happened? (B-108; the review's
+ * finding 1.) [localNetworkBlocked] holds for the host, and the failure is not a name that never
+ * resolved: "Android is blocking Navic" with Open settings cannot help with a typo.
+ */
+fun failureLooksLocalNetworkBlocked(t: Throwable, sdk: Int, granted: Boolean, host: String?): Boolean =
+	!nameNeverResolved(t) && localNetworkBlocked(sdk, granted, host)
 
 private fun Throwable.isPlainHttpHandshake(): Boolean {
 	if (!simpleName().startsWith("SSL")) return false

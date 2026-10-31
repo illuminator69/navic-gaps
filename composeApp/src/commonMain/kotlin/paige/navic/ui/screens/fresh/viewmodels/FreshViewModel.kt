@@ -323,8 +323,21 @@ internal fun freshGroups(
 internal fun freshKey(row: LbFreshRelease): String =
 	"r:" + row.releaseGroupMbid.ifBlank { "m:${row.releaseMbid}|${row.releaseName}|${row.artist}" }
 
-/** One row per [freshKey], the first of each, in the feed's order. */
-internal fun freshDistinct(rows: List<LbFreshRelease>): List<LbFreshRelease> = rows.distinctBy(::freshKey)
+/**
+ * One row per [freshKey], at the place of the key's first row. Of a release group's rows, the first
+ * that carries a [LbFreshRelease.releaseAlbumId] is kept, else the first: `releaseOwned` is the
+ * group's, so the "in library" chip is right either way, but that id is the only handle that opens
+ * the library album, and it may sit on the other edition's row.
+ */
+internal fun freshDistinct(rows: List<LbFreshRelease>): List<LbFreshRelease> {
+	val kept = LinkedHashMap<String, LbFreshRelease>()
+	for (row in rows) {
+		val key = freshKey(row)
+		val held = kept[key]
+		if (held == null || (held.releaseAlbumId.isBlank() && row.releaseAlbumId.isNotBlank())) kept[key] = row
+	}
+	return kept.values.toList()
+}
 
 /** The page's releases in the order it shows them, top to bottom ([freshGroups]). */
 internal fun freshOrdered(

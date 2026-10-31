@@ -75,4 +75,12 @@ class NormalizeInstanceUrlTest {
 		assertEquals("http://[fe80::1]", ok("fe80::1"))
 		assertEquals("::1", assertIs<InstanceUrlResult.Ok>(normalizeInstanceUrl("http://[::1]:4533")).host)
 	}
+
+	@Test
+	fun anIpv6ZoneIdIsNotAnAddress() {
+		// Ktor parses it and OkHttp does not: it used to reach the dial as "Something went wrong."
+		assertEquals(InstanceUrlProblem.MALFORMED, invalid("fe80::1%wlan0"))
+		assertEquals(InstanceUrlProblem.MALFORMED, invalid("[fe80::1%wlan0]:4533"))
+		assertEquals(InstanceUrlProblem.MALFORMED, invalid("http://[fe80::1%25wlan0]:4533"))
+	}
 }

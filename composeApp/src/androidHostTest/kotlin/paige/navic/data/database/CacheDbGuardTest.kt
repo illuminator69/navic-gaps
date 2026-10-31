@@ -53,7 +53,7 @@ class CacheDbGuardTest {
 		val result = guardCacheDb(db, nowMs = 2000, quickCheck = ::jdbcQuickCheck)
 
 		val moved = assertIs<CacheDbCheck.Quarantined>(result)
-		assertEquals("cache.db.corrupt-2000", moved.movedTo.name)
+		assertEquals("cache.db.corrupt-2000", moved.movedTo?.name)
 		assertFalse(db.exists(), "cache.db must be gone for Room to create it afresh")
 		assertFalse(File(dir, "cache.db-wal").exists())
 		assertContentEquals(garbage, File(dir, "cache.db.corrupt-2000").readBytes())
@@ -95,9 +95,32 @@ class CacheDbGuardTest {
 	fun aCheckThatFailsForAnotherReasonLeavesTheFile() {
 		val db = File(dir, "cache.db")
 		db.writeBytes(byteArrayOf(9, 9, 9))
-		val result = guardCacheDb(db, 1) { throw IllegalStateException("Error code: 5, message: database is locked") }
+		val result = guardCacheDb(db, 1, quickCheck = { throw IllegalStateException("Error code: 5, message: database is locked") })
 		assertIs<CacheDbCheck.Unchecked>(result)
 		assertTrue(db.exists())
+	}
+
+	/*
+	 * The review's finding 4: a file that will neither move nor delete is not "moved aside". It is
+	 * left for Room, and the result says so. One that will not move but deletes is gone.
+	 */
+	@Test
+	fun aFileThatWillNeitherMoveNorDeleteIsStuckNotQuarantined() {
+		val db = File(dir, "cache.db")
+		val garbage = Random(4).nextBytes(64 * 1024)
+		db.writeBytes(garbage)
+
+		val said = mutableListOf<String>()
+		val stuck = guardCacheDb(db, 3000, ::jdbcQuickCheck, move = { _, _ -> false }, delete = { false }, warn = { said += it })
+		assertIs<CacheDbCheck.Stuck>(stuck)
+		assertContentEquals(garbage, db.readBytes())
+		assertFalse(File(dir, "cache.db.corrupt-3000").exists())
+		assertEquals(listOf("could not move cache.db aside, nor delete it; it is left where it is"), said)
+
+		val deleted = guardCacheDb(db, 3000, ::jdbcQuickCheck, move = { _, _ -> false }, warn = { said += it })
+		assertEquals(null, assertIs<CacheDbCheck.Quarantined>(deleted).movedTo)
+		assertFalse(db.exists())
+		assertEquals("could not move cache.db aside; deleted it", said.last())
 	}
 
 	@Test

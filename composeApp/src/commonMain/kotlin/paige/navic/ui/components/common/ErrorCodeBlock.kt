@@ -28,6 +28,7 @@ import kotlinx.coroutines.delay
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Copy
+import paige.navic.util.redactSecrets
 import kotlin.time.Duration.Companion.seconds
 
 @Composable
@@ -36,6 +37,9 @@ fun ErrorCodeBlock(error: Throwable) {
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
 	var copied by remember { mutableStateOf(false) }
+	// Shown and copied without the login's query (the bug run's review, finding 2): a failed
+	// request's exception names its URL, and Subsonic's carries u, t and s.
+	val trace = remember(error) { redactSecrets(error.stackTraceToString()) }
 
 	LaunchedEffect(copied) {
 		if (copied) {
@@ -55,7 +59,7 @@ fun ErrorCodeBlock(error: Throwable) {
 				.horizontalScroll(rememberScrollState())
 		) {
 			Text(
-				error.stackTraceToString(),
+				trace,
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				lineHeight = 10.sp,
@@ -66,7 +70,7 @@ fun ErrorCodeBlock(error: Throwable) {
 		IconButton(
 			modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
 			onClick = {
-				clipboard.setText(AnnotatedString(error.stackTraceToString()))
+				clipboard.setText(AnnotatedString(trace))
 				copied = true
 			},
 			content = {

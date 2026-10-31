@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_navi_connect_save
 import navic.composeapp.generated.resources.action_open_settings
@@ -80,6 +81,11 @@ fun NaviConnectScreen() {
 	// row offers the app's settings page, where the permission is.
 	val localNetworkBlocked by hubManager.hubLocalNetworkBlocked.collectAsState()
 	val permissionManager = koinInject<PermissionManager>()
+	// Back from Open settings with the permission granted: dial now, not at the end of the backoff.
+	LifecycleResumeEffect(localNetworkBlocked) {
+		hubManager.retryIfLocalNetworkGranted()
+		onPauseOrDispose { }
+	}
 
 	// Surface a hub-side error (bad token, target offline, …) the moment it arrives, so a wrong
 	// token reads as an actual error instead of "just never connects".

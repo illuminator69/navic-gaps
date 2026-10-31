@@ -5,6 +5,7 @@ import paige.navic.ui.screens.fresh.viewmodels.FreshScope
 import paige.navic.ui.screens.fresh.viewmodels.FreshSort
 import paige.navic.ui.screens.fresh.viewmodels.FreshType
 import paige.navic.ui.screens.fresh.viewmodels.freshGroups
+import paige.navic.ui.screens.fresh.viewmodels.freshDistinct
 import paige.navic.ui.screens.fresh.viewmodels.freshKey
 import paige.navic.ui.screens.fresh.viewmodels.freshEffectiveScope
 import paige.navic.ui.screens.fresh.viewmodels.freshPlayedOffered
@@ -139,6 +140,29 @@ class FreshScopeTest {
 		assertEquals("rel-digital", items.single { it.releaseGroupMbid == "rg-same" }.releaseMbid)
 		// The grid's own keys are never a row's.
 		assertTrue(keys(items).none { it == "types" || it.startsWith("h") })
+	}
+
+	/*
+	 * Of two editions, the one that carries the library album's id is kept: it is the only handle
+	 * that opens the album (the review's finding 8). It keeps the first edition's place.
+	 */
+	@Test
+	fun theEditionThatOpensTheLibraryAlbumIsTheOneKept() {
+		val digital = LbFreshRelease(
+			releaseName = "Same Album", artist = "Band", releaseMbid = "rel-digital",
+			releaseGroupMbid = "rg-same", releaseDate = "2026-10-22", artistOwned = true, releaseOwned = true
+		)
+		val cd = digital.copy(releaseMbid = "rel-cd", releaseAlbumId = "nd-album-7")
+		val other = LbFreshRelease(
+			releaseName = "Other Album", artist = "Band", releaseMbid = "rel-other",
+			releaseGroupMbid = "rg-other", releaseDate = "2026-10-22", artistOwned = true
+		)
+		val rows = freshDistinct(listOf(digital, other, cd))
+		assertEquals(listOf("rel-cd", "rel-other"), rows.map { it.releaseMbid })
+		assertEquals("nd-album-7", rows.first().releaseAlbumId)
+		// Both carrying one, or neither: the first stays.
+		assertEquals("rel-digital", freshDistinct(listOf(digital, cd.copy(releaseAlbumId = ""))).single().releaseMbid)
+		assertEquals("rel-a", freshDistinct(listOf(cd.copy(releaseMbid = "rel-a"), cd.copy(releaseMbid = "rel-b"))).single().releaseMbid)
 	}
 
 	private fun keys(rows: List<LbFreshRelease>) = rows.map(::freshKey)

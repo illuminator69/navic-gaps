@@ -27,7 +27,12 @@ enum class InstanceUrlProblem {
 /** A scheme typed by the person. Checked by hand: Ktor reads `nas:4533` as the scheme `nas`. */
 private val TYPED_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 private val HOST_LABEL = Regex("^[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?$")
-private val IPV6_BODY = Regex("^[0-9A-Fa-f:.]+(%[A-Za-z0-9._~-]+)?$")
+/**
+ * An IPv6 literal as an address to log in to: hex, colons and a dotted IPv4 tail, and no zone id.
+ * `fe80::1%wlan0` parses in Ktor and then fails in OkHttp's URL parser, as "Something went wrong."
+ * (the review's finding 5), so a zone reads as not an address before anything dials.
+ */
+private val IPV6_BODY = Regex("^[0-9A-Fa-f:.]+$")
 
 /**
  * Trim, give an address with no scheme one (the scheme rule, B-302), check the host and port,

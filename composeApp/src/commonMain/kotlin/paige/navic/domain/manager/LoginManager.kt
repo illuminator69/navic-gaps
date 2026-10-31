@@ -154,7 +154,7 @@ class LoginManager(
 	private fun failure(e: Exception, host: String?): LoginUiState.Error {
 		val kind = loginFailureKind(e)
 		val blocked = kind == LoginFailureKind.UNREACHABLE &&
-			localNetworkBlocked(localNetwork.sdk, localNetwork.granted(), host)
+			failureLooksLocalNetworkBlocked(e, localNetwork.sdk, localNetwork.granted(), host)
 		Logger.w("LoginManager", "login failed: $kind${if (blocked) " (local network not granted)" else ""}")
 		return LoginUiState.Error(e, kind, host, blocked)
 	}
