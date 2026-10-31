@@ -511,6 +511,15 @@
 	<string name="info_syncing_radios">Syncing radios...</string>
 	<string name="info_login_description">Log into a Subsonic compatible music server.</string>
 	<string name="info_login_sign_in_again">Sign in again: your saved password couldn't be read on this device.</string>
+	<!-- Worbus bug run (B-296, B-302, B-301, B-108): the login page's sentences. -->
+	<string name="login_address_blank">Enter your server's address, for example http://192.168.1.10:4533.</string>
+	<string name="login_address_invalid">That isn't a server address. Try one like http://192.168.1.10:4533.</string>
+	<string name="login_error_wrong_credentials">Wrong username or password.</string>
+	<string name="login_error_unreachable">Can't reach the server at %1$s. Check the address and that the server is running.</string>
+	<string name="login_error_not_https">This server doesn't use https. Try http:// instead.</string>
+	<string name="login_error_not_navidrome">That address answers, but it isn't a Navidrome server.</string>
+	<string name="notice_local_network_blocked">Android is blocking Navic from your local network.</string>
+	<string name="notice_login_notifications_off">Notifications are off, so download and sync progress won't show outside the app.</string>
 	<string name="info_exception_handler">This will immediately crash the application. Are you sure?</string>
 	<string name="info_streaming_quality">Higher quality presets will use more data. Transcoding can severely impact load times and cause lyrics to become unsynced. Select Lossless if you encounter any issues.</string>
 	<string name="info_download_quality">Higher quality presets will use more storage and data. Transcoding can increase download times. Select Lossless if you encounter any issues.</string>

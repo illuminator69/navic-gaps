@@ -31,6 +31,8 @@ import platform.Foundation.NSUserDefaults
 import paige.navic.domain.manager.PlainHubLocalDevice
 import paige.navic.domain.manager.DownloadForegroundController
 import paige.navic.domain.manager.HubLocalDevice
+import paige.navic.domain.manager.LocalNetworkAccess
+import paige.navic.domain.manager.NoLocalNetworkGate
 import paige.navic.domain.manager.HubSocketClientFactory
 import paige.navic.domain.manager.NotificationManager
 import paige.navic.domain.manager.ShareManager
@@ -106,6 +108,8 @@ actual val platformModule = module {
 	}
 	// HubManager's second platform binding: a phone that reports no volume and sets none.
 	single<HubLocalDevice> { PlainHubLocalDevice() }
+	// B-108: no such permission here; HubManager and LoginManager need a binding all the same.
+	single<LocalNetworkAccess> { NoLocalNetworkGate }
 	// B-279: the secrets in their own defaults suite. NOT encrypted on iOS (PlainSecretCipher):
 	// iOS does not ship, and this only has to compile.
 	single<SecretVault> {

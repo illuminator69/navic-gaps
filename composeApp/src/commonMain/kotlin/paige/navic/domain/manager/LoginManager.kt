@@ -15,13 +15,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.ui.core.LoginUiState
-import paige.navic.ui.util.AddressUtil
+import paige.navic.util.Logger
 
 class LoginManager(
     private val repository: DbRepository,
     private val sessionManager: SessionManager,
     // B-279 review: its cached token is this user's; a logout forgets it.
-    private val nativeApi: NativeApiManager
+    private val nativeApi: NativeApiManager,
+    // B-108: whether a failed login names Android's local network permission.
+    private val localNetwork: LocalNetworkAccess
 ) {
 	val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -33,6 +35,9 @@ class LoginManager(
 	val passwordState = TextFieldState()
 
 	var instanceError by mutableStateOf(false)
+		private set
+	/** Why the address field is red, for the line under it; null while it is not. */
+	var instanceProblem by mutableStateOf<InstanceUrlProblem?>(null)
 		private set
 	var usernameError by mutableStateOf(false)
 		private set
@@ -48,7 +53,9 @@ class LoginManager(
 		private set
 
 	fun validateInstance() {
-		instanceError = instanceState.text.isBlank()
+		val problem = (normalizeInstanceUrl(instanceState.text.toString()) as? InstanceUrlResult.Invalid)?.reason
+		instanceProblem = problem
+		instanceError = problem != null
 	}
 
 	fun validateUsername() {
@@ -66,14 +73,17 @@ class LoginManager(
 		return !instanceError && !usernameError && !passwordError
 	}
 
-	fun isLocalNetworkInstance(): Boolean {
-		val host = AddressUtil.extractHostFromUri(instanceState.text.toString())
-
-		return if (host != null) {
-			AddressUtil.isAddressLocal(host)
-		} else {
-			false
-		}
+	/**
+	 * Is the typed server on this network (B-108)? Total: it reads the text and nothing else,
+	 * resolves no name, and an address that does not parse is not local (B-283, B-296: this used
+	 * to be `InetAddress.getByName`, which threw out of the Log in tap for a typo).
+	 */
+	fun isLocalNetworkInstance(): Boolean = try {
+		(normalizeInstanceUrl(instanceState.text.toString()) as? InstanceUrlResult.Ok)
+			?.host?.let(::isPrivateHost) ?: false
+	} catch (e: Exception) {
+		Logger.w("LoginManager", "isLocalNetworkInstance: ${e::class.simpleName}")
+		false
 	}
 
 	init {
@@ -97,20 +107,15 @@ class LoginManager(
 
 	fun login(): Boolean {
 		if (!validateStuff()) return false
+		val address = normalizeInstanceUrl(instanceState.text.toString()) as? InstanceUrlResult.Ok
+			?: return false
 
 		scope.launch {
 			loginState.value = LoginUiState.Loading
 
 			try {
-				val rawUrl = instanceState.text.toString().trim().removeSuffix("/")
-				val url = if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) {
-					rawUrl
-				} else {
-					"https://$rawUrl"
-				}
-
 				sessionManager.login(
-					url,
+					address.url,
 					usernameState.text.toString(),
 					passwordState.text.toString()
 				)
@@ -120,15 +125,34 @@ class LoginManager(
 				}.onSuccess {
 					loginState.value = LoginUiState.Success
 				}.onFailure { e ->
-					loginState.value = LoginUiState.Error(e as Exception)
+					loginState.value = failure(e as? Exception ?: Exception(e), address.host)
 				}
 
+			} catch (e: kotlin.coroutines.cancellation.CancellationException) {
+				throw e
 			} catch (e: Exception) {
-				loginState.value = LoginUiState.Error(e)
+				loginState.value = failure(e, address.host)
 			}
 		}
 
 		return true
+	}
+
+	/**
+	 * Show [e] on the login page as the login's error (B-302): the Log in tap's own catch sends
+	 * what escapes it here, so nothing a login throws reaches the crash screen.
+	 */
+	fun reportLoginFailure(e: Exception) {
+		val host = (normalizeInstanceUrl(instanceState.text.toString()) as? InstanceUrlResult.Ok)?.host
+		loginState.value = failure(e, host)
+	}
+
+	private fun failure(e: Exception, host: String?): LoginUiState.Error {
+		val kind = loginFailureKind(e)
+		val blocked = kind == LoginFailureKind.UNREACHABLE &&
+			localNetworkBlocked(localNetwork.sdk, localNetwork.granted(), host)
+		Logger.w("LoginManager", "login failed: $kind${if (blocked) " (local network not granted)" else ""}")
+		return LoginUiState.Error(e, kind, host, blocked)
 	}
 
 	fun logout() {

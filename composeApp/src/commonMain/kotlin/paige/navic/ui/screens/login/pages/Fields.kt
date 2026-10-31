@@ -29,13 +29,17 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_account_instance
 import navic.composeapp.generated.resources.option_account_password
 import navic.composeapp.generated.resources.option_account_username
+import navic.composeapp.generated.resources.login_address_blank
+import navic.composeapp.generated.resources.login_address_invalid
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.domain.manager.InstanceUrlProblem
 
 @Composable
 fun LoginScreenFields(
 	isBusy: Boolean,
 	instanceState: TextFieldState,
 	instanceError: Boolean,
+	instanceProblem: InstanceUrlProblem?,
 	instanceFocusRequester: FocusRequester,
 	onInstanceFocusChanged: () -> Unit,
 	usernameState: TextFieldState,
@@ -64,6 +68,19 @@ fun LoginScreenFields(
 		state = instanceState,
 		isError = instanceError,
 		label = { Text(stringResource(Res.string.option_account_instance)) },
+		// B-296: a red field alone did not say what was wrong with the address.
+		supportingText = instanceProblem?.let { problem ->
+			{
+				Text(
+					stringResource(
+						when (problem) {
+							InstanceUrlProblem.BLANK -> Res.string.login_address_blank
+							InstanceUrlProblem.MALFORMED -> Res.string.login_address_invalid
+						}
+					)
+				)
+			}
+		},
 		lineLimits = TextFieldLineLimits.SingleLine,
 		enabled = !isBusy,
 		keyboardOptions = KeyboardOptions(

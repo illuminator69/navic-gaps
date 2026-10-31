@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,30 +40,25 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousCapsule
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_dismiss
 import navic.composeapp.generated.resources.action_log_in
-import navic.composeapp.generated.resources.action_open_settings
 import navic.composeapp.generated.resources.info_login_description
 import navic.composeapp.generated.resources.info_login_sign_in_again
-import navic.composeapp.generated.resources.notice_local_network_denied
-import navic.composeapp.generated.resources.notice_notifications_denied
+import navic.composeapp.generated.resources.notice_login_notifications_off
 import navic.composeapp.generated.resources.option_custom_headers
-import navic.composeapp.generated.resources.subtitle_local_network_denied
-import navic.composeapp.generated.resources.subtitle_notifications_denied
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.domain.manager.LoginManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Error
-import paige.navic.ui.components.common.SegmentedListButton
-import paige.navic.ui.components.common.SegmentedListButtonDefaults
-import paige.navic.ui.components.dialogs.FormDialog
+import paige.navic.icons.outlined.Close
 import paige.navic.ui.core.LoginUiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.theme.defaultFont
@@ -87,30 +84,38 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 
 	val permissionManager = koinInject<PermissionManager>()
 	val loginScope = rememberCoroutineScope()
-	var localNetworkDenied by rememberSaveable { mutableStateOf(false) }
-	var notificationsDenied by rememberSaveable { mutableStateOf(false) }
+	// B-301: declining notifications no longer stops the login; it leaves one line on the page.
+	var notificationsOff by rememberSaveable { mutableStateOf(false) }
 
+	// B-296, B-261, B-283: the fields are checked FIRST (the address by normalizeInstanceUrl, which
+	// reads the text and resolves nothing), then the permissions are asked for, then the login
+	// runs. Nothing a login throws may leave this tap: what escapes is the login's error.
 	val login: () -> Unit = {
 		loginScope.launch {
-			withContext(Dispatchers.IO) {
-				if (viewModel.isLocalNetworkInstance()) {
-					if (!permissionManager.requestLocalNetworkPermission()) {
-						localNetworkDenied = true
-						return@withContext
-					}
-				}
-				if (!permissionManager.requestNotificationsPermission()) {
-					notificationsDenied = true
-					return@withContext
-				}
-				if (!viewModel.login()) {
+			try {
+				if (!viewModel.validateStuff()) {
 					haptics.performHapticFeedback(HapticFeedbackType.Reject)
 					when {
 						viewModel.instanceError -> instanceFocusRequester.requestFocus()
 						viewModel.usernameError -> usernameFocusRequester.requestFocus()
 						viewModel.passwordError -> passwordFocusRequester.requestFocus()
 					}
+					return@launch
 				}
+				withContext(Dispatchers.IO) {
+					// B-108: a server on this network asks for the permission Android 17 wants for
+					// it. A refusal does not stop the login: a routed address may still answer, and
+					// if it does not, the login's error says that Android is blocking it.
+					if (viewModel.isLocalNetworkInstance()) {
+						permissionManager.requestLocalNetworkPermission()
+					}
+					notificationsOff = !permissionManager.requestNotificationsPermission()
+					viewModel.login()
+				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				viewModel.reportLoginFailure(e)
 			}
 		}
 	}
@@ -170,12 +175,36 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 
 				Spacer(Modifier.height(8.dp))
 
-				LoginScreenError(loginUiState = loginState)
+				LoginScreenError(
+					loginUiState = loginState,
+					onOpenSettings = { permissionManager.openPermissionsSettings() }
+				)
+
+				// B-301: said once, dismissible; the login went ahead without the permission.
+				if (notificationsOff) {
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.padding(start = 16.dp, end = 4.dp, bottom = 8.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Text(
+							text = stringResource(Res.string.notice_login_notifications_off),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.weight(1f)
+						)
+						IconButton(onClick = { notificationsOff = false }) {
+							Icon(Icons.Outlined.Close, contentDescription = stringResource(Res.string.action_dismiss))
+						}
+					}
+				}
 
 				LoginScreenFields(
 					isBusy = isBusy,
 					instanceState = instanceState,
 					instanceError = viewModel.instanceError,
+					instanceProblem = viewModel.instanceProblem,
 					instanceFocusRequester = instanceFocusRequester,
 					onInstanceFocusChanged = { viewModel.validateInstance() },
 					usernameState = usernameState,
@@ -234,45 +263,4 @@ fun LoginScreenContent(innerPadding: PaddingValues) {
 		}
 	}
 
-	if (localNetworkDenied) {
-		FormDialog(
-			onDismissRequest = { localNetworkDenied = false },
-			icon = { Icon(Icons.Outlined.Error, null) },
-			title = { Text(stringResource(Res.string.notice_local_network_denied)) },
-			content = { Text(stringResource(Res.string.subtitle_local_network_denied)) },
-			buttons = {
-				SegmentedListButton(
-					modifier = Modifier.fillMaxWidth(),
-					onClick = {
-						localNetworkDenied = false
-						permissionManager.openPermissionsSettings()
-					},
-					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 1)
-				) {
-					Text(stringResource(Res.string.action_open_settings))
-				}
-			}
-		)
-	}
-
-	if (notificationsDenied) {
-		FormDialog(
-			onDismissRequest = { notificationsDenied = false },
-			icon = { Icon(Icons.Outlined.Error, null) },
-			title = { Text(stringResource(Res.string.notice_notifications_denied)) },
-			content = { Text(stringResource(Res.string.subtitle_notifications_denied)) },
-			buttons = {
-				SegmentedListButton(
-					modifier = Modifier.fillMaxWidth(),
-					onClick = {
-						notificationsDenied = false
-						permissionManager.openPermissionsSettings()
-					},
-					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 1)
-				) {
-					Text(stringResource(Res.string.action_open_settings))
-				}
-			}
-		)
-	}
 }

@@ -16,6 +16,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,7 +45,14 @@ fun <T> ErrorBox(
 	padding: PaddingValues = PaddingValues(12.dp),
 	bottomPadding: Dp = 24.dp,
 	onRetry: (() -> Unit)? = null,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	// B-302: what failed, in one sentence, where the caller knows; else "Something went wrong.".
+	message: String? = null,
+	// Small text under the message (the login names the exception's class for an unknown kind).
+	detail: String? = null,
+	// One action under the message (the login's Open settings, B-108).
+	actionLabel: String? = null,
+	onAction: (() -> Unit)? = null
 ) {
 	var expanded by rememberSaveable { mutableStateOf(false) }
 	val iconScale by animateFloatAsState(
@@ -73,10 +81,19 @@ fun <T> ErrorBox(
 				horizontalArrangement = Arrangement.Center,
 				verticalAlignment = Alignment.CenterVertically
 			) {
-				Text(
-					stringResource(Res.string.info_error),
-					modifier = Modifier.weight(1f)
-				)
+				Column(modifier = Modifier.weight(1f)) {
+					Text(message ?: stringResource(Res.string.info_error))
+					detail?.let {
+						Text(
+							it,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f)
+						)
+					}
+					if (actionLabel != null && onAction != null) {
+						TextButton(onClick = onAction) { Text(actionLabel) }
+					}
+				}
 				onRetry?.let { onRetry ->
 					IconButton(
 						onClick = onRetry,

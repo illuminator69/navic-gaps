@@ -80,10 +80,10 @@ val managerModule = module {
 	// The buttons of a fill (retry, cancel, allow MP3, wishlist, dismiss), shared by the Downloads
 	// page and the album page's request box (P4).
 	singleOf(::FillActions)
-	// The last two get()s are fork-only bindings each platform module registers:
-	// HubSocketClientFactory and HubLocalDevice.
+	// The last three get()s are fork-only bindings each platform module registers:
+	// HubSocketClientFactory, HubLocalDevice and LocalNetworkAccess (B-108; LoginManager takes it too).
 	single(createdAtStart = true) {
-		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
+		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
 	}
 	// createdAtStart, and never lazily: a cast session is precisely the case where no screen is
 	// open and no local player is running, so nothing else would ever construct this.

@@ -5,6 +5,9 @@ import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.notice_local_network_blocked
+import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
@@ -183,7 +186,9 @@ class HubManager(
 	private val lbBotManager: LbBotManager,
 	private val lbIndexSync: LbIndexSync,
 	socketClientFactory: HubSocketClientFactory,
-	private val localDevice: HubLocalDevice
+	private val localDevice: HubLocalDevice,
+	// B-108: whether a failed dial is Android's local network permission.
+	private val localNetwork: LocalNetworkAccess
 ) : RemotePlaybackRouter {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	// Protocol-level WS pings, so a half-open socket (Wi-Fi→cellular, a NAT timeout) fails and
@@ -309,6 +314,15 @@ class HubManager(
 	 */
 	private val _connectionError = MutableStateFlow<String?>(null)
 	val connectionError: StateFlow<String?> = _connectionError.asStateFlow()
+
+	/**
+	 * True while the hub cannot be dialled and Android's local network permission is the likely
+	 * reason (B-108: SDK 37+, not granted, the hub's host private). [connectionError] then holds
+	 * the sentence; this flag is what puts "Open settings" beside it. Cleared on `welcome`, on a
+	 * restart and on a failure that is not this.
+	 */
+	private val _localNetworkBlocked = MutableStateFlow(false)
+	val hubLocalNetworkBlocked: StateFlow<Boolean> = _localNetworkBlocked.asStateFlow()
 
 	/** Set when the hub rejects our token, so the reconnect loop stops tight-looping. */
 	private var authFailed = false
@@ -493,6 +507,7 @@ class HubManager(
 		_connected.value = false
 		authFailed = false
 		_connectionError.value = null
+		_localNetworkBlocked.value = false
 		connectJob = scope.launch {
 			old?.cancelAndJoin()
 			wsSession = null
@@ -1020,6 +1035,7 @@ class HubManager(
 				connectOnce()
 			} catch (e: Exception) {
 				Logger.e("HubManager", "hub connection failed: ${e.message}", e)
+				if (e !is CancellationException) noteDialFailure()
 			}
 			val wasConnected = _connected.value
 			wsSession = null
@@ -1051,6 +1067,24 @@ class HubManager(
 				lastKickedAtMs = nowMs()
 				Logger.i("HubManager", "hub reconnect kicked: $kick")
 			}
+		}
+	}
+
+	/**
+	 * A dial that failed (B-108). Logged only, it used to leave the settings saying "Not
+	 * connected" with no reason, while Android 17 was refusing the app its own subnet. When the
+	 * permission is the likely cause, say so; a hub-side error (`onHubError`) is never overwritten.
+	 */
+	private suspend fun noteDialFailure() {
+		if (authFailed) return
+		val blocked = localNetworkBlocked(localNetwork.sdk, localNetwork.granted(), hostOfUrl(preferenceManager.hubUrl))
+		if (blocked) {
+			if (!_localNetworkBlocked.value) Logger.w("HubManager", "hub dial failed with the local network permission not granted")
+			_connectionError.value = getString(Res.string.notice_local_network_blocked)
+			_localNetworkBlocked.value = true
+		} else if (_localNetworkBlocked.value) {
+			_localNetworkBlocked.value = false
+			_connectionError.value = null
 		}
 	}
 
@@ -1592,6 +1626,7 @@ class HubManager(
 				welcomedAtMs = nowMs()
 				_connected.value = true
 				_connectionError.value = null
+				_localNetworkBlocked.value = false
 				// Settle window. applySession has just set _activeDeviceId, but
 				// _isRemoteActive is recomputed asynchronously (evaluateRemoteActive), so
 				// for a moment the reporter can see connected + active-is-someone-else +

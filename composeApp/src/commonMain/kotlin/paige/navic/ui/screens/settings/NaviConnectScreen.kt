@@ -17,6 +17,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_navi_connect_save
+import navic.composeapp.generated.resources.action_open_settings
 import navic.composeapp.generated.resources.action_navi_connect_save_audiomuse
 import navic.composeapp.generated.resources.info_navi_connect_audiomuse
 import navic.composeapp.generated.resources.info_navi_connect_connected
@@ -52,6 +54,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -73,6 +76,10 @@ fun NaviConnectScreen() {
 
 	val connected by hubManager.connected.collectAsState()
 	val connectionError by hubManager.connectionError.collectAsState()
+	// B-108: the error is then "Android is blocking Navic from your local network.", and the
+	// row offers the app's settings page, where the permission is.
+	val localNetworkBlocked by hubManager.hubLocalNetworkBlocked.collectAsState()
+	val permissionManager = koinInject<PermissionManager>()
 
 	// Surface a hub-side error (bad token, target offline, …) the moment it arrives, so a wrong
 	// token reads as an actual error instead of "just never connects".
@@ -146,6 +153,11 @@ fun NaviConnectScreen() {
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
 					)
+					if (!connected && localNetworkBlocked) {
+						TextButton(onClick = { permissionManager.openPermissionsSettings() }) {
+							Text(stringResource(Res.string.action_open_settings))
+						}
+					}
 					Column(
 						modifier = Modifier.padding(top = 8.dp),
 						verticalArrangement = Arrangement.spacedBy(8.dp)

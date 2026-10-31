@@ -17,6 +17,8 @@ import paige.navic.data.database.MIGRATION_CACHE_23_24
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
 import paige.navic.data.database.MIGRATION_DOWNLOAD_4_5
 import paige.navic.domain.manager.AndroidHubLocalDevice
+import paige.navic.domain.manager.AndroidLocalNetworkAccess
+import paige.navic.domain.manager.LocalNetworkAccess
 import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.AudioGainManager
 import paige.navic.domain.manager.CastBridgeStatus
@@ -116,6 +118,9 @@ actual val platformModule = module {
 	// What the hub is told this phone is, and its media volume, read from the system and set
 	// there. HubManager's other fork-only binding: lost, every launch fails the same way.
 	single<HubLocalDevice> { AndroidHubLocalDevice(androidApplication()) }
+	// B-108: the local network permission, read by HubManager and LoginManager. Lost, the app dies at
+	// launch with NoDefinitionFoundException (HubManager is createdAtStart).
+	single<LocalNetworkAccess> { AndroidLocalNetworkAccess(androidApplication()) }
 	// B-279: the secrets file and its Keystore cipher, read by SecretStore only. Lost, the app dies
 	// at launch with NoDefinitionFoundException (PreferenceManager needs SecretStore).
 	single<SecretVault> { androidSecretVault(androidApplication()) }
