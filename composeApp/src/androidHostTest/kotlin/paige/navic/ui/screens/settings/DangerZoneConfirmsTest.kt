@@ -38,4 +38,26 @@ class DangerZoneConfirmsTest {
 		}
 		assertTrue("requestDanger(" in source, "the Danger zone does not go through requestDanger")
 	}
+
+	@Test
+	fun everyDangerActionTheScreenNamesGoesThroughRequestDanger() {
+		val source = File("src/commonMain/kotlin/paige/navic/ui/screens/settings/DataStorageScreen.kt").readText()
+		val code = source.lines().map { it.substringBefore("//") }
+		var named = 0
+		code.forEachIndexed { index, line ->
+			if (!Regex("DangerAction\\.\\w+").containsMatchIn(line)) return@forEachIndexed
+			named++
+			// A `when` branch (what runDanger does, which dialog text to show) is not a call; every other
+			// mention must be inside requestDanger(...), the only way an action reaches a tap.
+			val isBranch = Regex("^\\s*DangerAction\\.\\w+\\s*->").containsMatchIn(line)
+			assertTrue(isBranch || "requestDanger(" in line, "line ${index + 1} names a DangerAction outside requestDanger: ${line.trim()}")
+		}
+		assertTrue(named >= 4, "found only $named DangerAction mentions")
+		for ((index, line) in code.withIndex()) {
+			for (call in Regex("runDanger\\(([^)]*)\\)").findAll(line)) {
+				val argument = call.groupValues[1].trim()
+				assertTrue(argument == "action" || argument.startsWith("action:"), "line ${index + 1} runs $argument without asking: ${line.trim()}")
+			}
+		}
+	}
 }
