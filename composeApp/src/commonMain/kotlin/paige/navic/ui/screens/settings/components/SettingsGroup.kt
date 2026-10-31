@@ -20,6 +20,8 @@ import paige.navic.ui.theme.defaultFont
 fun SettingsGroup(
 	modifier: Modifier = Modifier,
 	title: (@Composable () -> Unit)? = null,
+	/** A line under the rows that explains them (drawn only when given). */
+	footer: (@Composable () -> Unit)? = null,
 	content: @Composable ColumnScope.() -> Unit
 ) {
 	Column(modifier = modifier.fillMaxWidth()) {
@@ -42,6 +44,7 @@ fun SettingsGroup(
 		) {
 			content()
 		}
+		footer?.invoke()
 	}
 }
 

@@ -51,4 +51,10 @@ class NoEnumNamesInSettingsTest {
 		assertEquals(2, enabledRows(appearance), "Theme mode and Theme must both take pickers.enabled")
 		assertEquals(1, enabledRows(themes), "the palette cards must take pickers.enabled")
 	}
+
+	@Test
+	fun theArtworkNoteSitsWithThePickersOnBothPages() {
+		assertTrue("ThemeArtworkNote(pickers)" in code("AppearanceScreen.kt"), "Appearance does not say where artwork wins")
+		assertTrue("ThemeArtworkNote(pickers)" in code("ThemesScreen.kt"), "Themes does not say where artwork wins")
+	}
 }

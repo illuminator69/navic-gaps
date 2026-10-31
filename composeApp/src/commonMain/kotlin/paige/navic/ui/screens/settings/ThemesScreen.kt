@@ -60,7 +60,6 @@ import navic.composeapp.generated.resources.option_choose_theme
 import navic.composeapp.generated.resources.option_palette_style
 import navic.composeapp.generated.resources.option_use_amoled_theme
 import navic.composeapp.generated.resources.title_palette
-import navic.composeapp.generated.resources.info_theme_artwork_note
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
@@ -163,14 +162,7 @@ fun SettingsThemesScreen() {
 						)
 					}
 					// The palette specification row is gone: nothing read it (Theme.kt hard-codes the 2025 spec).
-					AnimatedVisibility(visible = pickers.noteShown) {
-						Text(
-							stringResource(Res.string.info_theme_artwork_note),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(start = 12.dp, top = 4.dp)
-						)
-					}
+					ThemeArtworkNote(pickers)
 				}
 			}
 		}

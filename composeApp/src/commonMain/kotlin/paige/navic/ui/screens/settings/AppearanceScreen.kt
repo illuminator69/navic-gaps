@@ -119,7 +119,10 @@ fun SettingsAppearanceScreen() {
 				// Colours first: "Colours from artwork" decides what the two rows under it mean. Artwork wins
 				// on pages that have album art; the mode and theme below still decide every page without.
 				val pickers = themePickers(preferenceManager.dynamicTheming)
-				SettingsGroup(title = { Text(stringResource(Res.string.title_colours)) }) {
+				SettingsGroup(
+					title = { Text(stringResource(Res.string.title_colours)) },
+					footer = { ThemeArtworkNote(pickers) }
+				) {
 					SettingsToggleItem(
 						content = { Text(stringResource(Res.string.option_dynamic_theming)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_dynamic_theming)) },
