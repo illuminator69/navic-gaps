@@ -34,11 +34,9 @@ import navic.composeapp.generated.resources.subtitle_audio_effects
 import navic.composeapp.generated.resources.subtitle_auto_dj_only_similar
 import navic.composeapp.generated.resources.subtitle_auto_fill_queue
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
-import navic.composeapp.generated.resources.subtitle_streaming_quality
 import navic.composeapp.generated.resources.title_audio_effects
 import navic.composeapp.generated.resources.title_behaviour
 import navic.composeapp.generated.resources.title_playback
-import navic.composeapp.generated.resources.title_streaming_quality
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -88,21 +86,15 @@ fun SettingsPlaybackScreen() {
 			) {
 				SettingsGroup {
 					val isAndroid = platformContext.platformType == PlatformType.Android
-					val count = if (isAndroid) 4 else 2
+					val count = if (isAndroid) 3 else 1
 
-					SettingsNavItem(
-						onClick = dropUnlessResumed { backStack.add(Screen.Settings.StreamingQuality) },
-						content = { Text(stringResource(Res.string.title_streaming_quality)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_streaming_quality)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
-					)
 					SettingsChoiceItem(
 						choices = ExplicitContentPlayback.entries.toImmutableList(),
 						selectedChoice = preferenceManager.explicitContentPlayback,
 						onChoiceSelected = { preferenceManager.explicitContentPlayback = it },
 						content = { Text(stringResource(Res.string.option_explicit_playback)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
 
 					if (isAndroid) {
@@ -111,7 +103,7 @@ fun SettingsPlaybackScreen() {
 							content = { Text(stringResource(Res.string.title_audio_effects)) },
 							supportingContent = { Text(stringResource(Res.string.subtitle_audio_effects)) },
 							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 2,
+								index = 1,
 								count = count
 							)
 						)
@@ -121,7 +113,7 @@ fun SettingsPlaybackScreen() {
 							content = { Text(stringResource(Res.string.option_auto_fill_queue)) },
 							supportingContent = { Text(stringResource(Res.string.subtitle_auto_fill_queue)) },
 							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 3,
+								index = 2,
 								count = count
 							)
 						)

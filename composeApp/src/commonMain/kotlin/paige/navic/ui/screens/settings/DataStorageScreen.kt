@@ -70,28 +70,14 @@ import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
-import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pending_actions
-import navic.composeapp.generated.resources.subtitle_downloads_page
-import navic.composeapp.generated.resources.section_download_settings
-import navic.composeapp.generated.resources.setting_download_charging_only
-import navic.composeapp.generated.resources.setting_download_charging_only_desc
-import navic.composeapp.generated.resources.setting_download_concurrency
-import navic.composeapp.generated.resources.setting_download_concurrency_desc
-import navic.composeapp.generated.resources.setting_download_wifi_only
-import navic.composeapp.generated.resources.setting_download_wifi_only_desc
-import navic.composeapp.generated.resources.subtitle_download_quality
-import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_pending_actions
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
 import navic.composeapp.generated.resources.title_danger_zone
 import navic.composeapp.generated.resources.title_data_storage
-import navic.composeapp.generated.resources.title_downloads
-import navic.composeapp.generated.resources.title_download_quality
 import navic.composeapp.generated.resources.title_library_download
-import navic.composeapp.generated.resources.title_network
 import navic.composeapp.generated.resources.title_sync_control
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -101,7 +87,6 @@ import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.CoverArtQuality
-import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.SegmentedListItem
@@ -114,9 +99,6 @@ import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsNavItem
-import paige.navic.ui.screens.settings.components.SettingsSliderItem
-import paige.navic.ui.screens.settings.components.SettingsToggleItem
-import kotlin.math.roundToInt
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 
 @Composable
@@ -234,27 +216,7 @@ fun SettingsDataStorageScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				SettingsGroup(title = { Text(stringResource(Res.string.title_network)) }) {
-					val qualityRows = if (SHOW_UPSTREAM_DOWNLOAD_QUALITY) 1 else 0
-					if (SHOW_UPSTREAM_DOWNLOAD_QUALITY) {
-						SettingsNavItem(
-							onClick = dropUnlessResumed { backStack.add(Screen.Settings.DownloadQuality) },
-							content = { Text(stringResource(Res.string.title_download_quality)) },
-							supportingContent = { Text(stringResource(Res.string.subtitle_download_quality)) },
-							shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2 + qualityRows)
-						)
-					}
-
-					SettingsChoiceItem(
-						choices = OfflineMode.entries.toImmutableList(),
-						selectedChoice = preferenceManager.offlineMode,
-						onChoiceSelected = { preferenceManager.offlineMode = it },
-						description = stringResource(Res.string.subtitle_offline_mode),
-						content = { Text(stringResource(Res.string.option_offline_mode)) },
-						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = qualityRows, count = 2 + qualityRows)
-					)
-
+				SettingsGroup {
 					SettingsChoiceItem(
 						choices = CoverArtQuality.entries.toImmutableList(),
 						selectedChoice = preferenceManager.coverArtQuality,
@@ -268,53 +230,7 @@ fun SettingsDataStorageScreen() {
 						},
 						content = { Text(stringResource(Res.string.option_cover_art_quality)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1 + qualityRows, count = 2 + qualityRows)
-					)
-				}
-
-				// navi-connect (I-039): what holds downloads back. The downloads themselves, lb-bot's
-				// and the wishlist are the library's Downloads page, which the last row opens.
-				SettingsGroup(title = { Text(stringResource(Res.string.section_download_settings)) }) {
-					SettingsToggleItem(
-						checked = preferenceManager.downloadWifiOnly,
-						onCheckedChange = { preferenceManager.downloadWifiOnly = it },
-						content = { Text(stringResource(Res.string.setting_download_wifi_only)) },
-						supportingContent = { Text(stringResource(Res.string.setting_download_wifi_only_desc)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
-					)
-					SettingsToggleItem(
-						checked = preferenceManager.downloadChargingOnly,
-						onCheckedChange = { preferenceManager.downloadChargingOnly = it },
-						content = { Text(stringResource(Res.string.setting_download_charging_only)) },
-						supportingContent = {
-							Text(stringResource(Res.string.setting_download_charging_only_desc))
-						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
-					)
-					// Persisted; the permit count applies from the next app start (DownloadManager).
-					SettingsSliderItem(
-						value = preferenceManager.downloadMaxConcurrency.toFloat(),
-						valueRange = 1f..10f,
-						steps = 8,
-						onValueChange = { preferenceManager.downloadMaxConcurrency = it.roundToInt() },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4),
-						content = {
-							Column {
-								Text(stringResource(Res.string.setting_download_concurrency))
-								Text(
-									stringResource(Res.string.setting_download_concurrency_desc),
-									style = MaterialTheme.typography.bodyMedium,
-									color = MaterialTheme.colorScheme.onSurfaceVariant
-								)
-							}
-						},
-						trailingContent = { Text("${preferenceManager.downloadMaxConcurrency}") }
-					)
-					SettingsNavItem(
-						onClick = dropUnlessResumed { backStack.add(Screen.Downloads()) },
-						content = { Text(stringResource(Res.string.title_downloads)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_downloads_page)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
 					)
 				}
 
@@ -513,12 +429,3 @@ fun SettingsDataStorageScreen() {
 		}
 	}
 }
-
-/**
- * B-122: upstream's Download quality page (`SettingsDownloadQualityScreen`) writes
- * `downloadQualityWifi` / `downloadQualityCellular` / the custom transcoding values, which the
- * fork's downloader never reads: it takes `downloadBitrate` / `downloadFormat`, set on the
- * Streaming quality page. A control that does nothing is hidden, not deleted, so wiring the page
- * to the downloader later is this one line.
- */
-private const val SHOW_UPSTREAM_DOWNLOAD_QUALITY = false

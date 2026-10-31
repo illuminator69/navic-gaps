@@ -43,7 +43,7 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	// Settings and its pages, the smart playlist form, shares and a genre's albums are washed too.
 	Screen.Settings.Root::class, Screen.Settings.Appearance::class, Screen.Settings.BottomAppBar::class,
 	Screen.Settings.NowPlaying::class, Screen.Settings.Playback::class, Screen.Settings.Effects::class,
-	Screen.Settings.Developer::class, Screen.Settings.DownloadQuality::class, Screen.Settings.AppIcon::class,
+	Screen.Settings.Developer::class, Screen.Settings.AppIcon::class,
 	Screen.Settings.Equaliser::class, Screen.Settings.About::class, Screen.Settings.DataStorage::class,
 	Screen.Settings.PendingActions::class, Screen.Settings.Fonts::class, Screen.Settings.Themes::class,
 	Screen.Settings.CustomHeaders::class, Screen.Settings.StreamingQuality::class, Screen.Settings.Logs::class,

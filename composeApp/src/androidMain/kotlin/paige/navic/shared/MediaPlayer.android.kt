@@ -78,7 +78,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -108,6 +107,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.PreviewManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.streamConfigChanges
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
@@ -129,7 +129,6 @@ import paige.navic.util.Logger
 import java.io.File
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.firstOrNull
 import paige.navic.domain.models.SavedQueueSource
 import paige.navic.domain.models.toSavedQueueKind
@@ -1335,19 +1334,12 @@ class AndroidMediaPlayerViewModel(
 					pendingSyncState = null
 				}
 
-				combine(
-					downloadManager.downloadedSongs,
-					connectivityManager.isCellular,
-					snapshotFlow { preferenceManager.streamingQualityWifi },
-					snapshotFlow { preferenceManager.streamingQualityCellular },
-					snapshotFlow { preferenceManager.isAdvancedTranscodingActive },
-					snapshotFlow { preferenceManager.customMaxBitrateWifi },
-					snapshotFlow { preferenceManager.customMaxBitrateCellular },
-					// So flipping the toggle (or moving on/off cellular) re-points the queue at the
-					// downloads or back at the server without needing a re-queue.
-					snapshotFlow { preferenceManager.preferDownloadsOnCellular },
-					connectivityManager.isOnline
-				) { it.toList() }.distinctUntilChanged().collectLatest { args ->
+				streamConfigChanges(
+					preferenceManager = preferenceManager,
+					downloadedSongs = downloadManager.downloadedSongs,
+					isCellular = connectivityManager.isCellular,
+					isOnline = connectivityManager.isOnline
+				).collectLatest { args ->
 					@Suppress("UNCHECKED_CAST")
 					val downloadedMap = args[0] as Map<String, String>
 					lastDownloadedMap = downloadedMap

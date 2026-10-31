@@ -378,12 +378,10 @@ sealed interface Screen : NavKey {
 		@Serializable
 		data object CustomHeaders : Settings
 
+		/** The Quality & data page. The route keeps its old name so a saved back stack still reads. */
 		@Immutable
 		@Serializable
 		data object StreamingQuality : Settings
-		@Immutable
-		@Serializable
-		data object DownloadQuality : Settings
 
 		@Immutable
 		@Serializable

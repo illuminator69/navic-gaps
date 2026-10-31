@@ -524,7 +524,7 @@
 	<string name="notice_local_network_blocked">Android is blocking Navic from your local network.</string>
 	<string name="notice_login_notifications_off">Notifications are off, so download and sync progress won't show outside the app.</string>
 	<string name="info_exception_handler">This will immediately crash the application. Are you sure?</string>
-	<string name="info_streaming_quality">Higher quality presets will use more data. Transcoding can severely impact load times and cause lyrics to become unsynced. Select Lossless if you encounter any issues.</string>
+	<string name="info_streaming_quality">Higher quality presets will use more data. Transcoding can severely impact load times and cause lyrics to become unsynced. Select Original if you encounter any issues.</string>
 	<string name="info_download_quality">Higher quality presets will use more storage and data. Transcoding can increase download times. Select Lossless if you encounter any issues.</string>
 	<string name="info_repeat_off">Repeat off</string>
 	<string name="info_repeat_one">Repeat one</string>
@@ -1596,4 +1596,21 @@
 	<string name="artist_scan_updated">Updated just now</string>
 	<string name="attention_missing_off">Missing</string>
 	<string name="info_external_album_index_failed_off">Couldn't add this release to the artist's index, so it may keep listing as missing.</string>
+	<!-- Worbus settings N2: Quality & data -->
+	<string name="title_quality_data">Quality &amp; data</string>
+	<string name="subtitle_quality_data">Streaming, downloads, mobile data, offline</string>
+	<string name="title_streaming">Streaming</string>
+	<string name="option_stream_wifi">On Wi-Fi</string>
+	<string name="option_stream_cellular">On mobile data</string>
+	<string name="option_stream_original">Original</string>
+	<string name="option_stream_preset_detail">%1$s (%2$d kbps, %3$s)</string>
+	<string name="option_stream_custom">Custom…</string>
+	<string name="option_stream_custom_value">Custom (%1$s)</string>
+	<string name="title_custom_stream_quality">Custom quality</string>
+	<string name="title_bitrate">Bitrate</string>
+	<string name="title_stream_format">Format</string>
+	<string name="option_format_aac">AAC</string>
+	<string name="subtitle_download_format_locked">Original quality keeps each file's own format</string>
+	<string name="title_mobile_data">Mobile data</string>
+	<string name="option_play_downloads_on_mobile">Play downloads instead of streaming</string>
 </resources>

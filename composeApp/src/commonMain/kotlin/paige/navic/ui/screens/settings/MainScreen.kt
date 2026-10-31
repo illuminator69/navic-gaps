@@ -32,6 +32,7 @@ import navic.composeapp.generated.resources.subtitle_developer
 import navic.composeapp.generated.resources.subtitle_navi_connect
 import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
+import navic.composeapp.generated.resources.subtitle_quality_data
 import navic.composeapp.generated.resources.title_about
 import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_bottom_app_bar
@@ -40,6 +41,7 @@ import navic.composeapp.generated.resources.title_developer
 import navic.composeapp.generated.resources.title_navi_connect
 import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
+import navic.composeapp.generated.resources.title_quality_data
 import navic.composeapp.generated.resources.title_settings
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -57,6 +59,7 @@ import paige.navic.icons.outlined.Code
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.Radio
+import paige.navic.icons.outlined.Speed
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -69,7 +72,7 @@ import paige.navic.ui.theme.defaultFont
 fun SettingsScreen() {
 	// Developer options (crash-the-app, test tools) are for debug builds only.
 	val showDeveloper = LocalPlatformContext.current.isDebugBuild
-	val rows = if (showDeveloper) 7 else 6
+	val rows = if (showDeveloper) 8 else 7
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_settings)) }) }
 	) { innerPadding ->
@@ -114,12 +117,20 @@ fun SettingsScreen() {
 					shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = rows)
 				)
 				PageRow(
+					destination = Screen.Settings.StreamingQuality,
+					icon = Icons.Outlined.Speed,
+					iconSize = 24.dp,
+					title = Res.string.title_quality_data,
+					subtitle = Res.string.subtitle_quality_data,
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = rows)
+				)
+				PageRow(
 					destination = Screen.Settings.NaviConnect,
 					icon = Icons.Outlined.Radio,
 					iconSize = 24.dp,
 					title = Res.string.title_navi_connect,
 					subtitle = Res.string.subtitle_navi_connect,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = rows)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.DataStorage,
@@ -127,7 +138,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_data_storage,
 					subtitle = Res.string.subtitle_data_storage,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = rows)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = rows)
 				)
 				if (showDeveloper) {
 					PageRow(
@@ -136,7 +147,7 @@ fun SettingsScreen() {
 						iconSize = 24.dp,
 						title = Res.string.title_developer,
 						subtitle = Res.string.subtitle_developer,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = rows)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 7, count = rows)
 					)
 				}
 			}

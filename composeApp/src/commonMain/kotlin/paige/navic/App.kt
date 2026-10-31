@@ -151,7 +151,7 @@ import paige.navic.ui.screens.settings.SettingsLogsScreen
 import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
 import paige.navic.ui.screens.settings.SettingsPlaybackScreen
 import paige.navic.ui.screens.settings.SettingsScreen
-import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
+import paige.navic.ui.screens.settings.SettingsQualityDataScreen
 import paige.navic.ui.screens.mixes.MixListScreen
 import paige.navic.ui.screens.radio.custom.CustomRadioScreen
 import paige.navic.ui.screens.mixes.MixDetailScreen
@@ -178,7 +178,6 @@ import paige.navic.ui.components.common.RailAmbient
 import paige.navic.ui.components.common.RemoteVolumeHud
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import paige.navic.ui.screens.genre.GenreDetailScreen
-import paige.navic.ui.screens.settings.SettingsDownloadQualityScreen
 import paige.navic.ui.screens.settings.SettingsEqualiserScreen
 
 
@@ -733,9 +732,6 @@ private fun entryProvider(
 		entry<Screen.GenreDetail> { key ->
 			Washed { GenreDetailScreen(key.genreName) }
 		}
-		entry<Screen.Settings.DownloadQuality> {
-			Washed { SettingsDownloadQualityScreen() }
-		}
 		entry<Screen.Settings.AppIcon>(metadata = detailPane("settings")) {
 			Washed { SettingsAppIconScreen() }
 		}
@@ -760,8 +756,8 @@ private fun entryProvider(
 		entry<Screen.Settings.CustomHeaders> {
 			Washed { SettingsCustomHeadersScreen() }
 		}
-		entry<Screen.Settings.StreamingQuality> {
-			Washed { SettingsStreamingQualityScreen() }
+		entry<Screen.Settings.StreamingQuality>(metadata = detailPane("settings")) {
+			Washed { SettingsQualityDataScreen() }
 		}
 		entry<Screen.Settings.Logs> {
 			Washed { SettingsLogsScreen() }
