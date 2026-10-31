@@ -48,6 +48,15 @@ class ServerScreenStateTest {
 	}
 
 	@Test
+	fun aLinkThatIsUpIsConnectedEvenWithNoTokenOrAddressStored() {
+		assertEquals(ServerStatus.Connected, status(token = false, connected = true))
+		assertEquals(ServerStatus.Connected, status(address = false, connected = true))
+		assertEquals(ServerStatus.Connected, status(address = false, token = false, connected = true))
+		// Switched off still wins over a link that has not been torn down yet.
+		assertEquals(ServerStatus.Off, status(enabled = false, token = false, connected = true))
+	}
+
+	@Test
 	fun aRefusedTokenIsNamedAndBeatsCantReach() {
 		assertEquals(ServerStatus.Refused, status(refused = true))
 		assertEquals(ServerStatus.Refused, status(refused = true, unreachable = true))

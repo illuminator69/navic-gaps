@@ -36,7 +36,8 @@ enum class ServerStatus(val line: StringResource) {
 
 /**
  * The one answer the Server page's status line and its Open settings row read. Order matters:
- * a link that is up is connected whatever an old failure left behind; a refused token beats
+ * a link that is up is connected whatever an old failure left behind, or whatever the stored
+ * address and token say (what is stored can change under a session that is already up); a refused token beats
  * "can't reach" because the server was reached.
  */
 fun serverStatus(
@@ -49,8 +50,8 @@ fun serverStatus(
 	unreachable: Boolean
 ): ServerStatus = when {
 	!enabled -> ServerStatus.Off
-	!hasAddress || !hasToken -> ServerStatus.NotConfigured
 	connected -> ServerStatus.Connected
+	!hasAddress || !hasToken -> ServerStatus.NotConfigured
 	authRefused -> ServerStatus.Refused
 	localNetworkBlocked -> ServerStatus.LocalNetworkBlocked
 	unreachable -> ServerStatus.CantReach
