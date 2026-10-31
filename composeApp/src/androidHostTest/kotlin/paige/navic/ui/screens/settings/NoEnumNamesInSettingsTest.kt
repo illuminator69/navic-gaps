@@ -2,6 +2,7 @@ package paige.navic.ui.screens.settings
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -27,12 +28,27 @@ class NoEnumNamesInSettingsTest {
 		}
 	}
 
+	/** The source with line comments dropped, so a comment cannot satisfy or break a check. */
+	private fun code(name: String) = File(dir + name).readLines().joinToString("\n") { it.substringBefore("//") }
+
 	@Test
 	fun theThemePickersAreNeverGreyedByArtworkColours() {
-		val themes = File(dir + "ThemesScreen.kt").readText()
-		val appearance = File(dir + "AppearanceScreen.kt").readText()
+		val themes = code("ThemesScreen.kt")
+		val appearance = code("AppearanceScreen.kt")
 		assertTrue("overriddenByCover" !in themes, "ThemesScreen.kt still greys the pickers")
 		assertTrue("DisabledAlpha" !in themes, "ThemesScreen.kt still dims the pickers")
 		assertTrue("themePickers(" in themes && "themePickers(" in appearance, "both pages must ask themePickers")
+		// Whatever enables a row there must be the picker state (always on), never the artwork switch.
+		for ((name, text) in listOf("ThemesScreen.kt" to themes, "AppearanceScreen.kt" to appearance)) {
+			for (line in text.lines()) {
+				if (Regex("\\benabled\\s*=").containsMatchIn(line)) {
+					assertTrue("pickers.enabled" in line || Regex("enabled\\s*=\\s*true\\b").containsMatchIn(line), "$name enables a row by something other than the picker state: ${line.trim()}")
+				}
+				assertTrue(!Regex("enabled\\s*=.*dynamicTheming").containsMatchIn(line), "$name ties a row to Colours from artwork: ${line.trim()}")
+			}
+		}
+		val enabledRows = { text: String -> Regex("enabled\\s*=\\s*pickers\\.enabled").findAll(text).count() }
+		assertEquals(2, enabledRows(appearance), "Theme mode and Theme must both take pickers.enabled")
+		assertEquals(1, enabledRows(themes), "the palette cards must take pickers.enabled")
 	}
 }
