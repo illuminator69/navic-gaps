@@ -1613,4 +1613,27 @@
 	<string name="subtitle_download_format_locked">Original quality keeps each file's own format</string>
 	<string name="title_mobile_data">Mobile data</string>
 	<string name="option_play_downloads_on_mobile">Play downloads instead of streaming</string>
+	<!-- Worbus settings N3: Server -->
+	<string name="info_server_off">Off</string>
+	<string name="info_server_not_configured">Add the address and token to connect</string>
+	<string name="info_server_connecting">Connecting…</string>
+	<string name="info_server_connected">Connected</string>
+	<string name="info_server_cant_reach">Can't reach the server. Check the address.</string>
+	<string name="info_server_refused">The server did not accept this token</string>
+	<string name="title_server">Server</string>
+	<string name="subtitle_server">Your music server and Worbus Server</string>
+	<string name="title_navidrome">Navidrome</string>
+	<string name="info_signed_in_as">Signed in as %1$s</string>
+	<string name="title_worbus_server">Worbus Server</string>
+	<string name="option_server_connect">Connect</string>
+	<string name="option_server_address">Address</string>
+	<string name="option_server_token">Token</string>
+	<string name="option_server_device_name">This device's name</string>
+	<string name="info_server_not_set">Not set</string>
+	<string name="info_server_set">Set</string>
+	<string name="title_server_advanced">Advanced</string>
+	<string name="info_server_advanced">AudioMuse address and token. Only needed without a Worbus Server.</string>
+	<string name="option_audiomuse_address">AudioMuse address</string>
+	<string name="option_audiomuse_token">AudioMuse token</string>
+	<string name="info_server_footer">Library tools, including Library Matches, are in the avatar menu. The listening history's sync is in Stats.</string>
 </resources>

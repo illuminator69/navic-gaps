@@ -324,8 +324,23 @@ class HubManager(
 	private val _localNetworkBlocked = MutableStateFlow(false)
 	val hubLocalNetworkBlocked: StateFlow<Boolean> = _localNetworkBlocked.asStateFlow()
 
+	private val _authRefused = MutableStateFlow(false)
+
+	/** True once the hub has turned our token down (`error: auth`); cleared by a restart. */
+	val authRefused: StateFlow<Boolean> = _authRefused.asStateFlow()
+
 	/** Set when the hub rejects our token, so the reconnect loop stops tight-looping. */
-	private var authFailed = false
+	private var authFailed: Boolean
+		get() = _authRefused.value
+		set(value) { _authRefused.value = value }
+
+	private val _unreachable = MutableStateFlow(false)
+
+	/**
+	 * True while dialling fails (a wrong address, a hub that is down, no network), so the settings
+	 * can say so instead of "connecting" for ever. Cleared by a `welcome` and by a restart.
+	 */
+	val unreachable: StateFlow<Boolean> = _unreachable.asStateFlow()
 
 	/** When our socket dropped, so a brief reconnect doesn't tear the remote view down. */
 	private var disconnectedAtMs = 0L
@@ -506,6 +521,7 @@ class HubManager(
 		val old = connectJob
 		_connected.value = false
 		authFailed = false
+		_unreachable.value = false
 		_connectionError.value = null
 		_localNetworkBlocked.value = false
 		connectJob = scope.launch {
@@ -1096,6 +1112,7 @@ class HubManager(
 	 */
 	private suspend fun noteDialFailure(e: Throwable) {
 		if (authFailed) return
+		_unreachable.value = true
 		// A hub name that never resolved is a wrong address, not the permission (finding 1).
 		val blocked = failureLooksLocalNetworkBlocked(e, localNetwork.sdk, localNetwork.granted(), hostOfUrl(preferenceManager.hubUrl))
 		if (blocked) {
@@ -1645,6 +1662,7 @@ class HubManager(
 				msg["devices"]?.let { parseDevices(it.asObjectList()) }
 				welcomedAtMs = nowMs()
 				_connected.value = true
+				_unreachable.value = false
 				_connectionError.value = null
 				_localNetworkBlocked.value = false
 				// Settle window. applySession has just set _activeDeviceId, but

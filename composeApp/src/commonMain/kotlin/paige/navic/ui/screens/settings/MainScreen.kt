@@ -29,7 +29,7 @@ import navic.composeapp.generated.resources.subtitle_appearance
 import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_data_storage
 import navic.composeapp.generated.resources.subtitle_developer
-import navic.composeapp.generated.resources.subtitle_navi_connect
+import navic.composeapp.generated.resources.subtitle_server
 import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
 import navic.composeapp.generated.resources.subtitle_quality_data
@@ -38,7 +38,7 @@ import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_developer
-import navic.composeapp.generated.resources.title_navi_connect
+import navic.composeapp.generated.resources.title_server
 import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_quality_data
@@ -56,9 +56,9 @@ import paige.navic.icons.filled.Palette
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Code
+import paige.navic.icons.outlined.Computer
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Note
-import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Speed
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
@@ -68,11 +68,32 @@ import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.theme.defaultFont
 
+/** One row of the Settings list. */
+private class SettingsPage(
+	val destination: Screen,
+	val icon: ImageVector,
+	val iconSize: Dp = 22.dp,
+	val title: StringResource,
+	val subtitle: StringResource
+)
+
 @Composable
 fun SettingsScreen() {
 	// Developer options (crash-the-app, test tools) are for debug builds only.
 	val showDeveloper = LocalPlatformContext.current.isDebugBuild
-	val rows = if (showDeveloper) 8 else 7
+	val pages = buildList {
+		// The Server first: nothing else in the app works for a stranger until it is set up.
+		add(SettingsPage(Screen.Settings.NaviConnect, Icons.Outlined.Computer, 24.dp, Res.string.title_server, Res.string.subtitle_server))
+		add(SettingsPage(Screen.Settings.Appearance, Icons.Filled.Palette, 24.dp, Res.string.title_appearance, Res.string.subtitle_appearance))
+		add(SettingsPage(Screen.Settings.NowPlaying, Icons.Filled.Play, 24.dp, Res.string.title_now_playing, Res.string.subtitle_now_playing))
+		add(SettingsPage(Screen.Settings.BottomAppBar, Icons.Filled.BottomNavigation, 24.dp, Res.string.title_bottom_app_bar, Res.string.subtitle_bottom_app_bar))
+		add(SettingsPage(Screen.Settings.Playback, Icons.Outlined.Note, 24.dp, Res.string.title_playback, Res.string.subtitle_playback))
+		add(SettingsPage(Screen.Settings.StreamingQuality, Icons.Outlined.Speed, 24.dp, Res.string.title_quality_data, Res.string.subtitle_quality_data))
+		add(SettingsPage(Screen.Settings.DataStorage, Icons.Outlined.DataTable, 24.dp, Res.string.title_data_storage, Res.string.subtitle_data_storage))
+		if (showDeveloper) {
+			add(SettingsPage(Screen.Settings.Developer, Icons.Outlined.Code, 24.dp, Res.string.title_developer, Res.string.subtitle_developer))
+		}
+	}
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_settings)) }) }
 	) { innerPadding ->
@@ -84,70 +105,14 @@ fun SettingsScreen() {
 			verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 		) {
 			SettingsGroup {
-				PageRow(
-					destination = Screen.Settings.Appearance,
-					icon = Icons.Filled.Palette,
-					iconSize = 24.dp,
-					title = Res.string.title_appearance,
-					subtitle = Res.string.subtitle_appearance,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.NowPlaying,
-					icon = Icons.Filled.Play,
-					iconSize = 24.dp,
-					title = Res.string.title_now_playing,
-					subtitle = Res.string.subtitle_now_playing,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.BottomAppBar,
-					icon = Icons.Filled.BottomNavigation,
-					iconSize = 24.dp,
-					title = Res.string.title_bottom_app_bar,
-					subtitle = Res.string.subtitle_bottom_app_bar,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.Playback,
-					icon = Icons.Outlined.Note,
-					iconSize = 24.dp,
-					title = Res.string.title_playback,
-					subtitle = Res.string.subtitle_playback,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.StreamingQuality,
-					icon = Icons.Outlined.Speed,
-					iconSize = 24.dp,
-					title = Res.string.title_quality_data,
-					subtitle = Res.string.subtitle_quality_data,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.NaviConnect,
-					icon = Icons.Outlined.Radio,
-					iconSize = 24.dp,
-					title = Res.string.title_navi_connect,
-					subtitle = Res.string.subtitle_navi_connect,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = rows)
-				)
-				PageRow(
-					destination = Screen.Settings.DataStorage,
-					icon = Icons.Outlined.DataTable,
-					iconSize = 24.dp,
-					title = Res.string.title_data_storage,
-					subtitle = Res.string.subtitle_data_storage,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = rows)
-				)
-				if (showDeveloper) {
+				pages.forEachIndexed { index, page ->
 					PageRow(
-						destination = Screen.Settings.Developer,
-						icon = Icons.Outlined.Code,
-						iconSize = 24.dp,
-						title = Res.string.title_developer,
-						subtitle = Res.string.subtitle_developer,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 7, count = rows)
+						destination = page.destination,
+						icon = page.icon,
+						iconSize = page.iconSize,
+						title = page.title,
+						subtitle = page.subtitle,
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = index, count = pages.size)
 					)
 				}
 			}

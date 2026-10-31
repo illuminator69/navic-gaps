@@ -130,7 +130,7 @@ import paige.navic.ui.screens.settings.AudioEffectsScreen
 import paige.navic.ui.screens.settings.BottomBarScreen
 import paige.navic.ui.screens.settings.FontsScreen
 import paige.navic.ui.screens.playlist.SmartPlaylistEditorScreen
-import paige.navic.ui.screens.settings.NaviConnectScreen
+import paige.navic.ui.screens.settings.ServerScreen
 import paige.navic.ui.screens.settings.SettingsAboutScreen
 import paige.navic.ui.screens.settings.SettingsAppIconScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
@@ -763,7 +763,7 @@ private fun entryProvider(
 			Washed { SettingsLogsScreen() }
 		}
 		entry<Screen.Settings.NaviConnect>(metadata = detailPane("settings")) {
-			Washed { NaviConnectScreen() }
+			Washed { ServerScreen() }
 		}
 		entry<Screen.SmartPlaylistEditor> { key ->
 			Washed { SmartPlaylistEditorScreen(playlistId = key.playlistId) }

@@ -28,7 +28,6 @@ import navic.composeapp.generated.resources.action_reset_dont_show_agains
 import navic.composeapp.generated.resources.action_test_exception_handler
 import navic.composeapp.generated.resources.info_dont_show_agains_reset
 import navic.composeapp.generated.resources.info_exception_handler
-import navic.composeapp.generated.resources.option_custom_headers
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_developer
 import navic.composeapp.generated.resources.title_logs
@@ -86,19 +85,7 @@ fun SettingsDeveloperScreen() {
 			) {
 				SettingsGroup {
 					val isAndroid = platformContext.platformType == PlatformType.Android
-					val count = if (isAndroid) 3 else 2
-
-					SettingsNavItem(
-						onClick = dropUnlessResumed {
-							backStack.lastOrNull()?.let {
-								if (it is Screen.Settings.Developer) {
-									backStack.add(Screen.Settings.CustomHeaders)
-								}
-							}
-						},
-						content = { Text(stringResource(Res.string.option_custom_headers)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
-					)
+					val count = if (isAndroid) 2 else 1
 
 					// An action, not a page: no chevron, and a snackbar says it happened.
 					SegmentedListItem(
@@ -107,7 +94,7 @@ fun SettingsDeveloperScreen() {
 							scope.launch { snackBarState.showSnackbar(dontShowAgainsReset) }
 						},
 						content = { Text(stringResource(Res.string.action_reset_dont_show_agains)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
 
 					if (isAndroid) {
@@ -120,7 +107,7 @@ fun SettingsDeveloperScreen() {
 								}
 							},
 							content = { Text(stringResource(Res.string.title_logs)) },
-							shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = count)
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
 						)
 					}
 				}
