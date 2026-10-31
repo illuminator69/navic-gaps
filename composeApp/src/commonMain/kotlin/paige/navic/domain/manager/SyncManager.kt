@@ -223,21 +223,31 @@ class SyncManager(
 				}
 			}
 		}
+		// B-098: a logout stops the cycle; the login starts it again once its own pull is done
+		// (LoginManager), so the two never pull the library side by side.
+		scope.launch {
+			sessionManager.isLoggedIn.collect { loggedIn ->
+				if (!loggedIn) stopPeriodicSync()
+			}
+		}
 	}
 
+	/**
+	 * The 15-minute cycle and the scan watch. Called at start (ManagerModule) and after a login's
+	 * pull; does nothing without a session (B-098): a logged-out launch used to pull twice against
+	 * an empty address and put up the sync notification before anyone had logged in.
+	 */
 	fun startPeriodicSync() {
+		if (!periodicSyncAllowed(sessionManager.isLoggedIn.value)) {
+			Logger.i("SyncManager", "No session: periodic sync not started.")
+			return
+		}
 		Logger.i("SyncManager", "Starting periodic sync cycle.")
 		if (syncJob?.isActive == true) return
 
-		scope.launch {
-			if (albumDao.getAlbumCount() == 0
-				|| preferenceManager.lastFullSyncTime <= 0L
-			) {
-				Logger.i("SyncManager", "Syncing now because we haven't synced before")
-				runSyncCycle()
-			}
-		}
-
+		// The first pass runs at once, and pulls the whole library when Room holds none or no
+		// pull has ever finished (fullPullDue): what the separate "haven't synced before" launch
+		// that used to sit here was for.
 		syncJob = scope.launch {
 			while (isActive) {
 				// The lb-bot index mirror's backstop pull (the hub's `welcome` and `index` frames
@@ -250,6 +260,16 @@ class SyncManager(
 		}
 		startScanWatch()
 	}
+
+	/**
+	 * The login's library pull (B-100, B-109). It used to go straight to the repository: outside
+	 * the foreground hold, without stamping `lastFullSyncTime` (so the next launch pulled the
+	 * whole library again) and without touching [syncState] (so a failure left over from before
+	 * the login stayed on the Library page). It is the full pull of [runSyncCycle], under the same
+	 * lock, with the login page's progress reported to [onProgress] as well.
+	 */
+	suspend fun firstPull(onProgress: (Float, StringResource) -> Unit): Result<Unit> =
+		syncMutex.withLock { fullPull(Clock.System.now(), onProgress) }
 
 	fun triggerManualSync() {
 		scope.launch {
@@ -274,49 +294,60 @@ class SyncManager(
 	}
 
 	private suspend fun runSyncCycle() {
+		// A logout while the cycle slept: nothing to sync for (B-098).
+		if (!sessionManager.isLoggedIn.value) return
 		syncMutex.withLock {
 			processQueue()
 
 			val currentTime = Clock.System.now()
-			if (currentTime - Instant.fromEpochMilliseconds(preferenceManager.lastFullSyncTime) > fullSyncThreshold) {
-				Logger.i("SyncManager", "Starting full library pull...")
-
-				_syncState.update {
-					// A new attempt clears any prior failure flag while it runs.
-					it.copy(isSyncing = true, lastSyncFailed = false)
-				}
-
-				// Held in the foreground for the length of the pull. Without it the process is
-				// frozen as soon as the app is left, and the pull sat half-done under a
-				// notification that still said it was running.
-				foregroundController.start(ForegroundReason.SYNC)
-				val result = try {
-					repository.syncEverything { progress, message ->
-						_syncState.update {
-							it.copy(isSyncing = true, progress = progress, message = message)
-						}
-					}
-				} finally {
-					foregroundController.stop(ForegroundReason.SYNC)
-				}
-
-				if (result.isSuccess) {
-					preferenceManager.lastFullSyncTime = currentTime.toEpochMilliseconds()
-					Logger.i("SyncManager", "Full library sync complete.")
-				} else {
-					// With the cause. Without it the log said a sync failed and nothing about why.
-					Logger.e("SyncManager", "Full library sync failed; keeping cached library.", result.exceptionOrNull())
-				}
-
-				_syncState.update {
-					it.copy(
-						isSyncing = false,
-						message = Res.string.info_status_idle,
-						lastSyncFailed = result.isFailure
-					)
-				}
+			if (fullPullDue(
+					loggedIn = sessionManager.isLoggedIn.value,
+					albumCount = albumDao.getAlbumCount(),
+					lastFullMs = preferenceManager.lastFullSyncTime,
+					nowMs = currentTime.toEpochMilliseconds(),
+					thresholdMs = fullSyncThreshold.inWholeMilliseconds
+				)
+			) {
+				fullPull(currentTime, onProgress = null)
 			}
 		}
+	}
+
+	/** One whole-library pull. The caller holds [syncMutex]. */
+	private suspend fun fullPull(
+		startedAt: Instant,
+		onProgress: ((Float, StringResource) -> Unit)?
+	): Result<Unit> {
+		Logger.i("SyncManager", "Starting full library pull...")
+
+		// A new attempt clears any prior failure flag while it runs.
+		_syncState.update { it.fullPullStarted() }
+
+		// Held in the foreground for the length of the pull. Without it the process is
+		// frozen as soon as the app is left, and the pull sat half-done under a
+		// notification that still said it was running.
+		foregroundController.start(ForegroundReason.SYNC)
+		val result = try {
+			repository.syncEverything { progress, message ->
+				_syncState.update {
+					it.copy(isSyncing = true, progress = progress, message = message)
+				}
+				onProgress?.invoke(progress, message)
+			}
+		} finally {
+			foregroundController.stop(ForegroundReason.SYNC)
+		}
+
+		if (result.isSuccess) {
+			preferenceManager.lastFullSyncTime = startedAt.toEpochMilliseconds()
+			Logger.i("SyncManager", "Full library sync complete.")
+		} else {
+			// With the cause. Without it the log said a sync failed and nothing about why.
+			Logger.e("SyncManager", "Full library sync failed; keeping cached library.", result.exceptionOrNull())
+		}
+
+		_syncState.update { it.fullPullEnded(result.isSuccess) }
+		return result
 	}
 
 	private suspend fun processQueue() {

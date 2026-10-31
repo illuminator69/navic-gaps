@@ -252,7 +252,7 @@ class SessionManager(
 					parameter("c", "Navic")
 					parameter("f", "json")
 				}.body()
-			envelope.response.artists?.index?.flatMap { it.artist } ?: emptyList()
+			artistsOf(envelope)
 		}
 	}
 
@@ -743,8 +743,25 @@ data class SubsonicArtistsEnvelope(
 @Serializable
 data class SubsonicArtistsBody(
 	val status: String = "ok",
-	val artists: ArtistsIndexDto? = null
+	val artists: ArtistsIndexDto? = null,
+	val error: SubsonicErrorDto? = null
 )
+
+/**
+ * The artists of a `getArtists` answer (B-101). A Subsonic error envelope (`status: failed`, an
+ * HTTP 200) used to parse as an empty list, so a first sync against a server that refused it read
+ * as "0 artists" and a success; it is a failed read now, and the pull fails with it.
+ */
+internal fun artistsOf(envelope: SubsonicArtistsEnvelope): List<RawArtist> {
+	val body = envelope.response
+	if (!body.status.equals("ok", ignoreCase = true)) {
+		throw SubsonicStatusException(
+			code = body.error?.code ?: 0,
+			message = body.error?.message?.ifBlank { null } ?: "getArtists answered status ${body.status}"
+		)
+	}
+	return body.artists?.index?.flatMap { it.artist } ?: emptyList()
+}
 
 @Serializable
 data class ArtistsIndexDto(

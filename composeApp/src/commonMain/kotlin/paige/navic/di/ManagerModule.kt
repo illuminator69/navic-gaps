@@ -50,6 +50,7 @@ val managerModule = module {
 	// I-043: fills the store ahead of need (tiles on screen, the next songs).
 	single { CoverSeedPrefetcher(get(), get(), get()) }
 	singleOf(::SleepTimerManager)
+	// startPeriodicSync() does nothing without a session (B-098); a login starts it after its pull.
 	single(createdAtStart = true) {
 		SyncManager(get(), get(), get(), get(), get(), get(), get(), get(), get()).apply {
 			startPeriodicSync()

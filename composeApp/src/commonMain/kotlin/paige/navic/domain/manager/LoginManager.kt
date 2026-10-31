@@ -22,6 +22,9 @@ class LoginManager(
     private val sessionManager: SessionManager,
     // B-279 review: its cached token is this user's; a logout forgets it.
     private val nativeApi: NativeApiManager,
+    // B-100 / B-109: the login's library pull is the sync manager's full pull. SyncManager does
+    // not depend on this class (checked 2026-10-31), so the graph has no cycle.
+    private val syncManager: SyncManager,
     // B-108: whether a failed login names Android's local network permission.
     private val localNetwork: LocalNetworkAccess
 ) {
@@ -120,10 +123,11 @@ class LoginManager(
 					passwordState.text.toString()
 				)
 
-				repository.syncEverything { progress, message ->
+				syncManager.firstPull { progress, message ->
 					loginState.value = LoginUiState.Syncing(progress, message)
 				}.onSuccess {
 					loginState.value = LoginUiState.Success
+					syncManager.startPeriodicSync()
 				}.onFailure { e ->
 					loginState.value = failure(e as? Exception ?: Exception(e), address.host)
 				}
