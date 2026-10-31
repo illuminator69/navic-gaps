@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
-import kotlin.math.roundToInt
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
@@ -179,14 +178,15 @@ fun SettingsPlaybackScreen() {
 					)
 
 					AnimatedVisibility(visible = enableScrobbling) {
-						// Ten steps: the slider offers 0, 10 ... 100 %, and a value stored before that is shown on the grid.
-						val percent = snapToTenPercent(preferenceManager.scrobblePercentage)
+						// Ten steps: the slider offers 0, 10 ... 100 %. A value stored before that is shown as it is
+						// (it is what a play is counted against) until the person moves the slider.
+						val stored = preferenceManager.scrobblePercentage
 						SettingsSliderItem(
-							value = percent,
+							value = stored.coerceIn(0f, 1f),
 							valueRange = 0f..1f,
 							steps = 9,
 							onValueChange = { preferenceManager.scrobblePercentage = snapToTenPercent(it) },
-							trailingContent = { Text("${(percent * 100).roundToInt()}%") },
+							trailingContent = { Text("${scrobblePercentShown(stored)}%") },
 							content = { Text(stringResource(Res.string.option_count_play_after)) },
 							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
 						)

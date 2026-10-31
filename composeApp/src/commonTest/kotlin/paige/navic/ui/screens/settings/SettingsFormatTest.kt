@@ -29,4 +29,13 @@ class SettingsFormatTest {
 		assertEquals(1f, snapToTenPercent(0.97f))
 		assertEquals(0f, snapToTenPercent(0.04f))
 	}
+
+	@Test
+	fun theScrobbleLabelShowsTheStoredValueNotItsSnappedNeighbour() {
+		// 0.37 counts a play at 37 %, so it must not read 40 % until the person moves the slider.
+		assertEquals(37, scrobblePercentShown(0.37f))
+		assertEquals(50, scrobblePercentShown(0.5f))
+		assertEquals(0, scrobblePercentShown(-0.2f))
+		assertEquals(100, scrobblePercentShown(1.4f))
+	}
 }
