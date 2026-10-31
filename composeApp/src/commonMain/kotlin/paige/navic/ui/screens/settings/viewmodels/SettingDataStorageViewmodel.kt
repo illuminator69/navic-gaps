@@ -13,15 +13,14 @@ import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.SyncActionDao
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.rebuildLibrary
 import paige.navic.domain.repositories.DbRepository
-import paige.navic.domain.repositories.SongRepository
 
 class SettingsDataStorageViewModel(
 	private val syncManager: SyncManager,
 	private val dbRepository: DbRepository,
 	private val syncDao: SyncActionDao,
 	private val downloadManager: DownloadManager,
-	private val songRepository: SongRepository,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 
@@ -42,8 +41,6 @@ class SettingsDataStorageViewModel(
 		viewModelScope, SharingStarted.WhileSubscribed(5000), 0L
 	)
 
-	val isDownloadingLibrary = downloadManager.isDownloadingLibrary
-	val libraryDownloadProgress = downloadManager.libraryDownloadProgress
 	val isOnline = connectivityManager.isOnline
 
 	init {
@@ -66,11 +63,16 @@ class SettingsDataStorageViewModel(
 
 	fun rebuildDatabase() {
 		viewModelScope.launch(Dispatchers.IO) {
-			dbRepository.removeEverything()
-			syncManager.stopPeriodicSync()
-			pendingActionCount.value = 0
+			// The pull starts after the wipe (rebuildLibrary), not beside it.
+			rebuildLibrary(
+				stopSync = syncManager::stopPeriodicSync,
+				wipe = {
+					dbRepository.removeEverything()
+					pendingActionCount.value = 0
+				},
+				sync = syncManager::triggerManualSync
+			)
 		}
-		triggerManualSync()
 	}
 
 	fun removeAllActions() {
@@ -82,16 +84,5 @@ class SettingsDataStorageViewModel(
 
 	fun clearAllDownloads() {
 		downloadManager.clearAllDownloads()
-	}
-
-	fun downloadEntireLibrary() {
-		viewModelScope.launch(Dispatchers.IO) {
-			val allSongs = songRepository.getAllSongs()
-			downloadManager.downloadEntireLibrary(allSongs)
-		}
-	}
-
-	fun cancelLibraryDownload() {
-		downloadManager.cancelAllActiveDownloads()
 	}
 }

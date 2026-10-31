@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +48,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_cancel_download
+import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_clear_downloads
 import navic.composeapp.generated.resources.action_clear_image_cache
 import navic.composeapp.generated.resources.action_clear_pending_actions
@@ -57,12 +58,11 @@ import navic.composeapp.generated.resources.count_days_ago
 import navic.composeapp.generated.resources.count_hours_ago
 import navic.composeapp.generated.resources.count_minutes_ago
 import navic.composeapp.generated.resources.count_songs
-import navic.composeapp.generated.resources.info_library_download
-import navic.composeapp.generated.resources.info_library_download_warning
+import navic.composeapp.generated.resources.info_danger_downloads
+import navic.composeapp.generated.resources.info_danger_pending_actions
+import navic.composeapp.generated.resources.info_danger_rebuild
 import navic.composeapp.generated.resources.info_not_available_offline
-import navic.composeapp.generated.resources.info_progress
 import navic.composeapp.generated.resources.info_status_calculating
-import navic.composeapp.generated.resources.info_status_downloading
 import navic.composeapp.generated.resources.info_sync_just_now
 import navic.composeapp.generated.resources.info_sync_never
 import navic.composeapp.generated.resources.option_cover_art_quality
@@ -74,10 +74,9 @@ import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_pending_actions
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
-import navic.composeapp.generated.resources.title_cache_management
 import navic.composeapp.generated.resources.title_danger_zone
 import navic.composeapp.generated.resources.title_data_storage
-import navic.composeapp.generated.resources.title_library_download
+import navic.composeapp.generated.resources.title_space
 import navic.composeapp.generated.resources.title_sync_control
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -89,9 +88,11 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Offline
+import paige.navic.ui.components.common.SegmentedListButton
+import paige.navic.ui.components.common.SegmentedListButtonDefaults
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
-import paige.navic.ui.components.dialogs.BulkDownloadDialog
+import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.NestedTopBarDefaults
 import paige.navic.ui.navigation.Screen
@@ -117,22 +118,21 @@ fun SettingsDataStorageScreen() {
 	val downloadCount by viewModel.downloadCount.collectAsStateWithLifecycle(0)
 	val downloadSize by viewModel.downloadSize.collectAsStateWithLifecycle(0L)
 
-	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
-	val isDownloadingLibrary by viewModel.isDownloadingLibrary.collectAsStateWithLifecycle()
-	val libraryDownloadProgress by viewModel.libraryDownloadProgress.collectAsStateWithLifecycle()
+	// The Danger zone row waiting for its confirmation (saved by name: a rotation keeps the dialog).
+	var asking by rememberSaveable { mutableStateOf<DangerAction?>(null) }
 
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
 	val calculating = stringResource(Res.string.info_status_calculating)
 	var imageCacheSizeMb by remember { mutableStateOf(calculating) }
 
-	val downloadsSizeMb = remember(downloadSize) {
+	val downloadsSize = remember(downloadSize) {
 		val mb = downloadSize.toDouble() / (1024 * 1024)
 		if (mb > 1024) {
 			val gb = mb / 1024
-			" // ${(gb * 100).toInt() / 100.0} GB"
+			"${(gb * 100).toInt() / 100.0} GB"
 		} else {
-			" // ${mb.toInt()} MB"
+			"${mb.toInt()} MB"
 		}
 	}
 
@@ -142,11 +142,6 @@ fun SettingsDataStorageScreen() {
 			durationMillis = 250,
 			easing = EaseOut
 		)
-	)
-
-	val smoothLibraryDownloadProgress by animateFloatAsState(
-		targetValue = libraryDownloadProgress.coerceIn(0f, 1f),
-		animationSpec = tween(durationMillis = 500, easing = EaseOut)
 	)
 
 	val offlineIcon = @Composable {
@@ -185,16 +180,21 @@ fun SettingsDataStorageScreen() {
 		}
 	}
 
-	BulkDownloadDialog(
-		title = stringResource(Res.string.title_library_download),
-		message = stringResource(Res.string.info_library_download_warning),
-		showDialog = showLibraryDownloadDialog,
-		onDismissRequest = { showLibraryDownloadDialog = false },
-		onConfirm = {
-			showLibraryDownloadDialog = false
-			viewModel.downloadEntireLibrary()
+	// What a confirmed (or cache-only) Danger zone action does.
+	fun runDanger(action: DangerAction) {
+		when (action) {
+			DangerAction.ClearImageCache -> {
+				imageLoader.memoryCache?.clear()
+				scope.launch(Dispatchers.IO) {
+					imageLoader.diskCache?.clear()
+					imageCacheSizeMb = "0 MB"
+				}
+			}
+			DangerAction.ClearPendingActions -> viewModel.removeAllActions()
+			DangerAction.ClearDownloads -> viewModel.clearAllDownloads()
+			DangerAction.RebuildDatabase -> viewModel.rebuildDatabase()
 		}
-	)
+	}
 
 	Scaffold(
 		topBar = {
@@ -216,24 +216,6 @@ fun SettingsDataStorageScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				SettingsGroup {
-					SettingsChoiceItem(
-						choices = CoverArtQuality.entries.toImmutableList(),
-						selectedChoice = preferenceManager.coverArtQuality,
-						onChoiceSelected = {
-							preferenceManager.coverArtQuality = it
-							imageLoader.memoryCache?.clear()
-							scope.launch(Dispatchers.IO) {
-								imageLoader.diskCache?.clear()
-								imageCacheSizeMb = "0 MB"
-							}
-						},
-						content = { Text(stringResource(Res.string.option_cover_art_quality)) },
-						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
-					)
-				}
-
 				SettingsGroup(title = { Text(stringResource(Res.string.title_sync_control)) }) {
 					SegmentedListItem(
 						onClick = {},
@@ -258,7 +240,7 @@ fun SettingsDataStorageScreen() {
 							}
 						},
 						trailingContent = offlineIcon,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
 					)
 
 					SegmentedListItem(
@@ -267,18 +249,16 @@ fun SettingsDataStorageScreen() {
 						content = { Text(stringResource(Res.string.action_trigger_sync)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_trigger_sync)) },
 						trailingContent = offlineIcon,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
 					)
 
 					SegmentedListItem(
 						onClick = {},
 						content = { Text(stringResource(Res.string.option_last_sync)) },
 						supportingContent = { Text(timeSinceLastSync()) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4)
 					)
-				}
 
-				SettingsGroup(title = { Text(stringResource(Res.string.title_cache_management)) }) {
 					// navi-connect: the pending actions have a page of their own (what each is and
 					// why it waits).
 					SettingsNavItem(
@@ -292,9 +272,11 @@ fun SettingsDataStorageScreen() {
 								)
 							)
 						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
 					)
+				}
 
+				SettingsGroup(title = { Text(stringResource(Res.string.title_space)) }) {
 					SegmentedListItem(
 						onClick = {},
 						content = { Text(stringResource(Res.string.option_downloaded_songs)) },
@@ -304,119 +286,59 @@ fun SettingsDataStorageScreen() {
 									Res.plurals.count_songs,
 									downloadCount,
 									downloadCount
-								) + downloadsSizeMb
+								) + " // $downloadsSize"
 							)
 						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
 					)
 
 					SegmentedListItem(
 						onClick = {},
 						content = { Text(stringResource(Res.string.option_image_cache_size)) },
 						supportingContent = { Text(imageCacheSizeMb) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
 					)
 
-					SegmentedListItem(
-						onClick = {
-							if (!isDownloadingLibrary) {
-								showLibraryDownloadDialog = true
-							}
-						},
-						enabled = isOnline,
-						content = { Text(stringResource(Res.string.title_library_download)) },
-						supportingContent = {
-							Column(Modifier.fillMaxWidth()) {
-								Text(
-									text = stringResource(
-										if (isDownloadingLibrary)
-											Res.string.info_status_downloading
-										else Res.string.info_library_download
-									)
-								)
-								AnimatedVisibility(
-									visible = isDownloadingLibrary,
-									enter = fadeIn() + expandVertically(clip = false),
-									exit = fadeOut() + shrinkVertically(clip = false)
-								) {
-									Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-										Row(
-											modifier = Modifier.fillMaxWidth(),
-											horizontalArrangement = Arrangement.SpaceBetween,
-											verticalAlignment = Alignment.CenterVertically
-										) {
-											Text(
-												text = stringResource(Res.string.info_progress),
-												style = MaterialTheme.typography.labelMedium,
-												color = MaterialTheme.colorScheme.primary
-											)
-
-											Row(verticalAlignment = Alignment.CenterVertically) {
-												TextButton(
-													onClick = {
-														viewModel.cancelLibraryDownload()
-													},
-													contentPadding = PaddingValues(
-														horizontal = 8.dp,
-														vertical = 0.dp
-													),
-													modifier = Modifier.padding(end = 8.dp)
-												) {
-													Text(
-														stringResource(Res.string.action_cancel_download),
-														style = MaterialTheme.typography.labelLarge,
-														color = MaterialTheme.colorScheme.error
-													)
-												}
-
-												Text(
-													text = "${(smoothLibraryDownloadProgress * 100).toInt()}%",
-													style = MaterialTheme.typography.labelMedium,
-													color = MaterialTheme.colorScheme.primary
-												)
-											}
-										}
-
-										LinearProgressIndicator(
-											progress = { smoothLibraryDownloadProgress },
-											modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-										)
-									}
-								}
-							}
-						},
-						trailingContent = offlineIcon,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
-					)
-				}
-
-				SettingsGroup(title = { Text(stringResource(Res.string.title_danger_zone)) }) {
-					SegmentedListItem(
-						onClick = {
+					SettingsChoiceItem(
+						choices = CoverArtQuality.entries.toImmutableList(),
+						selectedChoice = preferenceManager.coverArtQuality,
+						onChoiceSelected = {
+							preferenceManager.coverArtQuality = it
 							imageLoader.memoryCache?.clear()
 							scope.launch(Dispatchers.IO) {
 								imageLoader.diskCache?.clear()
 								imageCacheSizeMb = "0 MB"
 							}
 						},
+						content = { Text(stringResource(Res.string.option_cover_art_quality)) },
+						label = { stringResource(it.displayName) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
+					)
+				}
+
+				// Each row that deletes something asks first (requestDanger); the image cache is rebuilt as
+				// pages are opened, so it does not.
+				SettingsGroup(title = { Text(stringResource(Res.string.title_danger_zone)) }) {
+					SegmentedListItem(
+						onClick = { asking = requestDanger(DangerAction.ClearImageCache, ::runDanger) },
 						content = { Text(stringResource(Res.string.action_clear_image_cache)) },
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4),
 						colors = SegmentedListItemDefaults.segmentedErrorColors()
 					)
 					SegmentedListItem(
-						onClick = viewModel::removeAllActions,
+						onClick = { asking = requestDanger(DangerAction.ClearPendingActions, ::runDanger) },
 						content = { Text(stringResource(Res.string.action_clear_pending_actions)) },
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4),
 						colors = SegmentedListItemDefaults.segmentedErrorColors()
 					)
 					SegmentedListItem(
-						onClick = viewModel::clearAllDownloads,
+						onClick = { asking = requestDanger(DangerAction.ClearDownloads, ::runDanger) },
 						content = { Text(stringResource(Res.string.action_clear_downloads)) },
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4),
 						colors = SegmentedListItemDefaults.segmentedErrorColors()
 					)
 					SegmentedListItem(
-						onClick = viewModel::rebuildDatabase,
+						onClick = { asking = requestDanger(DangerAction.RebuildDatabase, ::runDanger) },
 						enabled = isOnline,
 						content = { Text(stringResource(Res.string.action_rebuild_database)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_rebuild_database)) },
@@ -427,5 +349,40 @@ fun SettingsDataStorageScreen() {
 				}
 			}
 		}
+	}
+
+	asking?.let { action ->
+		val (title, message) = when (action) {
+			DangerAction.ClearPendingActions -> Res.string.action_clear_pending_actions to
+				pluralStringResource(Res.plurals.info_danger_pending_actions, pendingActionCount, pendingActionCount)
+			DangerAction.ClearDownloads -> Res.string.action_clear_downloads to
+				pluralStringResource(Res.plurals.info_danger_downloads, downloadCount, downloadCount, downloadsSize)
+			else -> Res.string.action_rebuild_database to stringResource(Res.string.info_danger_rebuild)
+		}
+		FormDialog(
+			onDismissRequest = { asking = null },
+			title = { Text(stringResource(title)) },
+			content = { Text(message) },
+			buttons = {
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = {
+						asking = null
+						runDanger(action)
+					},
+					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
+					colors = SegmentedListButtonDefaults.errorColors()
+				) {
+					Text(stringResource(title))
+				}
+				SegmentedListButton(
+					modifier = Modifier.fillMaxWidth(),
+					onClick = { asking = null },
+					shapes = SegmentedListButtonDefaults.shapes(index = 1, count = 2)
+				) {
+					Text(stringResource(Res.string.action_cancel))
+				}
+			}
+		)
 	}
 }

@@ -11,7 +11,7 @@
 	<string name="title_now_playing">Now Playing</string>
 	<string name="title_bottom_app_bar">Bottom Bar</string>
 	<string name="title_playback">Playback</string>
-	<string name="title_data_storage">Data &amp; Storage</string>
+	<string name="title_data_storage">Storage</string>
 	<string name="title_sync_control">Synchronization control</string>
 	<string name="title_cache_management">Cache &amp; storage management</string>
 	<string name="title_danger_zone">Danger zone</string>
@@ -74,7 +74,7 @@
 	<string name="subtitle_now_playing">Customise the now playing &amp; lyrics views</string>
 	<string name="subtitle_bottom_app_bar">Customise the bottom bar &amp; mini player</string>
 	<string name="subtitle_playback">Autoplay, explicit songs, scrobbling, sound</string>
-	<string name="subtitle_data_storage">Syncing, caching, data usage</string>
+	<string name="subtitle_data_storage">Sync, space used, clearing data</string>
 	<string name="subtitle_trigger_sync">Forces a full library pull immediately</string>
 	<string name="subtitle_pending_actions">%1$d items waiting for network</string>
 	<string name="subtitle_developer">Debugging, testing, logs</string>
@@ -1671,4 +1671,15 @@
 	<string name="info_theme_artwork_note">Pages with album art take their colours from it</string>
 	<string name="subtitle_alphabetical_scroll">A–Z rail beside long lists</string>
 	<string name="subtitle_swipe_to_skip">On the player and the mini player</string>
+	<!-- Worbus settings N6: Storage -->
+	<string name="title_space">Space</string>
+	<plurals name="info_danger_pending_actions">
+		<item quantity="one">%1$d change is still waiting to be sent to your server. It will be dropped.</item>
+		<item quantity="other">%1$d changes are still waiting to be sent to your server. They will be dropped.</item>
+	</plurals>
+	<plurals name="info_danger_downloads">
+		<item quantity="one">%1$d downloaded song (%2$s) will be deleted from this device. It stays in your library and can be downloaded again.</item>
+		<item quantity="other">%1$d downloaded songs (%2$s) will be deleted from this device. They stay in your library and can be downloaded again.</item>
+	</plurals>
+	<string name="info_danger_rebuild">This deletes this device's copy of your library and the changes still waiting to be sent, then pulls everything again from your server. Downloaded songs stay.</string>
 </resources>

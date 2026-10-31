@@ -22,6 +22,7 @@ import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.isDownloadsOffRefusal
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.repositories.SongRepository
 
 /** One download plus the song it belongs to — the rows are useless without a title. */
 data class DownloadCenterItem(
@@ -49,8 +50,22 @@ class DownloadCenterViewModel(
 	private val downloadManager: DownloadManager,
 	private val songDao: SongDao,
 	private val lbBotManager: LbBotManager,
-	private val fillActions: FillActions
+	private val fillActions: FillActions,
+	private val songRepository: SongRepository
 ) : ViewModel() {
+
+	/** True while "Download entire library" is queueing; the menu item waits for it. */
+	val isDownloadingLibrary = downloadManager.isDownloadingLibrary
+
+	/**
+	 * Queue every song the library holds that is not downloaded yet (it was Settings' Data & storage
+	 * row: an action, not a setting). The queued songs then show in the sections of this page.
+	 */
+	fun downloadEntireLibrary() {
+		viewModelScope.launch(Dispatchers.IO) {
+			downloadManager.downloadEntireLibrary(songRepository.getAllSongs())
+		}
+	}
 
 	/**
 	 * Albums being acquired from Soulseek, and the ones that have finished trying.

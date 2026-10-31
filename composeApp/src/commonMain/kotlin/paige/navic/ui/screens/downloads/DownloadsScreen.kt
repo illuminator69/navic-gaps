@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -38,6 +40,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel_all
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_clear_failed
+import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_repair_downloads
 import navic.composeapp.generated.resources.action_retry
@@ -49,6 +52,7 @@ import navic.composeapp.generated.resources.download_source_manual
 import navic.composeapp.generated.resources.download_source_playlist
 import navic.composeapp.generated.resources.download_source_queue
 import navic.composeapp.generated.resources.info_download_attempts
+import navic.composeapp.generated.resources.info_library_download_warning
 import navic.composeapp.generated.resources.info_no_downloads
 import navic.composeapp.generated.resources.option_paste_link
 import navic.composeapp.generated.resources.section_downloads_active
@@ -56,10 +60,14 @@ import navic.composeapp.generated.resources.section_downloads_completed
 import navic.composeapp.generated.resources.section_downloads_failed
 import navic.composeapp.generated.resources.section_downloads_queued
 import navic.composeapp.generated.resources.title_downloads
+import navic.composeapp.generated.resources.title_library_download
 import navic.composeapp.generated.resources.title_settings
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.icons.outlined.MoreVert
+import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.data.database.entities.DownloadSource
 import paige.navic.di.LocalBottomBarScrollManager
@@ -115,6 +123,10 @@ fun DownloadsScreen() {
 	val platformContext = LocalPlatformContext.current
 
 	var pasting by rememberSaveable { mutableStateOf(false) }
+	var menuOpen by rememberSaveable { mutableStateOf(false) }
+	var confirmingLibrary by rememberSaveable { mutableStateOf(false) }
+	val isDownloadingLibrary by viewModel.isDownloadingLibrary.collectAsStateWithLifecycle()
+	val isOnline by koinInject<ConnectivityManager>().isOnline.collectAsStateWithLifecycle()
 
 	Scaffold(
 		topBar = {
@@ -126,6 +138,25 @@ fun DownloadsScreen() {
 							Icon(
 								Icons.Outlined.Link,
 								contentDescription = stringResource(Res.string.option_paste_link)
+							)
+						}
+					}
+					Box {
+						IconButton(onClick = { menuOpen = true }) {
+							Icon(
+								Icons.Outlined.MoreVert,
+								contentDescription = stringResource(Res.string.action_more)
+							)
+						}
+						DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+							// An action, not a setting: it was a row in Settings' Data & storage.
+							DropdownMenuItem(
+								text = { Text(stringResource(Res.string.title_library_download)) },
+								enabled = isOnline && !isDownloadingLibrary,
+								onClick = {
+									menuOpen = false
+									confirmingLibrary = true
+								}
 							)
 						}
 					}
@@ -153,10 +184,19 @@ fun DownloadsScreen() {
 				state = state,
 				constrained = constrained,
 				viewModel = viewModel,
-				onOpenSettings = { backStack.add(Screen.Settings.DataStorage) }
+				// The holds on downloads (Wi-Fi only, charging only, how many at once) are in Quality & data.
+				onOpenSettings = { backStack.add(Screen.Settings.StreamingQuality) }
 			)
 		}
 	}
+
+	BulkDownloadDialog(
+		title = stringResource(Res.string.title_library_download),
+		message = stringResource(Res.string.info_library_download_warning),
+		showDialog = confirmingLibrary,
+		onDismissRequest = { confirmingLibrary = false },
+		onConfirm = { viewModel.downloadEntireLibrary() }
+	)
 
 	if (pasting) {
 		PasteLinkSheet(
