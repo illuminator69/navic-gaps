@@ -16,6 +16,7 @@ import paige.navic.data.database.MIGRATION_CACHE_22_23
 import paige.navic.data.database.MIGRATION_CACHE_23_24
 import paige.navic.data.database.MIGRATION_DOWNLOAD_3_4
 import paige.navic.data.database.MIGRATION_DOWNLOAD_4_5
+import paige.navic.data.database.checkCacheDbAtOpen
 import paige.navic.domain.manager.AndroidHubLocalDevice
 import paige.navic.domain.manager.AndroidLocalNetworkAccess
 import paige.navic.domain.manager.LocalNetworkAccess
@@ -41,6 +42,7 @@ import paige.navic.exoplayer.AudioGainProcessor
 import paige.navic.shared.AppPresence
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
+import java.io.File
 
 @UnstableApi
 actual val platformModule = module {
@@ -50,6 +52,10 @@ actual val platformModule = module {
 		val dbPath = androidApplication()
 			.getDatabasePath("cache.db")
 			.absolutePath
+		// B-167: a corrupt cache is moved aside here, before Room or any DAO touches it; one log
+		// line (tag CacheDb) says what was found and how long the check took. downloads.db below
+		// is never checked or moved: its rows are the only record of the downloaded files.
+		checkCacheDbAtOpen(File(dbPath))
 		Room
 			.databaseBuilder<CacheDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
