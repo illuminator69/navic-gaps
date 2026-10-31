@@ -45,6 +45,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
+import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.BottomNavigation
@@ -66,6 +67,9 @@ import paige.navic.ui.theme.defaultFont
 
 @Composable
 fun SettingsScreen() {
+	// Developer options (crash-the-app, test tools) are for debug builds only.
+	val showDeveloper = LocalPlatformContext.current.isDebugBuild
+	val rows = if (showDeveloper) 7 else 6
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_settings)) }) }
 	) { innerPadding ->
@@ -83,7 +87,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_appearance,
 					subtitle = Res.string.subtitle_appearance,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.NowPlaying,
@@ -91,7 +95,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_now_playing,
 					subtitle = Res.string.subtitle_now_playing,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.BottomAppBar,
@@ -99,7 +103,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_bottom_app_bar,
 					subtitle = Res.string.subtitle_bottom_app_bar,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.Playback,
@@ -107,7 +111,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_playback,
 					subtitle = Res.string.subtitle_playback,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.NaviConnect,
@@ -115,7 +119,7 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_navi_connect,
 					subtitle = Res.string.subtitle_navi_connect,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = rows)
 				)
 				PageRow(
 					destination = Screen.Settings.DataStorage,
@@ -123,16 +127,18 @@ fun SettingsScreen() {
 					iconSize = 24.dp,
 					title = Res.string.title_data_storage,
 					subtitle = Res.string.subtitle_data_storage,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = 7)
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = rows)
 				)
-				PageRow(
-					destination = Screen.Settings.Developer,
-					icon = Icons.Outlined.Code,
-					iconSize = 24.dp,
-					title = Res.string.title_developer,
-					subtitle = Res.string.subtitle_developer,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = 7)
-				)
+				if (showDeveloper) {
+					PageRow(
+						destination = Screen.Settings.Developer,
+						icon = Icons.Outlined.Code,
+						iconSize = 24.dp,
+						title = Res.string.title_developer,
+						subtitle = Res.string.subtitle_developer,
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = rows)
+					)
+				}
 			}
 			SettingsGroup {
 				PageRow(

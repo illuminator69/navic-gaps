@@ -13,6 +13,12 @@ interface PlatformContext {
 	val sizeClass: WindowSizeClass
 	val platformType: PlatformType
 
+	/**
+	 * True only for a debuggable build. A release build (the testers') is false: the update check,
+	 * Developer options and the rest of what only a developer should see are gated on this.
+	 */
+	val isDebugBuild: Boolean
+
 	// Upstream dropped both from this interface after alpha41 with no replacement. Kept:
 	// clickSound() backs every tap sound in the app, and checkLocalNetworkPermission() is
 	// the Android 17 ACCESS_LOCAL_NETWORK prompt the hub and cast discovery need.

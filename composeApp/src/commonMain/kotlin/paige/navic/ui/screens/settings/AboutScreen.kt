@@ -19,18 +19,20 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_app_version
+import navic.composeapp.generated.resources.action_copy_logs_for_report
 import navic.composeapp.generated.resources.option_check_for_updates
 import navic.composeapp.generated.resources.subtitle_check_for_updates
 import navic.composeapp.generated.resources.title_about
-import navic.composeapp.generated.resources.title_codeberg
-import navic.composeapp.generated.resources.title_discord_server
-import navic.composeapp.generated.resources.title_github
+import navic.composeapp.generated.resources.title_source_code
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.PlatformType
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.generated.BuildInfo
+import androidx.lifecycle.compose.dropUnlessResumed
+import paige.navic.ui.components.sheets.updateChecksOffered
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.SegmentedListItem
@@ -44,9 +46,16 @@ import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsNavItem
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
 
+/** This fork's repository: the one link About offers (upstream's repository, Codeberg mirror and Discord are not ours). */
+private const val SOURCE_CODE_URL = "https://github.com/illuminator69/navic-gaps"
+
+/** Every link About offers. */
+val aboutLinks = listOf(SOURCE_CODE_URL)
+
 @Composable
 fun SettingsAboutScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
 
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
@@ -91,24 +100,35 @@ fun SettingsAboutScreen() {
 			}
 
 			SettingsGroup {
+				val count = if (platformContext.platformType == PlatformType.Android) 2 else 1
 				SettingsNavItem(
-					onClick = { linkToOpen = "https://github.com/ssalggnikool/Navic" },
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4),
-					content = { Text(stringResource(Res.string.title_github)) }
+					onClick = { linkToOpen = SOURCE_CODE_URL },
+					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count),
+					content = { Text(stringResource(Res.string.title_source_code)) }
 				)
-				SettingsNavItem(
-					onClick = { linkToOpen = "https://codeberg.org/paige/Navic" },
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4),
-					content = { Text(stringResource(Res.string.title_codeberg)) }
-				)
-				SettingsNavItem(
-					onClick = { linkToOpen = "https://discord.gg/TBcnNX66PH" },
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3),
-					content = { Text(stringResource(Res.string.title_discord_server)) }
-				)
+				if (platformContext.platformType == PlatformType.Android) {
+					// The Logs page holds the copy-all button; a release build has no Developer options to reach it from.
+					SettingsNavItem(
+						onClick = dropUnlessResumed {
+							backStack.lastOrNull()?.let {
+								if (it is Screen.Settings.About) {
+									backStack.add(Screen.Settings.Logs)
+								}
+							}
+						},
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count),
+						content = { Text(stringResource(Res.string.action_copy_logs_for_report)) }
+					)
+				}
 			}
 
-			if (platformContext.platformType == PlatformType.Android && !BuildInfo.FDROID) {
+			// Only a debug build checks for updates (updateChecksOffered); a release has no such row.
+			if (updateChecksOffered(
+					platformContext.platformType,
+					fdroid = BuildInfo.FDROID,
+					debugBuild = platformContext.isDebugBuild
+				)
+			) {
 				SettingsGroup {
 					SettingsToggleItem(
 						content = { Text(stringResource(Res.string.option_check_for_updates)) },

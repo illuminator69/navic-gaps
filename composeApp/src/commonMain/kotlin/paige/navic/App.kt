@@ -77,7 +77,6 @@ import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.di.LocalSharedTransitionScope
 import paige.navic.di.LocalSnackBarState
-import paige.navic.di.PlatformType
 import paige.navic.di.rememberPlatformContext
 import paige.navic.domain.manager.BottomBarScrollManager
 import paige.navic.domain.manager.FillAnnouncement
@@ -98,6 +97,7 @@ import paige.navic.ui.components.sheets.AlbumMatchHost
 import paige.navic.ui.components.sheets.AvatarMenuDrawer
 import paige.navic.ui.components.sheets.NewSheetHost
 import paige.navic.ui.components.sheets.ChangelogSheet
+import paige.navic.ui.components.sheets.updateChecksOffered
 import paige.navic.ui.navigation.ListPageSceneStrategy
 import paige.navic.ui.navigation.AppDeepLink
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -495,10 +495,13 @@ fun App() {
 						}
 					}
 				}
-				// version check is annoying to do on iOS
+				// version check is annoying to do on iOS; release builds never ask (updateChecksOffered)
 				if (preferenceManager.checkForUpdates
-					&& platformContext.platformType == PlatformType.Android
-					&& !BuildInfo.FDROID
+					&& updateChecksOffered(
+						platformContext.platformType,
+						fdroid = BuildInfo.FDROID,
+						debugBuild = platformContext.isDebugBuild
+					)
 				) {
 					ChangelogSheet()
 				}

@@ -52,6 +52,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.di.PlatformContext
+import paige.navic.generated.BuildInfo
 import paige.navic.util.Logger
 import paige.navic.ui.components.common.Markdown
 import paige.navic.ui.components.dialogs.LinkConfirmationDialog
@@ -77,6 +78,16 @@ class ChangelogViewModel(
 		}
 	}
 
+	// Release builds never ask: the only release GitHub could answer with is upstream's (N1).
+	private val checker = UpdateChecker(
+		offered = updateChecksOffered(
+			platformContext.platformType,
+			fdroid = BuildInfo.FDROID,
+			debugBuild = platformContext.isDebugBuild
+		),
+		fetchLatest = { updateClient.get("https://api.github.com/repos/ssalggnikool/Navic/releases/latest").body() }
+	)
+
 	init {
 		checkForUpdates(platformContext.appVersion)
 	}
@@ -84,18 +95,7 @@ class ChangelogViewModel(
 	fun checkForUpdates(currentVersion: String) {
 		viewModelScope.launch {
 			release.value = try {
-				val release: GitHubRelease =
-					updateClient.get("https://api.github.com/repos/ssalggnikool/Navic/releases/latest")
-						.body()
-				val remoteVersion = release.tag
-					.filter { it.isDigit() }
-					.toIntOrNull() ?: return@launch
-				val localVersion = currentVersion
-					.filter { it.isDigit() }
-					.toIntOrNull() ?: return@launch
-				if (remoteVersion > localVersion || "$remoteVersion".length != "$localVersion".length)
-					release
-				else null
+				checker.check(currentVersion)
 			} catch (e: Exception) {
 				Logger.e("ChangelogViewModel", "couldn't check for updates", e)
 				null

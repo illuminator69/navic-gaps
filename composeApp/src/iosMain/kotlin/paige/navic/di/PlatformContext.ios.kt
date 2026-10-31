@@ -14,6 +14,7 @@ actual fun rememberPlatformContext(): PlatformContext {
 	return remember {
 		object : PlatformContext {
 			override val platformType = PlatformType.IOS
+			override val isDebugBuild = false
 			override val name = (UIDevice.currentDevice.systemName()
 				+ " " + UIDevice.currentDevice.systemVersion)
 			override val appVersion: String =

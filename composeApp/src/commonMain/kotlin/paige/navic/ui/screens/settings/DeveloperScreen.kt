@@ -14,16 +14,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.action_reset_dont_show_agains
 import navic.composeapp.generated.resources.action_test_exception_handler
+import navic.composeapp.generated.resources.info_dont_show_agains_reset
 import navic.composeapp.generated.resources.info_exception_handler
 import navic.composeapp.generated.resources.option_custom_headers
 import navic.composeapp.generated.resources.title_confirm
@@ -33,6 +36,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
+import paige.navic.di.LocalSnackBarState
 import paige.navic.di.PlatformType
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.components.common.SegmentedListButton
@@ -54,6 +58,9 @@ fun SettingsDeveloperScreen() {
 	val backStack = LocalNavStack.current
 	var exceptionConfirmationShown by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
+	val snackBarState = LocalSnackBarState.current
+	val scope = rememberCoroutineScope()
+	val dontShowAgainsReset = stringResource(Res.string.info_dont_show_agains_reset)
 
 	Scaffold(
 		topBar = {
@@ -93,9 +100,11 @@ fun SettingsDeveloperScreen() {
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
 
-					SettingsNavItem(
+					// An action, not a page: no chevron, and a snackbar says it happened.
+					SegmentedListItem(
 						onClick = {
 							preferenceManager.shushQueueDuplicateDialog = false
+							scope.launch { snackBarState.showSnackbar(dontShowAgainsReset) }
 						},
 						content = { Text(stringResource(Res.string.action_reset_dont_show_agains)) },
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)

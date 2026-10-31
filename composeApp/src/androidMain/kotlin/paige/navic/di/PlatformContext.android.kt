@@ -2,6 +2,7 @@ package paige.navic.di
 
 import android.Manifest
 import android.app.Activity
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.SoundEffectConstants
@@ -84,6 +85,8 @@ actual fun rememberPlatformContext(): PlatformContext {
 			}
 
 			override val platformType = PlatformType.Android
+			override val isDebugBuild =
+				(context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 			override val name = "Android ${Build.VERSION.SDK_INT}"
 			override val appVersion: String =
 				context.packageManager

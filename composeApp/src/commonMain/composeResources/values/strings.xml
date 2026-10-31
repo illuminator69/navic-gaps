@@ -65,6 +65,7 @@
 	<string name="title_top_albums">Top albums</string>
 	<string name="title_lyric_providers">Lyric providers</string>
 	<string name="title_github">GitHub</string>
+	<string name="title_source_code">Source code</string>
 	<string name="title_codeberg">Codeberg</string>
 	<string name="title_link_confirmation">Leaving Navic</string>
 	<string name="title_audio_effects">Audio effects</string>
@@ -77,7 +78,7 @@
 	<string name="subtitle_trigger_sync">Forces a full library pull immediately</string>
 	<string name="subtitle_pending_actions">%1$d items waiting for network</string>
 	<string name="subtitle_developer">Debugging, testing, logs</string>
-	<string name="subtitle_about">App info, version, updates, licences</string>
+	<string name="subtitle_about">Version, source code, logs</string>
 	<string name="subtitle_playlist">Playlist</string>
 	<string name="subtitle_enable_scrobbling">Scrobble played tracks to your music server</string>
 	<string name="subtitle_gapless_playback">Experimental. Requires an application restart. May conflict with audio offload on some devices</string>
@@ -414,6 +415,8 @@
 	<string name="action_visit_site">Visit site</string>
 	<string name="action_scroll_down">Scroll down</string>
 	<string name="action_reset_dont_show_agains">Reset "don't show again" dialogs</string>
+	<string name="action_copy_logs_for_report">Copy logs for a bug report</string>
+	<string name="info_dont_show_agains_reset">Hidden dialogs will ask again</string>
 	<string name="subtitle_rebuild_database">Wipes all local metadata and forces a fresh sync</string>
 
 	<string name="notice_deleted_playlist">Playlist deleted.</string>
