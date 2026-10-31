@@ -235,12 +235,15 @@ fun SettingsDataStorageScreen() {
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
 				SettingsGroup(title = { Text(stringResource(Res.string.title_network)) }) {
-					SettingsNavItem(
-						onClick = dropUnlessResumed { backStack.add(Screen.Settings.DownloadQuality) },
-						content = { Text(stringResource(Res.string.title_download_quality)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_download_quality)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
-					)
+					val qualityRows = if (SHOW_UPSTREAM_DOWNLOAD_QUALITY) 1 else 0
+					if (SHOW_UPSTREAM_DOWNLOAD_QUALITY) {
+						SettingsNavItem(
+							onClick = dropUnlessResumed { backStack.add(Screen.Settings.DownloadQuality) },
+							content = { Text(stringResource(Res.string.title_download_quality)) },
+							supportingContent = { Text(stringResource(Res.string.subtitle_download_quality)) },
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2 + qualityRows)
+						)
+					}
 
 					SettingsChoiceItem(
 						choices = OfflineMode.entries.toImmutableList(),
@@ -249,7 +252,7 @@ fun SettingsDataStorageScreen() {
 						description = stringResource(Res.string.subtitle_offline_mode),
 						content = { Text(stringResource(Res.string.option_offline_mode)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = qualityRows, count = 2 + qualityRows)
 					)
 
 					SettingsChoiceItem(
@@ -265,7 +268,7 @@ fun SettingsDataStorageScreen() {
 						},
 						content = { Text(stringResource(Res.string.option_cover_art_quality)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1 + qualityRows, count = 2 + qualityRows)
 					)
 				}
 
@@ -510,3 +513,12 @@ fun SettingsDataStorageScreen() {
 		}
 	}
 }
+
+/**
+ * B-122: upstream's Download quality page (`SettingsDownloadQualityScreen`) writes
+ * `downloadQualityWifi` / `downloadQualityCellular` / the custom transcoding values, which the
+ * fork's downloader never reads: it takes `downloadBitrate` / `downloadFormat`, set on the
+ * Streaming quality page. A control that does nothing is hidden, not deleted, so wiring the page
+ * to the downloader later is this one line.
+ */
+private const val SHOW_UPSTREAM_DOWNLOAD_QUALITY = false
