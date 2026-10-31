@@ -377,7 +377,7 @@ fun rememberCoverColorScheme(
 	val neutralSeed = if (lightFromVivid) vivid else dominant
 	// The ACCENT (buttons, primary), saturation-boosted so even muted artwork yields an obvious
 	// cover colour rather than a washed near-grey `primary`.
-	val accentSeed = (accent ?: dominant).boostedAccent()
+	val accentSeed = (accent ?: dominant).boostedAccent().forPage(coverIsDark)
 	// Content keeps colourful covers faithful AND leaves a true-greyscale cover naturally
 	// grey — it doesn't amplify chroma like Vibrant (which invented a teal from a B&W cover),
 	// so no Monochrome special-case is needed; a dark scheme already yields a bright `primary`.
@@ -513,6 +513,22 @@ fun Color.boostedAccent(): Color {
 	}
 	return Color(rr + m, gg + m, bb + m)
 }
+
+/**
+ * On a dark page, the accent seed no lighter than CIE L* [DARK_ACCENT_SEED_MAX_L]. `PaletteStyle.Content`
+ * keeps a seed's own tone for `primary`, so a pale seed on a dark scheme came out white: The Bends' cream
+ * (boosted `#f0e38a`, L* 89) gave a `#fffdff` Play button where the owner asked for its beige. At L* 70
+ * it gives `#d4c86f`, L* 80, the tone every other dark page's `primary` sits at; a seed already darker
+ * (The Red Shoes, Loss of Life) is unchanged. Light pages are left alone.
+ */
+fun Color.forPage(isDark: Boolean): Color {
+	if (!isDark) return this
+	val lab = convert(ColorSpaces.CieLab)
+	if (lab.red <= DARK_ACCENT_SEED_MAX_L) return this
+	return Color(DARK_ACCENT_SEED_MAX_L, lab.green, lab.blue, colorSpace = ColorSpaces.CieLab).convert(ColorSpaces.Srgb)
+}
+
+const val DARK_ACCENT_SEED_MAX_L = 70f
 
 /**
  * Page ambient wash for a cover [seed], eased toward white (light) / black (dark) but
