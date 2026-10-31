@@ -98,7 +98,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
-import paige.navic.domain.models.settings.ExplicitContentPlayback
+import paige.navic.domain.models.settings.skipsExplicit
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.History
@@ -372,7 +372,7 @@ fun SearchScreen(
 						downloadedSongs = downloadedSongs,
 						explicitLocked = { song ->
 							song.explicitStatus == DomainExplicitStatus.Explicit &&
-								preferenceManager.explicitContentPlayback != ExplicitContentPlayback.Allowed
+								preferenceManager.explicitContentPlayback.skipsExplicit()
 						},
 						onArtist = { backStack.add(Screen.ArtistDetail(it.id)) },
 						onArtistMenu = { artistListViewModel.selectArtist(it) },

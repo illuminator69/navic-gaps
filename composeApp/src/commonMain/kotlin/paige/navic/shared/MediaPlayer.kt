@@ -32,7 +32,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
-import paige.navic.domain.models.settings.ExplicitContentPlayback
+import paige.navic.domain.models.settings.skipsExplicit
 import paige.navic.domain.models.toSavedQueueKind
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SavedQueueRepository
@@ -383,7 +383,7 @@ abstract class MediaPlayerViewModel(
 
 	protected fun isExplicit(song: DomainSong): Boolean {
 		return song.explicitStatus == DomainExplicitStatus.Explicit
-			&& preferenceManager.explicitContentPlayback != ExplicitContentPlayback.Allowed
+			&& preferenceManager.explicitContentPlayback.skipsExplicit()
 	}
 
 	/**
@@ -556,7 +556,6 @@ abstract class MediaPlayerViewModel(
 			router.setQueue(listOf(song), 0, sourceName = song.title)
 		} else {
 			playSongsLocal(listOf(song), 0)
-			checkAndAutoFillQueue()
 		}
 	}
 
@@ -590,7 +589,6 @@ abstract class MediaPlayerViewModel(
 		clearQueue()
 		addToQueueLocal(collection)
 		playAt(startIndex)
-		checkAndAutoFillQueue()
 	}
 
 	fun playNow(songs: List<DomainSong>, startIndex: Int = 0) {
@@ -601,7 +599,6 @@ abstract class MediaPlayerViewModel(
 			router.setQueue(songs, startIndex)
 		} else {
 			playSongsLocal(songs, startIndex)
-			checkAndAutoFillQueue()
 		}
 	}
 
@@ -736,22 +733,6 @@ abstract class MediaPlayerViewModel(
 		return isOnline || isDownloaded
 	}
 
-	protected fun checkAndAutoFillQueue() {
-		if (!preferenceManager.autoFillQueue) return
-
-		val state = uiState.value
-		if (state.queue.isEmpty()) return
-
-		val remainingCount = state.queue.size - state.currentIndex
-
-		if (remainingCount <= 1) {
-			viewModelScope.launch {
-				val randomSongs = songRepository.getRandomSongs(1)
-				appendToQueue(randomSongs)
-			}
-		}
-	}
-
 	private suspend fun restoreState() {
 		// Read once, so that "nothing persisted" and "no longer decodes" are answers. This used
 		// to wait for the first state that did decode, which on a fresh install never came —
@@ -760,7 +741,6 @@ abstract class MediaPlayerViewModel(
 		val savedState = stateToRestore(stateRepository.savedState(), _uiState.value) ?: return
 		_uiState.value = savedState
 		syncPlayerWithState(savedState)
-		checkAndAutoFillQueue()
 	}
 
 	@OptIn(FlowPreview::class)

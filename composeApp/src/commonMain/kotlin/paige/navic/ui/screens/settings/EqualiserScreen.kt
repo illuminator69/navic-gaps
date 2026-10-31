@@ -149,13 +149,13 @@ private fun RowScope.EqualiserBand(
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.spacedBy(8.dp)
 	) {
-		Text("${levelRange.endInclusive.toInt()}mB", style = textStyle, maxLines = 1)
+		Text(millibelsLabel(levelRange.endInclusive), style = textStyle, maxLines = 1)
 		VerticalSlider(
 			modifier = Modifier.weight(1f),
 			value = level,
 			onValueChange = onLevelChange,
 			valueRange = levelRange
 		)
-		Text("${levelRange.start.toInt()}mB", style = textStyle, maxLines = 1)
+		Text(millibelsLabel(levelRange.start), style = textStyle, maxLines = 1)
 	}
 }

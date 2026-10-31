@@ -1,6 +1,6 @@
 package paige.navic.ui.screens.settings
 
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,13 +11,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
@@ -34,8 +37,9 @@ import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_equaliser
 import navic.composeapp.generated.resources.subtitle_equaliser_disabled
 import navic.composeapp.generated.resources.subtitle_gapless_playback
-import navic.composeapp.generated.resources.title_audio_effects
-import navic.composeapp.generated.resources.title_playback
+import navic.composeapp.generated.resources.title_output
+import navic.composeapp.generated.resources.title_sound
+import navic.composeapp.generated.resources.title_sound_advanced
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -43,17 +47,19 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Info
+import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.util.Fold
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsNavItem
+import paige.navic.ui.screens.settings.components.SettingsRadioItem
 import paige.navic.ui.screens.settings.components.SettingsSliderItem
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
-import kotlin.math.absoluteValue
 import kotlin.math.round
 
 @Composable
@@ -62,11 +68,12 @@ fun AudioEffectsScreen() {
 	// The gain goes through the player, which resolves Dynamic by the same rule as at each song.
 	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
+	var advancedOpen by rememberSaveable { mutableStateOf(preferenceManager.audioOffload) }
 
 	Scaffold(
 		topBar = {
 			NestedTopBar(
-				title = { Text(stringResource(Res.string.title_audio_effects)) }
+				title = { Text(stringResource(Res.string.title_sound)) }
 			)
 		}
 	) { innerPadding ->
@@ -80,7 +87,7 @@ fun AudioEffectsScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				SettingsGroup(title = { Text(stringResource(Res.string.title_playback)) }) {
+				SettingsGroup(title = { Text(stringResource(Res.string.title_output)) }) {
 					SettingsNavItem(
 						onClick = dropUnlessResumed { backStack.add(Screen.Settings.Equaliser) },
 						content = { Text(stringResource(Res.string.option_equaliser)) },
@@ -94,21 +101,14 @@ fun AudioEffectsScreen() {
 								)
 							)
 						},
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
 					)
 					SettingsToggleItem(
 						checked = preferenceManager.gaplessPlayback,
 						onCheckedChange = { preferenceManager.gaplessPlayback = it },
 						content = { Text(stringResource(Res.string.option_gapless_playback)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_gapless_playback)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
-					)
-					SettingsToggleItem(
-						checked = preferenceManager.audioOffload,
-						onCheckedChange = { preferenceManager.audioOffload = it },
-						content = { Text(stringResource(Res.string.option_audio_offload)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_audio_offload)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
 					)
 				}
 
@@ -117,28 +117,17 @@ fun AudioEffectsScreen() {
 					title = { Text(stringResource(Res.string.option_replaygain_mode)) }
 				) {
 					ReplayGainMode.entries.forEachIndexed { index, mode ->
-						val selected = preferenceManager.replayGainMode == mode
-						val interactionSource = remember { MutableInteractionSource() }
-
-						SegmentedListItem(
-							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = index,
-								count = ReplayGainMode.entries.count()
-							),
-							selected = selected,
+						SettingsRadioItem(
+							selected = preferenceManager.replayGainMode == mode,
 							onClick = {
 								preferenceManager.replayGainMode = mode
 								player.applyAudioGain()
 							},
-							interactionSource = interactionSource,
-							leadingContent = {
-								RadioButton(
-									selected = selected,
-									interactionSource = interactionSource,
-									onClick = null
-								)
-							},
-							content = { Text(stringResource(mode.displayName)) }
+							content = { Text(stringResource(mode.displayName)) },
+							shapes = SegmentedListItemDefaults.segmentedShapes(
+								index = index,
+								count = ReplayGainMode.entries.count()
+							)
 						)
 					}
 				}
@@ -148,7 +137,7 @@ fun AudioEffectsScreen() {
 				SettingsGroup(title = { Text(stringResource(Res.string.option_title_preamp)) }) {
 					SettingsSliderItem(
 						content = { Text(stringResource(Res.string.option_preamp_with_rg)) },
-						trailingContent = { Text(preferenceManager.rgAmpGain.decibelsToHuman()) },
+						trailingContent = { Text(decibelsLabel(preferenceManager.rgAmpGain)) },
 						value = preferenceManager.rgAmpGain,
 						valueRange = -12f..12f,
 						onValueChange = {
@@ -159,7 +148,7 @@ fun AudioEffectsScreen() {
 					)
 					SettingsSliderItem(
 						content = { Text(stringResource(Res.string.option_preamp_without_rg)) },
-						trailingContent = { Text(preferenceManager.ampGain.decibelsToHuman()) },
+						trailingContent = { Text(decibelsLabel(preferenceManager.ampGain)) },
 						value = preferenceManager.ampGain,
 						valueRange = -12f..12f,
 						onValueChange = {
@@ -171,6 +160,27 @@ fun AudioEffectsScreen() {
 				}
 
 				InformationTip(stringResource(Res.string.option_preamp_tip))
+
+				// Audio offload hands decoding to the phone's DSP: it switches the equaliser off. Few people
+				// want it, so it is folded away, and open when it is already on.
+				SettingsGroup {
+					val turn by animateFloatAsState(if (advancedOpen) 180f else 0f)
+					SegmentedListItem(
+						onClick = { advancedOpen = !advancedOpen },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = if (advancedOpen) 2 else 1),
+						content = { Text(stringResource(Res.string.title_sound_advanced)) },
+						trailingContent = { Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.rotate(turn)) }
+					)
+					Fold(visible = advancedOpen) {
+						SettingsToggleItem(
+							checked = preferenceManager.audioOffload,
+							onCheckedChange = { preferenceManager.audioOffload = it },
+							content = { Text(stringResource(Res.string.option_audio_offload)) },
+							supportingContent = { Text(stringResource(Res.string.subtitle_audio_offload)) },
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
+						)
+					}
+				}
 			}
 		}
 	}
@@ -181,20 +191,6 @@ private fun Float.round(decimals: Int): Float {
 	var multiplier = 1.0
 	repeat(decimals) { multiplier *= 10 }
 	return (round(this * multiplier) / multiplier).toFloat()
-}
-
-private fun Float.decibelsToHuman(): String {
-	val decibels = this.round(1)
-	return buildString {
-		if (decibels < 0) {
-			append("-")
-		} else if (decibels > 0) {
-			append("+")
-		} else {
-			append(" ")
-		}
-		append("${decibels.absoluteValue}db")
-	}
 }
 
 @Composable

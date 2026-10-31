@@ -138,6 +138,7 @@ class PreferenceManager(
 	var customHeaders by preference("")
 	var checkForUpdates by preference(true)
 	var explicitContentPlayback by preference(ExplicitContentPlayback.Allowed)
+	// No longer read (Worbus settings N4): Autoplay does this better. The stored value stays, unread.
 	var autoFillQueue by preference(false)
 	var shushQueueDuplicateDialog by preference(false)
 

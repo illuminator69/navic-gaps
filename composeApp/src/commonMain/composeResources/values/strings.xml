@@ -73,7 +73,7 @@
 	<string name="subtitle_appearance">Themes, colours, layout, app icon</string>
 	<string name="subtitle_now_playing">Customise the now playing &amp; lyrics views</string>
 	<string name="subtitle_bottom_app_bar">Customise the bottom bar &amp; mini player</string>
-	<string name="subtitle_playback">Audio effects &amp; behaviour, scrobbling</string>
+	<string name="subtitle_playback">Autoplay, explicit songs, scrobbling, sound</string>
 	<string name="subtitle_data_storage">Syncing, caching, data usage</string>
 	<string name="subtitle_trigger_sync">Forces a full library pull immediately</string>
 	<string name="subtitle_pending_actions">%1$d items waiting for network</string>
@@ -81,8 +81,8 @@
 	<string name="subtitle_about">Version, source code, logs</string>
 	<string name="subtitle_playlist">Playlist</string>
 	<string name="subtitle_enable_scrobbling">Scrobble played tracks to your music server</string>
-	<string name="subtitle_gapless_playback">Experimental. Requires an application restart. May conflict with audio offload on some devices</string>
-	<string name="subtitle_audio_offload">Experimental. Requires application restart. May conflict with gapless playback on some devices</string>
+	<string name="subtitle_gapless_playback">Applies after the app is closed and reopened. May conflict with audio offload on some devices</string>
+	<string name="subtitle_audio_offload">Experimental. Applies after the app is closed and reopened. May conflict with gapless playback on some devices</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_check_for_updates">Check GitHub for updates when the app opens</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go into an offline mode. Requires application restart</string>
@@ -199,7 +199,7 @@
 	<string name="option_palette_specification">Palette specification</string>
 	<string name="option_use_amoled_theme">Use AMOLED theme</string>
 	<string name="option_explicit_playback">Explicit content playback</string>
-	<string name="option_explicit_playback_allowed">Allowed</string>
+	<string name="option_explicit_playback_allowed">Play explicit songs</string>
 	<string name="option_explicit_playback_skip">Skip explicit songs</string>
 	<string name="option_explicit_playback_skip_session">Skip explicit songs for this session</string>
 	<string name="option_dynamic_theming">Dynamic theming</string>
@@ -1636,4 +1636,21 @@
 	<string name="option_audiomuse_address">AudioMuse address</string>
 	<string name="option_audiomuse_token">AudioMuse token</string>
 	<string name="info_server_footer">Library tools, including Library Matches, are in the avatar menu. The listening history's sync is in Stats.</string>
+	<!-- Worbus settings N4: Playback -->
+	<string name="title_autoplay">Autoplay</string>
+	<string name="option_autoplay">Autoplay</string>
+	<string name="subtitle_autoplay">Keep music going when the queue runs out</string>
+	<string name="title_auto_dj_fold">When the server's stations are unavailable</string>
+	<string name="info_auto_dj_fold">Auto DJ keeps the queue going from your library: similar songs first, then the same genre, the artist and the rest of the library.</string>
+	<string name="option_auto_dj_allow_repeats">Allow repeats</string>
+	<string name="title_content">Content</string>
+	<string name="option_explicit_songs">Explicit songs</string>
+	<string name="title_scrobbling">Scrobbling</string>
+	<string name="option_scrobble_plays">Scrobble plays</string>
+	<string name="subtitle_scrobble_plays">Tell your music server what you play, and what is playing now</string>
+	<string name="option_count_play_after">Count a play after</string>
+	<string name="option_ignore_tracks_shorter">Ignore tracks shorter than</string>
+	<string name="title_sound">Sound</string>
+	<string name="title_output">Output</string>
+	<string name="title_sound_advanced">Advanced</string>
 </resources>
