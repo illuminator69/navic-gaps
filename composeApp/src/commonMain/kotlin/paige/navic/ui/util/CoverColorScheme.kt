@@ -23,7 +23,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kmpalette.generatePalette
 import com.kmpalette.loader.NetworkLoader
 import com.kmpalette.loader.rememberNetworkLoader
-import com.kmpalette.palette.graphics.Palette
 import com.kmpalette.palette.graphics.Palette.Swatch
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -108,11 +107,6 @@ private const val PALETTE_RETRY_DELAY_MS = 400L
 private fun Swatch.toSample(): SwatchSample =
 	SwatchSample(rgb = rgb, hue = hsl[0], saturation = hsl[1], lightness = hsl[2], population = population)
 
-/** The default filter's near-black and near-white rules, without its skin-tone one. */
-private val BlackAndWhiteOnly = object : Palette.Filter {
-	override fun isAllowed(rgb: Int, hsl: FloatArray): Boolean = hsl[2] > 0.05f && hsl[2] < 0.95f
-}
-
 /**
  * The seeds the wash shows (audit L4a-03). [fetched] is the previous cover's seeds, kept as a BRIDGE
  * while a new cover's are on their way, so the colour eases from the old one instead of flashing
@@ -145,18 +139,13 @@ internal suspend fun fetchCoverSeeds(loader: NetworkLoader, uri: String): CoverS
 		val outcome = runCatching {
 			val bitmap = loader.load(Url(uri))
 			withContext(Dispatchers.Default) {
-				// Every pixel, for the tone: the palettes below have already dropped near-black ones
-				// and every "skin tone" before anything is counted.
+				// Every pixel, for the page (`readCover`): the palette has already dropped near-black
+				// ones and every "skin tone" before anything is counted, and is kept for the dark
+				// page's accent alone.
 				val pixels = IntArray(bitmap.width * bitmap.height).also { bitmap.readPixels(it) }
 				deriveCoverSeeds(
 					swatches = bitmap.generatePalette().swatches.map { it.toSample() },
-					// Only near-black and near-white dropped: the default filter's skin-tone rule
-					// would hide every brown and tan from the light-cover accent.
-					unfiltered = bitmap.generatePalette {
-						clearFilters()
-						addFilter(BlackAndWhiteOnly)
-					}.swatches.map { it.toSample() },
-					tone = coverTone(pixels)
+					reading = readCover(pixels, bitmap.width, bitmap.height)
 				)
 			}
 		}
@@ -348,33 +337,42 @@ fun rememberCoverColorScheme(
 	// A genuinely greyscale cover has no survivor and falls back to the dominant, staying neutral
 	// rather than having a hue invented for it.
 	val vivid = seeds?.vivid?.let(::Color)
-	// What `primary` is seeded from: the vivid swatch on a dark cover, the most salient colour on a
-	// light one (see [CoverSeeds.accent]).
+	// What `primary` is seeded from: the vivid swatch on a dark page unless it is the page's own
+	// colour, else the most salient colour that is not (see [CoverSeeds.accent]).
 	val accent = seeds?.accent?.let(::Color) ?: vivid
 	// Page brightness FOLLOWS THE ARTWORK (Apple-Music style): a dark cover gives a dark
 	// immersive page (light text), a light cover a light page (dark text) — independent of
 	// the app theme mode (a dark album on a light page was the "doesn't match" mismatch).
-	// By the cover's TONE, how light the whole image reads (`coverTone`), never the vivid swatch:
-	// a bright accent on a dark cover must not flip the whole page to light. Seeds stored without
-	// a tone fall back to the dominant's luminance.
+	// As the cover's pixels decided ([CoverSeeds.dark]: its tone, or a black background), never the
+	// vivid swatch: a bright accent on a dark cover must not flip the whole page to light.
 	val coverIsDark = if (!followArtworkBrightness) isDark
 		else seeds?.pageIsDark() ?: isDark
-	// The tone also places the wash's lightness (`seedForTone`), on pages that follow the artwork.
+	// Seeds read off the cover's pixels (codec 4, I-057) carry the page's colour and the L* its top
+	// lands at: the field's own, so a black background gives a black page and a white one a white
+	// page (`readCover`). Only on pages that follow the artwork: the now-playing sheet keeps its own
+	// brightness and washes as it always has.
+	val pageWash = seeds?.wash?.takeIf { followArtworkBrightness }?.let(::Color)
+	val pageWashL = seeds?.washL?.takeIf { followArtworkBrightness }
+	// Older seeds: the tone places the wash's lightness (`seedForTone`).
 	val pageTone = seeds?.tone?.takeIf { followArtworkBrightness }
-	// A light page whose dominant is dark: the light part of such a cover is its colour, the dark
-	// part a photo or a field with no hue (Mitski's peach frame round a near-black photo). Its wash
-	// and neutrals come from the vivid swatch, or the page would be the black field lifted to grey.
-	val lightFromVivid = pageTone != null && !coverIsDark && vivid != null && dominant.luminance() < 0.5f
-	// The WASH is the dominant colour pulled a third of the way toward the vivid one: enough for
-	// the page to actually read as the cover's colour, not so much that a saturated cover turns
-	// the background into a glare. This is what "expressive" means here — a black-and-yellow cover
-	// should give a dark page that is unmistakably YELLOW-dark, not a flat grey one.
+	// A light page whose dominant is dark, for seeds without a wash: the light part of such a cover is
+	// its colour (Mitski's peach frame round a near-black photo), so its wash and neutrals come from
+	// the vivid swatch. The pixels' field rule covers this case for seeds with one.
+	val lightFromVivid = pageWash == null && pageTone != null && !coverIsDark && vivid != null && dominant.luminance() < 0.5f
+	// Without a wash, the dominant colour pulled a third of the way toward the vivid one: a
+	// black-and-yellow cover then gives a dark page that is YELLOW-dark, not a flat grey one. The
+	// pixels' wash replaced that on pages that follow the artwork: a black background is black.
 	val washBase = when {
+		pageWash != null -> pageWash
 		vivid == null -> dominant
 		lightFromVivid -> vivid
 		else -> lerp(dominant, vivid, 0.35f)
 	}
-	val seed = pageTone?.let { seedForTone(washBase, it, coverIsDark) } ?: washBase
+	val seed = when {
+		pageWashL != null -> seedForTopLstar(washBase, pageWashL, coverIsDark)
+		pageTone != null -> seedForTone(washBase, pageTone, coverIsDark)
+		else -> washBase
+	}
 	// What the scheme's neutrals (every background and card) are seeded from.
 	val neutralSeed = if (lightFromVivid) vivid else dominant
 	// The ACCENT (buttons, primary), saturation-boosted so even muted artwork yields an obvious

@@ -49,7 +49,7 @@ for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registra
 | Mix page (P5 round 2) | `ui/screens/mixes/MixDetailScreen.kt` over `MixDetailViewModel` (`MixPageState`); `RadioManager.buildMix` / `playMixBuild` with `MixBuild` (`domain/manager/MixBuild.kt`); `Screen.MixDetail(mixId)`, `YOUR_MIX_ID` for Your mix (§4) |
 | Native Navidrome API | `domain/manager/{NativeApiManager,AlbumModeSmartPlaylists}.kt` — smart playlists (create, **read rules, update**), album-mode expansion, and "Appears on" (Subsonic's `getArtist` is album-artist only) |
 | Hidden windows (performance, I-041) | `ui/navigation/SheetCover.kt` (which full-screen sheets cover everything under them, reported by `NowPlayingScene` / `BottomSheetScene`; `rememberCoveredBySheet()` / `heldWhileCoveredBySheet()` for what sits under one, `SheetCoverTest`), read by `BlendBackground`'s caller in `NowPlayingScreen`, the player's wave (`ProgressBar.kt`, `DurationsRow.kt`), `Waveform.kt` and the mini player (§7) |
-| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
+| Colour engine | `ui/util/CoverColorScheme.kt`, `ui/components/common/CoverAmbientBackground.kt` (`BrowsingAmbient`; and `AppWash`, which draws the wash once behind `NavDisplay`, §6 rule 9), `ui/util/AmbientColorHolder.kt`, `ui/components/common/BlendBackground.kt`, `ui/components/common/blur/ExpressiveBlur.kt`; what a cover is reduced to and where it is kept (I-043): `ui/util/CoverSeeds.kt` (`deriveCoverSeeds`), `ui/util/CoverReading.kt` (`readCover`, the page from the pixels), `ui/util/CoverSeedStore.kt`, `ui/util/CoverSeedPrefetcher.kt`, `ui/ColourArrivalEffects.kt` (composed once in `App.kt`); the wash's numbers: `ui/util/WashTuning.kt` (§6) |
 | Shell and Home (P1) | `ui/navigation/ShellTab.kt` (the bar's four fixed buttons and the ONE tap rule the phone's bar and the tablet's rail share: `isSelected`, `shellTap`, `onShellTabTapped`; `ShellTabTest`), `domain/manager/ShellController.kt` (which of the New sheet and the avatar menu is open; a Koin single), `ui/components/sheets/AvatarMenu.kt` (`avatarMenuItems` as plain data, `AvatarMenuItemsTest`, and `AvatarMenuDrawer`, composed once around the page and the rail in `App.kt`), `ui/components/sheets/NewSheet.kt` (`NewSheetHost()`, composed beside `AlbumMatchHost()`), `ui/components/common/AvatarButton.kt` + `domain/manager/NeedsAttention.kt` (the header avatar and its dot), `ui/screens/home/*` (`HomeScreen`, `HomeViewModel`, `HomeModels.kt` the pure decisions, `HomeShelf.kt`, `ContinueListeningBox.kt`; `HomeModelsTest`), and the arrival kit `ui/util/{Arrival,Fold,TintedPlaceholder}.kt` (§7) |
 | Player and its queue (P2) | `ui/screens/nowPlaying/NowPlayingScreen.kt` chooses: a portrait phone (under 600 dp, taller than wide; `stagedPlayerFits`) gets `ui/screens/nowPlaying/staged/StagedNowPlaying.kt`, the player with the queue as a layer inside it (`StagedQueueLayer.kt`); landscape and wider windows keep the old player with its toolbar and the `Screen.Queue` sheet. The rules are pure: `QueueDetents.kt` (peek / half / full, anchors, release, handle, Back, the compaction curves; `QueueDetentsTest`), `QueueGrouping.kt` (rows by who added them, the peek row, Playing from; `QueueGroupingTest`), `SheetScroll.kt` (`SheetScrollTest`). The queue's content is written once, `QueueContent(QueueLayout)` in `ui/screens/queue/QueueScreen.kt`, hosted by the sheet (`QueueScreen`) and by the layer. The autoplay switch is `autoplayToggleChip` over the chip rules (`AutoplayChips.kt`, `RadioManager.onAutoplayToggle`). Settings has no "Toolbar position" row any more; `nowPlayingToolbarPosition` stays and the landscape player and the lyrics sheet still read it (§4) |
 | Search (P3, "Find") | `ui/screens/search/SearchScreen.kt` draws; every decision is pure: `SearchModel.kt` (`LibraryHits`, `mergeHits`, `capped`, `Lookup`, `searchPhase`, `offlineHits`, `browseTiles`, `externalRows`, `ownedArtistJoinsLibrary`; `SearchModelTest`) and `SearchState.kt` (`SearchUi`, `reduce`, which drops an answer for any query but the current one; `SearchViewModelReducerTest`). The rows: `search/components/{SearchRows,ExternalSection,BrowseTiles}.kt`. Typo tolerance: `domain/search/FuzzyMatch.kt` (`FuzzyMatchTest`), `LibraryFuzzyIndex.kt` (over Room), `MusicBrainzQuery.kt` (`mbFuzzyQuery`, `mbAlbumQuery`; `MusicBrainzQueryTest`); ownership by MBID: `domain/search/ArtistOwnership.kt` + `LbBotManager.ownedArtistIdsByMbid` (`ArtistOwnershipTest`). The browse cards' Deezer pages: `ui/screens/browse/*` (`Screen.Charts`, `Screen.EditorsPicks`), a tile's target from `domain/manager/BrowseResolver.kt` (shared with Discover). Discover's reasoned stack: `ui/screens/discover/DiscoverStack.kt` (`DiscoverStackTest`). The paste sheet's three states: `ui/screens/downloads/PasteLinkSheet.kt`, opened straight from Search through `ShellController.openAddFromLink` (§5, §7) |
@@ -1440,9 +1440,9 @@ Rules, each with a reason:
 Every browsing and detail page is washed in the current artwork's colours. This is the fork's
 largest UI divergence and the thing most likely to be broken by an upstream merge.
 
-**The pipeline.** A cover is reduced to three colours and a number, `CoverSeeds` (`dominant`, `vivid`, `accent`,
-and `tone`, how light the whole image reads, from `coverTone`), by the pure `deriveCoverSeeds` (`CoverSeeds.kt`),
-and those are **persisted** in `CoverSeedStore` (the
+**The pipeline.** A cover is reduced to `CoverSeeds` (`dominant`, `vivid`, `accent`, `tone`, and since codec 4 the page's
+side `dark`, its colour `wash` and the L* its top lands at `washL`), by the pure `deriveCoverSeeds` (`CoverSeeds.kt`) over
+the palette's swatches and `readCover`'s reading of the pixels (`CoverReading.kt`, below), and those are **persisted** in `CoverSeedStore` (the
 `coverSeeds` preference, LRU 512, written at most every 2 s). `ui/util/CoverColorScheme.kt`'s
 `rememberCoverColorScheme` reads the store **in composition**, so a cover seen before is coloured in
 the first frame; only a miss fetches (`fetchCoverSeeds`), and the store is also filled ahead of need
@@ -1463,30 +1463,40 @@ derived-scheme cache, added because covers popped back to neutral while scrollin
 `RootBottomBar` is rebuilt inside every `Scaffold`) and it seeds from `dominantSwatch`, which
 reliably picks a flat minority patch.
 
-**The accent on a light cover is not the vivid swatch.** `vivid` (what the wash is pulled toward)
-is the most populous colourful family, and on a light cover that is usually the pale field itself:
-Mahjong Room's accent was its own pale blue, with the red keyboard nowhere on the page. So on a light
-cover `accent` is the family with the most *salience* (population times chroma squared), chosen
-from a second palette built without kmpalette's default skin-tone filter, which drops every hue
-10 to 37 degrees with saturation up to 0.82 and so took Lookaftering's brown hare out entirely. A
-dark cover's `accent` is its `vivid`, unchanged: there the dark field already fails the colourful
-bounds. Which accent rule applies follows the page's brightness.
+**The page is read off the cover's pixels (I-057, 2026-10-31, `readCover`).** kmpalette's default filter drops near-black
+pixels and every "skin tone" before it counts anything, so a black background was invisible (it saw 7% of Live at Carnegie
+Hall's pixels) and the page of every black-framed cover was a charcoal tinted toward its colour (median L* 17 over the 600
+such covers in the owner's library), never black; and on a light cover the accent was often the field itself (MOTTAINAI's
+cream over its red frame). `readCover` decides everything from every pixel, in Oklab, with no filter:
 
-**Page brightness and the wash's lightness follow the cover's tone (2026-10-28, the owner's five
-covers).** `coverTone` is CIE L*: half the image's plain average, half the lightness of its colours
-(each pixel weighted by Oklab chroma squared), read off every pixel, because the palettes have already
-dropped near-black pixels and every "skin tone". Under 55 (`PAGE_TONE_SPLIT`) the page is dark. The
-page used to follow one swatch's luminance (the dominant's, light at 0.5 and up), which sent mid covers to
-the wrong side or the far end: Vanille fraise (reads 71) got a dark page, Mitski's peach frame round a
-black photo a dark one, The Bends a near-white one. `seedForTone` then moves the wash seed so the
-gradient's top sits at `washTopLstar`: L* 8 to 28 on a dark page, 76 to 94 on a light one, the bands
-text stays readable in (`WashTuningTest`: 4.5:1 for secondary text over the brightest artwork on a
-dark page, the darkest on a light one). A light page whose dominant is dark takes its wash and its
-neutrals from `vivid` (Mitski: the peach, not the black lifted to grey). `OwnerCovers` holds the five
-covers at 32 px and `CoverToneTest` the pages the owner chose for them: a change to the rule that
-flips one of them is a change to what the owner asked for. Seeds stored without a tone (none after
-`CoverSeedCodec` version 3) fall back to the old rule; the now-playing sheet, which keeps its own
-brightness, ignores the tone.
+- **Tone**: 0.6 of `coverTone` (half the plain average L*, half the colours' lightness, chroma-squared weighted) plus 0.4 of
+  the median L* of the outer ring (12% of the short side): the frame or background the page continues. Dark under 55
+  (`PAGE_TONE_SPLIT`).
+- **Background**: black holding the frame (its largest family, at least 35% of it, at least 20% of the cover, and at least
+  0.8 of white's share of the cover, which keeps black line art on white light) is the page's side AND colour: The Bends,
+  The Red Shoes, Live at Carnegie Hall, 1234, Loss of Life. One colour (a whole hue family) holding half the frame and 30% of
+  the cover is the page's colour but not its side (Heavy Is the Crown's sky): letting it set the side flipped 88 covers,
+  about 8 in 24 wrongly. A white background is NOT a rule: scan margins and white strips around dark pictures fooled it,
+  and the frame-weighted tone already gives white grounds light pages. Pixels under L* 12 are black whatever their cast.
+- **Field** (`dominant`, the scheme's neutrals): the background, else the largest family on the page's side (hue families
+  split into dark / mid / light bands so cream is not the orange beside it; black, grey, white; frame pixels count double).
+- **Wash**: the field; a grey one tinted 25% toward the main colour; a black one keeps at most 0.015 chroma of its cast.
+  `washL` is the field's own L*, 5 to 27 on a dark page (`WASH_DARK_FLOOR`, `WASH_DARK_CEILING`: at 28 a green seed's
+  secondary text measured 4.48:1) and 76 to 94 on a light one; `seedForTopLstar` places it.
+- **Accent**: on a light page, the most salient hue family (root of its area times chroma squared, favouring darker
+  colours) more than 40 degrees from the page's own hue, else the page's hue, else none (a greyscale cover keeps grey
+  buttons; Material tones `primary` to 40 / 80 so they stay readable). **On a dark page the palette's `vivid`, as before**
+  (the owner judged dark accents right, and with no skin filter faces crept in), unless it is a coloured field's own hue
+  (We Need Each Other: the yellow ship, not the purple page).
+
+Fitted against a Python prototype on all 4,282 covers of the owner's library (at 128 px, Navidrome's thumbnails), then judged
+on 96 covers drawn at random: 29 better than the old rules, 64 the same, 3 slightly worse (all accents). `LibraryCovers`
+holds 21 of the owner's covers at 32 px and `LibraryCoversTest` the pages approved for them (2026-10-31; they replace the
+2026-10-28 `OwnerCovers`, which the owner released). `CoverReadingParityTest` (androidHostTest) re-runs the whole library
+against the prototype's decisions when `NAVIC_COVER_PARITY_DIR` points at an export: 0 of 4,282 differed. The second,
+unfiltered palette the light accent used is gone. A cover all black gives no swatches and is still read: a black page.
+Seeds without a reading (no opaque pixel) fall back to the palette alone; the now-playing sheet, which keeps its own
+brightness, ignores `wash` and `washL` and washes as it always has.
 
 Nine rules, each of which is a bug that shipped:
 
@@ -1546,7 +1556,7 @@ Nine rules, each of which is a bug that shipped:
    (`BrowsingAmbientStructureTest`); a cold start wears the last playing cover
    (`lastNowPlayingCoverArtId`, `washCoverArtId`) until `MediaPlayerViewModel.restored`, a cleared
    queue clears it so nothing playing stays neutral; and the colours come from the persisted store
-   (above). **Bump `CoverSeedCodec.VERSION` whenever `deriveCoverSeeds` changes**, or every install
+   (above). **Bump `CoverSeedCodec.VERSION` whenever `deriveCoverSeeds` or `readCover` changes** (4 since I-057), or every install
    keeps wearing colours worked out by the old rules. Still after the page, by design: the blurred
    artwork itself (Coil, then its 400 ms crossfade), which on a cold start lands seconds after the
    colour.

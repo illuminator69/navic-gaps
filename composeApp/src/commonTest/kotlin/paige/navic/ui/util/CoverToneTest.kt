@@ -6,7 +6,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** How light a cover reads ([coverTone]) and the page brightness it gives ([pageIsDark]). */
+/**
+ * How light a cover reads ([coverTone], the plain half of [CoverReading.tone]) and the page brightness
+ * a tone gives ([pageIsDark]). The owner's covers' pages are `LibraryCoversTest`'s.
+ */
 class CoverToneTest {
 
 	private fun solid(rgb: Int, count: Int) = IntArray(count) { (0xFF shl 24) or rgb }
@@ -15,14 +18,6 @@ class CoverToneTest {
 	private val black = 0x0C0C0C
 	private val yellow = 0xF0D228
 	private val peach = 0xF8BE8C
-
-	@Test
-	fun theOwnersFiveCoversGetThePagesTheOwnerChose() {
-		val light = mapOf("Vanille fraise" to OwnerCovers.vanilleFraise, "The Bends" to OwnerCovers.theBends, "Mitski" to OwnerCovers.mitski)
-		val dark = mapOf("KID A MNESIA" to OwnerCovers.kidAMnesia, "Heavy Is the Crown" to OwnerCovers.heavyIsTheCrown)
-		for ((name, cover) in light) assertFalse(pageIsDark(coverTone(cover)!!), "$name: tone ${coverTone(cover)}")
-		for ((name, cover) in dark) assertTrue(pageIsDark(coverTone(cover)!!), "$name: tone ${coverTone(cover)}")
-	}
 
 	@Test
 	fun aBlackSleeveWithASmallYellowLogoStaysDark() {

@@ -176,11 +176,67 @@ class WashTuningTest {
 		assertEquals(tops.sorted(), tops)
 	}
 
+	/** The tops a pixel-read page can ask for ([CoverSeeds.washL]). */
+	private val darkTops = (WASH_DARK_FLOOR.toInt()..WASH_DARK_CEILING.toInt() step 1).map { it.toFloat() }
+	private val lightTops = (LIGHT_TOP_MIN.toInt()..LIGHT_TOP_MAX.toInt() step 2).map { it.toFloat() }
+
 	@Test
-	fun theOwnersMidCoversMoveTowardTheirTone() {
-		// Measured 2026-10-28 on the phone: The Bends' page top was L* 87 and Heavy Is the Crown's 21.
-		assertTrue(washTopLstar(coverTone(OwnerCovers.theBends)!!, isDark = false) < 82f)
-		assertTrue(washTopLstar(coverTone(OwnerCovers.heavyIsTheCrown)!!, isDark = true) > 25f)
+	fun aPixelReadWashTopLandsAtItsFieldsLightness() {
+		for ((isDark, targets) in listOf(true to darkTops, false to lightTops)) {
+			for (target in targets) {
+				for (seed in seeds + lightSeeds + listOf(Color(0xFF111111), Color(0xFFF0F0EE))) {
+					val (top, _) = coverAmbientGradient(seedForTopLstar(seed, target, isDark), isDark)
+					val tolerance = if (isDark) 3f else 4f
+					assertTrue(lstar(top) >= target - tolerance && lstar(top) <= target + tolerance,
+						"target $target, seed $seed: top L* ${lstar(top)}")
+				}
+			}
+		}
+	}
+
+	@Test
+	fun aBlackPageIsBlack() {
+		val (top, bottom) = coverAmbientGradient(seedForTopLstar(Color(0xFF111111), WASH_DARK_FLOOR, true), true)
+		assertTrue(lstar(top) <= 8f, "top L* ${lstar(top)}")
+		assertTrue(lstar(bottom) <= lstar(top) + 0.5f, "bottom L* ${lstar(bottom)}")
+	}
+
+	@Test
+	fun aPixelReadDarkPageStaysReadableOverTheBrightestArtwork() {
+		val dark = washTuning(isDark = true)
+		val base = over(Color.White, dark.artScrimColor, dark.artScrimAlpha)
+		for (target in darkTops) {
+			for (seed in seeds + lightSeeds) {
+				val (top, bottom) = coverAmbientGradient(seedForTopLstar(seed, target, true), true)
+				for ((band, colour) in listOf("top" to over(base, top, dark.topAlpha), "bottom" to over(base, bottom, dark.bottomAlpha))) {
+					val ratio = contrast(darkSecondaryText, colour)
+					assertTrue(ratio >= 4.5f, "top $target, seed $seed, $band band: $ratio")
+				}
+			}
+		}
+	}
+
+	@Test
+	fun aPixelReadLightPageStaysReadableOverTheDarkestArtwork() {
+		val light = washTuning(isDark = false)
+		val midAlpha = light.midAlpha ?: (light.topAlpha + light.bottomAlpha) / 2
+		for (artwork in listOf(Color.Black, Color(0.25f, 0.25f, 0.25f))) {
+			val base = over(artwork, light.artScrimColor, light.artScrimAlpha)
+			for (target in lightTops) {
+				for (seed in seeds + lightSeeds) {
+					val (top, bottom) = coverAmbientGradient(seedForTopLstar(seed, target, false), false)
+					val bands = listOf(
+						"top" to over(base, top, light.topAlpha),
+						"mid" to over(base, lerp(top, bottom, 0.5f), midAlpha),
+						"bottom" to over(base, bottom, light.bottomAlpha)
+					)
+					for ((band, colour) in bands) {
+						val ratio = contrast(secondaryText, colour)
+						assertTrue(ratio >= 4.5f, "top $target, seed $seed over $artwork, $band band: $ratio")
+					}
+				}
+			}
+		}
 	}
 
 	@Test

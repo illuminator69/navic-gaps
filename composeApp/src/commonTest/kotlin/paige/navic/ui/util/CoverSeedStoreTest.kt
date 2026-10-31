@@ -33,6 +33,18 @@ class CoverSeedStoreTest {
 	}
 
 	@Test
+	fun aPixelReadPageRoundTripsThroughTheCodec() {
+		val entries = listOf("al-1" to navy.copy(tone = 60f, dark = true, wash = 0xFF111111.toInt(), washL = 5f), "al-2" to grey)
+		assertEquals(entries, CoverSeedCodec.decode(CoverSeedCodec.encode(entries)))
+	}
+
+	@Test
+	fun seedsStoredUnderTheVersion3RulesAreWorkedOutAgain() {
+		// Version 3's pages followed the tone and a tinted wash; a black background was never black.
+		assertEquals(emptyList(), CoverSeedCodec.decode("{\"v\":3,\"e\":[{\"k\":\"al-1\",\"d\":1,\"t\":60.0}]}"))
+	}
+
+	@Test
 	fun seedsStoredBeforeToneAreWorkedOutAgain() {
 		// Version 2 had no tone: its entries would keep the old brightness rule until evicted.
 		assertEquals(emptyList(), CoverSeedCodec.decode("{\"v\":2,\"e\":[{\"k\":\"al-1\",\"d\":1}]}"))

@@ -101,16 +101,21 @@ const val DARK_TOP_MAX = 28f
 const val LIGHT_TOP_MIN = 76f
 const val LIGHT_TOP_MAX = 94f
 
+/** [seedForTopLstar] at [washTopLstar] for [tone]: seeds stored without a wash of their own. */
+fun seedForTone(seed: Color, tone: Float, isDark: Boolean): Color = seedForTopLstar(seed, washTopLstar(tone, isDark), isDark)
+
 /**
  * [seed] moved toward black or white, keeping its hue, so that [coverAmbientGradient]'s top lands at
- * [washTopLstar] for [tone]. The gradient's top is the seed moved [WashTuning.topMix] toward black
- * (dark) or white (light) in Oklab, where lightness moves linearly, so the seed's lightness is solved
- * for directly. The target is an L* turned into Oklab lightness as a grey's (the cube root of its
- * luminance): exact for a grey and close for a colour, and the light floor still applies after.
+ * CIE [topLstar]. The gradient's top is the seed moved [WashTuning.topMix] toward black (dark) or white
+ * (light) in Oklab, where lightness moves linearly, so the seed's lightness is solved for directly. The
+ * target is an L* turned into Oklab lightness as a grey's (the cube root of its luminance): exact for a
+ * grey and close for a colour, and the light floor still applies after. Pixel-read seeds pass their
+ * field's own L* ([CoverSeeds.washL]: [WASH_DARK_FLOOR] to [WASH_DARK_CEILING] dark, [LIGHT_TOP_MIN] to
+ * [LIGHT_TOP_MAX] light), so a black background gives a black page.
  */
-fun seedForTone(seed: Color, tone: Float, isDark: Boolean): Color {
+fun seedForTopLstar(seed: Color, topLstar: Float, isDark: Boolean): Color {
 	val tuning = washTuning(isDark)
-	val top = oklabLightnessOfLstar(washTopLstar(tone, isDark))
+	val top = oklabLightnessOfLstar(topLstar)
 	val wanted = (if (isDark) top / (1f - tuning.topMix) else (top - tuning.topMix) / (1f - tuning.topMix))
 		.coerceIn(0f, 1f)
 	val current = seed.convert(ColorSpaces.Oklab).red

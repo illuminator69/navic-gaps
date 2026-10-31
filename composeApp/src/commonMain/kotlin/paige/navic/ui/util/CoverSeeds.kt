@@ -20,31 +20,43 @@ data class SwatchSample(
 )
 
 /**
- * The two colours the engine keeps from a cover's palette, packed ARGB. Everything else a page
- * wears (the wash seed, the accent, the brightness, the Material scheme) is derived from these in
- * `rememberCoverColorScheme`, so these two are all that has to be known, or stored, about a cover.
+ * What the engine keeps about a cover, packed ARGB. Everything a page wears (the wash, the accent,
+ * the brightness, the Material scheme) is derived from these in `rememberCoverColorScheme`, so these
+ * are all that has to be known, or stored, about a cover. Since codec version 4 the page's colours
+ * come from the cover's pixels ([readCover], I-057); the palette is kept for [vivid] alone.
  *
- * - [dominant]: the cover's most populous colour family, by its leading swatch — what a person
- *   would say the artwork "is". It seeds the scheme's neutrals, and decides page brightness only
- *   for seeds stored without a [tone].
- * - [vivid]: the most populous COLOURFUL family (washed-out, near-black and near-white swatches
- *   rejected); null for a genuinely greyscale cover, which then stays neutral rather than having a
- *   hue invented for it. The page WASH is pulled toward it.
- * - [accent]: what the scheme's `primary` (buttons, the play bar, links) is seeded from. On a dark
- *   cover it is [vivid]. On a light one it is the most SALIENT colourful family instead (see
- *   [salientFamily]), because there the most populous one is usually the pale field itself.
- * - [tone]: how light the cover reads, CIE L* 0 to 100 ([coverTone]), read off the whole image rather
- *   than off a swatch. It decides page brightness ([pageIsDark]) and how light the wash is
- *   ([seedForTone]). Null for seeds worked out without the image's pixels: the page then follows the
- *   dominant's luminance, as it did before tone existed.
+ * - [dominant]: what the cover is made of, its field ([CoverReading.field]): the scheme's neutrals,
+ *   every background and card. Seeds worked out without pixels name the palette's most populous
+ *   colour family instead.
+ * - [vivid]: the palette's most populous COLOURFUL family (washed-out, near-black and near-white
+ *   swatches rejected); null for a cover with no colour. kmpalette's default filter drops "skin
+ *   tones", which is why a dark page still takes its accent from here: on dark photos the faces stay
+ *   out of it.
+ * - [accent]: what the scheme's `primary` (buttons, the play bar, links) is seeded from. On a dark page
+ *   it is [vivid], unless that is the page's own colour; otherwise the pixels' accent
+ *   ([CoverReading.accent]), the most salient colour that is not the page's.
+ * - [tone]: how light the cover reads, CIE L* 0 to 100 ([CoverReading.tone]).
+ * - [dark]: the page's side ([CoverReading.dark]); null for seeds without pixels, which then follow
+ *   [tone], or the dominant's luminance.
+ * - [wash] and [washL]: the page's colour and the L* its top lands at ([CoverReading.wash],
+ *   [CoverReading.washL]); null for seeds without pixels, which wash as before (the dominant pulled
+ *   toward [vivid], placed by [tone]).
  */
-data class CoverSeeds(val dominant: Int, val vivid: Int?, val accent: Int? = vivid, val tone: Float? = null)
+data class CoverSeeds(
+	val dominant: Int,
+	val vivid: Int?,
+	val accent: Int? = vivid,
+	val tone: Float? = null,
+	val dark: Boolean? = null,
+	val wash: Int? = null,
+	val washL: Float? = null
+)
 
 /**
- * Whether a cover's page is dark: by its [CoverSeeds.tone] when known, else by the dominant swatch's
- * luminance (the rule before tone).
+ * Whether a cover's page is dark: as its pixels decided ([CoverSeeds.dark]), else by its tone, else by
+ * the dominant swatch's luminance (the rule before tone).
  */
-fun CoverSeeds.pageIsDark(): Boolean = tone?.let(::pageIsDark) ?: (Color(dominant).luminance() < 0.5f)
+fun CoverSeeds.pageIsDark(): Boolean = dark ?: tone?.let(::pageIsDark) ?: (Color(dominant).luminance() < 0.5f)
 
 /** Below this [CoverSeeds.tone] a cover's page is dark (fitted to the owner's five covers, 2026-10-28). */
 const val PAGE_TONE_SPLIT = 55f
@@ -107,30 +119,40 @@ fun coverTone(argb: IntArray): Float? {
 private fun SwatchSample.isColourful(): Boolean = saturation >= 0.25f && lightness in 0.25f..0.85f
 
 /**
- * A cover's [CoverSeeds] from its swatches; null when quantisation gave none.
+ * A cover's [CoverSeeds] from its palette's [swatches] (kmpalette's default filter) and what its
+ * pixels say ([reading], [readCover]); null when neither gives anything.
  *
- * [swatches] is the palette as kmpalette builds it by default, and decides [CoverSeeds.dominant]
- * and [CoverSeeds.vivid] exactly as they always were (page brightness and the wash are unchanged).
- * [unfiltered] is a palette of the same image built WITHOUT the default filter's skin-tone rule
- * (it drops every hue 10 to 37 degrees with saturation up to 0.82, so browns and tans never reach
- * a palette at all): the light-cover accent is chosen from it. Measured on Vashti Bunyan's
- * `Lookaftering`, a brown hare on cream, the filter removed the whole hare.
+ * With a reading, the page is the reading's: its side, its field as [CoverSeeds.dominant], its wash.
+ * The accent on a dark page is the palette's [CoverSeeds.vivid], as it always was (the owner judged
+ * dark covers' accents right, and the pixels' rule, with no skin-tone filter, put faces in), unless
+ * vivid is the page's own colour: We Need Each Other's purple field on a purple page, where the
+ * yellow ship is the accent. On a light page, and on a dark one without a vivid, the reading's accent.
+ * A cover all black gives no swatches at all and is still a reading: a black page.
+ *
+ * Without a reading (no opaque pixel), the palette alone, as before tone existed.
  */
-fun deriveCoverSeeds(
-	swatches: List<SwatchSample>,
-	unfiltered: List<SwatchSample> = swatches,
-	tone: Float? = null
-): CoverSeeds? {
-	val dominant = swatches.dominantByColorFamily() ?: return null
+fun deriveCoverSeeds(swatches: List<SwatchSample>, reading: CoverReading? = null): CoverSeeds? {
 	val vivid = swatches
 		.filter { it.isColourful() }
 		// By family here too, and for the same reason: the accent should be the colour the
 		// artwork is known by, not whichever shade of it quantisation happened to keep whole.
 		.dominantByColorFamily()
-	// The same test `rememberCoverColorScheme` uses for page brightness.
-	val lightCover = !CoverSeeds(dominant.rgb, null, tone = tone).pageIsDark()
-	val accent = if (!lightCover) vivid else unfiltered.filter { it.isColourful() }.salientFamily() ?: vivid
-	return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb, accent = accent?.rgb, tone = tone)
+	if (reading == null) {
+		val dominant = swatches.dominantByColorFamily() ?: return null
+		return CoverSeeds(dominant = dominant.rgb, vivid = vivid?.rgb)
+	}
+	val vividIsPage = vivid != null && reading.fieldKind == FieldKind.HUE && reading.fieldHue != null &&
+		oklabHueChroma(vivid.rgb).let { (hue, chroma) -> chroma >= NEUTRAL_CHROMA && hueGap(hue, reading.fieldHue) <= ACCENT_HUE_GAP }
+	val accent = if (reading.dark && vivid != null && !vividIsPage) vivid.rgb else reading.accent
+	return CoverSeeds(
+		dominant = reading.field,
+		vivid = vivid?.rgb,
+		accent = accent,
+		tone = reading.tone,
+		dark = reading.dark,
+		wash = reading.wash,
+		washL = reading.washL
+	)
 }
 
 /** Shortest distance between two hues on the colour wheel, in degrees (0-180). */
@@ -141,38 +163,6 @@ private fun hueDistance(a: Float, b: Float): Float {
 
 /** Beyond this many degrees apart, two swatches are not the same colour to the eye. */
 private const val HUE_FAMILY_DEGREES = 45f
-
-/** A salient family is named by its own hue: swatches this close, not the whole family. */
-private const val ACCENT_HUE_DEGREES = 15f
-
-/** HSL chroma, 0 to 1: how far from grey a swatch is at its lightness. */
-private fun SwatchSample.chroma(): Float = (1f - abs(2f * lightness - 1f)) * saturation
-
-/** A swatch's pull on the eye: its area, weighted by the square of its chroma. */
-private fun SwatchSample.salience(): Double = population * (chroma() * chroma()).toDouble()
-
-/**
- * The colour that catches the eye on a light cover: the hue family with the most SALIENCE
- * (population times chroma squared) rather than the most pixels, named by its most salient swatch
- * within [ACCENT_HUE_DEGREES] of the winner.
- *
- * By population, a pastel field that passes the colourful bounds simply wins on size: on
- * `Mahjong Room`, pale blue covers about 46% of the sleeve and the red keyboard 17%, so the accent
- * was the page's own pale blue and nothing on the page was red. Chroma squared ranks the keyboard first
- * (chroma 0.6 against the field's 0.15). Dark covers never needed this: their dark field fails the
- * lightness bound, so the most populous colourful family was already the detail on it. And the
- * whole family's leading swatch is not the name: within 45 degrees of a brown hare sits the cream
- * paper it is printed on, which has more pixels.
- */
-private fun List<SwatchSample>.salientFamily(): SwatchSample? {
-	val best = maxByOrNull { swatch ->
-		sumOf { other ->
-			val weight = 1f - hueDistance(swatch.hue, other.hue) / HUE_FAMILY_DEGREES
-			if (weight <= 0f) 0.0 else other.salience() * weight
-		}
-	} ?: return null
-	return filter { hueDistance(it.hue, best.hue) <= ACCENT_HUE_DEGREES }.maxByOrNull { it.salience() }
-}
 
 /** Below this saturation a swatch has no meaningful hue, and belongs to the greyscale family. */
 private const val NEUTRAL_SATURATION = 0.12f
