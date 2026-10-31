@@ -17,6 +17,8 @@ import paige.navic.di.ActivityProvider
 import paige.navic.di.ResourceProvider
 import paige.navic.di.initKoin
 import paige.navic.di.initializeSingletonImageLoader
+import paige.navic.util.crashLogChunks
+import paige.navic.util.crashReportText
 import kotlin.system.exitProcess
 
 /**
@@ -41,10 +43,19 @@ class Application : android.app.Application(), SingletonImageLoader.Factory, Koi
 			return
 		}
 
-		Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+		Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
 			try {
+				// B-296: `Log.getStackTraceString` (and `Log.e`'s throwable overload) print nothing
+				// for a chain holding an UnknownHostException, so the trace is printed by Kotlin and
+				// logged as text, under the tag "NavicCrash", before anything else is tried.
+				val text = crashReportText(throwable, appVersionName())
+				try {
+					Log.e("NavicCrash", "Uncaught exception on thread ${thread.name}", throwable)
+					for (chunk in crashLogChunks(text)) Log.e("NavicCrash", chunk)
+				} catch (_: Throwable) {
+				}
 				val intent = Intent(this, CrashActivity::class.java).apply {
-					putExtra("stacktrace", Log.getStackTraceString(throwable))
+					putExtra("stacktrace", text)
 					flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
 				}
 				startActivity(intent)
@@ -65,6 +76,12 @@ class Application : android.app.Application(), SingletonImageLoader.Factory, Koi
 			androidContext(this@Application)
 			androidLogger()
 		}
+	}
+
+	private fun appVersionName(): String? = try {
+		packageManager.getPackageInfo(packageName, 0).versionName
+	} catch (_: Exception) {
+		null
 	}
 
 	private fun isCrashProcess(): Boolean {
