@@ -51,39 +51,31 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import com.kyant.capsule.ContinuousRoundedRectangle
 import com.materialkolor.PaletteStyle
-import com.materialkolor.dynamiccolor.ColorSpec
 import dev.zt64.compose.pipette.HsvColor
 import dev.zt64.compose.pipette.RingColorPicker
 import kotlinx.collections.immutable.toImmutableList
-import navic.composeapp.generated.resources.subtitle_theme_overridden
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_accent_colour
 import navic.composeapp.generated.resources.option_choose_theme
-import navic.composeapp.generated.resources.option_palette_specification
 import navic.composeapp.generated.resources.option_palette_style
 import navic.composeapp.generated.resources.option_use_amoled_theme
 import navic.composeapp.generated.resources.title_palette
-import navic.composeapp.generated.resources.title_theme_mode
+import navic.composeapp.generated.resources.info_theme_artwork_note
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.Theme
-import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Picker
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.common.TooltipBox
 import paige.navic.ui.components.layouts.NestedTopBar
-import androidx.compose.ui.draw.alpha
 import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
 import paige.navic.ui.util.label
-
-/** Material's disabled-content opacity, for the theme picker while cover theming owns it. */
-private const val DisabledAlpha = 0.38f
 
 @Composable
 fun SettingsThemesScreen() {
@@ -102,38 +94,21 @@ fun SettingsThemesScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				// Cover theming takes page brightness from the ARTWORK and the accents from the
-				// cover's palette, so while it is on neither of these decides what you are
-				// looking at on a browsing or detail page. They are greyed rather than hidden
-				// because they are NOT inert: the stored values still drive the settings
-				// screens, every dialog, and any page with no artwork to read.
-				val overriddenByCover = preferenceManager.dynamicTheming
-				val overrideNote = stringResource(Res.string.subtitle_theme_overridden)
-				SettingsGroup {
-					SettingsChoiceItem(
-						choices = ThemeMode.entries.toImmutableList(),
-						selectedChoice = preferenceManager.themeMode,
-						onChoiceSelected = { preferenceManager.themeMode = it },
-						content = { Text(stringResource(Res.string.title_theme_mode)) },
-						label = { stringResource(it.title) },
-						enabled = !overriddenByCover,
-						description = if (overriddenByCover) overrideNote else null,
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
-					)
-				}
-
+				// "Colours from artwork" takes page brightness and the accents from the album art, but the
+				// stored theme still decides every surface with no art to read (settings, dialogs, a browsing
+				// page with nothing playing), so the cards stay enabled and the note says where artwork wins.
+				val pickers = themePickers(preferenceManager.dynamicTheming)
 				SettingsGroup(title = { Text(stringResource(Res.string.title_palette)) }) {
 					val isSeeded = preferenceManager.theme == Theme.Seeded
-					val count = if (isSeeded) 5 else 2
+					val count = if (isSeeded) 4 else 2
 
 					SegmentedListItem(
 						onClick = {},
-						enabled = !overriddenByCover,
+						enabled = pickers.enabled,
 						content = {
 							LazyRow(
 								modifier = Modifier
 									.fillMaxWidth()
-									.alpha(if (overriddenByCover) DisabledAlpha else 1f)
 									.selectableGroup(),
 								horizontalArrangement = Arrangement.SpaceBetween
 							) {
@@ -141,9 +116,7 @@ fun SettingsThemesScreen() {
 									ThemeCard(
 										theme = theme,
 										isSelected = preferenceManager.theme == theme,
-										onSelect = {
-											if (!overriddenByCover) preferenceManager.theme = theme
-										}
+										onSelect = { preferenceManager.theme = theme }
 									)
 								}
 							}
@@ -189,21 +162,13 @@ fun SettingsThemesScreen() {
 							)
 						)
 					}
-
-					AnimatedVisibility(
-						modifier = Modifier.fillMaxWidth(),
-						visible = isSeeded
-					) {
-						SettingsChoiceItem(
-							choices = ColorSpec.SpecVersion.entries.toImmutableList(),
-							selectedChoice = preferenceManager.paletteSpec,
-							onChoiceSelected = { preferenceManager.paletteSpec = it },
-							label = { it.label() },
-							content = { Text(stringResource(Res.string.option_palette_specification)) },
-							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 4,
-								count = count
-							)
+					// The palette specification row is gone: nothing read it (Theme.kt hard-codes the 2025 spec).
+					AnimatedVisibility(visible = pickers.noteShown) {
+						Text(
+							stringResource(Res.string.info_theme_artwork_note),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(start = 12.dp, top = 4.dp)
 						)
 					}
 				}

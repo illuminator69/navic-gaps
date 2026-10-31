@@ -8,7 +8,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -32,6 +31,7 @@ import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_swipe_to_skip
+import navic.composeapp.generated.resources.subtitle_swipe_to_skip
 import navic.composeapp.generated.resources.subtitle_configure_lyric_providers
 import navic.composeapp.generated.resources.subtitle_lyrics_fake_beat_by_beat
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
@@ -58,7 +58,6 @@ import paige.navic.ui.screens.settings.dialogs.NowPlayingSliderStyleDialog
 @Composable
 fun SettingsNowPlayingScreen() {
 	val platformContext = LocalPlatformContext.current
-	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 	val preferenceManager = koinInject<PreferenceManager>()
 	var lyricProvidersSheetOpen by rememberSaveable { mutableStateOf(false) }
 	var sliderStyleDialogOpen by rememberSaveable { mutableStateOf(false) }
@@ -67,11 +66,7 @@ fun SettingsNowPlayingScreen() {
 		topBar = {
 			NestedTopBar(
 				title = { Text(stringResource(Res.string.title_now_playing)) },
-				navigationAction = {
-					if (!hideBack) {
-						NestedTopBarDefaults.NavigationAction()
-					}
-				}
+				navigationAction = { NestedTopBarDefaults.NavigationAction() }
 			)
 		}
 	) { innerPadding ->
@@ -90,6 +85,8 @@ fun SettingsNowPlayingScreen() {
 						checked = preferenceManager.swipeToSkip,
 						onCheckedChange = { preferenceManager.swipeToSkip = it },
 						content = { Text(stringResource(Res.string.option_swipe_to_skip)) },
+						// One setting for both: it also drives the mini player (Bars used to repeat the row).
+						supportingContent = { Text(stringResource(Res.string.subtitle_swipe_to_skip)) },
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
 					)
 					SettingsChoiceItem(

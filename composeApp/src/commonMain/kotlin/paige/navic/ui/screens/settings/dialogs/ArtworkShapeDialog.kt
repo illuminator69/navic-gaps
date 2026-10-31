@@ -24,6 +24,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_ok
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.settings.CoverArtShape
+import paige.navic.domain.models.settings.label
 
 @Composable
 fun ArtworkShapeDialog(
@@ -73,7 +74,7 @@ fun ArtworkShapeDialog(
 									shape.decreasedShape
 								)
 						)
-						Text(text = shape.name)
+						Text(text = stringResource(shape.label))
 					}
 				}
 			}

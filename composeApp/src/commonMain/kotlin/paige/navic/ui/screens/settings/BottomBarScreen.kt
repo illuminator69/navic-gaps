@@ -9,7 +9,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -21,8 +20,7 @@ import navic.composeapp.generated.resources.option_bottom_bar_visibility_mode
 import navic.composeapp.generated.resources.option_hide_bottom_bar_if_idle
 import navic.composeapp.generated.resources.option_mini_player_progress_style
 import navic.composeapp.generated.resources.option_mini_player_style
-import navic.composeapp.generated.resources.option_swipe_to_skip
-import navic.composeapp.generated.resources.title_bottom_app_bar
+import navic.composeapp.generated.resources.title_bars
 import navic.composeapp.generated.resources.title_mini_player
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -43,18 +41,13 @@ import paige.navic.ui.screens.settings.components.SettingsToggleItem
 @Composable
 fun BottomBarScreen() {
 	val platformContext = LocalPlatformContext.current
-	val hideBack = platformContext.sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	Scaffold(
 		topBar = {
 			NestedTopBar(
-				title = { Text(stringResource(Res.string.title_bottom_app_bar)) },
-				navigationAction = {
-					if (!hideBack) {
-						NestedTopBarDefaults.NavigationAction()
-					}
-				}
+				title = { Text(stringResource(Res.string.title_bars)) },
+				navigationAction = { NestedTopBarDefaults.NavigationAction() }
 			)
 		}
 	) { innerPadding ->
@@ -98,7 +91,7 @@ fun BottomBarScreen() {
 						onChoiceSelected = { preferenceManager.miniPlayerStyle = it },
 						content = { Text(stringResource(Res.string.option_mini_player_style)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
 					)
 					SettingsChoiceItem(
 						choices = MiniPlayerProgressStyle.entries.toImmutableList(),
@@ -106,19 +99,13 @@ fun BottomBarScreen() {
 						onChoiceSelected = { preferenceManager.miniPlayerProgressStyle = it },
 						content = { Text(stringResource(Res.string.option_mini_player_progress_style)) },
 						label = { stringResource(it.displayName) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 4)
-					)
-					SettingsToggleItem(
-						content = { Text(stringResource(Res.string.option_swipe_to_skip)) },
-						checked = preferenceManager.swipeToSkip,
-						onCheckedChange = { preferenceManager.swipeToSkip = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
 					)
 					SettingsToggleItem(
 						content = { Text(stringResource(Res.string.option_hide_bottom_bar_if_idle)) },
 						checked = preferenceManager.hideIfIdle,
 						onCheckedChange = { preferenceManager.hideIfIdle = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 4)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
 					)
 				}
 			}

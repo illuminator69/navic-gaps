@@ -36,6 +36,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.AppIconManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AppIconVariant
+import paige.navic.domain.models.settings.label
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.SegmentedListItem
@@ -76,7 +77,7 @@ fun SettingsAppIconScreen() {
 									appIconManager.setVariant(variant)
 								}
 							},
-							content = { Text(variant.name) },
+							content = { Text(stringResource(variant.label)) },
 							supportingContent = {
 								Text(
 									text = stringResource(

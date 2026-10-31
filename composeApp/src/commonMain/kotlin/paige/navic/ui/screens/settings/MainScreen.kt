@@ -26,20 +26,16 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.subtitle_about
 import navic.composeapp.generated.resources.subtitle_appearance
-import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_data_storage
 import navic.composeapp.generated.resources.subtitle_developer
 import navic.composeapp.generated.resources.subtitle_server
-import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
 import navic.composeapp.generated.resources.subtitle_quality_data
 import navic.composeapp.generated.resources.title_about
 import navic.composeapp.generated.resources.title_appearance
-import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_developer
 import navic.composeapp.generated.resources.title_server
-import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_quality_data
 import navic.composeapp.generated.resources.title_settings
@@ -50,10 +46,8 @@ import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.BottomNavigation
 import paige.navic.icons.filled.Info
 import paige.navic.icons.filled.Palette
-import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Code
 import paige.navic.icons.outlined.Computer
@@ -81,15 +75,17 @@ private class SettingsPage(
 fun SettingsScreen() {
 	// Developer options (crash-the-app, test tools) are for debug builds only.
 	val showDeveloper = LocalPlatformContext.current.isDebugBuild
-	val pages = buildList {
+	val pages = listOf(
 		// The Server first: nothing else in the app works for a stranger until it is set up.
-		add(SettingsPage(Screen.Settings.NaviConnect, Icons.Outlined.Computer, 24.dp, Res.string.title_server, Res.string.subtitle_server))
-		add(SettingsPage(Screen.Settings.Appearance, Icons.Filled.Palette, 24.dp, Res.string.title_appearance, Res.string.subtitle_appearance))
-		add(SettingsPage(Screen.Settings.NowPlaying, Icons.Filled.Play, 24.dp, Res.string.title_now_playing, Res.string.subtitle_now_playing))
-		add(SettingsPage(Screen.Settings.BottomAppBar, Icons.Filled.BottomNavigation, 24.dp, Res.string.title_bottom_app_bar, Res.string.subtitle_bottom_app_bar))
-		add(SettingsPage(Screen.Settings.Playback, Icons.Outlined.Note, 24.dp, Res.string.title_playback, Res.string.subtitle_playback))
-		add(SettingsPage(Screen.Settings.StreamingQuality, Icons.Outlined.Speed, 24.dp, Res.string.title_quality_data, Res.string.subtitle_quality_data))
-		add(SettingsPage(Screen.Settings.DataStorage, Icons.Outlined.DataTable, 24.dp, Res.string.title_data_storage, Res.string.subtitle_data_storage))
+		SettingsPage(Screen.Settings.NaviConnect, Icons.Outlined.Computer, 24.dp, Res.string.title_server, Res.string.subtitle_server),
+		SettingsPage(Screen.Settings.Playback, Icons.Outlined.Note, 24.dp, Res.string.title_playback, Res.string.subtitle_playback),
+		SettingsPage(Screen.Settings.StreamingQuality, Icons.Outlined.Speed, 24.dp, Res.string.title_quality_data, Res.string.subtitle_quality_data),
+		// Now Playing and Bars are Appearance's pages now.
+		SettingsPage(Screen.Settings.Appearance, Icons.Filled.Palette, 24.dp, Res.string.title_appearance, Res.string.subtitle_appearance),
+		SettingsPage(Screen.Settings.DataStorage, Icons.Outlined.DataTable, 24.dp, Res.string.title_data_storage, Res.string.subtitle_data_storage)
+	)
+	val aboutPages = buildList {
+		add(SettingsPage(Screen.Settings.About, Icons.Filled.Info, 22.dp, Res.string.title_about, Res.string.subtitle_about))
 		if (showDeveloper) {
 			add(SettingsPage(Screen.Settings.Developer, Icons.Outlined.Code, 24.dp, Res.string.title_developer, Res.string.subtitle_developer))
 		}
@@ -117,13 +113,16 @@ fun SettingsScreen() {
 				}
 			}
 			SettingsGroup {
-				PageRow(
-					destination = Screen.Settings.About,
-					icon = Icons.Filled.Info,
-					title = Res.string.title_about,
-					subtitle = Res.string.subtitle_about,
-					shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 1)
-				)
+				aboutPages.forEachIndexed { index, page ->
+					PageRow(
+						destination = page.destination,
+						icon = page.icon,
+						iconSize = page.iconSize,
+						title = page.title,
+						subtitle = page.subtitle,
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = index, count = aboutPages.size)
+					)
+				}
 			}
 		}
 	}

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,14 +40,21 @@ import navic.composeapp.generated.resources.option_enable_ratings
 import navic.composeapp.generated.resources.option_expressive_blur
 import navic.composeapp.generated.resources.option_grid_items_per_row
 import navic.composeapp.generated.resources.option_use_marquee_text
+import navic.composeapp.generated.resources.subtitle_alphabetical_scroll
+import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_dynamic_theming
 import navic.composeapp.generated.resources.subtitle_enable_ratings
 import navic.composeapp.generated.resources.subtitle_expressive_blur
-import navic.composeapp.generated.resources.subtitle_theme_overridden
+import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.title_appearance
+import navic.composeapp.generated.resources.title_bars
 import navic.composeapp.generated.resources.title_choose_font
-import navic.composeapp.generated.resources.title_layout
-import navic.composeapp.generated.resources.title_miscellaneous
+import navic.composeapp.generated.resources.title_colours
+import navic.composeapp.generated.resources.title_library
+import navic.composeapp.generated.resources.title_motion
+import navic.composeapp.generated.resources.title_now_playing
+import navic.composeapp.generated.resources.title_text
+import navic.composeapp.generated.resources.title_theme_mode
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -55,7 +63,8 @@ import paige.navic.di.PlatformType
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AnimationStyle
 import paige.navic.domain.models.settings.MarqueeSpeed
-import paige.navic.domain.models.settings.Theme
+import paige.navic.domain.models.settings.ThemeMode
+import paige.navic.domain.models.settings.label
 import paige.navic.ui.components.common.SegmentedListItem
 import paige.navic.ui.components.common.SegmentedListItemDefaults
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -64,6 +73,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingsChoiceItem
 import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
+import paige.navic.ui.screens.settings.components.SettingsNavItem
 import paige.navic.ui.screens.settings.components.SettingsSliderItem
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
 import paige.navic.ui.screens.settings.dialogs.ArtworkShapeDialog
@@ -106,64 +116,57 @@ fun SettingsAppearanceScreen() {
 					.padding(horizontal = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(SettingsGroupDefaults.GapBetweenGroups)
 			) {
-				SettingsGroup {
-					val isAndroid = platformContext.platformType == PlatformType.Android
-					val count = if (isAndroid) 3 else 2
-					SegmentedListItem(
-						shapes = SegmentedListItemDefaults.segmentedShapes(
-							index = 0,
-							count = count
-						),
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.Fonts)
-						},
-						content = { Text(stringResource(Res.string.title_choose_font)) },
-						supportingContent = { Text(preferenceManager.font.displayName) }
+				// Colours first: "Colours from artwork" decides what the two rows under it mean. Artwork wins
+				// on pages that have album art; the mode and theme below still decide every page without.
+				val pickers = themePickers(preferenceManager.dynamicTheming)
+				SettingsGroup(title = { Text(stringResource(Res.string.title_colours)) }) {
+					SettingsToggleItem(
+						content = { Text(stringResource(Res.string.option_dynamic_theming)) },
+						supportingContent = { Text(stringResource(Res.string.subtitle_dynamic_theming)) },
+						checked = preferenceManager.dynamicTheming,
+						onCheckedChange = { preferenceManager.dynamicTheming = it },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
 					)
-					SegmentedListItem(
-						shapes = SegmentedListItemDefaults.segmentedShapes(
-							index = 1,
-							count = count
-						),
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.Themes)
-						},
+					SettingsChoiceItem(
+						choices = ThemeMode.entries.toImmutableList(),
+						selectedChoice = preferenceManager.themeMode,
+						onChoiceSelected = { preferenceManager.themeMode = it },
+						enabled = pickers.enabled,
+						content = { Text(stringResource(Res.string.title_theme_mode)) },
+						label = { stringResource(it.title) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
+					)
+					SettingsNavItem(
+						onClick = dropUnlessResumed { backStack.add(Screen.Settings.Themes) },
+						enabled = pickers.enabled,
 						content = { Text(stringResource(Res.string.option_choose_theme)) },
-						supportingContent = {
-							// Still navigable while cover theming is on — the screen behind it
-							// also holds the palette controls, which drive every surface artwork
-							// can't reach. The rows it overrides are greyed there.
-							Text(
-								if (preferenceManager.dynamicTheming)
-									stringResource(Res.string.subtitle_theme_overridden)
-								else stringResource(preferenceManager.theme.title)
-							)
-						}
+						supportingContent = { Text(stringResource(preferenceManager.theme.title)) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
 					)
-					if (isAndroid) {
-						SegmentedListItem(
-							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 2,
-								count = count
-							),
-							onClick = dropUnlessResumed {
-								backStack.add(Screen.Settings.AppIcon)
-							},
-							content = { Text(stringResource(Res.string.option_choose_app_icon)) },
-							supportingContent = { Text(preferenceManager.appIconVariant.name) }
-						)
-					}
+				}
+				SettingsGroup(title = { Text(stringResource(Res.string.title_text)) }) {
+					SettingsNavItem(
+						onClick = dropUnlessResumed { backStack.add(Screen.Settings.Fonts) },
+						content = { Text(stringResource(Res.string.title_choose_font)) },
+						supportingContent = { Text(preferenceManager.font.displayName) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 2)
+					)
+					SettingsChoiceItem(
+						content = { Text(stringResource(Res.string.option_use_marquee_text)) },
+						choices = MarqueeSpeed.entries.toImmutableList(),
+						selectedChoice = preferenceManager.marqueeSpeed,
+						onChoiceSelected = { preferenceManager.marqueeSpeed = it },
+						label = { stringResource(it.label) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 2)
+					)
 				}
 
-				SettingsGroup(title = { Text(stringResource(Res.string.title_layout)) }) {
+				SettingsGroup(title = { Text(stringResource(Res.string.title_library)) }) {
 					SegmentedListItem(
-						shapes = SegmentedListItemDefaults.segmentedShapes(
-							index = 0,
-							count = 3
-						),
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 5),
 						onClick = { showArtworkShapeDialog = true },
 						content = { Text(stringResource(Res.string.option_artwork_shape)) },
-						supportingContent = { Text(preferenceManager.coverArtShape.name) },
+						supportingContent = { Text(stringResource(preferenceManager.coverArtShape.label)) },
 						trailingContent = {
 							val shape = preferenceManager.coverArtShape.decreasedShape
 							Box(
@@ -176,13 +179,10 @@ fun SettingsAppearanceScreen() {
 						}
 					)
 					SegmentedListItem(
-						shapes = SegmentedListItemDefaults.segmentedShapes(
-							index = 1,
-							count = 3
-						),
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 5),
 						onClick = { showArtistImageShapeDialog = true },
 						content = { Text(stringResource(Res.string.option_artist_image_shape)) },
-						supportingContent = { Text(preferenceManager.artistImageShape.name) },
+						supportingContent = { Text(stringResource(preferenceManager.artistImageShape.label)) },
 						trailingContent = {
 							val shape = preferenceManager.artistImageShape.decreasedShape
 							Box(
@@ -201,10 +201,7 @@ fun SettingsAppearanceScreen() {
 							content = { Text(stringResource(Res.string.option_grid_items_per_row)) },
 							supportingContent = { Text(preferenceManager.gridSize.label) },
 							trailingContent = { GridSizePreview(preferenceManager.gridSize.value) },
-							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 2,
-								count = 3
-							)
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 5)
 						)
 					} else {
 						// direct sizing slider on tablet
@@ -213,67 +210,75 @@ fun SettingsAppearanceScreen() {
 							valueRange = 50f..500f,
 							onValueChange = { preferenceManager.artGridItemSize = it },
 							steps = 8,
-							shapes = SegmentedListItemDefaults.segmentedShapes(
-								index = 2,
-								count = 3
-							),
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 5),
 							content = { Text(stringResource(Res.string.option_cover_art_size)) },
 							trailingContent = { Text("${preferenceManager.artGridItemSize.toInt()}") }
 						)
 					}
-				}
-
-				SettingsGroup(title = { Text(stringResource(Res.string.title_miscellaneous)) }) {
-					SettingsToggleItem(
-						content = { Text(stringResource(Res.string.option_dynamic_theming)) },
-						supportingContent = { Text(stringResource(Res.string.subtitle_dynamic_theming)) },
-						checked = preferenceManager.dynamicTheming,
-						onCheckedChange = { preferenceManager.dynamicTheming = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 7)
-					)
 					SettingsToggleItem(
 						content = { Text(stringResource(Res.string.option_alphabetical_scroll)) },
+						supportingContent = { Text(stringResource(Res.string.subtitle_alphabetical_scroll)) },
 						checked = preferenceManager.alphabeticalScroll,
 						onCheckedChange = { preferenceManager.alphabeticalScroll = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 7)
-					)
-					SettingsToggleItem(
-						content = { Text(stringResource(Res.string.option_enable_predictive_back_animations)) },
-						checked = preferenceManager.enablePredictiveBackAnimations,
-						onCheckedChange = { preferenceManager.enablePredictiveBackAnimations = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 7)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 5)
 					)
 					SettingsToggleItem(
 						content = { Text(stringResource(Res.string.option_enable_ratings)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_enable_ratings)) },
 						checked = preferenceManager.enableRatings,
 						onCheckedChange = { preferenceManager.enableRatings = it },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 3, count = 7)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = 5)
 					)
-					SettingsChoiceItem(
-						content = { Text(stringResource(Res.string.option_use_marquee_text)) },
-						choices = MarqueeSpeed.entries.toImmutableList(),
-						selectedChoice = preferenceManager.marqueeSpeed,
-						onChoiceSelected = { preferenceManager.marqueeSpeed = it },
-						label = { it.name },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 4, count = 7)
+				}
+
+				// The two pages that used to be Settings' own rows, and the icon: one page each.
+				SettingsGroup {
+					val isAndroid = platformContext.platformType == PlatformType.Android
+					val count = if (isAndroid) 3 else 2
+					SettingsNavItem(
+						onClick = dropUnlessResumed { backStack.add(Screen.Settings.NowPlaying) },
+						content = { Text(stringResource(Res.string.title_now_playing)) },
+						supportingContent = { Text(stringResource(Res.string.subtitle_now_playing)) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = count)
 					)
+					SettingsNavItem(
+						onClick = dropUnlessResumed { backStack.add(Screen.Settings.BottomAppBar) },
+						content = { Text(stringResource(Res.string.title_bars)) },
+						supportingContent = { Text(stringResource(Res.string.subtitle_bottom_app_bar)) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = count)
+					)
+					if (isAndroid) {
+						SettingsNavItem(
+							onClick = dropUnlessResumed { backStack.add(Screen.Settings.AppIcon) },
+							content = { Text(stringResource(Res.string.option_choose_app_icon)) },
+							supportingContent = { Text(stringResource(preferenceManager.appIconVariant.label)) },
+							shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = count)
+						)
+					}
+				}
+
+				SettingsGroup(title = { Text(stringResource(Res.string.title_motion)) }) {
 					SettingsChoiceItem(
 						content = { Text(stringResource(Res.string.option_animation_style)) },
 						choices = AnimationStyle.entries.toImmutableList(),
 						selectedChoice = preferenceManager.animationStyle,
 						onChoiceSelected = { preferenceManager.animationStyle = it },
-						label = { it.name },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 5, count = 7)
+						label = { stringResource(it.displayName) },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = 3)
 					)
-
+					SettingsToggleItem(
+						content = { Text(stringResource(Res.string.option_enable_predictive_back_animations)) },
+						checked = preferenceManager.enablePredictiveBackAnimations,
+						onCheckedChange = { preferenceManager.enablePredictiveBackAnimations = it },
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = 3)
+					)
 					// navi-connect: the frosted-glass blur over the Mood Flow background.
 					SettingsToggleItem(
 						checked = preferenceManager.expressiveBlur,
 						onCheckedChange = { preferenceManager.expressiveBlur = it },
 						content = { Text(stringResource(Res.string.option_expressive_blur)) },
 						supportingContent = { Text(stringResource(Res.string.subtitle_expressive_blur)) },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 6, count = 7)
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 2, count = 3)
 					)
 				}
 			}
