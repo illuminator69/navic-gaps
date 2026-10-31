@@ -48,8 +48,17 @@ internal fun causeChain(t: Throwable): List<Throwable> {
 
 private fun Throwable.simpleName(): String = this::class.simpleName ?: ""
 
-/** The handshake answered by a plain-http server: BoringSSL's and the JDK's words for it. */
-private val PLAIN_HTTP_HINTS = listOf("wrong_version_number", "unrecognized ssl message", "plaintext connection")
+/**
+ * The handshake answered by a plain-http server: BoringSSL's and the JDK's words for it, and
+ * Conscrypt's on Android 17 ("Unable to parse TLS packet header", seen on the AVD, API 37, from
+ * `ConscryptEngineSocket$SSLInputStream.processDataFromSocket`).
+ */
+private val PLAIN_HTTP_HINTS = listOf(
+	"wrong_version_number",
+	"unrecognized ssl message",
+	"plaintext connection",
+	"unable to parse tls packet header"
+)
 
 private val UNREACHABLE_NAMES = setOf(
 	"UnknownHostException",

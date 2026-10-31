@@ -7,6 +7,7 @@ import org.koin.android.ext.koin.androidApplication
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
+import paige.navic.data.database.CheckedFirstOpenDriver
 import paige.navic.data.database.DownloadDatabase
 import paige.navic.data.database.MIGRATION_CACHE_15_16
 import paige.navic.data.database.MIGRATION_CACHE_16_17
@@ -52,13 +53,13 @@ actual val platformModule = module {
 		val dbPath = androidApplication()
 			.getDatabasePath("cache.db")
 			.absolutePath
-		// B-167: a corrupt cache is moved aside here, before Room or any DAO touches it; one log
-		// line (tag CacheDb) says what was found and how long the check took. downloads.db below
-		// is never checked or moved: its rows are the only record of the downloaded files.
-		checkCacheDbAtOpen(File(dbPath))
+		// B-167: a corrupt cache is moved aside before Room opens its first connection, on the
+		// thread of that open (a DAO's coroutine, not the main thread at startKoin); one log line
+		// (tag CacheDb) says what was found and how long the check took. downloads.db below is
+		// never checked or moved: its rows are the only record of the downloaded files.
 		Room
 			.databaseBuilder<CacheDatabase>(get(), dbPath)
-			.setDriver(BundledSQLiteDriver())
+			.setDriver(CheckedFirstOpenDriver(BundledSQLiteDriver()) { checkCacheDbAtOpen(File(dbPath)) })
 			// Without this, bumping the cache version for the DownloadEntity change would drop the
 			// user's entire cached library and force a full re-sync.
 			.addMigrations(

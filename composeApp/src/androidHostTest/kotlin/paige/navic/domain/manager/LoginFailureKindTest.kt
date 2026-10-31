@@ -81,6 +81,8 @@ class LoginFailureKindTest {
 		)
 		assertEquals(LoginFailureKind.TLS_TO_PLAIN_HTTP, loginFailureKind(wrapped(android)))
 		assertEquals(LoginFailureKind.TLS_TO_PLAIN_HTTP, loginFailureKind(wrapped(SSLException("Unsupported or unrecognized SSL message"))))
+		// Conscrypt on Android 17, seen on the AVD (API 37) against Navidrome's plain http (the N9 walk).
+		assertEquals(LoginFailureKind.TLS_TO_PLAIN_HTTP, loginFailureKind(wrapped(SSLException("Unable to parse TLS packet header"))))
 		// A certificate the device does not trust is not "this server doesn't use https".
 		val cert = SSLHandshakeException("java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.")
 		assertEquals(LoginFailureKind.OTHER, loginFailureKind(wrapped(cert)))

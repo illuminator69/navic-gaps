@@ -7,6 +7,7 @@ import paige.navic.ui.screens.fresh.viewmodels.FreshType
 import paige.navic.ui.screens.fresh.viewmodels.freshGroups
 import paige.navic.ui.screens.fresh.viewmodels.freshDistinct
 import paige.navic.ui.screens.fresh.viewmodels.freshKey
+import paige.navic.ui.screens.fresh.viewmodels.freshScopeCount
 import paige.navic.ui.screens.fresh.viewmodels.freshEffectiveScope
 import paige.navic.ui.screens.fresh.viewmodels.freshPlayedOffered
 import paige.navic.ui.screens.fresh.viewmodels.freshScoped
@@ -163,6 +164,32 @@ class FreshScopeTest {
 		// Both carrying one, or neither: the first stays.
 		assertEquals("rel-digital", freshDistinct(listOf(digital, cd.copy(releaseAlbumId = ""))).single().releaseMbid)
 		assertEquals("rel-a", freshDistinct(listOf(cd.copy(releaseMbid = "rel-a"), cd.copy(releaseMbid = "rel-b"))).single().releaseMbid)
+	}
+
+	/*
+	 * The N9 walk: two rows of one release group (one with the library album's id) and one with
+	 * none showed two tiles under "Everyone (3)". Every chip counts the tiles it shows.
+	 */
+	@Test
+	fun everyScopeChipCountsTheTilesNotTheFeedsRows() {
+		val digital = LbFreshRelease(
+			releaseName = "Same Album", artist = "Band", releaseMbid = "rel-digital",
+			releaseGroupMbid = "rg-same", releaseDate = "2026-10-22", artistOwned = true, releaseOwned = true,
+			artistPlays = 4
+		)
+		val cd = digital.copy(releaseMbid = "rel-cd", releaseAlbumId = "nd-album-7")
+		val noGroup = LbFreshRelease(
+			releaseName = "No Group", artist = "Stranger", releaseMbid = "rel-nogroup",
+			releaseGroupMbid = "", releaseDate = "2026-10-23"
+		)
+		val feed = listOf(digital, cd, noGroup)
+		assertEquals(2, freshScopeCount(feed, FreshScope.ALL))
+		assertEquals(1, freshScopeCount(feed, FreshScope.YOURS))
+		assertEquals(1, freshScopeCount(feed, FreshScope.PLAYED))
+		for (scope in FreshScope.entries) {
+			val shown = freshGroups(feed, scope, FreshSort.DATE, FreshType.ALL).sumOf { it.items.size }
+			assertEquals(shown, freshScopeCount(feed, scope), "$scope")
+		}
 	}
 
 	private fun keys(rows: List<LbFreshRelease>) = rows.map(::freshKey)

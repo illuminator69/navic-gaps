@@ -104,6 +104,8 @@ data class FreshUi(
 	val truncated: Boolean = false,
 	val groups: List<FreshGroup> = emptyList(),
 	val ownedArtistCount: Int = 0,
+	/** The "Everyone" chip's count: every tile the page can show ([freshScopeCount]). */
+	val allCount: Int = 0,
 	/** Some row has plays (`freshPlayedOffered`); otherwise the "Artists you play" chip is hidden. */
 	val playedOffered: Boolean = false,
 	/** Rows whose artists have plays — the "Artists you play" chip's count. */
@@ -239,9 +241,10 @@ class FreshViewModel(
 		}
 		return ui.copy(
 			scope = scope,
-			ownedArtistCount = rows.count { it.artistOwned },
+			ownedArtistCount = freshScopeCount(ui.all, FreshScope.YOURS),
+			allCount = freshScopeCount(ui.all, FreshScope.ALL),
 			playedOffered = playedOffered,
-			playedCount = rows.count { (it.artistPlays ?: 0) > 0 },
+			playedCount = freshScopeCount(ui.all, FreshScope.PLAYED),
 			typeCounts = counts,
 			groups = freshGroups(ui.all, chosenScope, ui.sort, ui.type)
 		)
@@ -338,6 +341,13 @@ internal fun freshDistinct(rows: List<LbFreshRelease>): List<LbFreshRelease> {
 	}
 	return kept.values.toList()
 }
+
+/**
+ * A scope chip's count: the tiles that scope shows, one per [freshKey] (B-160; the N9 walk saw
+ * "Everyone (3)" over two tiles, counted off the feed's rows).
+ */
+internal fun freshScopeCount(all: List<LbFreshRelease>, scope: FreshScope): Int =
+	freshScoped(freshDistinct(all), scope).size
 
 /** The page's releases in the order it shows them, top to bottom ([freshGroups]). */
 internal fun freshOrdered(

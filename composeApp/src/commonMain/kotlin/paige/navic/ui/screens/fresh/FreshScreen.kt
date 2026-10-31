@@ -334,7 +334,7 @@ private fun FreshScopeChips(state: FreshUi, onScope: (FreshScope) -> Unit) {
 			when (scope) {
 				FreshScope.YOURS ->
 					stringResource(Res.string.fresh_scope_yours) + " (${state.ownedArtistCount})"
-				FreshScope.ALL -> stringResource(Res.string.fresh_scope_all) + " (${state.all.size})"
+				FreshScope.ALL -> stringResource(Res.string.fresh_scope_all) + " (${state.allCount})"
 				FreshScope.PLAYED ->
 					stringResource(Res.string.fresh_scope_played) + " (${state.playedCount})"
 			}

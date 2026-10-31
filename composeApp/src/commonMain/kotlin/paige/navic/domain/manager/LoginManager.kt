@@ -17,6 +17,14 @@ import paige.navic.domain.repositories.DbRepository
 import paige.navic.ui.core.LoginUiState
 import paige.navic.util.Logger
 
+/**
+ * What the login page shows once Log in has checked the fields. An attempt the fields refuse says
+ * why under the field; the error box of an EARLIER attempt is about another address (the N9 walk:
+ * "Can't reach the server at nas" stayed above "That isn't a server address"), so it goes.
+ */
+fun loginStateAfterFieldCheck(current: LoginUiState, fieldsOk: Boolean): LoginUiState =
+	if (!fieldsOk && current is LoginUiState.Error) LoginUiState.Idle else current
+
 class LoginManager(
     private val repository: DbRepository,
     private val sessionManager: SessionManager,
@@ -73,7 +81,9 @@ class LoginManager(
 		validateInstance()
 		validateUsername()
 		validatePassword()
-		return !instanceError && !usernameError && !passwordError
+		val ok = !instanceError && !usernameError && !passwordError
+		loginState.value = loginStateAfterFieldCheck(loginState.value, ok)
+		return ok
 	}
 
 	/**

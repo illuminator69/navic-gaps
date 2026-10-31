@@ -1,5 +1,7 @@
 package paige.navic.data.database
 
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.driver.bundled.SQLITE_OPEN_READWRITE
 import paige.navic.util.Logger
@@ -140,8 +142,43 @@ internal fun bundledQuickCheck(file: File): String =
 	}
 
 /**
- * The check as the app runs it, on the thread that first asks Koin for `CacheDatabase`, before
- * any DAO exists. One log line under the tag `CacheDb` with what it found and how long it took.
+ * [delegate], with [check] run once before its first connection opens (B-167, the N9 walk).
+ *
+ * The check used to run where Koin builds `CacheDatabase`, i.e. on the main thread at `startKoin`
+ * (the `createdAtStart` managers take DAOs), and `Room.build()` opens nothing: Room's first open
+ * happens later, inside the first DAO call's coroutine. So the check put a whole first open (the
+ * bundled driver's native library load included) on the main thread, 254 to 460 ms on the AVD,
+ * whatever the file's size. Here it runs on the thread of Room's first open instead, and every
+ * open waits for it, so no connection, and so no DAO, can reach the file before it is checked.
+ * A check that throws still counts as done: Room then opens as it would have without it.
+ */
+internal class CheckedFirstOpenDriver(
+	private val delegate: SQLiteDriver,
+	private val check: () -> Unit
+) : SQLiteDriver {
+	@Volatile
+	private var checked = false
+	private val lock = Any()
+
+	override fun open(fileName: String): SQLiteConnection {
+		if (!checked) {
+			synchronized(lock) {
+				if (!checked) {
+					try {
+						check()
+					} finally {
+						checked = true
+					}
+				}
+			}
+		}
+		return delegate.open(fileName)
+	}
+}
+
+/**
+ * The check as the app runs it, on the thread of Room's first open of `cache.db`
+ * ([CheckedFirstOpenDriver]), before any connection exists. One log line under the tag `CacheDb` with what it found and how long it took.
  */
 internal fun checkCacheDbAtOpen(db: File) {
 	val started = System.nanoTime()
