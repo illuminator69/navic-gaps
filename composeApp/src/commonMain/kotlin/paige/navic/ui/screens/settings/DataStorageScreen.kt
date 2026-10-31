@@ -368,7 +368,8 @@ fun SettingsDataStorageScreen() {
 					modifier = Modifier.fillMaxWidth(),
 					onClick = {
 						asking = null
-						runDanger(action)
+						// The row is greyed offline, but the connection can drop with this dialog open.
+						if (mayRunNow(action, isOnline)) runDanger(action)
 					},
 					shapes = SegmentedListButtonDefaults.shapes(index = 0, count = 2),
 					colors = SegmentedListButtonDefaults.errorColors()

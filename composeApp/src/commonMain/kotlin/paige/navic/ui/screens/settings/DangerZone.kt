@@ -1,7 +1,10 @@
 package paige.navic.ui.screens.settings
 
-/** What Storage's Danger zone can do. [confirms]: it deletes something that is not a cache, so it asks first. */
-enum class DangerAction(val confirms: Boolean) {
+/**
+ * What Storage's Danger zone can do. [confirms]: it deletes something that is not a cache, so it asks first.
+ * [needsServer]: it wipes what only the server can put back, so it must not start offline.
+ */
+enum class DangerAction(val confirms: Boolean, val needsServer: Boolean = false) {
 	/** The image cache is rebuilt from the server as pages are opened. */
 	ClearImageCache(false),
 
@@ -12,7 +15,7 @@ enum class DangerAction(val confirms: Boolean) {
 	ClearDownloads(true),
 
 	/** This device's copy of the library, pulled again from the server. */
-	RebuildDatabase(true)
+	RebuildDatabase(true, needsServer = true)
 }
 
 /**
@@ -25,3 +28,10 @@ fun requestDanger(action: DangerAction, run: (DangerAction) -> Unit): DangerActi
 	run(action)
 	return null
 }
+
+/**
+ * Whether a confirmed [action] may still run. The row is greyed while offline, but the dialog stays up
+ * while the connection can drop, and a rebuild that wipes the library with no sync possible leaves it
+ * empty. So the confirm checks again; offline, nothing is deleted.
+ */
+fun mayRunNow(action: DangerAction, online: Boolean): Boolean = online || !action.needsServer

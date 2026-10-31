@@ -60,4 +60,20 @@ class DangerZoneConfirmsTest {
 			}
 		}
 	}
+
+	@Test
+	fun aRebuildThatNeedsTheServerDoesNotRunOffline() {
+		assertTrue(!mayRunNow(DangerAction.RebuildDatabase, online = false))
+		assertTrue(mayRunNow(DangerAction.RebuildDatabase, online = true))
+		// What needs no server runs whatever the connection says.
+		for (action in listOf(DangerAction.ClearImageCache, DangerAction.ClearPendingActions, DangerAction.ClearDownloads)) {
+			assertTrue(mayRunNow(action, online = false), "$action is held back offline")
+		}
+	}
+
+	@Test
+	fun theConfirmButtonChecksTheConnectionAgain() {
+		val source = File("src/commonMain/kotlin/paige/navic/ui/screens/settings/DataStorageScreen.kt").readText()
+		assertTrue(Regex("if \\(mayRunNow\\(action,\\s*isOnline\\)\\)\\s*runDanger\\(action\\)").containsMatchIn(source), "the confirm path runs the action without re-checking the connection")
+	}
 }
