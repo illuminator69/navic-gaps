@@ -99,6 +99,7 @@ import paige.navic.ui.screens.fresh.viewmodels.FreshScope
 import paige.navic.ui.screens.fresh.viewmodels.FreshSort
 import paige.navic.ui.screens.fresh.viewmodels.FreshType
 import paige.navic.ui.screens.fresh.viewmodels.FreshViewModel
+import paige.navic.ui.screens.fresh.viewmodels.freshKey
 
 private val WINDOWS = listOf(7, 30, 90)
 
@@ -243,7 +244,7 @@ fun FreshScreen(nested: Boolean = false) {
 					}
 					items(
 						group.items,
-						key = { it.releaseGroupMbid.ifBlank { it.releaseMbid + it.releaseName } }
+						key = { freshKey(it) }
 					) { release ->
 						FreshTile(
 							release = release,

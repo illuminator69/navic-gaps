@@ -229,17 +229,19 @@ class FreshViewModel(
 	}
 
 	private fun recompute(ui: FreshUi): FreshUi {
-		val playedOffered = freshPlayedOffered(ui.all)
+		// The counts are of what the page shows: one row per release group (B-160).
+		val rows = freshDistinct(ui.all)
+		val playedOffered = freshPlayedOffered(rows)
 		val scope = freshEffectiveScope(chosenScope, playedOffered)
-		val scoped = freshScoped(ui.all, scope)
+		val scoped = freshScoped(rows, scope)
 		val counts = FreshType.entries.associateWith { bucket ->
 			if (bucket == FreshType.ALL) scoped.size else scoped.count { typeOf(it) == bucket }
 		}
 		return ui.copy(
 			scope = scope,
-			ownedArtistCount = ui.all.count { it.artistOwned },
+			ownedArtistCount = rows.count { it.artistOwned },
 			playedOffered = playedOffered,
-			playedCount = ui.all.count { (it.artistPlays ?: 0) > 0 },
+			playedCount = rows.count { (it.artistPlays ?: 0) > 0 },
 			typeCounts = counts,
 			groups = freshGroups(ui.all, chosenScope, ui.sort, ui.type)
 		)
@@ -296,8 +298,9 @@ internal fun freshGroups(
 	sort: FreshSort,
 	type: FreshType
 ): List<FreshGroup> {
-	val scope = freshEffectiveScope(chosenScope, freshPlayedOffered(all))
-	val scoped = freshScoped(all, scope)
+	val rows = freshDistinct(all)
+	val scope = freshEffectiveScope(chosenScope, freshPlayedOffered(rows))
+	val scoped = freshScoped(rows, scope)
 	val shown = if (type == FreshType.ALL) scoped else scoped.filter { FreshViewModel.typeOf(it) == type }
 	if (shown.isEmpty()) return emptyList()
 	if (scope == FreshScope.PLAYED) return listOf(FreshGroup(null, shown))
@@ -308,6 +311,20 @@ internal fun freshGroups(
 		.toSortedMap()
 		.map { (bucket, items) -> FreshGroup(bucket, items.sortedByDescending { it.releaseDate }) }
 }
+
+/**
+ * A Fresh row's identity on the page (B-160): its release group, else its release and name (and
+ * artist), prefixed so it can never equal the grid's own `"types"` / `"h<bucket>"` keys.
+ *
+ * lb-bot's feed lists ListenBrainz RELEASES, so two editions of one album in the window are two
+ * rows with one release group, and the grid, keyed by release group, threw "Key … was already
+ * used" on the page's first frame. [freshDistinct] keeps one row per key.
+ */
+internal fun freshKey(row: LbFreshRelease): String =
+	"r:" + row.releaseGroupMbid.ifBlank { "m:${row.releaseMbid}|${row.releaseName}|${row.artist}" }
+
+/** One row per [freshKey], the first of each, in the feed's order. */
+internal fun freshDistinct(rows: List<LbFreshRelease>): List<LbFreshRelease> = rows.distinctBy(::freshKey)
 
 /** The page's releases in the order it shows them, top to bottom ([freshGroups]). */
 internal fun freshOrdered(

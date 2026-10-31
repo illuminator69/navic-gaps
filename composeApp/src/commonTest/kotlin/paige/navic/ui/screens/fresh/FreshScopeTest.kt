@@ -2,6 +2,10 @@ package paige.navic.ui.screens.fresh
 
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.ui.screens.fresh.viewmodels.FreshScope
+import paige.navic.ui.screens.fresh.viewmodels.FreshSort
+import paige.navic.ui.screens.fresh.viewmodels.FreshType
+import paige.navic.ui.screens.fresh.viewmodels.freshGroups
+import paige.navic.ui.screens.fresh.viewmodels.freshKey
 import paige.navic.ui.screens.fresh.viewmodels.freshEffectiveScope
 import paige.navic.ui.screens.fresh.viewmodels.freshPlayedOffered
 import paige.navic.ui.screens.fresh.viewmodels.freshScoped
@@ -99,4 +103,43 @@ class FreshScopeTest {
 		assertEquals(0, wire.decodeFromString<LbFreshRelease>("""{"releaseName":"x","artistPlays":0}""").artistPlays)
 		assertEquals(null, wire.decodeFromString<LbFreshRelease>("""{"releaseName":"x"}""").artistPlays)
 	}
+
+	/*
+	 * B-160: lb-bot lists ListenBrainz RELEASES, so two editions of one album are two rows with one
+	 * release group, and the grid threw "Key … was already used". The page keeps the first row of a
+	 * release group, and every item it draws has its own key.
+	 */
+	@Test
+	fun twoEditionsOfOneReleaseGroupAreOneItemAndEveryKeyIsDistinct() {
+		val first = LbFreshRelease(
+			releaseName = "Same Album", artist = "Band", releaseMbid = "rel-digital",
+			releaseGroupMbid = "rg-same", releaseDate = "2026-10-22", artistOwned = true
+		)
+		val second = first.copy(releaseMbid = "rel-cd", releaseDate = "2026-10-24")
+		val other = LbFreshRelease(
+			releaseName = "Other Album", artist = "Band", releaseMbid = "rel-other",
+			releaseGroupMbid = "rg-other", releaseDate = "2026-10-23", artistOwned = true
+		)
+		val noGroup = LbFreshRelease(
+			releaseName = "No Group", artist = "Solo", releaseMbid = "rel-nogroup",
+			releaseGroupMbid = "", releaseDate = "2026-10-23", artistOwned = true
+		)
+		val feed = listOf(first, second, other, noGroup)
+
+		for (scope in FreshScope.entries) for (sort in FreshSort.entries) for (type in FreshType.entries) {
+			val keys = freshGroups(feed, scope, sort, type).flatMap { it.items }.map(::freshKey)
+			assertEquals(keys.distinct(), keys, "duplicate key for $scope / $sort / $type")
+		}
+
+		val items = freshGroups(feed, FreshScope.ALL, FreshSort.DATE, FreshType.ALL).flatMap { it.items }
+		// 2 release groups + 1 row with none.
+		assertEquals(3, items.size)
+		assertEquals(2, items.count { it.releaseGroupMbid.isNotBlank() })
+		assertEquals(1, items.count { it.releaseGroupMbid.isBlank() })
+		assertEquals("rel-digital", items.single { it.releaseGroupMbid == "rg-same" }.releaseMbid)
+		// The grid's own keys are never a row's.
+		assertTrue(keys(items).none { it == "types" || it.startsWith("h") })
+	}
+
+	private fun keys(rows: List<LbFreshRelease>) = rows.map(::freshKey)
 }
