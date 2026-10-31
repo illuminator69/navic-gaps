@@ -27,6 +27,8 @@ internal val WashedBrowsingScreens: Set<KClass<out NavKey>> = setOf(
 	Screen.SavedQueues::class,
 	// P6: Library tools' two pages.
 	Screen.Attention::class, Screen.SourceHistory::class,
+	// Worbus P1: the wishlist's own page.
+	Screen.Wishlist::class,
 	// P3: Search's two Deezer pages.
 	Screen.Charts::class, Screen.EditorsPicks::class,
 	// P4: an unowned artist has no cover of its own, so it wears the playing song's.

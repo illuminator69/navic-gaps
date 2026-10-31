@@ -58,6 +58,8 @@ import navic.composeapp.generated.resources.attention_failed
 import navic.composeapp.generated.resources.attention_files
 import navic.composeapp.generated.resources.attention_folder_hint
 import navic.composeapp.generated.resources.attention_lbbot_only_hint
+import navic.composeapp.generated.resources.attention_missing_off
+import navic.composeapp.generated.resources.request_downloads_off
 import navic.composeapp.generated.resources.attention_matched
 import navic.composeapp.generated.resources.attention_needs_pick
 import navic.composeapp.generated.resources.attention_nothing_to_fix
@@ -144,6 +146,7 @@ fun AttentionScreen() {
 	val page by viewModel.page.collectAsStateWithLifecycle()
 	val webUrl by viewModel.webUrl.collectAsStateWithLifecycle()
 	val wishlisted by actions.wishlisted.collectAsStateWithLifecycle()
+	val downloadsOn by viewModel.downloadsOn.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
@@ -235,6 +238,7 @@ fun AttentionScreen() {
 									open = row.id in open,
 									onToggle = { open = if (row.id in open) open - row.id else open + row.id },
 									wishlistAvailable = actions.wishlistSupported && row.entry?.key !in wishlisted,
+									downloadsOn = downloadsOn,
 									onAction = { button, entry ->
 										when (button) {
 											FillButton.RETRY -> actions.retryFill(entry.key)
@@ -369,6 +373,7 @@ private fun AlbumRow(
 	open: Boolean,
 	onToggle: () -> Unit,
 	wishlistAvailable: Boolean,
+	downloadsOn: Boolean,
 	onAction: (FillButton, LbFillEntry) -> Unit,
 	onOpenAlbum: () -> Unit,
 	modifier: Modifier = Modifier
@@ -377,11 +382,10 @@ private fun AlbumRow(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val entry = row.entry
 	val view = describeFill(entry ?: a.asLedgerRow(), now.value, wishlistAvailable)
-	// Dismiss only where it removes the row: one only this phone holds (L4b-09).
-	val buttons = if (entry != null) view.buttons.filter { it != FillButton.DISMISS || row.dismissable }
-	else listOf(FillButton.OPEN_ALBUM).filter { a.rgid.isNotBlank() || a.albumId.isNotBlank() }
-	val pill = if (a.picking) Pill(FillText.Res(Res.string.attention_choose_source), PillTone.WARN)
-	else Pill(FillText.Res(Res.string.attention_failed), PillTone.BAD)
+	// Dismiss only where it removes the row: one only this phone holds (L4b-09). Worbus P1: while
+	// downloading is off, nothing that fetches ([attentionButtons]).
+	val buttons = attentionButtons(row, view.buttons, wishlistAvailable, downloadsOn)
+	val pill = attentionPill(row, downloadsOn)
 	val stateWords = pill.label.resolve()
 	SegmentedListItem(
 		onClick = onToggle,
@@ -412,16 +416,25 @@ private fun AlbumRow(
 				)
 				Fold(visible = open) {
 					Column(Modifier.padding(top = 6.dp)) {
-						Text(
-							view.headline.resolve(),
-							color = if (a.picking) MaterialTheme.colorScheme.onSurfaceVariant
-							else MaterialTheme.colorScheme.error
-						)
-						view.sublines.forEach { line ->
-							Text(line.resolve(), style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+						if (!downloadsOn) {
+							// Worbus P1: the fill's own words are a download's (its failure, lb-bot's
+							// reason, how often it looked): one plain line instead, offering nothing.
+							Text(
+								stringResource(Res.string.request_downloads_off),
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						} else {
+							Text(
+								view.headline.resolve(),
+								color = if (a.picking) MaterialTheme.colorScheme.onSurfaceVariant
+								else MaterialTheme.colorScheme.error
+							)
+							view.sublines.forEach { line ->
+								Text(line.resolve(), style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+							}
+							view.explain?.let { Text(it.resolve(), style = MaterialTheme.typography.bodySmall) }
 						}
-						view.explain?.let { Text(it.resolve(), style = MaterialTheme.typography.bodySmall) }
-						if (entry == null) {
+						if (entry == null && downloadsOn) {
 							Text(
 								stringResource(Res.string.attention_lbbot_only_hint),
 								style = MaterialTheme.typography.bodySmall,
@@ -449,6 +462,39 @@ private fun AlbumRow(
 	) {
 		Text(a.album.ifBlank { a.artist }.ifBlank { a.key }, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
+}
+
+/**
+ * Worbus P1: an album row's buttons. While lb-bot can download, today's: the vocabulary's for a row the
+ * ledger holds (Dismiss only where it removes the row, L4b-09), Open album alone for one only lb-bot
+ * knows. While it cannot, nothing that fetches: Open album, Wishlist (a ledger row with a release
+ * group, where the wishlist is offered), Dismiss (where it removes the row).
+ */
+internal fun attentionButtons(
+	row: AttentionRow,
+	fillButtons: List<FillButton>,
+	wishlistAvailable: Boolean,
+	downloadsOn: Boolean
+): List<FillButton> {
+	val a = row.album
+	val canOpen = a.rgid.isNotBlank() || a.albumId.isNotBlank()
+	val entry = row.entry ?: return listOf(FillButton.OPEN_ALBUM).filter { canOpen }
+	if (downloadsOn) return fillButtons.filter { it != FillButton.DISMISS || row.dismissable }
+	return buildList {
+		if (canOpen) add(FillButton.OPEN_ALBUM)
+		if (wishlistAvailable && entry.rgid.isNotBlank()) add(FillButton.WISHLIST)
+		if (row.dismissable) add(FillButton.DISMISS)
+	}
+}
+
+/**
+ * An album row's pill: "Choose a source" or "Failed" while lb-bot can download; while it cannot, one
+ * plain "Missing" (Worbus P1: no source, no download, no failure of something nobody can retry).
+ */
+internal fun attentionPill(row: AttentionRow, downloadsOn: Boolean): Pill = when {
+	!downloadsOn -> Pill(FillText.Res(Res.string.attention_missing_off), PillTone.NEUTRAL)
+	row.album.picking -> Pill(FillText.Res(Res.string.attention_choose_source), PillTone.WARN)
+	else -> Pill(FillText.Res(Res.string.attention_failed), PillTone.BAD)
 }
 
 /** A downloaded folder waiting to be filed: what it was identified as and how many files, nothing else. */

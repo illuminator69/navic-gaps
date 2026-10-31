@@ -203,6 +203,14 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data object LibraryMatches : Screen
+
+	/**
+	 * Worbus P1: the wishlist on its own page, from the avatar menu's Library tools, in both downloads
+	 * modes. It was reachable only from Source history, a download surface.
+	 */
+	@Immutable
+	@Serializable
+	data object Wishlist : Screen
 	@Immutable
 	@Serializable
 	data class ArtistDetail(val artist: String) : Screen

@@ -1560,4 +1560,28 @@
 	<string name="title_popular_releases">Popular releases</string>
 	<string name="action_see_discography">See discography</string>
 	<string name="action_see_more">See more</string>
+	<!-- Worbus P1 -->
+	<string name="request_downloads_off">This server isn't set up to get albums.</string>
+	<string name="wishlist_saved_off">Saved for when your server can get albums</string>
+	<string name="info_wishlist_empty_hint_off">Add an album from its page and it waits here. Worbus looks for it once your server is set up to get albums.</string>
+	<string name="home_index_title">Indexing your library</string>
+	<string name="home_index_left">%1$s of %2$s artists left</string>
+	<string name="artist_scan_count">%1$s of %2$s done</string>
+	<string name="artist_unresolved">lb-bot couldn't find this artist on MusicBrainz.</string>
+	<string name="action_match_manually">Match manually</string>
+	<string name="find_it_title">Find it</string>
+	<string name="find_it_search">Search %1$s</string>
+	<string name="find_it_service_bandcamp">Bandcamp</string>
+	<string name="find_it_service_qobuz">Qobuz</string>
+	<string name="find_it_service_apple_music">Apple Music</string>
+	<string name="find_it_service_spotify">Spotify</string>
+	<string name="find_it_service_deezer">Deezer</string>
+	<string name="find_it_service_youtube_music">YouTube Music</string>
+	<string name="find_it_service_tidal">TIDAL</string>
+	<string name="find_it_service_amazon">Amazon Music</string>
+	<string name="find_it_service_beatport">Beatport</string>
+	<string name="find_it_service_soundcloud">SoundCloud</string>
+	<string name="artist_scan_updated">Updated just now</string>
+	<string name="attention_missing_off">Missing</string>
+	<string name="info_external_album_index_failed_off">Couldn't add this release to the artist's index, so it may keep listing as missing.</string>
 </resources>

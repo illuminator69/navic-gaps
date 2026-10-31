@@ -86,6 +86,7 @@ import paige.navic.di.isLandscape
 import paige.navic.domain.manager.AlbumMatchTarget
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbDownloads
 import paige.navic.domain.manager.MergeLeave
 import paige.navic.domain.manager.mergeLeave
 import paige.navic.domain.manager.PreferenceManager
@@ -122,6 +123,13 @@ import paige.navic.ui.screens.share.dialogs.ShareDialog
 import kotlin.time.Clock
 import kotlin.time.Duration
 import paige.navic.domain.models.displayName
+
+/**
+ * Worbus P1: the album sheet's Fill gaps on this page, offered for an album lb-bot has a gap group for
+ * and only while lb-bot can download ([LbDownloads.isOn]; an older peer can). The album page's gaps box
+ * still lists what is missing.
+ */
+internal fun artistSheetOffersFillGaps(hasGap: Boolean, downloads: LbDownloads): Boolean = hasGap && downloads.isOn
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -190,6 +198,7 @@ fun ArtistDetailScreen(
 	// "Fix album match" (I-022), reached from an album's sheet and from the gap sheet's "Wrong
 	// edition?". Opened through the manager: the sheet lives above the pages (`AlbumMatchHost`).
 	val lbBot = koinInject<LbBotManager>()
+	val downloads by lbBot.downloads.collectAsState()
 	val radioManager = koinInject<paige.navic.domain.manager.RadioManager>()
 
 	// A row's tap: the album, a just-landed one, or a missing release's own page (P4).
@@ -524,8 +533,10 @@ fun ArtistDetailScreen(
 							// NOTE: above the similar-artists guard below, an early `return@Column`.
 							DiscographyScanAction(
 								ui = discography,
-								// The override when the user has set one, else Navidrome's tag.
-								canIndex = artistMbid.effective.isNotBlank(),
+								// The override when the user has set one, else Navidrome's tag; without
+								// either, Worbus P1's scan by Navidrome id where lb-bot can do one.
+								mbid = artistMbid.effective,
+								scanByNdId = scanByNdIdOffered(downloads, discography.ndIdScanRefused),
 								onIndex = { viewModel.indexArtist() },
 								onChooseMbid = if (artistMbid.canOverride) {
 									{ viewModel.openMbidMatch() }
@@ -639,7 +650,7 @@ fun ArtistDetailScreen(
 			onSetRating = { viewModel.rateSelectedAlbum(it) },
 			missingTrackCount = gapEntry?.missingTracks,
 			// The album page's gaps box does the whole fill now (P4 round 2): open it unfolded.
-			onFillGaps = gapEntry?.let {
+			onFillGaps = gapEntry?.takeIf { artistSheetOffersFillGaps(hasGap = true, downloads = downloads) }?.let {
 				{
 					viewModel.clearAlbumSelection()
 					backStack.add(Screen.CollectionDetail(album.id, "artist", openGaps = true))

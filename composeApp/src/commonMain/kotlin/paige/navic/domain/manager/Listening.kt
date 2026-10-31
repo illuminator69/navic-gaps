@@ -517,10 +517,15 @@ internal fun unownedTarget(row: LbUnownedRow, knownArtistIds: Set<String>): List
  * P6: an album row on Not in library has a **Find sources** button: the album's page, with the
  * source search started once on arrival (the tap is the consent the search's cost asks for, P4's
  * rule). An artist row has none (it opens the artist page), and neither has an album with no
- * release-group id, which has nowhere to go.
+ * release-group id, which has nowhere to go. Worbus P1: and none at all while lb-bot cannot download
+ * ([downloadsOn] false); the row itself still opens the album's page.
  */
-internal fun unownedRowAction(row: LbUnownedRow, knownArtistIds: Set<String>): ListeningTarget.ExternalAlbum? =
-	if (row.kind == LISTENING_KIND_ARTIST) null
+internal fun unownedRowAction(
+	row: LbUnownedRow,
+	knownArtistIds: Set<String>,
+	downloadsOn: Boolean = true
+): ListeningTarget.ExternalAlbum? =
+	if (row.kind == LISTENING_KIND_ARTIST || !downloadsOn) null
 	else (unownedTarget(row, knownArtistIds) as? ListeningTarget.ExternalAlbum)?.copy(findSources = true)
 
 // ----- the page, in tabs (I-026) -------------------------------------------------------------------

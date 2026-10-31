@@ -184,7 +184,8 @@ class ExternalArtistViewModel(
 					_discography.value = _discography.value.copy(indexing = false, scanShared = true)
 					return@launch
 				}
-				LbRescanStart.NotStarted -> {
+				// Older: never, since this page always sends the MBID it is keyed on.
+				LbRescanStart.NotStarted, LbRescanStart.Older -> {
 					_discography.value = _discography.value.copy(
 						indexing = false,
 						scanError = "lb-bot did not start the scan"

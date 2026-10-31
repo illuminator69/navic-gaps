@@ -141,7 +141,8 @@ import paige.navic.ui.navigation.navSavedStateConfiguration
 import paige.navic.ui.navigation.normalizedStack
 import paige.navic.ui.screens.downloads.DownloadsSection
 import paige.navic.ui.screens.attention.AttentionScreen
-import paige.navic.ui.screens.sourcehistory.SourceHistoryScreen
+import paige.navic.ui.screens.wishlist.SourceHistoryOrWishlist
+import paige.navic.ui.screens.wishlist.WishlistScreen
 import paige.navic.domain.manager.SourceHistorySection
 import paige.navic.ui.screens.settings.PendingActionsScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
@@ -648,8 +649,8 @@ private fun entryProvider(
 			Washed {
 				when (key.section) {
 					DownloadsSection.Device -> DownloadsScreen()
-					DownloadsSection.Fills -> SourceHistoryScreen(SourceHistorySection.Requests)
-					DownloadsSection.Wishlist -> SourceHistoryScreen(SourceHistorySection.Wishlist)
+					DownloadsSection.Fills -> SourceHistoryOrWishlist(SourceHistorySection.Requests)
+					DownloadsSection.Wishlist -> SourceHistoryOrWishlist(SourceHistorySection.Wishlist)
 				}
 			}
 		}
@@ -657,7 +658,11 @@ private fun entryProvider(
 			Washed { AttentionScreen() }
 		}
 		entry<Screen.SourceHistory> { key ->
-			Washed { SourceHistoryScreen(key.section) }
+			// Worbus P1: while downloading is off, a saved stack's Source history opens the Wishlist.
+			Washed { SourceHistoryOrWishlist(key.section) }
+		}
+		entry<Screen.Wishlist> {
+			Washed { WishlistScreen() }
 		}
 		entry<Screen.SavedQueues> {
 			Washed { SavedQueuesScreen() }

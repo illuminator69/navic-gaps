@@ -20,6 +20,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.isDownloadsOffRefusal
 import paige.navic.domain.models.DomainSong
 
 /** One download plus the song it belongs to — the rows are useless without a title. */
@@ -40,6 +41,9 @@ data class DownloadCenterState(
 	val completed: List<DownloadCenterItem> = emptyList(),
 	val totalSize: Long = 0L
 )
+
+/** Worbus P1: whether a refused row action gets the snackbar: every refusal but lb-bot's `downloads_off`. */
+internal fun refusalAnnounced(error: LbBotManager.LbError): Boolean = !isDownloadsOffRefusal(error)
 
 class DownloadCenterViewModel(
 	private val downloadManager: DownloadManager,
@@ -72,7 +76,9 @@ class DownloadCenterViewModel(
 
 	private suspend fun announce(result: LbBotManager.LbResult<paige.navic.domain.manager.LbOk>) {
 		when (result) {
-			is LbBotManager.LbResult.Failed -> _actionMessages.emit(REFUSED)
+			// Worbus P1: lb-bot's `downloads_off` says nothing here: it turned the mode off, and the row
+			// has already lost the action that was tapped.
+			is LbBotManager.LbResult.Failed -> if (refusalAnnounced(result.error)) _actionMessages.emit(REFUSED)
 			is LbBotManager.LbResult.Ok -> {
 				val value = result.value
 				if (value.error.isNotBlank()) _actionMessages.emit(value.error)

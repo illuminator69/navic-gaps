@@ -1,7 +1,11 @@
 package paige.navic.ui.screens.home
 
 import paige.navic.data.database.entities.SavedQueueEntity
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.home_index_left
 import paige.navic.domain.manager.LbFreshFeed
+import paige.navic.domain.manager.LbIndexProgress
+import paige.navic.ui.components.common.FillText
 import paige.navic.domain.manager.LbFreshRelease
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.Mix
@@ -273,6 +277,47 @@ class HomeModelsTest {
 	@Test
 	fun everythingAbsentIsNoSections() {
 		assertEquals(emptyList(), homeSections(0, 0, false, 0, 0, 0, 0))
+	}
+
+	// --- the index bar (Worbus P1) -------------------------------------------------------------
+
+	@Test
+	fun bar_shown_while_unindexed_positive() {
+		val bar = indexBar(LbIndexProgress(unindexed = 412, total = 2337, current = "Björk"), lbAvailable = true)
+		assertEquals(IndexBar(left = 412, total = 2337, current = "Björk"), bar)
+		// Under Continue listening, above the shelves.
+		assertEquals(
+			listOf(HomeSection.ContinueListening, HomeSection.IndexProgress, HomeSection.RecentlyAdded),
+			homeSections(2, 5, false, 0, 0, 0, 0, indexBar = bar)
+		)
+		assertEquals(listOf(HomeSection.IndexProgress), homeSections(0, 0, false, 0, 0, 0, 0, indexBar = bar))
+		// The bar fills as the count goes down.
+		assertEquals((2337 - 412) / 2337f, bar!!.fraction)
+	}
+
+	@Test
+	fun bar_hides_at_zero_and_on_absence() {
+		// lb-bot's last push of a build says 0: the bar goes.
+		assertNull(indexBar(LbIndexProgress(unindexed = 0, total = 2337, current = ""), lbAvailable = true))
+		// No progress (an older hub or lb-bot, no build, auto-index off): no bar.
+		assertNull(indexBar(null, lbAvailable = true))
+		// The hub keeps the last progress while lb-bot is away: no bar then either.
+		assertNull(indexBar(LbIndexProgress(unindexed = 9, total = 20), lbAvailable = false))
+		assertEquals(
+			listOf(HomeSection.ContinueListening, HomeSection.RecentlyAdded),
+			homeSections(2, 5, false, 0, 0, 0, 0, indexBar = null)
+		)
+	}
+
+	@Test
+	fun bar_counts_text() {
+		val bar = IndexBar(left = 412, total = 2337, current = "")
+		assertEquals(FillText.Res(Res.string.home_index_left, listOf("412", "2,337")), indexBarLine(bar))
+		// The artist being scanned joins the line when lb-bot names one.
+		assertEquals(
+			FillText.Joined(listOf(FillText.Res(Res.string.home_index_left, listOf("1", "12")), FillText.Raw("Björk"))),
+			indexBarLine(IndexBar(left = 1, total = 12, current = "Björk"))
+		)
 	}
 
 	// --- Your mixes (P6) -------------------------------------------------------------------------

@@ -244,6 +244,10 @@ class PreferenceManager(
 	var hubDeviceId by preference("")
 	// Comma-joined device ids the user manually hid from the device picker.
 	var hubHiddenDeviceIds by preference("")
+	// Worbus P1: the last downloads mode ("on" | "off") lb-bot reported through each hub, as a JSON
+	// object keyed by hub URL, so a cold start draws the right download actions before the welcome
+	// (`LbDownloadsState`).
+	var lbDownloadsByHub by preference("")
 	// Saved-queue deletions we haven't been able to tell the hub about yet, as "id:millis"
 	// pairs joined by commas. Deleting history while offline used to be silently undone: the
 	// row went from Room, then the next reconnect adopted the hub's list — which still had it.

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.toLowerCase
 import kotlinx.collections.immutable.toImmutableList
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
@@ -72,6 +73,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -1031,6 +1033,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 	dim: () -> Float
 ) {
 	item(key = "s:unowned") {
+		// Worbus P1: Find sources only while lb-bot can download.
+		val downloads by koinInject<LbBotManager>().downloads.collectAsState()
 		Column {
 			SectionTitle(stringResource(Res.string.listening_unowned_title))
 			// What lb-bot lists here is albums and artists; it has no per-song list.
@@ -1064,7 +1068,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.notInLibraryItems(
 							isArtist = artists,
 							shapes = segmentedShapes(index, state.unowned.size),
 							onClick = clickFor(unownedTarget(row, state.knownArtistIds), open),
-							findSources = unownedRowAction(row, state.knownArtistIds)?.let { target -> { open(target) } }
+							findSources = unownedRowAction(row, state.knownArtistIds, downloads.isOn)?.let { target -> { open(target) } }
 						)
 					}
 				}

@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.collection
 
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbDownloads
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.LbGap
 import paige.navic.domain.manager.LbGapSource
@@ -40,8 +41,17 @@ data class GapInput(
 	val committed: Boolean,
 	/** A search tap whose answer, or the poll that shows it running, has not come yet. */
 	val searchAsked: Boolean,
-	val now: Long
+	val now: Long,
+	/**
+	 * Worbus P1: lb-bot can download ([LbDownloads.isOn]). Off, the box keeps what lb-bot detected (the
+	 * line and the missing songs) and loses every way to fetch them: no sources view, no failed fill to
+	 * search again from ([gapFillOffered] takes the line's Fill gaps away).
+	 */
+	val downloadsOn: Boolean = true
 )
+
+/** Worbus P1: whether the gaps box's line offers Fill gaps (lb-bot can download; an older peer can). */
+fun gapFillOffered(downloads: LbDownloads): Boolean = downloads.isOn
 
 sealed interface GapStage {
 	/** Nothing missing, or the result has been shown: the box folds away. */
@@ -81,7 +91,8 @@ fun gapStage(input: GapInput): GapStage {
 	}
 	val transferring = input.committed || gap.status == "downloading" ||
 		gap.tracks.any { it.state in IN_FLIGHT_TRACK_STATES }
-	if (transferring) {
+	// Worbus P1: with downloading off nothing is transferring, whatever a record from before says.
+	if (transferring && input.downloadsOn) {
 		return GapStage.Active(
 			done = gap.tracksDone,
 			wanted = gap.tracksWanted,
@@ -102,6 +113,13 @@ fun gapStage(input: GapInput): GapStage {
 	}
 	if (gap.status == "complete" || (missing.isEmpty() && gap.total > 0)) return GapStage.Absent
 	val searching = input.searchAsked || gap.sourceTask?.status.orEmpty() in LbBotManager.SEARCH_IN_FLIGHT
+	// Worbus P1: with downloading off the box is the user's fold over what is missing, whatever view
+	// or fill is left from before; none of the stages below can be acted on, and their words are a
+	// download's (Attention's "Downloaded, but needs sorting out in lb-bot" included).
+	if (!input.downloadsOn) {
+		return if (input.view == GapView.FOLDED) GapStage.Folded(missing.size.takeIf { it > 0 } ?: input.mirroredMissing)
+		else GapStage.Tracks(missing, gap.total)
+	}
 	if (gap.stalledPlacement || gap.awaitingMatch(searching)) return GapStage.Attention(gapReason(gap))
 	// A fill that failed keeps the box open, saying why, until it is dismissed or tried again: also
 	// over the sources it was requested from (seen on the AVD: the sources view, with no rows left

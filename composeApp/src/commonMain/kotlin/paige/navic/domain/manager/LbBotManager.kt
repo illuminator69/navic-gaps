@@ -109,6 +109,20 @@ class LbBotManager(
 
 	private val json = lbWireJson
 
+	/**
+	 * Worbus P1: lb-bot's downloads mode ([downloads]). Declared first: [attentionBadge] and other
+	 * flows built in the class body read it.
+	 */
+	private val downloadsMode = LbDownloadsState(
+		memory = object : LbDownloadsMemory {
+			override fun read(): String = preferenceManager.lbDownloadsByHub
+			override fun write(value: String) {
+				preferenceManager.lbDownloadsByHub = value
+			}
+		},
+		hubKey = { preferenceManager.hubUrl }
+	)
+
 	private val client by lazy {
 		HttpClient {
 			install(ContentNegotiation) { json(json) }
@@ -286,8 +300,8 @@ class LbBotManager(
 	 * The number behind the avatar's dot and the menu's badge: lb-bot's to-fix count while an
 	 * answer is known, else P1's count of this device's own ledger ([attentionBadge]).
 	 */
-	val attentionBadge: StateFlow<Int> = combine(_attention, _ledger) { state, ledger ->
-		attentionBadge(state.last, needsAttentionCount(ledger))
+	val attentionBadge: StateFlow<Int> = combine(_attention, _ledger, downloadsMode.value) { state, ledger, downloads ->
+		attentionBadge(state.last, needsAttentionCount(ledger), downloadsOn = downloads.isOn)
 	}.stateIn(scope, SharingStarted.Eagerly, 0)
 
 	/** Whether the hub carries the attention route: an older one is "older", not "nothing to fix". */
@@ -393,24 +407,64 @@ class LbBotManager(
 
 	private fun <T> LbResult<T>.valueOrNull(): T? = (this as? LbResult.Ok)?.value
 
-	/** lb-bot and the hub both answer errors as `{"error": "..."}`. */
-	@Serializable
-	private data class LbErrorBody(val error: String = "")
-
 	private fun failureFor(status: Int, path: String, raw: String): LbResult.Failed {
-		val message = try {
-			json.decodeFromString<LbErrorBody>(raw).error
-		} catch (e: Exception) {
-			""
-		}
+		val wasOn = downloadsMode.current.isOn
+		val error = downloadsMode.failureOf(status, raw)
+		val message = (error as? LbError.Rejected)?.message.orEmpty()
 		Logger.w("LbBotManager", "$path -> HTTP $status ${message.ifBlank { raw.take(200) }}")
-		return LbResult.Failed(
-			when (status) {
-				404 -> LbError.RouteUnknown
-				502, 504 -> LbError.Busy
-				else -> LbError.Rejected(status, message)
-			}
-		)
+		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
+		return LbResult.Failed(error)
+	}
+
+	// ----- Worbus P1: whether lb-bot can download, and its index build ------------------------ //
+
+	/**
+	 * Whether lb-bot can download ([LbDownloads]; UNKNOWN, an older hub or lb-bot, reads as on). From
+	 * every advert ([applyHubAdvert], [probeAvailable], a welcome with no `lb` at all
+	 * ([noteNewConnection])) and from lb-bot's own 409 `downloads_off` on any route, which holds until
+	 * an advert says otherwise. The last word per hub is kept, and a new process starts from it
+	 * ([LbDownloadsState]).
+	 */
+	val downloads: StateFlow<LbDownloads> = downloadsMode.value
+
+	/** [downloads] as the one question most surfaces ask. */
+	val downloadsOn: Boolean get() = downloadsMode.current.isOn
+
+	/**
+	 * A peer that knows the P1 fields: lb-bot said its downloads mode (on the advert, or by its 409).
+	 * UNKNOWN is a hub or lb-bot older than that, which gets today's reads and today's cadence.
+	 */
+	val isP1Peer: Boolean get() = downloadsMode.current != LbDownloads.UNKNOWN
+
+	/** A `welcome` with no usable `lb`: an older hub, and its silence is UNKNOWN (= on). */
+	fun noteNewConnection() {
+		val before = downloadsMode.current
+		downloadsMode.newConnection()
+		if (before != downloadsMode.current) Logger.i("LbBotManager", "a new hub connection: downloads mode unknown")
+	}
+
+	/**
+	 * lb-bot's index build as the hub last said it (`welcome.lbIndex.progress`, the `index` frame), or
+	 * null: no build running, or a hub or lb-bot too old to say. Home shows it only while lb-bot is
+	 * [available]: the hub keeps the last progress while lb-bot is away.
+	 */
+	private val _indexProgress = MutableStateFlow<LbIndexProgress?>(null)
+	val indexProgress: StateFlow<LbIndexProgress?> = _indexProgress.asStateFlow()
+
+	/** The hub's index hint, from a `welcome` or an `index` frame: its progress replaces the last. */
+	fun applyIndexHint(progress: LbIndexProgress?) {
+		_indexProgress.value = progress
+	}
+
+	/**
+	 * Every non-2xx answer passes here, whichever reader read it: lb-bot's 409 `downloads_off` turns the
+	 * mode off at once, so the next frame of any surface drops its download actions, with no error line
+	 * and no spinner left behind (the surfaces decide on [downloads] before anything else).
+	 */
+	private fun noteDownloadsRefusal(status: Int, raw: String) {
+		val wasOn = downloadsMode.current.isOn
+		downloadsMode.noteAnswer(status, raw)
+		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
 	}
 
 	/**
@@ -432,6 +486,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
 	}
 
@@ -443,6 +498,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(metaRefreshError(status, body.error, body.retryable))
 	}
 
@@ -537,7 +593,10 @@ class LbBotManager(
 	private class LbRaw(val status: Int, val text: String)
 
 	private fun rawAnswer(call: String, status: Int, text: String): LbRaw {
-		if (status !in 200..299) Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+		if (status !in 200..299) {
+			Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+			noteDownloadsRefusal(status, text)
+		}
 		return LbRaw(status, text)
 	}
 
@@ -839,6 +898,7 @@ class LbBotManager(
 		_hubRoutes.value = probe.routes
 		_hubHeard.value = true
 		_webUrl.value = cleanWebUrl(probe.webUrl)
+		downloadsMode.applyAdvert(lbDownloadsOf(probe.downloads))
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
 		_available.value = ok
@@ -899,9 +959,19 @@ class LbBotManager(
 	 * touched, and the probe path works exactly as before — a missing advert must never be read as
 	 * "unavailable".
 	 */
-	fun applyHubAdvert(available: Boolean, routes: List<String>, webUrl: String = "") {
+	fun applyHubAdvert(
+		available: Boolean,
+		routes: List<String>,
+		webUrl: String = "",
+		downloads: LbDownloads = LbDownloads.UNKNOWN,
+		/** The advert is a `welcome`'s: a new connection says the mode from scratch. */
+		newConnection: Boolean = false
+	) {
 		_hubRoutes.value = routes
 		_hubHeard.value = true
+		// P1: `downloads` rides the advert when lb-bot reported it; an `lb` frame's silence keeps what is
+		// known, a welcome's starts again from "unknown".
+		downloadsMode.applyAdvert(downloads, newConnection)
 		hubProxyOff = !available && routes.isEmpty()
 		_available.value = available
 		_availableAt = nowMs()
@@ -1034,12 +1104,19 @@ class LbBotManager(
 	 * section appear when it appears.
 	 */
 	suspend fun indexArtist(mbid: String, name: String, ndId: String): LbRescanStart {
-		if (mbid.isBlank() || name.isBlank()) return LbRescanStart.NotStarted
+		// Worbus P1: a library artist with no MBID is scanned by its Navidrome id; lb-bot resolves the
+		// name. An lb-bot from before that answers 400 (`LbRescanStart.Older`).
+		if (mbid.isBlank() && ndId.isBlank()) return LbRescanStart.NotStarted
+		if (mbid.isNotBlank() && name.isBlank()) return LbRescanStart.NotStarted
 		val result = postJson<_, LbRescanAnswer>(
 			"/lb/artist/discography",
 			LbIndexRequest(mbid, name, ndId)
 		)
-		return rescanStart((result as? LbResult.Ok)?.value)
+		return rescanStartOf(
+			answer = (result as? LbResult.Ok)?.value,
+			error = (result as? LbResult.Failed)?.error,
+			sentMbid = mbid.isNotBlank()
+		)
 	}
 
 	/**
@@ -1066,19 +1143,32 @@ class LbBotManager(
 		ndId: String,
 		mbid: String?,
 		taskId: String,
-		scannedBefore: Double
+		scannedBefore: Double,
+		/** Worbus P1: every read of the scan record, for the page's "3 of 10". */
+		onScan: (LbArtistScan) -> Unit = {}
 	): LbScanOutcome {
 		val deadline = nowMs() + SCAN_WAIT_MS
+		// Worbus P1: from a P1 peer the first read is at once and the next ones every 3 s while lb-bot's
+		// record says the scan is running (the page shows its counts); an older peer waits as it always
+		// did ([scanPollDelayMs]).
+		val p1Peer = isP1Peer
+		var interval = scanPollDelayMs(first = true, p1Peer = p1Peer, last = null)
 		while (nowMs() < deadline) {
-			withTimeoutOrNull(SCAN_POLL_INTERVAL_MS) {
+			if (interval > 0L) withTimeoutOrNull(interval) {
 				libraryEvents.first { it.event == EVENT_ARTIST_SCANNED && it.ndArtistId == ndId }
 			}
+			interval = scanPollDelayMs(first = false, p1Peer = p1Peer, last = null)
 			val data = discography(ndId, mbid) ?: continue
 			val scan = data.scan?.takeIf { it.taskId == taskId }
+			if (scan != null) onScan(scan)
+			interval = scanPollDelayMs(first = false, p1Peer = p1Peer, last = scan)
 			if (scan?.state == "failed") {
 				return LbScanOutcome.Failed(scan.error.ifBlank { "The discography scan failed" }, data)
 			}
 			if (data.indexed && data.scannedAt > scannedBefore) return LbScanOutcome.Done(data)
+			// Worbus P1: lb-bot says this scan finished and the index did not move (a worker scan of an
+			// artist whose row was already this fresh): nothing more will come of waiting.
+			if (scan?.state == "done") return if (data.indexed) LbScanOutcome.Done(data) else LbScanOutcome.TimedOut
 		}
 		return LbScanOutcome.TimedOut
 	}
@@ -3963,7 +4053,9 @@ data class LbStatusProbe(
 	/** Routes this hub can proxy. Empty from a hub too old to advertise them. */
 	val routes: List<String> = emptyList(),
 	/** lb-bot's web UI for a person to open; empty from a hub too old to say. */
-	val webUrl: String = ""
+	val webUrl: String = "",
+	/** Worbus P1: "on" | "off" when lb-bot reported it; "" from an older hub or lb-bot ([lbDownloadsOf]). */
+	val downloads: String = ""
 )
 
 /**
@@ -4010,21 +4102,50 @@ private const val SCAN_WAIT_MS = 5 * 60_000L
 /** The scan poll's FALLBACK tick — the mirror Flow and the `artistScanned` frame are the
  *  feedback (see [LbBotManager.awaitArtistScan]). Was 5 s, when this poll was all there was. */
 private const val SCAN_POLL_INTERVAL_MS = 15_000L
+/** Worbus P1: the poll while lb-bot says the scan is running, so its counts move on the page. */
+private const val SCAN_RUNNING_POLL_MS = 3_000L
 
-/** The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. */
+/**
+ * Worbus P1: how long [LbBotManager.awaitArtistScan] waits before its next read. The first read is at
+ * once only for a P1 peer ([p1Peer]); every later one is 3 s while the last record says a P1 lb-bot's
+ * scan is running (it carries counts to move), else the 15 s fallback. An older peer gets exactly
+ * today's wait: 15 s (or the `artistScanned` frame) before every read.
+ */
+internal fun scanPollDelayMs(first: Boolean, p1Peer: Boolean, last: LbArtistScan?): Long = when {
+	first -> if (p1Peer) 0L else SCAN_POLL_INTERVAL_MS
+	last?.state == "running" && last.hasCounts -> SCAN_RUNNING_POLL_MS
+	else -> SCAN_POLL_INTERVAL_MS
+}
+
+/**
+ * The newest discography scan lb-bot ran for an artist. `state`: running | done | failed. Since Worbus P1
+ * any scan of the artist, lb-bot's background worker's included (`taskId` "auto-index"), with how far
+ * it has got: [done] of [total] release groups, 0 of 0 while lb-bot is still listing them, and from an
+ * older lb-bot (no fields).
+ */
 @Serializable
 data class LbArtistScan(
 	val state: String = "",
 	val error: String = "",
 	val taskId: String = "",
 	val startedAt: Double = 0.0,
-	val finishedAt: Double = 0.0
-)
+	val finishedAt: Double = 0.0,
+	/** Null from an older lb-bot, which keeps no counts: [hasCounts] is how a P1 record is told apart. */
+	val done: Int? = null,
+	val total: Int? = null
+) {
+	/** The record is a P1 lb-bot's: it carries its counts (0 of 0 while it lists the release groups). */
+	val hasCounts: Boolean get() = done != null && total != null
+}
 
+/**
+ * Scan now's body. Worbus P1: [mbid] (and [name]) may be "", which [lbWireJson] leaves out: lb-bot then
+ * resolves the library artist [ndId] itself, as its worker does.
+ */
 @Serializable
 private data class LbIndexRequest(
-	val mbid: String,
-	val name: String,
+	val mbid: String = "",
+	val name: String = "",
 	@SerialName("nd_id") val ndId: String
 )
 
@@ -4237,7 +4358,12 @@ data class LbDiscography(
 	@SerialName("scanned_at") val scannedAt: Double = 0.0,
 	val releases: List<LbRelease> = emptyList(),
 	/** The last scan lb-bot ran for this artist since it started, or null. */
-	val scan: LbArtistScan? = null
+	val scan: LbArtistScan? = null,
+	/**
+	 * Worbus P1: lb-bot scanned this artist and found no MusicBrainz artist for them (its row has no
+	 * MBID). Absent (an older lb-bot, or an artist it has not indexed) is false.
+	 */
+	val unresolved: Boolean = false
 )
 
 /**
@@ -4542,7 +4668,21 @@ data class LbMeta(
 	/** Artists only. */
 	val relations: LbMetaRelations = LbMetaRelations(),
 	/** Albums only: producer/engineer/writer, roles collapsed per person. */
-	val credits: List<LbMetaCredit> = emptyList()
+	val credits: List<LbMetaCredit> = emptyList(),
+	/**
+	 * Worbus P1, albums only: where the record can be found — links MusicBrainz confirms on the group's
+	 * releases, and a search on each of six services without one. **Null is "no section"**: an older
+	 * lb-bot, MusicBrainz down with nothing cached, no names to search. `FindItRow` draws it.
+	 */
+	val findIt: List<LbFindItLink>? = null
+)
+
+/** One Find-it link (Worbus P1): `service` an id (`spotify`, `apple-music`, …, `other`), `kind` `confirmed` | `search`. */
+@Serializable
+data class LbFindItLink(
+	val service: String = "",
+	val kind: String = "",
+	val url: String = ""
 )
 
 @Serializable

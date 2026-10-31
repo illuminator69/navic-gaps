@@ -82,6 +82,7 @@ import navic.composeapp.generated.resources.action_preview_track
 import navic.composeapp.generated.resources.preview_none_found
 import navic.composeapp.generated.resources.action_view_artist
 import navic.composeapp.generated.resources.info_external_album_index_failed
+import navic.composeapp.generated.resources.info_external_album_index_failed_off
 import navic.composeapp.generated.resources.title_missing_album
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -101,6 +102,7 @@ import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.StatePill
 import paige.navic.ui.screens.collection.components.collectionDetailScreenAboutRow
 import paige.navic.ui.screens.external.components.RequestBox
+import paige.navic.ui.screens.album.findItRow
 import paige.navic.icons.outlined.Favorite
 import paige.navic.icons.filled.Favorite
 import androidx.compose.runtime.collectAsState
@@ -165,6 +167,7 @@ fun ExternalAlbumScreen(
 	val scope = rememberCoroutineScope()
 	// The fills this device knows of; the box reads its own row out of them by release-group.
 	val ledger by lbBot.ledger.collectAsState()
+	val downloads by lbBot.downloads.collectAsState()
 
 	// The library turns out to hold this release-group after all — only lb-bot's
 	// index knows which Navidrome album that is, so this can only be answered once
@@ -300,6 +303,8 @@ fun ExternalAlbumScreen(
 				RequestBox(
 					support = when {
 						!lbBot.isConfigured -> Support.ABSENT
+						// Worbus P1: lb-bot cannot download here (its advert, or its own 409).
+						!downloads.isOn -> Support.DOWNLOADS_OFF
 						!lbBot.supportsSourcePicker -> Support.NEEDS_HUB_RESTART
 						else -> Support.YES
 					},
@@ -334,13 +339,20 @@ fun ExternalAlbumScreen(
 				fallbackNotes = null,
 				onOpen = viewModel::openAbout
 			)
+			// Worbus P1: where the record can be found (lb-bot's `findIt`), its own section under the
+			// About row, in both downloads modes; no `findIt` is no section.
+			findItRow(state.meta?.findIt)
 			// Not fatal, and worth saying: the album is still fully downloadable through the
 			// picker above. What is lost is the index row, so this release keeps listing as
 			// missing on the artist page until a rescan.
 			if (state.indexAddFailed) {
 				item(key = "index-failed") {
 					Text(
-						stringResource(Res.string.info_external_album_index_failed),
+						// Worbus P1: "Downloading still works" only where it does.
+						stringResource(
+							if (downloads.isOn) Res.string.info_external_album_index_failed
+							else Res.string.info_external_album_index_failed_off
+						),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						textAlign = TextAlign.Center,

@@ -163,7 +163,9 @@ fun GapBox(
 	onCancel: () -> Unit,
 	onRecheck: () -> Unit,
 	onDismiss: () -> Unit,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	/** Worbus P1: the line's Fill gaps, gone while lb-bot cannot download ([gapFillOffered]). */
+	fillOffered: Boolean = true
 ) {
 	val motion = rememberFoldMotion(tall = true)
 	// The missing songs stay drawn while the list folds away.
@@ -201,7 +203,7 @@ fun GapBox(
 							tracks = lastTracks,
 							album = gap?.album.orEmpty(),
 							onToggle = onToggle,
-							onFillGaps = onFillGaps,
+							onFillGaps = onFillGaps.takeIf { fillOffered },
 							onWrongEdition = onWrongEdition,
 							onRecheck = onRecheck,
 							onOpenInLbBot = onOpenInLbBot,
@@ -243,7 +245,8 @@ fun GapBox(
 							working = ui.working
 						)
 					}
-					if (ui.error != null) {
+					// Worbus P1: no error line while downloading is off: what failed was a way to fetch.
+					if (ui.error != null && fillOffered) {
 						Box(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) { LbErrorLine(ui.error) }
 					}
 				}
@@ -275,7 +278,8 @@ private fun FoldContent(
 	tracks: GapStage.Tracks?,
 	album: String,
 	onToggle: () -> Unit,
-	onFillGaps: () -> Unit,
+	/** Null: no Fill gaps (downloading is off); the line and its missing songs stay. */
+	onFillGaps: (() -> Unit)?,
 	onWrongEdition: (() -> Unit)?,
 	onRecheck: () -> Unit,
 	onOpenInLbBot: (() -> Unit)?,
@@ -300,14 +304,16 @@ private fun FoldContent(
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
 		}
-		// Fill gaps stays beside the title, open or folded: always one tap.
-		Button(
-			onClick = onFillGaps,
-			shape = ContinuousCapsule,
-			contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-			modifier = Modifier.height(36.dp)
-		) {
-			Text(stringResource(Res.string.gap_banner_action), style = MaterialTheme.typography.labelLarge)
+		// Fill gaps stays beside the title, open or folded: always one tap (while lb-bot can download).
+		if (onFillGaps != null) {
+			Button(
+				onClick = onFillGaps,
+				shape = ContinuousCapsule,
+				contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+				modifier = Modifier.height(36.dp)
+			) {
+				Text(stringResource(Res.string.gap_banner_action), style = MaterialTheme.typography.labelLarge)
+			}
 		}
 		Icon(
 			Icons.Outlined.KeyboardArrowDown,

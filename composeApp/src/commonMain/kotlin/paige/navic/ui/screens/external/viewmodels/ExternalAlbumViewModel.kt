@@ -40,6 +40,7 @@ import paige.navic.ui.components.common.FillButton
 import paige.navic.ui.screens.external.SourceSearch
 import paige.navic.ui.screens.external.preselectedSource
 import paige.navic.util.Logger
+import paige.navic.domain.manager.isDownloadsOffRefusal
 
 /**
  * Whether opening an album page starts its source search by itself (P4, call 1: it does not). A
@@ -51,6 +52,7 @@ const val SOURCES_AUTO_START = false
 /**
  * P6: whether the search Statistics' "Find sources" asked for starts now: asked, not yet done, the
  * edition known, nothing searching or filling for it already, and a hub that carries the route.
+ * Worbus P1: and lb-bot can download ([downloadsOn]; a page opened before the mode flipped).
  */
 internal fun arrivalSearchShouldStart(
 	wanted: Boolean,
@@ -58,8 +60,9 @@ internal fun arrivalSearchShouldStart(
 	editionKnown: Boolean,
 	searching: Boolean,
 	fillRunning: Boolean,
-	supported: Boolean
-): Boolean = wanted && !done && editionKnown && !searching && !fillRunning && supported
+	supported: Boolean,
+	downloadsOn: Boolean = true
+): Boolean = wanted && !done && editionKnown && !searching && !fillRunning && supported && downloadsOn
 
 /**
  * The request box's own state (P4): what used to live in `MissingAlbumSheet`'s `remember`s, moved
@@ -501,7 +504,8 @@ class ExternalAlbumViewModel(
 				editionKnown = _state.value.detail != null && request.editionMbid.isNotBlank(),
 				searching = request.search is SourceSearch.Searching,
 				fillRunning = lbBotManager.isFilling(rgid),
-				supported = lbBotManager.supportsSourcePicker
+				supported = lbBotManager.supportsSourcePicker,
+				downloadsOn = lbBotManager.downloadsOn
 			)
 		) return
 		arrivalSearchDone = true
@@ -514,6 +518,8 @@ class ExternalAlbumViewModel(
 		val edition = request.editionMbid
 		val search = request.search
 		if (search is SourceSearch.Searching && search.editionMbid == edition) return
+		// Worbus P1: nothing to search with while lb-bot cannot download (the box says so).
+		if (!lbBotManager.downloadsOn) return
 		val asked = chosenEdition()
 		updateRequest { it.copy(search = SourceSearch.Searching(edition), selected = null, error = null, refused = false) }
 		viewModelScope.launch {
@@ -527,7 +533,11 @@ class ExternalAlbumViewModel(
 					val sources = result.value.sources
 					updateRequest { it.copy(search = SourceSearch.Found(edition, sources), selected = preselectedSource(sources)) }
 				}
-				is LbBotManager.LbResult.Failed -> updateRequest { it.copy(search = SourceSearch.Failed(result.error)) }
+				// lb-bot's 409 `downloads_off` has already turned the mode off and the box reads it
+				// first; the search goes back to idle rather than keeping a failure to show later.
+				is LbBotManager.LbResult.Failed -> updateRequest {
+					it.copy(search = if (isDownloadsOffRefusal(result.error)) SourceSearch.Idle else SourceSearch.Failed(result.error))
+				}
 			}
 		}
 	}
@@ -564,7 +574,10 @@ class ExternalAlbumViewModel(
 			// Not fast even with a source chosen: lb-bot resolves the release-group
 			// against MusicBrainz before answering.
 			when (val result = lbBotManager.download(rgid, quality, source, edition, allFiles = allFiles)) {
-				is LbBotManager.LbResult.Failed -> updateRequest { it.copy(error = result.error) }
+				is LbBotManager.LbResult.Failed -> updateRequest {
+					// As in [findSources]: a `downloads_off` refusal is the mode, not an error to show.
+					it.copy(error = result.error.takeUnless(::isDownloadsOffRefusal))
+				}
 				is LbBotManager.LbResult.Ok -> {
 					updateRequest {
 						it.copy(

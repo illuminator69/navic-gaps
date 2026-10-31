@@ -35,8 +35,12 @@ sealed interface SourceSearch {
 	data class Failed(val error: LbBotManager.LbError) : SourceSearch
 }
 
-/** Whether this hub can take a request at all: lb-bot off, a hub too old for the source picker, or yes. */
-enum class Support { ABSENT, NEEDS_HUB_RESTART, YES }
+/**
+ * Whether this hub can take a request at all: lb-bot off, a hub too old for the source picker, or yes.
+ * [DOWNLOADS_OFF] (Worbus P1) is lb-bot saying it cannot download (`downloads: "off"`, or its 409
+ * `downloads_off`): appended, so the order of the others is unchanged.
+ */
+enum class Support { ABSENT, NEEDS_HUB_RESTART, YES, DOWNLOADS_OFF }
 
 data class RequestInput(
 	val support: Support,
@@ -62,6 +66,11 @@ sealed interface RequestStage {
 	data object Absent : RequestStage
 	/** The hub does not proxy the source picker yet. */
 	data object NeedsHubRestart : RequestStage
+	/**
+	 * Worbus P1: lb-bot cannot download on this server. One plain line, nothing offered: the page's
+	 * Add to wishlist and Find it are the ways on.
+	 */
+	data object DownloadsOff : RequestStage
 	/** Nothing asked yet; [cancelledBefore] when the last request was cancelled. */
 	data class Idle(val cancelledBefore: Boolean) : RequestStage
 	data object Searching : RequestStage
@@ -84,6 +93,11 @@ sealed interface RequestStage {
 
 fun requestStage(input: RequestInput): RequestStage {
 	if (input.support == Support.ABSENT) return RequestStage.Absent
+	// Worbus P1: decided before the fill ledger. A settled fill's Retry would be refused, and a fill
+	// lb-bot cannot carry on will not move again; what the library holds is still said.
+	if (input.support == Support.DOWNLOADS_OFF) {
+		return if (input.indexed != null && !input.indexed.isMissing) RequestStage.InLibrary else RequestStage.DownloadsOff
+	}
 	val fill = input.fill
 	if (fill != null && !fill.settled) {
 		return RequestStage.Active(

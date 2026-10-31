@@ -35,6 +35,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.di.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -62,6 +63,7 @@ fun ArtistDiscographyScreen(artistId: String) {
 	val artistState by viewModel.artistState.collectAsStateWithLifecycle()
 	val discography by viewModel.discography.collectAsStateWithLifecycle()
 	val artistMbid by viewModel.artistMbid.collectAsStateWithLifecycle()
+	val downloads by koinInject<LbBotManager>().downloads.collectAsStateWithLifecycle()
 	val state = artistState.data
 	val fromIndex = discography.available && discography.indexed && discography.sections.isNotEmpty()
 	val sections = if (fromIndex) discography.sections else ownedSections(state?.albums.orEmpty())
@@ -145,7 +147,8 @@ fun ArtistDiscographyScreen(artistId: String) {
 			if (!fromIndex) {
 				DiscographyScanAction(
 					ui = discography,
-					canIndex = artistMbid.effective.isNotBlank(),
+					mbid = artistMbid.effective,
+					scanByNdId = scanByNdIdOffered(downloads, discography.ndIdScanRefused),
 					onIndex = { viewModel.indexArtist() }
 				)
 			}

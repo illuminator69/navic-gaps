@@ -270,6 +270,7 @@ fun CollectionDetailScreen(
 	val ledger by lbBot.ledger.collectAsState()
 	val canFixAlbumMatch by lbBot.albumOverridesSupported.collectAsState()
 	val lbWebUrl by lbBot.webUrl.collectAsState()
+	val downloads by lbBot.downloads.collectAsState()
 	val uriHandler = LocalUriHandler.current
 	val gapRecord = albumGap?.groupId?.let { gapRecords[it] }
 	val gapFill = albumGap?.groupId?.ifBlank { null }?.let { id -> ledger.firstOrNull { it.key == id } }
@@ -291,7 +292,8 @@ fun CollectionDetailScreen(
 			view = gapBox.view,
 			committed = gapBox.committed,
 			searchAsked = gapBox.searchAsked,
-			now = gapClock
+			now = gapClock,
+			downloadsOn = downloads.isOn
 		)
 	)
 	// A safe source is chosen for the user when the sources land (recommended, the artist found in
@@ -497,6 +499,7 @@ fun CollectionDetailScreen(
 							},
 							onToggle = viewModel::toggleGap,
 							onFillGaps = viewModel::openGapSources,
+							fillOffered = gapFillOffered(downloads),
 							onBack = { viewModel.setGapView(GapView.TRACKS) },
 							onClose = { viewModel.setGapView(GapView.FOLDED) },
 							onSelect = { viewModel.selectGapSource(it, fetchListing = true) },

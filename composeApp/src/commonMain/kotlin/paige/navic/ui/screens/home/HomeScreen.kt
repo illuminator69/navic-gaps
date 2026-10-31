@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -151,6 +153,16 @@ fun HomeScreen() {
 	val frequent by viewModel.frequent.collectAsStateWithLifecycle()
 	val mixTiles by viewModel.mixTiles.collectAsStateWithLifecycle()
 	val shell = koinInject<ShellController>()
+	// Worbus P1: lb-bot's first index build, while lb-bot is up (the hub keeps the last progress while
+	// it is away).
+	val lbBot = koinInject<LbBotManager>()
+	val indexProgress by lbBot.indexProgress.collectAsStateWithLifecycle()
+	val lbAvailable by lbBot.available.collectAsStateWithLifecycle()
+	val bar = indexBar(indexProgress, lbAvailable)
+	val onePixel = with(LocalDensity.current) { 1.toDp() }
+	// The card keeps the last count while it folds away.
+	var shownBar by remember { mutableStateOf<IndexBar?>(null) }
+	if (bar != null && bar != shownBar) shownBar = bar
 	val syncing by viewModel.syncing.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val moodCatalogue by viewModel.moodCatalogue.collectAsStateWithLifecycle()
@@ -173,7 +185,8 @@ fun HomeScreen() {
 		freshCount = fresh.size,
 		playedCount = played.size,
 		frequentCount = frequent.size,
-		mixTileCount = mixTiles.size
+		mixTileCount = mixTiles.size,
+		indexBar = bar
 	)
 	// Waiting is not empty: a section whose first read is out shows tinted boxes of its final size.
 	val recentWaiting = recentAlbums.isEmpty() && (recent is UiState.Loading || syncing)
@@ -328,6 +341,20 @@ fun HomeScreen() {
 						onMenu = { menuQueue = it },
 						onSeeAll = dropUnlessResumed { backStack.add(Screen.SavedQueues) }
 					)
+					}
+				}
+			}
+
+			// Worbus P1: always one item, so the card folds out as well as in (an item that left with its
+			// section would go at once). Never 0 px tall: a lazy list keeps its first VISIBLE key in place,
+			// and a 0 px item at the top is not visible, so the shelf under it was that key and the card
+			// unfolded above the view (seen on the AVD). One pixel makes this item the key at the top: the
+			// card then pushes the page down there, and further down it unfolds out of sight as before. The
+			// pixel is the Box's: a Fold that is fully hidden lays nothing out, its modifier included.
+			item(key = "index") {
+				Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).heightIn(min = onePixel)) {
+					Fold(visible = shelves && HomeSection.IndexProgress in sections) {
+						shownBar?.let { IndexProgressCard(it) }
 					}
 				}
 			}
