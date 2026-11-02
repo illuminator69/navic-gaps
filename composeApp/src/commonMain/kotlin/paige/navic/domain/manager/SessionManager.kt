@@ -185,8 +185,12 @@ class SessionManager(
 
 	fun logout() {
 		settings["username"] = null
-		// The Navidrome password only (B-279, the owner's ruling 2026-10-30): the hub and AudioMuse
-		// tokens are the household's hub's, not this Navidrome user's, and stay as they always did.
+		// The owner's ruling of 2026-11-02 (Worbus P2, design §6.6 #1) replaces that of 2026-10-30: a
+		// Navidrome logout signs the device out of the Worbus Server too, because the Worbus Server's
+		// identity now IS the Navidrome account. That half is HubAuth's (LoginManager.logout →
+		// HubManager.leaveForLogout): the device secret and the legacy token go, the socket stops, the
+		// saved-queue cache is dropped. Here: the Navidrome password. The AudioMuse token is for a
+		// direct AudioMuse, not the Worbus Server, and stays.
 		secrets.navidromePassword = ""
 		_isLoggedIn.value = false
 		currentUser = null

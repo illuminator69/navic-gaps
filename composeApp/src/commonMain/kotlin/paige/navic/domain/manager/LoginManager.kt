@@ -34,7 +34,10 @@ class LoginManager(
     // not depend on this class (checked 2026-10-31), so the graph has no cycle.
     private val syncManager: SyncManager,
     // B-108: whether a failed login names Android's local network permission.
-    private val localNetwork: LocalNetworkAccess
+    private val localNetwork: LocalNetworkAccess,
+    // Worbus P2: a logout leaves the Worbus Server too (the owner's ruling, 2026-11-02). HubManager does
+    // not depend on this class, so the graph has no cycle.
+    private val hubManager: HubManager
 ) {
 	val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -174,6 +177,8 @@ class LoginManager(
 		signInAgain = false
 		// B-279: the login form outlives the session (a singleton), and kept the password typed.
 		passwordState.clearText()
+		// Worbus P2: sign out of the Worbus Server, stop the socket, drop the saved-queue cache.
+		hubManager.leaveForLogout()
 		sessionManager.logout()
 		nativeApi.forget()
 		scope.launch {

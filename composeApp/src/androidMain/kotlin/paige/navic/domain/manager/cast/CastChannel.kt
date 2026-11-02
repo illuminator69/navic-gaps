@@ -115,6 +115,31 @@ internal class CastChannel(
 	var mediaSessionId: Long? = null
 		private set
 
+	/**
+	 * Worbus P2 (design §6.3): the media sessions this connection STARTED (a LOAD's answer, or a
+	 * status that arrived while one of its LOADs was out) or that the bridge chose to adopt
+	 * ([markOwn]). A status for any other session is someone else's, and is reported, never adopted:
+	 * the spontaneous MEDIA_STATUS used to overwrite [mediaSessionId] with whatever arrived, so this
+	 * bridge went on driving another user's music.
+	 */
+	private val ownSessions = mutableSetOf<Long>()
+
+	/** LOADs this connection has sent and not yet had answered. */
+	private val loadsInFlight = java.util.concurrent.atomic.AtomicInteger(0)
+
+	/** The stream URL of the last LOAD this connection sent: the speaker may still report it. */
+	@Volatile
+	var lastLoadedContentId: String? = null
+		private set
+
+	fun ownMediaSessionIds(): Set<Long> = synchronized(ownSessions) { ownSessions.toSet() }
+
+	/** This session is ours from now on (the bridge adopted it, or a LOAD started it). */
+	fun markOwn(id: Long) {
+		synchronized(ownSessions) { ownSessions += id }
+		mediaSessionId = id
+	}
+
 	@Volatile
 	private var closed = false
 
@@ -137,6 +162,9 @@ internal class CastChannel(
 		extraBufferCapacity = 8,
 		onBufferOverflow = BufferOverflow.DROP_OLDEST
 	)
+
+	/** Worbus P2: every RECEIVER_STATUS, for the bridge's "someone else took the speaker" check. */
+	val receiverStatuses: SharedFlow<ReceiverStatus> = _receiverStatus.asSharedFlow()
 
 	private val _volume = MutableStateFlow<Int?>(null)
 
@@ -304,9 +332,9 @@ internal class CastChannel(
 		// connection first. Skipping this is the classic castv2 failure: everything "succeeds"
 		// and the device does nothing.
 		app.transportId?.let { sendVirtualConnect(it) }
-		// Adopt whatever it is already doing, so a joined session reports truthfully at once.
+		// Report whatever it is already doing, so a joined session reports truthfully at once.
+		// Worbus P2: reported, NOT made ours: the bridge decides whether to adopt ([markOwn]).
 		mediaStatus()?.let { st ->
-			mediaSessionId = st.mediaSessionId
 			_status.tryEmit(st)
 		}
 	}
@@ -342,13 +370,17 @@ internal class CastChannel(
 			currentTime = positionMs / 1000.0
 		)
 		val encoded = CastProtocol.json.encodeToString(LoadRequest.serializer(), payload)
+		lastLoadedContentId = contentId
 		// LOAD gets a longer leash than other requests: the device fetches and buffers the URL
 		// before answering, and on a slow server 8s is not unusual.
-		val reply = requestRaw(
-			CastProtocol.NS_MEDIA, target, payload.requestId, encoded, timeout = 15.seconds
-		) ?: return null
+		loadsInFlight.incrementAndGet()
+		val reply = try {
+			requestRaw(CastProtocol.NS_MEDIA, target, payload.requestId, encoded, timeout = 15.seconds)
+		} finally {
+			loadsInFlight.decrementAndGet()
+		} ?: return null
 		return reply.toMediaStatus()?.also {
-			mediaSessionId = it.mediaSessionId ?: mediaSessionId
+			it.mediaSessionId?.let(::markOwn)
 			_status.tryEmit(it)
 		}
 	}
@@ -541,7 +573,9 @@ internal class CastChannel(
 
 		if (frame.namespace == CastProtocol.NS_MEDIA && envelope.type == "MEDIA_STATUS") {
 			obj.toMediaStatus()?.let { st ->
-				mediaSessionId = st.mediaSessionId ?: mediaSessionId
+				// Worbus P2: a session this connection is loading is its own; any other is only
+				// reported (the bridge releases the speaker on it), never adopted here.
+				if (loadsInFlight.get() > 0) st.mediaSessionId?.let(::markOwn)
 				_status.tryEmit(st)
 			}
 		}

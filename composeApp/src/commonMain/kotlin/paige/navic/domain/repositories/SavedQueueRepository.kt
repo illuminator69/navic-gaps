@@ -272,6 +272,19 @@ class SavedQueueRepository(
 		if (cachedId != keepId) invalidateCache()
 	}
 
+	/**
+	 * Worbus P2: forget every saved queue this device holds, and every deletion it still owed the hub,
+	 * WITHOUT tombstoning anything: they are the signed-out account's, kept in its space on the hub.
+	 * Left behind, the next account's first connect would push them up into its own space
+	 * (`HubManager.syncLocalSavedQueuesUp`).
+	 */
+	suspend fun forget() {
+		savedQueueDao.clear()
+		indexMutex.withLock { index = emptyMap() }
+		invalidateCache()
+		tombstoneMutex.withLock { persistTombstones(emptyMap()) }
+	}
+
 	/** Drop the whole history (the "Clear all" surface). */
 	suspend fun clearAll(removedIds: Collection<String>) {
 		tombstone(removedIds)

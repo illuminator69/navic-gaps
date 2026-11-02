@@ -308,6 +308,17 @@ internal class CastDeviceBridge(
 	/** One adoption attempt per hub connection; reset on each fresh `welcome`. */
 	private var adopted = false
 
+	/**
+	 * Worbus P2 (design §6.3, Chromecasts are per user): another user's sender took the speaker, so this
+	 * bridge reported it released and let go. Cleared by this bridge's own next LOAD (its user casting
+	 * again: the last caster wins).
+	 */
+	@Volatile
+	private var takenOver = false
+
+	/** Media sessions another sender started on this speaker: never adopted. */
+	private val foreignSessions = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+
 	/** Saved-queue identity of an adopted session, so re-claiming doesn't fork a history record. */
 	private var savedQueueId: String? = null
 	private var sourceKind: String? = null
@@ -661,6 +672,28 @@ internal class CastDeviceBridge(
 		}
 	}
 
+	/**
+	 * Someone else's sender took the speaker (Worbus P2, design §6.3). Report the speaker released
+	 * (this user's session pauses at the position it reached), drop this bridge's connection to the
+	 * speaker, and never PAUSE or STOP it: what plays there now is the other user's. The bridge stays
+	 * registered, so this user can cast to the speaker again.
+	 */
+	private suspend fun speakerTaken(foreignSessionId: Long?) {
+		if (releasing || takenOver) return
+		takenOver = true
+		foreignSessionId?.let { foreignSessions += it }
+		Logger.i(TAG, "$friendlyName: another sender took the speaker — reporting it released")
+		releasing = true
+		try {
+			stopTicker()
+			playing = false
+			for (frame in speakerTakenFrames(index, lastPositionMs)) sendFrame(frame)
+			teardownCast()
+		} finally {
+			releasing = false
+		}
+	}
+
 	private suspend fun handleRelease(transferId: String?) {
 		// Freeze reporting FIRST — see the `releasing` field doc.
 		releasing = true
@@ -762,6 +795,18 @@ internal class CastDeviceBridge(
 
 	private fun observeChannel(ch: CastChannel) {
 		scope.launch { ch.status.collect { onCastStatus(it) } }
+		// Worbus P2: another sender's app replaced the one this bridge's session lives in.
+		scope.launch {
+			ch.receiverStatuses.collect { rs ->
+				if (releasing || takenOver) return@collect
+				val foreign = receiverStatusIsForeign(
+					appSessionIds = rs.applications.map { it.sessionId },
+					ownAppSessionId = ch.sessionId,
+					holdsOwnMedia = ch.ownMediaSessionIds().isNotEmpty()
+				)
+				if (foreign) speakerTaken(null)
+			}
+		}
 		// The receiver's volume, for the speaker's row (PROTOCOL §12.2): the level this
 		// connection read when it opened, and every change after it, whoever made it — a
 		// hub directive, the Google Home app, the buttons on the speaker. At most one every
@@ -813,6 +858,8 @@ internal class CastDeviceBridge(
 	/** @return whether the speaker actually started — PROTOCOL §7.1's `loaded.ok`. */
 	private suspend fun loadCurrent(positionMs: Long, play: Boolean): Boolean {
 		lastLoadError = null
+		// This user casting to the speaker again takes it back (last caster wins, design §6.3).
+		takenOver = false
 		val track = tracks.getOrNull(index) ?: run {
 			// Silent before. "Hub sent a load we couldn't act on" and "we loaded and the speaker
 			// ignored it" are very different bugs and produced identical (empty) logs.
@@ -966,6 +1013,19 @@ internal class CastDeviceBridge(
 
 	private fun onCastStatus(status: MediaStatus) {
 		if (releasing) return
+		// Worbus P2: another user's sender took the speaker. Report it released; never follow it.
+		val ch = channel
+		if (ch != null && !takenOver && castStatusIsForeign(
+				mediaSessionId = status.mediaSessionId,
+				contentId = status.media?.contentId,
+				ownSessionIds = ch.ownMediaSessionIds(),
+				queueStreamUrls = tracks.map { it.streamUrl },
+				lastLoadedContentId = ch.lastLoadedContentId
+			)
+		) {
+			scope.launch { speakerTaken(status.mediaSessionId) }
+			return
+		}
 		if (status.errored) {
 			Logger.e(
 				TAG,
@@ -1117,6 +1177,13 @@ internal class CastDeviceBridge(
 			return
 		}
 
+		// Worbus P2: a session another user's sender started here is theirs, whatever it plays.
+		if (!mayAdoptSession(status.mediaSessionId, foreignSessions.toSet())) {
+			Logger.i(TAG, "$friendlyName: the running session is another user's — not adopting")
+			teardownCast()
+			return
+		}
+		status.mediaSessionId?.let(ch::markOwn)
 		status.positionMs?.let { lastPositionMs = it }
 		playing = status.isPlaying
 		if (playingId != null) {
@@ -1169,6 +1236,16 @@ internal class CastDeviceBridge(
 					val wasPlaying = playing
 					teardownCast()
 					if (wasPlaying && !destroyed) runCatching { loadCurrent(lastPositionMs, true) }
+					return@launch
+				}
+				// Worbus P2: a poll that finds another sender's session reports the speaker taken
+				// (on the bridge's scope: speakerTaken stops this very ticker).
+				if (!takenOver && castStatusIsForeign(
+						status.mediaSessionId, status.media?.contentId, ch.ownMediaSessionIds(),
+						tracks.map { it.streamUrl }, ch.lastLoadedContentId
+					)
+				) {
+					scope.launch { speakerTaken(status.mediaSessionId) }
 					return@launch
 				}
 				status.positionMs?.let {
@@ -1266,3 +1343,53 @@ internal fun castBridgeHello(
 		})
 	}
 }
+
+/**
+ * Worbus P2 (design §6.3): a MEDIA_STATUS that is not this bridge's. Only once it holds a session of
+ * its own on this connection (before that, a status is a join's first look at whatever runs there,
+ * which this user's own LOAD is about to replace). Then a session id it did not start, or content
+ * that is neither a track of its queue nor what it last loaded, is another sender's.
+ */
+internal fun castStatusIsForeign(
+	mediaSessionId: Long?,
+	contentId: String?,
+	ownSessionIds: Set<Long>,
+	queueStreamUrls: List<String?>,
+	lastLoadedContentId: String?
+): Boolean {
+	if (ownSessionIds.isEmpty()) return false
+	if (mediaSessionId != null && mediaSessionId !in ownSessionIds) return true
+	val playing = streamIdentity(contentId) ?: return false
+	if (streamIdentity(lastLoadedContentId) == playing) return false
+	return queueStreamUrls.none { streamIdentity(it) == playing }
+}
+
+/**
+ * A RECEIVER_STATUS that no longer lists the app session this bridge's media lives in: another
+ * sender launched its own app over it. Nothing listed (the app idled out) is not this.
+ */
+internal fun receiverStatusIsForeign(appSessionIds: List<String?>, ownAppSessionId: String?, holdsOwnMedia: Boolean): Boolean =
+	holdsOwnMedia && ownAppSessionId != null && appSessionIds.isNotEmpty() && ownAppSessionId !in appSessionIds
+
+/** Whether a running session may be adopted: never one another user's sender started. */
+internal fun mayAdoptSession(mediaSessionId: Long?, foreignSessionIds: Set<Long>): Boolean =
+	mediaSessionId == null || mediaSessionId !in foreignSessionIds
+
+/**
+ * What a bridge sends when the speaker was taken: a last report (not playing, where it was) and an
+ * unsolicited `released` with no `transferId`, which the hub applies as the active device letting go
+ * (`hub.py`, `t == "released"`): the active slot clears and this user's session pauses there.
+ */
+internal fun speakerTakenFrames(index: Int, positionMs: Long): List<JsonObject> = listOf(
+	buildJsonObject {
+		put("t", "report")
+		put("index", index)
+		put("isPlaying", false)
+		put("positionMs", positionMs)
+	},
+	buildJsonObject {
+		put("t", "released")
+		put("index", index)
+		put("positionMs", positionMs)
+	}
+)

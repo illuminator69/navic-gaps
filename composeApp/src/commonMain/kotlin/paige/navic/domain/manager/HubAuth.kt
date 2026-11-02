@@ -263,6 +263,13 @@ class HubAuth(
 	/** Set by the silent sign-in, cleared by [noteWelcome]: one per signed-out episode. */
 	private var silentSignInSpent = false
 
+	/**
+	 * Bumped by every sign-out: a sign-in whose answer comes back after one (a logout during a silent
+	 * sign-in) keeps nothing it was given.
+	 */
+	@kotlin.concurrent.Volatile
+	private var signOutGeneration = 0
+
 	/** The credential every Worbus Server call sends; null when there is none. */
 	fun bearer(): String? = when (val c = helloCredential()) {
 		is HelloCredential.DeviceSecret -> c.secret
@@ -318,6 +325,7 @@ class HubAuth(
 			return SignInResult.Refused.also { _state.value = HubAuthState.Answered(it) }
 		}
 		_state.value = HubAuthState.SigningIn
+		val generation = signOutGeneration
 		val pair = subsonicPair(acct.password, newSalt())
 		val body = signInBody(
 			username = acct.username,
@@ -332,6 +340,11 @@ class HubAuth(
 		} catch (e: CancellationException) {
 			_state.value = HubAuthState.Idle
 			throw e
+		}
+		if (generation != signOutGeneration) {
+			log("sign-in answered after a sign-out; nothing kept")
+			_state.value = HubAuthState.Idle
+			return SignInResult.Unreachable(navidrome = false)
 		}
 		val result = when (val outcome = signInOutcomeOf(reply)) {
 			is SignInOutcome.Granted -> {
@@ -382,27 +395,40 @@ class HubAuth(
 	}
 
 	/**
-	 * Sign this device out of the Worbus Server (design §6.5, §6.6 #1): post `/hub/signout` with
-	 * the secret (best effort: a server that is not there forgets it at the 7-day sweep), then
-	 * forget the secret and the legacy token whatever the answer. The caller stops the socket.
+	 * Sign this device out of the Worbus Server (design §6.5, §6.6 #1): [beginSignOut] then
+	 * [finishSignOut]. The caller stops the socket first.
 	 */
-	suspend fun signOut() = lock.withLock {
-		val secret = secrets.hubDeviceSecret
-		val base = hubHttpBaseOf(preferenceManager.hubUrl)
+	suspend fun signOut() = finishSignOut(beginSignOut())
+
+	/**
+	 * The synchronous half of a sign-out: forget the secret and the legacy token now, so nothing can
+	 * dial or fall back to either from this moment (a logout followed by another account's login
+	 * must not act as anyone). Returns what [finishSignOut] tells the server.
+	 */
+	fun beginSignOut(): PendingSignOut {
+		val pending = PendingSignOut(secrets.hubDeviceSecret, hubHttpBaseOf(preferenceManager.hubUrl))
+		signOutGeneration++
 		secrets.hubDeviceSecret = ""
 		secrets.hubToken = ""
 		silentSignInSpent = false
 		_state.value = HubAuthState.Idle
-		if (secret.isNotBlank() && base != null) {
-			val reply = try {
-				transport.post("$base$SIGNOUT_PATH", null, bearer = secret)
-			} catch (e: CancellationException) {
-				throw e
-			} catch (e: Exception) {
-				HubAuthReply.NoAnswer
-			}
-			log("signed out: ${(reply as? HubAuthReply.Answered)?.status ?: "no answer"}")
+		return pending
+	}
+
+	/**
+	 * Tell the server (`POST /hub/signout` with the forgotten secret), best effort: a server that is
+	 * not there forgets the credential at its 7-day sweep, and nothing here depends on the answer.
+	 */
+	suspend fun finishSignOut(pending: PendingSignOut) {
+		if (pending.secret.isBlank() || pending.base == null) return
+		val reply = try {
+			transport.post("${pending.base}$SIGNOUT_PATH", null, bearer = pending.secret)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			HubAuthReply.NoAnswer
 		}
+		log("signed out: ${(reply as? HubAuthReply.Answered)?.status ?: "no answer"}")
 	}
 
 	companion object {
@@ -439,4 +465,28 @@ class KtorHubAuthTransport(
 		log("POST ${url.substringAfterLast('/')} had no answer: ${e::class.simpleName}")
 		HubAuthReply.NoAnswer
 	}
+}
+
+/** A sign-out begun ([HubAuth.beginSignOut]) and not yet told to the server. Prints no secret. */
+class PendingSignOut internal constructor(internal val secret: String, internal val base: String?) {
+	override fun toString() = "PendingSignOut(secret length ${secret.length})"
+}
+
+/**
+ * Leaving the Worbus Server on a Navidrome logout (design §6.5, the owner's 2026-11-02 ruling): stop the
+ * socket first (so the 4005 the server sends it earns no silent sign-in), forget the credentials at
+ * once, wait for the socket to be gone, tell the server, then drop the saved-queue cache, whose rows
+ * the next account's first connect would otherwise push into its own space.
+ */
+suspend fun leaveWorbusServer(
+	stopSocket: () -> Unit,
+	auth: HubAuth,
+	awaitSocketGone: suspend () -> Unit,
+	forgetSavedQueues: suspend () -> Unit
+) {
+	stopSocket()
+	val pending = auth.beginSignOut()
+	awaitSocketGone()
+	auth.finishSignOut(pending)
+	forgetSavedQueues()
 }

@@ -370,10 +370,31 @@ class HubManager(
 	fun signOutOfServer() {
 		val job = connectJob
 		stop()
+		val pending = hubAuth.beginSignOut()
 		scope.launch {
 			job?.cancelAndJoin()
-			hubAuth.signOut()
+			hubAuth.finishSignOut(pending)
 			restart()
+		}
+	}
+
+	/**
+	 * A Navidrome logout signs this device out of the Worbus Server (the owner's ruling of
+	 * 2026-11-02, design §6.6 #1): [leaveWorbusServer]. The socket stops now and stays stopped (no
+	 * credential is left to dial with); the rest runs on this manager's scope, which the logout does
+	 * not end.
+	 */
+	fun leaveForLogout() {
+		val job = connectJob
+		stop()
+		scope.launch {
+			leaveWorbusServer(
+				stopSocket = { stop() },
+				auth = hubAuth,
+				awaitSocketGone = { job?.cancelAndJoin() },
+				forgetSavedQueues = { savedQueueRepository.forget() }
+			)
+			updateRoles()
 		}
 	}
 

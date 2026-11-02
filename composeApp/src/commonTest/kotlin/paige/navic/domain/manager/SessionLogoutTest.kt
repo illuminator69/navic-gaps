@@ -7,10 +7,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /*
- * B-279 review, the owner's ruling (2026-10-30): a Navidrome logout removes the Navidrome password
- * and nothing else. The hub and AudioMuse tokens belong to the household's hub, not to the
- * Navidrome user, and stay as they behaved before B-279. And the login screen says "couldn't be
- * read" only of a password that was stored and could not be read this launch.
+ * B-279, then the owner's ruling of 2026-11-02 (Worbus P2, design §6.6 #1), which replaces that of
+ * 2026-10-30: a Navidrome logout signs the device out of the Worbus Server too. That half is HubAuth's
+ * (`HubLogoutTest`, through LoginManager.logout → HubManager.leaveForLogout); SessionManager removes the
+ * Navidrome password, and the AudioMuse token (a direct AudioMuse's, not the Worbus Server's) stays.
+ * And the login screen says "couldn't be read" only of a password that was stored and could not be
+ * read this launch.
  */
 class SessionLogoutTest {
 	private val settings = MemorySettings()
@@ -19,10 +21,9 @@ class SessionLogoutTest {
 		SessionManager(settings, PreferenceManager(settings, secrets), secrets)
 
 	@Test
-	fun logoutRemovesThePasswordAndKeepsBothTokens() {
+	fun logoutRemovesThePasswordAndKeepsTheAudioMuseToken() {
 		val secrets = testSecrets(settings)
 		secrets.navidromePassword = "hunter2"
-		secrets.hubToken = "hub-tok"
 		secrets.audioMuseToken = "am-tok"
 		settings.putString("instanceUrl", "http://nd")
 
@@ -30,7 +31,6 @@ class SessionLogoutTest {
 		session.logout()
 
 		assertEquals("", secrets.navidromePassword)
-		assertEquals("hub-tok", secrets.hubToken)
 		assertEquals("am-tok", secrets.audioMuseToken)
 		assertNull(settings.getStringOrNull("username"))
 		assertFalse(session.isLoggedIn.value)
