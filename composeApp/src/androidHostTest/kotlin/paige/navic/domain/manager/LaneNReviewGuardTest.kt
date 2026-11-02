@@ -45,7 +45,7 @@ class LaneNReviewGuardTest {
 		assertTrue(Regex("""if \(error == null \|\| !lbErrorDrawn\(error\)\) return""").containsMatchIn(line), "LbErrorLine draws nothing for a hidden refusal")
 		val words = common.substring(common.indexOf("fun lbErrorText("), common.indexOf("fun aboutRefreshMessage("))
 		assertTrue("is LbBotManager.LbError.AccessRefused ->" in words, "lbErrorText has the refusals' branch")
-		assertTrue("error_lbbot_unavailable_to_account" in words, "too old says its one sentence")
+		assertTrue("error_lbbot_too_old" in words, "too old says its one sentence")
 	}
 
 	/** Review I-2: every reader of a non-2xx answer returns the refusal as itself. */
@@ -111,6 +111,35 @@ class LaneNReviewGuardTest {
 			l.trimStart().startsWith("private var ") && !lines[i - 1].trim().startsWith("@kotlin.concurrent.Volatile")
 		}.map { it.value.trim() }
 		assertEquals(emptyList(), unguarded)
+	}
+
+	/**
+	 * R26 (re-review N-a): the too-old sentence names the cause in the hub's own words
+	 * (`LBBOT_TOO_OLD`'s `error`), in the Worbus P2 block, indented with a tab.
+	 */
+	@Test
+	fun too_old_says_the_hubs_words() {
+		val strings = File("src/commonMain/composeResources/values/strings.xml").readText()
+		val block = strings.substring(strings.indexOf("<!-- Worbus P2 -->"))
+		assertTrue(
+			"\n\t<string name=\"error_lbbot_too_old\">This Worbus Server's lb-bot is too old for signed-in users.</string>" in block,
+			"the hub's sentence, verbatim, in the P2 block"
+		)
+		assertTrue("Library tools aren't available" !in strings)
+	}
+
+	/** Re-review N-b: the visit's one index add is spent only by a step that asks or answers. */
+	@Test
+	fun index_add_is_spent_after_the_admin_check() {
+		val vm = text("ExternalAlbumViewModel.kt")
+		val body = member("ExternalAlbumViewModel.kt", "private suspend fun refreshIndexRow(")
+		assertTrue("|| indexAddTried) return" !in body, "the tried flag is not checked before the admin word")
+		val step = body.indexOf("externalIndexAdd(")
+		val spent = body.indexOf("if (step.spendsTheVisit()) indexAddTried = true")
+		assertTrue(step >= 0 && spent > step, "spent only after the step is decided")
+		assertTrue("indexAddTried = true\n" !in body.substring(0, maxOf(step, 0)), "never set before it")
+		// And the welcome's word reaches a page already open: an admin flag turning on looks again.
+		assertTrue(Regex("""lbBotManager\.roles[\s\S]{0,300}refreshIndexRow\(\)""").containsMatchIn(vm))
 	}
 
 	/** Review M-10: the admin route is never posted for a non-admin, whoever calls it. */

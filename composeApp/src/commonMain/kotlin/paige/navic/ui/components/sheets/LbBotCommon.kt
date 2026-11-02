@@ -23,7 +23,7 @@ import navic.composeapp.generated.resources.error_lbbot_busy
 import navic.composeapp.generated.resources.error_lbbot_hub_outdated
 import navic.composeapp.generated.resources.error_lbbot_not_configured
 import navic.composeapp.generated.resources.error_lbbot_rejected
-import navic.composeapp.generated.resources.error_lbbot_unavailable_to_account
+import navic.composeapp.generated.resources.error_lbbot_too_old
 import navic.composeapp.generated.resources.error_lbbot_unreachable
 import navic.composeapp.generated.resources.notice_about_error
 import navic.composeapp.generated.resources.notice_about_error_said
@@ -63,7 +63,8 @@ fun lbErrorText(error: LbBotManager.LbError): String = when (error) {
 	is LbBotManager.LbError.Rejected ->
 		error.message.ifBlank { stringResource(Res.string.error_lbbot_rejected, error.status) }
 	// Worbus P2 (review I-2): only too-old is ever drawn ([lbErrorDrawn]); the others hide their gate.
-	is LbBotManager.LbError.AccessRefused -> stringResource(Res.string.error_lbbot_unavailable_to_account)
+	// Its words are the hub's own (`LBBOT_TOO_OLD`, R26): the cause, not a vague "unavailable".
+	is LbBotManager.LbError.AccessRefused -> stringResource(Res.string.error_lbbot_too_old)
 }
 
 /**

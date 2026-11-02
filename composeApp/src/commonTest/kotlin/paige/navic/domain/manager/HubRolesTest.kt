@@ -12,6 +12,7 @@ import paige.navic.ui.screens.artist.artistSheetOffersFillGaps
 import paige.navic.ui.screens.collection.gapFillOffered
 import paige.navic.ui.screens.external.viewmodels.ExternalIndexAdd
 import paige.navic.ui.screens.external.viewmodels.externalIndexAdd
+import paige.navic.ui.screens.external.viewmodels.spendsTheVisit
 import paige.navic.ui.screens.home.mixTiles
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -215,10 +216,30 @@ class HubRolesTest {
 	@Test
 	fun non_admin_posts_no_admin_route() {
 		// The not-owned album page's automatic `POST /lb/artist/release` (lb-bot lists it as admin).
-		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = true, admin = false))
-		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = false, admin = false), "and no failure line either")
-		assertEquals(ExternalIndexAdd.UNSUPPORTED, externalIndexAdd(supported = false, admin = true))
-		assertEquals(ExternalIndexAdd.POST, externalIndexAdd(supported = true, admin = true))
+		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = true, admin = false, tried = false))
+		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = false, admin = false, tried = false), "and no failure line either")
+		assertEquals(ExternalIndexAdd.UNSUPPORTED, externalIndexAdd(supported = false, admin = true, tried = false))
+		assertEquals(ExternalIndexAdd.POST, externalIndexAdd(supported = true, admin = true, tried = false))
+	}
+
+	@Test
+	fun index_add_waits_for_the_admin_word() {
+		// Re-review N-b: an admin opens a not-owned album before the welcome (roles not said yet, so no
+		// admin). That look posts nothing and must not spend the visit's one add: once the welcome says
+		// admin, the add is made.
+		var tried = false
+		val beforeWelcome = externalIndexAdd(supported = true, admin = false, tried = tried)
+		assertEquals(ExternalIndexAdd.SKIP, beforeWelcome)
+		if (beforeWelcome.spendsTheVisit()) tried = true
+		assertFalse(tried, "a skipped look is not the visit's add")
+		val afterWelcome = externalIndexAdd(supported = true, admin = true, tried = tried)
+		assertEquals(ExternalIndexAdd.POST, afterWelcome)
+		if (afterWelcome.spendsTheVisit()) tried = true
+		assertTrue(tried)
+		// Once made (or answered unsupported), never again on this visit.
+		assertEquals(ExternalIndexAdd.DONE, externalIndexAdd(supported = true, admin = true, tried = true))
+		assertTrue(ExternalIndexAdd.UNSUPPORTED.spendsTheVisit())
+		assertFalse(ExternalIndexAdd.DONE.spendsTheVisit())
 	}
 
 	@Test

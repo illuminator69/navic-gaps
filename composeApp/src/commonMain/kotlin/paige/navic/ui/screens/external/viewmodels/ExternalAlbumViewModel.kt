@@ -180,7 +180,8 @@ class ExternalAlbumViewModel(
 	}
 
 	/** Fired at most once per instance, success or failure: this runs on a page the
-	 *  user is looking at, and an older hub 404ing would otherwise retry forever. */
+	 *  user is looking at, and an older hub 404ing would otherwise retry forever. Spent only
+	 *  by a step that asks or answers ([spendsTheVisit]), never by a look the admin check skipped. */
 	private var indexAddTried = false
 
 	// Above `init`, which calls load(): a property initialiser placed after it would run
@@ -291,6 +292,22 @@ class ExternalAlbumViewModel(
 		}
 	}
 
+	/** Set once the page's first answer has run [refreshIndexRow]: a later look needs that answer. */
+	private var indexRowAsked = false
+
+	/**
+	 * Re-review N-b: an admin who opened this page before the welcome had no admin word yet, so the
+	 * index add was skipped. When the hub says admin, the page looks once more.
+	 */
+	init {
+		viewModelScope.launch {
+			lbBotManager.roles
+				.map { it.admin }
+				.distinctUntilChanged()
+				.collect { admin -> if (admin && indexRowAsked && !indexAddTried) refreshIndexRow() }
+		}
+	}
+
 	private fun followLanding() {
 		if (landingJob?.isActive == true || _state.value.ownedAlbumId != null) return
 		landingJob = viewModelScope.launch {
@@ -356,6 +373,7 @@ class ExternalAlbumViewModel(
 					loadWishlisted()
 					resolveArtistTarget(detail?.artistMbid.orEmpty(), detail?.artist.orEmpty())
 					refreshIndexRow()
+					indexRowAsked = true
 					if (SOURCES_AUTO_START && lbBotManager.supportsSourcePicker) findSources()
 					startArrivalSearchIfDue()
 				}
@@ -816,13 +834,17 @@ class ExternalAlbumViewModel(
 			indexed = row,
 			ownedAlbumId = row?.navidromeAlbumIds?.firstOrNull { it.isNotBlank() }
 		)
-		if (row != null || !disco?.indexed.let { it == true } || indexAddTried) return
-		indexAddTried = true
+		if (row != null || !disco?.indexed.let { it == true }) return
 		// The route is a hub whitelist entry; an older hub answers a plain 404, which
 		// no HTTP client raises as an error. Check before pressing rather than after.
 		// Worbus P2 (review M-10): and it is an admin route, which a non-admin never posts.
-		when (externalIndexAdd(lbBotManager.supportsSingleReleaseIndex, lbBotManager.roles.value.admin)) {
-			ExternalIndexAdd.SKIP -> return
+		// Re-review N-b: the visit's one add is spent by a step that asks or answers, never by a look
+		// made before the hub said the user is an admin. Decided and spent with no suspension between,
+		// so a second look running beside this one sees it spent.
+		val step = externalIndexAdd(lbBotManager.supportsSingleReleaseIndex, lbBotManager.roles.value.admin, indexAddTried)
+		if (step.spendsTheVisit()) indexAddTried = true
+		when (step) {
+			ExternalIndexAdd.SKIP, ExternalIndexAdd.DONE -> return
 			ExternalIndexAdd.UNSUPPORTED -> {
 				_state.value = _state.value.copy(indexAddFailed = true)
 				return
@@ -867,11 +889,23 @@ internal enum class ExternalIndexAdd {
 	UNSUPPORTED,
 
 	/** An admin on a hub with the route: `POST /lb/artist/release`. */
-	POST
+	POST,
+
+	/** This visit's one add was already made (or answered unsupported). */
+	DONE
 }
 
-internal fun externalIndexAdd(supported: Boolean, admin: Boolean): ExternalIndexAdd = when {
+/**
+ * Whether [this] step uses up the visit's one add (re-review N-b): only a step that asks (POST) or that
+ * answers for the hub (UNSUPPORTED). A look made before the hub has said the user is an admin (a
+ * welcome still to come) posts nothing and leaves the add for when it does.
+ */
+internal fun ExternalIndexAdd.spendsTheVisit(): Boolean =
+	this == ExternalIndexAdd.POST || this == ExternalIndexAdd.UNSUPPORTED
+
+internal fun externalIndexAdd(supported: Boolean, admin: Boolean, tried: Boolean): ExternalIndexAdd = when {
 	!admin -> ExternalIndexAdd.SKIP
+	tried -> ExternalIndexAdd.DONE
 	!supported -> ExternalIndexAdd.UNSUPPORTED
 	else -> ExternalIndexAdd.POST
 }
