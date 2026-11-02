@@ -139,8 +139,8 @@ fun attentionBadge(read: LbAttention?, ledgerCount: Int, downloadsOn: Boolean = 
  * With navi-connect off the persisted ledger count lit the dot while the menu had no Needs attention
  * row to explain it (audit W-06).
  */
-fun attentionDotShown(badge: Int, preference: Boolean, configured: Boolean): Boolean =
-	configured && preference && badge > 0
+fun attentionDotShown(badge: Int, preference: Boolean, configured: Boolean, admin: Boolean = true): Boolean =
+	configured && admin && preference && badge > 0
 
 /** The menu's Needs attention badge, by the same rule as the dot: none without a configured hub. */
 fun menuAttentionBadge(badge: Int, configured: Boolean): Int = if (configured) badge else 0

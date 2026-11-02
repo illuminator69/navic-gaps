@@ -1694,4 +1694,6 @@
 	<string name="option_server_sign_in_as">Sign in as %1$s</string>
 	<string name="option_server_sign_out">Sign out of this server</string>
 	<string name="option_server_token_old">Server token, for older servers</string>
+	<string name="info_library_refused">The Worbus Server's library service turned this server away. Library tools are hidden.</string>
+	<string name="info_library_too_old">This Worbus Server's library service is too old for signed-in users.</string>
 </resources>

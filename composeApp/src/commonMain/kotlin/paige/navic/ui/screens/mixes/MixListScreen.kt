@@ -226,7 +226,7 @@ fun MixListBody(
 	val mixes by viewModel.mixes.collectAsStateWithLifecycle()
 	val message by viewModel.message.collectAsStateWithLifecycle()
 	val hubMessage by viewModel.hubMessage.collectAsStateWithLifecycle()
-	val stationsAvailable by viewModel.stationsAvailable.collectAsStateWithLifecycle()
+	val stationsAvailable by viewModel.yourMixAvailable.collectAsStateWithLifecycle()
 	val catalogue by viewModel.catalogue.collectAsStateWithLifecycle()
 
 	var renameTarget by remember { mutableStateOf<Mix?>(null) }

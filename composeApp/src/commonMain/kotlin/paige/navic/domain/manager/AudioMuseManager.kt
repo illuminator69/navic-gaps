@@ -142,6 +142,10 @@ class AudioMuseManager(
 	 */
 	suspend fun fetchSonicFingerprintIds(count: Int = 50): List<String> {
 		val ep = endpoint() ?: return emptyList()
+		// Worbus P2 (design §6.3): a device signed in to a Worbus Server reads the fingerprint
+		// through the hub only (theirs if they are the primary user, else 403); never straight from
+		// AudioMuse, which would hand it the primary user's listening with this device's credentials.
+		if (!fingerprintRouteAllowed(ep.viaHub, hubAuth.signedIn)) return emptyList()
 
 		return try {
 			val results: List<FingerprintItem> =

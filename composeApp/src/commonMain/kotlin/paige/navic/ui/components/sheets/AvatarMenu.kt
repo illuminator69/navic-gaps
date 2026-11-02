@@ -219,7 +219,12 @@ internal fun avatarMenuItems(
 	 * Worbus P1: lb-bot can download. Off, Source rules (how lb-bot picks a source) and Source history
 	 * (requests and transfers) are not drawn: both are about downloading, and both say "source".
 	 */
-	downloadsOn: Boolean = true
+	downloadsOn: Boolean = true,
+	/**
+	 * Worbus P2: the signed-in user is an admin ([paige.navic.domain.manager.HubRoles]). Not, Library
+	 * tools is the wishlist alone: every other row is lb-bot's operator half (P1's rights table).
+	 */
+	admin: Boolean = true
 ): List<AvatarMenuEntry> = buildList {
 	add(
 		AvatarMenuEntry.Group(
@@ -242,7 +247,12 @@ internal fun avatarMenuItems(
 		add(
 			AvatarMenuEntry.Group(
 				AvatarMenuIds.LIBRARY_TOOLS, Res.string.title_library_tools,
-				listOfNotNull(
+				if (!admin) listOf(
+					AvatarMenuEntry.Link(
+						AvatarMenuIds.WISHLIST, Icons.Outlined.LibraryAdd, Res.string.title_wishlist,
+						Screen.Wishlist
+					)
+				) else listOfNotNull(
 					AvatarMenuEntry.Link(
 						AvatarMenuIds.ATTENTION, Icons.Outlined.Error, Res.string.title_needs_attention,
 						Screen.Attention, badge = attentionCount.takeIf { it > 0 }
@@ -401,11 +411,14 @@ private fun AvatarMenuContent() {
 	val attention by lbBot.attentionBadge.collectAsState()
 	val webUrl by lbBot.webUrl.collectAsState()
 	val downloads by lbBot.downloads.collectAsState()
+	// Worbus P2: the signed-in user's roles; a `user` frame moves the rows in place.
+	val roles by lbBot.roles.collectAsState()
+	val lbAccess by lbBot.lbAccess.collectAsState()
 	val autoplayOn by radioManager.autoplayOn.collectAsState()
-	val lbConfigured = lbBot.isConfigured
+	val lbConfigured = lbAccess.let { lbBot.isConfigured }
 	val canShare = sessionManager.canUserShare()
-	val items = remember(lbConfigured, canShare, attention, webUrl, downloads) {
-		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl, downloads.isOn)
+	val items = remember(lbConfigured, canShare, attention, webUrl, downloads, roles) {
+		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl, downloads.isOn, roles.admin)
 	}
 	val uriHandler = LocalUriHandler.current
 

@@ -2,7 +2,17 @@ package paige.navic.domain.manager.cast
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.runBlocking
 import paige.navic.domain.manager.HelloCredential
+import paige.navic.domain.manager.HubAuth
+import paige.navic.domain.manager.HubAuthReply
+import paige.navic.domain.manager.HubAuthTransport
+import paige.navic.domain.manager.HubUser
+import paige.navic.domain.manager.MemorySettings
+import paige.navic.domain.manager.NavidromeAccount
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SignInResult
+import paige.navic.domain.manager.testSecrets
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,13 +27,38 @@ import kotlin.test.assertNull
 class CastBridgeHelloTest {
 	@Test
 	fun cast_bridge_hello_carries_bridgedBy() {
-		val hello = castBridgeHello("cast-abc", "Kitchen", "speaker", HelloCredential.DeviceSecret("sek"), "phone-id")!!
+		// The whole chain, as the app runs it: this device had a locally known id, signs in, and the
+		// hub answers with the id it bound the secret to (R4: possibly a fresh one).
+		val settings = MemorySettings()
+		val secrets = testSecrets(settings)
+		val prefs = PreferenceManager(settings, secrets).apply {
+			hubEnabled = true
+			hubUrl = "ws://hub.lan:4790/connect"
+			hubDeviceId = "locally-known-id"
+		}
+		val transport = HubAuthTransport { _, _, _ ->
+			HubAuthReply.Answered(
+				200,
+				"""{"deviceId": "bound-by-hub-id", "deviceSecret": "sek", "user": {"name": "bob", "admin": false, "primary": false}}"""
+			)
+		}
+		val auth = HubAuth(prefs, secrets, { NavidromeAccount("bob", "pw") }, { "phone" }, transport, log = {})
+		assertEquals(SignInResult.SignedIn(HubUser("bob", false, false)), runBlocking { auth.signIn() })
+		assertEquals("bound-by-hub-id", prefs.hubDeviceId, "the returned id is persisted")
+
+		// What CastBridgeManager hands each bridge: the credential, and the owner id, while the main
+		// socket's live id is still the legacy session's (no welcome on the new secret yet).
+		val credential = auth.helloCredential()
+		val owner = castOwnerDeviceId(credential, live = "stale-live-id", saved = prefs.hubDeviceId)
+		val hello = castBridgeHello("cast-abc", "Kitchen", "speaker", credential, owner)!!
+
 		assertEquals("hello", hello["t"]!!.jsonPrimitive.content)
 		assertEquals("sek", (hello["auth"] as JsonObject)["deviceSecret"]!!.jsonPrimitive.content)
 		assertFalse("token" in hello, "the secret, never the legacy token beside it")
 		val device = hello["device"] as JsonObject
 		assertEquals("cast-abc", device["id"]!!.jsonPrimitive.content)
-		assertEquals("phone-id", device["bridgedBy"]!!.jsonPrimitive.content)
+		// Exactly the id /hub/signin returned: never the locally known one, never a stale live one.
+		assertEquals("bound-by-hub-id", device["bridgedBy"]!!.jsonPrimitive.content)
 		assertEquals("chromecast", device["platform"]!!.jsonPrimitive.content)
 		assertEquals("speaker", device["kind"]!!.jsonPrimitive.content)
 	}

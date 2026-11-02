@@ -29,6 +29,7 @@ import paige.navic.domain.manager.MoodCatalogue
 import paige.navic.domain.manager.MoodEntry
 import paige.navic.domain.manager.MoodManager
 import paige.navic.domain.manager.MoodVariant
+import paige.navic.domain.manager.yourMixOffered
 import paige.navic.domain.manager.RadioManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.clear
@@ -137,8 +138,10 @@ class HomeViewModel(
 
 
 	/** Your mixes (P6): Your mix while the engine is there, then every mix the hub holds ([mixTiles]). */
-	val mixTiles: StateFlow<List<MixTile>> = combine(hubManager.mixes, stationManager.available) { mixes, engine ->
-		mixTiles(mixes, engine)
+	val mixTiles: StateFlow<List<MixTile>> = combine(hubManager.mixes, stationManager.available, hubManager.roles) { mixes, engine, roles ->
+		// Worbus P2: Your mix is the primary user's listening ([yourMixOffered]); the fingerprint
+		// mixes are already out of [HubManager.mixes] for anyone else.
+		mixTiles(mixes, yourMixOffered(engine, roles))
 	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
 	/** The library is being pulled right now: a page with nothing in it yet is waiting, not empty. */

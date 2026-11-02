@@ -334,6 +334,21 @@ class HubManager(
 	 */
 	val user: StateFlow<HubUser?> = _user.asStateFlow()
 
+	private val _roles = MutableStateFlow(hubRolesOf(null, hubAuth.signedIn))
+
+	/**
+	 * Worbus P2: what this user may see ([hubRolesOf]): from [user], failing closed while a signed-in
+	 * device waits for its welcome, everything for an older hub. Pushed to [LbBotManager] too, whose
+	 * flags gate the admin surfaces; this one gates Your mix and the fingerprint mixes.
+	 */
+	val roles: StateFlow<HubRoles> = _roles.asStateFlow()
+
+	private fun updateRoles() {
+		val next = hubRolesOf(_user.value, hubAuth.signedIn)
+		_roles.value = next
+		lbBotManager.applyRoles(next)
+	}
+
 	/** The sign-in, the reconnect and the sign-out run here, so leaving the Server page cancels none. */
 	val auth: StateFlow<HubAuthState> get() = hubAuth.state
 
@@ -569,6 +584,8 @@ class HubManager(
 		// change, so this race was easy to hit.
 		val old = connectJob
 		_connected.value = false
+		// A sign-in or a sign-out may have happened: a secret held with no user said yet fails closed.
+		updateRoles()
 		authFailed = false
 		_unreachable.value = false
 		_connectionError.value = null
@@ -586,6 +603,7 @@ class HubManager(
 		wsSession = null
 		_connected.value = false
 		_user.value = null
+		updateRoles()
 		// Recipes live only on the hub; holding a stale list would offer the user a
 		// mix whose play, rename and delete would all silently go nowhere.
 		_mixes.value = emptyList()
@@ -1359,7 +1377,8 @@ class HubManager(
 	 * Empty while disconnected, which is the correct answer: a recipe you cannot
 	 * play (the hub is also where it lives) should not be offered.
 	 */
-	val mixes: StateFlow<List<Mix>> = _mixes.asStateFlow()
+	val mixes: StateFlow<List<Mix>> = combine(_mixes, _roles) { all, roles -> mixesFor(roles, all) }
+		.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
 	private val _mixErrors = MutableSharedFlow<String>(extraBufferCapacity = 4)
 
@@ -1719,6 +1738,9 @@ class HubManager(
 				} catch (e: Exception) {
 					null
 				}
+				updateRoles()
+				// What lb-bot refused on the last connection is asked again on this one.
+				lbBotManager.resetAccess()
 				val id = msg["deviceId"]?.jsonPrimitive?.content
 				if (id != null) {
 					_myDeviceId.value = id
@@ -1922,6 +1944,13 @@ class HubManager(
 						msg["message"]?.jsonPrimitive?.contentOrNullSafe()
 					)
 				}
+			}
+
+			// Worbus P2 (design §6.1): the user's flags changed while connected (a demotion, a
+			// promotion). Applied as `welcome.user` is: the gates move in place. Older hubs never send it.
+			"user" -> hubUserFrameOf(msg)?.let {
+				_user.value = it
+				updateRoles()
 			}
 
 			"error" -> onHubError(

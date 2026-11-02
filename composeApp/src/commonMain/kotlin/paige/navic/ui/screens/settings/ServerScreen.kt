@@ -41,6 +41,8 @@ import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.action_open_settings
 import navic.composeapp.generated.resources.info_server_advanced
 import navic.composeapp.generated.resources.info_server_footer
+import navic.composeapp.generated.resources.info_library_refused
+import navic.composeapp.generated.resources.info_library_too_old
 import navic.composeapp.generated.resources.info_server_not_set
 import navic.composeapp.generated.resources.info_server_set
 import navic.composeapp.generated.resources.info_signed_in_as
@@ -63,6 +65,8 @@ import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
 import paige.navic.domain.manager.HubAuth
 import paige.navic.domain.manager.HubManager
+import paige.navic.domain.manager.LbAccess
+import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.AdvancedServerRow
@@ -104,6 +108,9 @@ fun ServerScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val hubManager = koinInject<HubManager>()
 	val hubAuth = koinInject<HubAuth>()
+	val lbBot = koinInject<LbBotManager>()
+	// Worbus P2: lb-bot refused the server (401 signin_required) or is too old for signed-in users.
+	val lbAccess by lbBot.lbAccess.collectAsState()
 	val settings = koinInject<Settings>()
 	val permissionManager = koinInject<PermissionManager>()
 	val platformContext = LocalPlatformContext.current
@@ -306,6 +313,20 @@ fun ServerScreen() {
 					}
 				}
 
+				// Worbus P2: the settings line for a library service that will not answer this user.
+				when (lbAccess) {
+					LbAccess.REFUSED -> Text(
+						stringResource(Res.string.info_library_refused),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error
+					)
+					LbAccess.TOO_OLD -> Text(
+						stringResource(Res.string.info_library_too_old),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error
+					)
+					LbAccess.OPEN -> Unit
+				}
 				// What lb-bot holds about the library used to be a section here (I-020); it is
 				// the Library Matches page now, and the listening sync is in Stats.
 				Text(

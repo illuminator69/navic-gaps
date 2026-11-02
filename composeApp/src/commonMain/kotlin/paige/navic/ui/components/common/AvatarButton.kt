@@ -50,7 +50,9 @@ fun AvatarButton(modifier: Modifier = Modifier) {
 	val lbBot = koinInject<LbBotManager>()
 	val badge by lbBot.attentionBadge.collectAsState()
 
-	val attention = attentionDotShown(badge, preferenceManager.showAttentionDot, lbBot.isConfigured)
+	// Worbus P2: Needs attention is an admin page, so its dot is an admin's too.
+	val roles by lbBot.roles.collectAsState()
+	val attention = attentionDotShown(badge, preferenceManager.showAttentionDot, lbBot.isConfigured, roles.admin)
 	val label = stringResource(
 		if (attention) Res.string.info_open_menu_attention else Res.string.action_open_menu
 	)

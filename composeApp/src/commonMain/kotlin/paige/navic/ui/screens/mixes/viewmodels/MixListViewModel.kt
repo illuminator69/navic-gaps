@@ -6,12 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.RadioManager
+import paige.navic.domain.manager.yourMixOffered
 import paige.navic.domain.models.Mix
 import paige.navic.domain.manager.StationCatalogue
 import paige.navic.domain.models.settings.StationCharacter
@@ -67,6 +69,11 @@ class MixListViewModel(
 
 	/** The hub's station engine can be asked (PROTOCOL §18): Your mix is offered, and radios play as stations. */
 	val stationsAvailable: StateFlow<Boolean> = radioManager.stationsAvailable
+
+	/** Worbus P2: Your mix's row, for the primary user only ([yourMixOffered]). */
+	val yourMixAvailable: StateFlow<Boolean> = combine(radioManager.stationsAvailable, hubManager.roles) { engine, roles ->
+		yourMixOffered(engine, roles)
+	}.stateIn(viewModelScope, SharingStarted.Eagerly, yourMixOffered(radioManager.stationsAvailable.value, hubManager.roles.value))
 
 	val catalogue: StateFlow<StationCatalogue> = radioManager.catalogue
 

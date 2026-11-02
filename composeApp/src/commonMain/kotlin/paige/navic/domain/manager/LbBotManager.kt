@@ -125,6 +125,22 @@ class LbBotManager(
 		hubKey = { preferenceManager.hubUrl }
 	)
 
+	/**
+	 * Worbus P2 (design §6.5): what the signed-in user may do, pushed by [HubManager] from
+	 * `welcome.user` and the `user` frame ([applyRoles]). Every admin and primary-only flag here reads
+	 * it, so a gate moves in place when a `user` frame arrives. Today's behaviour until a hub says.
+	 */
+	private val _roles = MutableStateFlow(HubRoles.EVERYTHING)
+	val roles: StateFlow<HubRoles> = _roles.asStateFlow()
+
+	/**
+	 * Worbus P2: whether lb-bot answers this user at all: 401 `signin_required` (refused, the layer
+	 * renders nothing) and the hub's 503 `lbbot_too_old` (unavailable). Reset by a new connection and
+	 * by a change of user.
+	 */
+	private val _lbAccess = MutableStateFlow(LbAccess.OPEN)
+	val lbAccess: StateFlow<LbAccess> = _lbAccess.asStateFlow()
+
 	private val client by lazy {
 		HttpClient {
 			install(ContentNegotiation) { json(json) }
@@ -158,7 +174,7 @@ class LbBotManager(
 	 * be the "renders something without lb-bot" the §7 rule forbids.
 	 */
 	val isConfigured: Boolean
-		get() = hubBase() != null && !hubProxyOff
+		get() = lbLayerOpen(hubBase() != null && !hubProxyOff, _lbAccess.value)
 
 	/**
 	 * The first half of [isConfigured] on its own: a hub is set, enabled and has a token. For
@@ -410,6 +426,8 @@ class LbBotManager(
 	private fun <T> LbResult<T>.valueOrNull(): T? = (this as? LbResult.Ok)?.value
 
 	private fun failureFor(status: Int, path: String, raw: String): LbResult.Failed {
+		// Worbus P2: a refusal that is about who is asking is not shown; its gate goes instead.
+		if (noteAccessRefusal(status, raw)) return LbResult.Failed(LbError.NotConfigured)
 		val wasOn = downloadsMode.current.isOn
 		val error = downloadsMode.failureOf(status, raw)
 		val message = (error as? LbError.Rejected)?.message.orEmpty()
@@ -427,10 +445,11 @@ class LbBotManager(
 	 * an advert says otherwise. The last word per hub is kept, and a new process starts from it
 	 * ([LbDownloadsState]).
 	 */
-	val downloads: StateFlow<LbDownloads> = downloadsMode.value
+	val downloads: StateFlow<LbDownloads> = combine(downloadsMode.value, _roles) { mode, roles -> downloadsFor(roles, mode) }
+		.stateIn(scope, SharingStarted.Eagerly, downloadsFor(_roles.value, downloadsMode.current))
 
-	/** [downloads] as the one question most surfaces ask. */
-	val downloadsOn: Boolean get() = downloadsMode.current.isOn
+	/** [downloads] as the one question most surfaces ask (Worbus P2: off for a non-admin, [downloadsFor]). */
+	val downloadsOn: Boolean get() = downloadsFor(_roles.value, downloadsMode.current).isOn
 
 	/**
 	 * A peer that knows the P1 fields: lb-bot said its downloads mode (on the advert, or by its 409).
@@ -464,9 +483,56 @@ class LbBotManager(
 	 * and no spinner left behind (the surfaces decide on [downloads] before anything else).
 	 */
 	private fun noteDownloadsRefusal(status: Int, raw: String) {
+		noteAccessRefusal(status, raw)
 		val wasOn = downloadsMode.current.isOn
 		downloadsMode.noteAnswer(status, raw)
 		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
+	}
+
+	/**
+	 * Worbus P2: 401 `signin_required`, the hub's 503 `lbbot_too_old` and 403 `admin_only` say who is
+	 * asking, not what went wrong ([lbRefusalEffect]). Applied here for every reader; true when the
+	 * answer is one of them, which its caller then does not show.
+	 */
+	private fun noteAccessRefusal(status: Int, raw: String): Boolean {
+		if (status != 401 && status != 403 && status != 503) return false
+		val code = (lbFailureOf(status, raw) as? LbError.Rejected)?.code.orEmpty()
+		val effect = lbRefusalEffect(_lbAccess.value, status, code)
+		if (effect.access != _lbAccess.value) {
+			Logger.i("LbBotManager", "lb-bot access: ${effect.access}")
+			_lbAccess.value = effect.access
+			if (effect.access == LbAccess.TOO_OLD) _available.value = false
+			publishAllSupport()
+		}
+		if (effect.demoteAdmin && _roles.value.admin) {
+			Logger.i("LbBotManager", "lb-bot says admin_only: admin actions hidden")
+			applyRoles(_roles.value.copy(admin = false), fromHub = false)
+		}
+		return effect.silent
+	}
+
+	/**
+	 * Worbus P2: the user's roles, from [HubManager] (`welcome.user`, the `user` frame, a sign-in or a
+	 * sign-out). [fromHub]: the hub said it, so what lb-bot refused for the previous user is asked again.
+	 */
+	fun applyRoles(roles: HubRoles, fromHub: Boolean = true) {
+		val changed = roles != _roles.value
+		_roles.value = roles
+		if (fromHub && changed && _lbAccess.value != LbAccess.OPEN) _lbAccess.value = LbAccess.OPEN
+		if (changed) publishAllSupport()
+	}
+
+	/** A new hub connection: lb-bot's last word about the previous one's user does not carry over. */
+	fun resetAccess() {
+		if (_lbAccess.value == LbAccess.OPEN) return
+		_lbAccess.value = LbAccess.OPEN
+		publishAllSupport()
+	}
+
+	private fun publishAllSupport() {
+		publishOverrideSupport()
+		publishAlbumOverrideSupport()
+		publishMergeSupport()
 	}
 
 	/**
@@ -903,7 +969,7 @@ class LbBotManager(
 		downloadsMode.applyAdvert(lbDownloadsOf(probe.downloads))
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
-		_available.value = ok
+		_available.value = lbAvailableFor(ok, _lbAccess.value)
 		_availableAt = nowMs()
 		publishOverrideSupport()
 		publishAlbumOverrideSupport()
@@ -975,7 +1041,7 @@ class LbBotManager(
 		// known, a welcome's starts again from "unknown".
 		downloadsMode.applyAdvert(downloads, newConnection)
 		hubProxyOff = !available && routes.isEmpty()
-		_available.value = available
+		_available.value = lbAvailableFor(available, _lbAccess.value)
 		_availableAt = nowMs()
 		_webUrl.value = cleanWebUrl(webUrl)
 		// The artist MBID overrides ride every advert: an override set from another client while
@@ -1653,7 +1719,7 @@ class LbBotManager(
 	 */
 	private fun publishOverrideSupport() {
 		_artistOverridesSupported.update {
-			isConfigured && !overrideRoutesMissing && advertisesRoute(ROUTE_OVERRIDE_SET)
+			adminGated(isConfigured && !overrideRoutesMissing && advertisesRoute(ROUTE_OVERRIDE_SET), _roles.value)
 		}
 	}
 
@@ -1869,7 +1935,7 @@ class LbBotManager(
 
 	private fun publishAlbumOverrideSupport() {
 		_albumOverridesSupported.update {
-			isConfigured && !albumOverrideRoutesMissing && advertisesRoute(ROUTE_ALBUM_OVERRIDE)
+			adminGated(isConfigured && !albumOverrideRoutesMissing && advertisesRoute(ROUTE_ALBUM_OVERRIDE), _roles.value)
 		}
 	}
 
@@ -2197,7 +2263,7 @@ class LbBotManager(
 
 	private fun publishMergeSupport() {
 		_artistMergesSupported.update {
-			isConfigured && !mergeRoutesMissing && advertisesRoute(ROUTE_ARTIST_MERGE)
+			adminGated(isConfigured && !mergeRoutesMissing && advertisesRoute(ROUTE_ARTIST_MERGE), _roles.value)
 		}
 	}
 
@@ -2501,7 +2567,9 @@ class LbBotManager(
 	 * reach no advert ever arrives to open the way in.
 	 */
 	private val _listeningSupported = MutableStateFlow(preferenceManager.lbListeningAdvertised)
-	val listeningSupported: StateFlow<Boolean> = _listeningSupported.asStateFlow()
+	/** Worbus P2: the primary user's alone ([primaryGated]); what is remembered is the advert's verdict. */
+	val listeningSupported: StateFlow<Boolean> = combine(_listeningSupported, _roles) { offered, roles -> primaryGated(offered, roles) }
+		.stateIn(scope, SharingStarted.Eagerly, primaryGated(_listeningSupported.value, _roles.value))
 
 	private fun publishListeningSupport() {
 		val supported = !hubProxyOff && _hubRoutes.value.any { it == ROUTE_LISTENING_SUMMARY }
