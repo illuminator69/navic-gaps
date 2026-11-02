@@ -560,6 +560,24 @@ class HubAuthTest {
 		assertFalse(auth.oldServerSeen)
 	}
 
+	@Test
+	fun a_rollback_to_a_p1_hub_after_a_p2_welcome_uses_the_typed_token() {
+		// Re-review I-R1: R36 covers sign-in answers only. A P2 hub welcomed this device, then was
+		// rolled back to P1 mid-launch: R24 (4001 to the secret hello), the user types the token, and
+		// the connect's sign-in gets the P1 hub's 405. That is an older server, and the token is sent.
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		assertFalse(auth.noteWelcomeUser(viaToken = false, userPresent = true), "a P2 welcome on the secret")
+		auth.noteOldServerRefusedSecret()
+		auth.setLegacyToken("typed")
+		auth.noteNewConnect()
+		transport.reply = p1Answer
+		assertEquals(SignInResult.OldServer, run { auth.upgradeLegacyTokenIfDue() })
+		assertEquals("typed", auth.bearer(), "the token reaches the P1 hub")
+		assertTrue(auth.oldServerSeen)
+		assertFalse(auth.upgradeRetryWanted)
+	}
+
 	// ---- R33: a verdict belongs to its address ------------------------------------------------- //
 
 	@Test

@@ -644,6 +644,10 @@ class HubAuth(
 	 * another), and the token field is offered for this address.
 	 */
 	fun noteOldServerRefusedSecret() {
+		// Re-review I-R1: R36 covers sign-in answers only. A 4001 to the secret hello is this address
+		// rolled back to a hub from before sign-in, so its earlier P2 welcome no longer says anything:
+		// the token typed next must reach it.
+		p2WelcomeUrl = null
 		writeCredentials(secret = "")
 		preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()
 		lastSignIn = SignInResult.OldServer

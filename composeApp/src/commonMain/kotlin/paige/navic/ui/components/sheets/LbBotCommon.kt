@@ -41,8 +41,8 @@ import org.jetbrains.compose.resources.getPluralString
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.domain.manager.AboutRefreshNotice
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.AboutRefreshNotice
 import paige.navic.domain.manager.LbAccess
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbRefusal
