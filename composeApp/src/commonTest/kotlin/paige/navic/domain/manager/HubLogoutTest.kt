@@ -43,20 +43,26 @@ class HubLogoutTest {
 		reply = HubAuthReply.Answered(200, "{}")
 
 		val steps = mutableListOf<String>()
+		// Review M-1: the synchronous half is a plain call, not launched: when it returns, the
+		// credentials are gone, so a process that dies right after a logout dials as nobody.
+		val pending = beginLeavingWorbusServer(stopSocket = { steps += "stop socket" }, auth = auth)
+		assertNull(auth.bearer(), "forgotten before anything is launched")
+		assertEquals("", secrets.hubDeviceSecret)
 		run {
-			leaveWorbusServer(
-				stopSocket = { steps += "stop socket" },
+			finishLeavingWorbusServer(
+				pending = pending,
 				auth = auth,
 				awaitSocketGone = {
-					// By now nothing can dial with, or fall back to, any Worbus Server credential.
-					assertNull(auth.bearer(), "forgotten before the socket is even gone")
 					assertTrue(calls.isEmpty(), "the server is told after the socket is down")
 					steps += "socket gone"
 				},
-				forgetSavedQueues = { steps += "saved queues forgotten" }
+				forgetSavedQueues = { steps += "saved queues forgotten" },
+				forgetFillWatches = { steps += "fill watches forgotten" }
 			)
 		}
-		assertEquals(listOf("stop socket", "socket gone", "saved queues forgotten"), steps)
+		// Review M-7: the next account inherits no fill ledger (the album page's gap box, the
+		// attention count, background polling of admin routes).
+		assertEquals(listOf("stop socket", "socket gone", "saved queues forgotten", "fill watches forgotten"), steps)
 		val call = calls.single()
 		assertEquals("http://hub.lan:4790/hub/signout", call.url)
 		assertEquals("the-secret", call.bearer, "signed out with the device's own secret")
@@ -78,7 +84,7 @@ class HubLogoutTest {
 	@Test
 	fun a_legacy_token_alone_is_forgotten_too() {
 		auth.setLegacyToken("legacy")
-		run { leaveWorbusServer({}, auth, {}, {}) }
+		run { finishLeavingWorbusServer(beginLeavingWorbusServer({}, auth), auth, {}, {}, {}) }
 		assertNull(auth.bearer())
 		assertTrue(calls.isEmpty(), "nothing to tell a server about a shared token")
 	}

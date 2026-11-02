@@ -68,8 +68,15 @@ sealed interface SignInResult {
 	/** 429 `too_many_attempts`. */
 	data object TooManyAttempts : SignInResult
 
-	/** 404, 405, or a reply that is not this route's JSON: a server from before sign-in (R6). */
+	/** 404, 405, or a 2xx/4xx reply that is not this route's JSON: a server from before sign-in (R6). */
 	data object OldServer : SignInResult
+
+	/**
+	 * Nothing was asked: no address, or no Navidrome account on this device to sign in with (a
+	 * password that could not be read, B-279). Not the server's refusal (review M-3), so it is never
+	 * said as "doesn't know this account" and retires no token.
+	 */
+	data object NoAccount : SignInResult
 }
 
 /** One POST to the Worbus Server, as [HubAuthTransport] saw it. */
@@ -110,7 +117,9 @@ private fun refusalCode(body: String): String? = try {
  * global constraints): 200 with `deviceId`, `deviceSecret` and `user`; 401 `navidrome_refused`,
  * 503 `navidrome_unreachable`, 429 `too_many_attempts`, 400 `bad_request`. Anything else that came
  * back is a server from before this route (R6): 404, 405 (the P1 hub's answer to a POST outside its
- * proxies), or a body that is not this route's JSON.
+ * proxies), or a 2xx/4xx body that is not this route's JSON. Any other 5xx is the server or a gateway
+ * failing (a reverse proxy's 502 HTML while the hub is down): `Unreachable`, never `OldServer` (the
+ * controller's R6 clarification).
  */
 fun signInOutcomeOf(reply: HubAuthReply): SignInOutcome {
 	if (reply !is HubAuthReply.Answered) return SignInOutcome.NotGranted(SignInResult.Unreachable(navidrome = false))
@@ -135,7 +144,7 @@ fun signInOutcomeOf(reply: HubAuthReply): SignInOutcome {
 		// Our own request was malformed. The fields are clamped before sending ([signInBody]), so
 		// this is not expected; it is the server refusing this sign-in, not a network fault.
 		400 to "bad_request" -> SignInOutcome.NotGranted(SignInResult.Refused)
-		else -> old
+		else -> if (reply.status >= 500) SignInOutcome.NotGranted(SignInResult.Unreachable(navidrome = false)) else old
 	}
 }
 
@@ -216,13 +225,13 @@ fun hubCredentialOf(deviceSecret: String, legacyToken: String): HelloCredential?
  * primary user. A sign-in that worked has cleared the token already.
  */
 fun legacyTokenUsableAfter(result: SignInResult?): Boolean = when (result) {
-	null, SignInResult.OldServer, is SignInResult.Unreachable, SignInResult.TooManyAttempts -> true
+	null, SignInResult.OldServer, is SignInResult.Unreachable, SignInResult.TooManyAttempts, SignInResult.NoAccount -> true
 	SignInResult.Refused, is SignInResult.SignedIn -> false
 }
 
 /** R23: whether the next connect tries again to turn the token into a secret. */
 fun tokenUpgradeDueAfter(result: SignInResult?): Boolean = when (result) {
-	null, is SignInResult.Unreachable, SignInResult.TooManyAttempts -> true
+	null, is SignInResult.Unreachable, SignInResult.TooManyAttempts, SignInResult.NoAccount -> true
 	SignInResult.OldServer, SignInResult.Refused, is SignInResult.SignedIn -> false
 }
 
@@ -289,8 +298,47 @@ class HubAuth(
 	private val _state = MutableStateFlow<HubAuthState>(HubAuthState.Idle)
 	val state: StateFlow<HubAuthState> = _state.asStateFlow()
 
-	/** Set by the silent sign-in, cleared by [noteWelcome]: one per signed-out episode. */
+	/**
+	 * Set by the silent sign-in, cleared by [noteWelcome]: one per signed-out episode. Written under
+	 * the lock, read and cleared from the socket's thread (review M-6).
+	 */
+	@kotlin.concurrent.Volatile
 	private var silentSignInSpent = false
+
+	private val _credentialGeneration = MutableStateFlow(0)
+
+	/**
+	 * Moves on every change of the stored credential (a sign-in, a sign-out, a 4005, R24, a typed or
+	 * retired token). The cast bridges rebuild on it at once (review M-5): their sockets are bound
+	 * to the space of the credential they said hello with.
+	 */
+	val credentialGeneration: StateFlow<Int> = _credentialGeneration.asStateFlow()
+
+	/** The ONE writer of the stored credentials: null leaves that one as it is. */
+	private fun writeCredentials(secret: String? = null, token: String? = null) {
+		var changed = false
+		if (secret != null && secret != secrets.hubDeviceSecret) {
+			secrets.hubDeviceSecret = secret
+			changed = true
+		}
+		if (token != null && token != secrets.hubToken) {
+			secrets.hubToken = token
+			changed = true
+		}
+		if (changed) _credentialGeneration.value++
+	}
+
+	/**
+	 * Review M-2: called by HTTP readers on the hub's own 401 (no `code`) while a credential is held.
+	 * Set by [HubManager] to its `kickReconnect`: the reconnect's hello meets 4005 and the one silent
+	 * sign-in runs there. HTTP never signs in or forgets anything itself.
+	 */
+	@kotlin.concurrent.Volatile
+	var onUnauthorized: (() -> Unit)? = null
+
+	fun noteHttpUnauthorized() {
+		if (hasCredential) onUnauthorized?.invoke()
+	}
 
 	/** R23: the last sign-in's answer this process, which decides whether a held token may be sent. */
 	@kotlin.concurrent.Volatile
@@ -331,12 +379,22 @@ class HubAuth(
 	/** True while a device secret is held: the device is signed in to this server. */
 	val signedIn: Boolean get() = secrets.hubDeviceSecret.isNotBlank()
 
+	/**
+	 * Whether this device belongs to a Worbus Server's users (review M-12): it holds a secret, or the
+	 * server signed it out and the silent sign-in did not bring it back, or the server's Navidrome
+	 * refused its account. Such a device never reads the fingerprint straight from AudioMuse: that
+	 * is the primary user's listening, which the hub keeps to them. A legacy token alone is today's
+	 * primary user, and a device that never met a server is as before.
+	 */
+	val boundToWorbusServer: Boolean
+		get() = signedIn || _state.value == HubAuthState.SignedOut || lastSignIn == SignInResult.Refused
+
 	/** True while a legacy token is stored (only an older server needs one). */
 	val hasLegacyToken: Boolean get() = secrets.hubToken.isNotBlank()
 
 	/** The Server page's token field (shown only after [SignInResult.OldServer]). "" removes it. */
 	fun setLegacyToken(token: String) {
-		secrets.hubToken = token.trim()
+		writeCredentials(token = token.trim())
 		// A token typed for an older server (the field shows only after one answered so) is used.
 		if (lastSignIn == SignInResult.Refused) lastSignIn = null
 	}
@@ -371,8 +429,10 @@ class HubAuth(
 		val acct = account()
 		if (base == null || acct == null || acct.username.isBlank() || acct.password.isEmpty()) {
 			// Nothing to sign in with: no address, or no Navidrome account on this device.
+			// Review M-3: not the server's refusal. The state is left alone (an `afterSignedOut` then
+			// says SignedOut), and no token is retired: nobody refused it.
 			log("sign-in skipped: ${if (base == null) "no address" else "no Navidrome account"}")
-			return SignInResult.Refused.also { _state.value = HubAuthState.Answered(it) }
+			return SignInResult.NoAccount
 		}
 		_state.value = HubAuthState.SigningIn
 		val generation = signOutGeneration
@@ -399,9 +459,8 @@ class HubAuth(
 		val result = when (val outcome = signInOutcomeOf(reply)) {
 			is SignInOutcome.Granted -> {
 				val grant = outcome.grant
-				secrets.hubDeviceSecret = grant.deviceSecret
 				// The server's sign-in route exists: its token is of no further use here (above).
-				secrets.hubToken = ""
+				writeCredentials(secret = grant.deviceSecret, token = "")
 				// R4: the id the server chose is this device's id from now on.
 				preferenceManager.hubDeviceId = grant.deviceId
 				preferenceManager.hubOldServerUrl = ""
@@ -411,6 +470,14 @@ class HubAuth(
 			is SignInOutcome.NotGranted -> {
 				if (outcome.result == SignInResult.OldServer) {
 					preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()
+				}
+				if (outcome.result == SignInResult.Refused && secrets.hubDeviceSecret.isBlank() && secrets.hubToken.isNotBlank()) {
+					// R23 and its clarification (review I-3): this server's Navidrome does not know the
+					// account, so the token would only ever put the device in the primary user's space.
+					// Retired, not merely unsent: a later 429 or a restart must not bring it back.
+					// R23's cost line: an owner retypes it under Advanced if an older server asks.
+					writeCredentials(token = "")
+					log("legacy token retired: the account was refused")
 				}
 				log("sign-in not granted: ${outcome.result} (${(reply as? HubAuthReply.Answered)?.status ?: "no answer"})")
 				outcome.result
@@ -445,7 +512,7 @@ class HubAuth(
 	 * another), and the token field is offered for this address.
 	 */
 	fun noteOldServerRefusedSecret() {
-		secrets.hubDeviceSecret = ""
+		writeCredentials(secret = "")
 		preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()
 		lastSignIn = SignInResult.OldServer
 		tokenUpgradeDue = false
@@ -459,7 +526,7 @@ class HubAuth(
 	 * and the state is then [HubAuthState.SignedOut] (the caller stops dialling).
 	 */
 	suspend fun afterSignedOut(): Boolean = lock.withLock {
-		secrets.hubDeviceSecret = ""
+		writeCredentials(secret = "")
 		if (silentSignInSpent) {
 			_state.value = HubAuthState.SignedOut
 			return@withLock false
@@ -490,8 +557,7 @@ class HubAuth(
 	fun beginSignOut(): PendingSignOut {
 		val pending = PendingSignOut(secrets.hubDeviceSecret, hubHttpBaseOf(preferenceManager.hubUrl))
 		signOutGeneration++
-		secrets.hubDeviceSecret = ""
-		secrets.hubToken = ""
+		writeCredentials(secret = "", token = "")
 		lastSignIn = null
 		tokenUpgradeDue = true
 		silentSignInSpent = false
@@ -557,20 +623,31 @@ class PendingSignOut internal constructor(internal val secret: String, internal 
 }
 
 /**
- * Leaving the Worbus Server on a Navidrome logout (design §6.5, the owner's 2026-11-02 ruling): stop the
- * socket first (so the 4005 the server sends it earns no silent sign-in), forget the credentials at
- * once, wait for the socket to be gone, tell the server, then drop the saved-queue cache, whose rows
- * the next account's first connect would otherwise push into its own space.
+ * Leaving the Worbus Server on a Navidrome logout (design §6.5, the owner's 2026-11-02 ruling), first
+ * half, synchronous (review M-1): stop the socket (so the 4005 the server sends it earns no silent
+ * sign-in) and forget the credentials, before the caller launches anything. A process that dies right
+ * after a logout then dials as nobody at its next start.
  */
-suspend fun leaveWorbusServer(
-	stopSocket: () -> Unit,
+fun beginLeavingWorbusServer(stopSocket: () -> Unit, auth: HubAuth): PendingSignOut {
+	stopSocket()
+	return auth.beginSignOut()
+}
+
+/**
+ * The second half: wait for the socket to be gone, tell the server, then drop the saved-queue cache
+ * (whose rows the next account's first connect would otherwise push into its own space) and the fill
+ * watches (review M-7: the next account would inherit the previous admin's fill ledger, its attention
+ * count and the background polling of admin routes).
+ */
+suspend fun finishLeavingWorbusServer(
+	pending: PendingSignOut,
 	auth: HubAuth,
 	awaitSocketGone: suspend () -> Unit,
-	forgetSavedQueues: suspend () -> Unit
+	forgetSavedQueues: suspend () -> Unit,
+	forgetFillWatches: suspend () -> Unit
 ) {
-	stopSocket()
-	val pending = auth.beginSignOut()
 	awaitSocketGone()
 	auth.finishSignOut(pending)
 	forgetSavedQueues()
+	forgetFillWatches()
 }

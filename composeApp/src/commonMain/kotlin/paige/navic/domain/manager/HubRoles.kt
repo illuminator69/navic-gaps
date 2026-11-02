@@ -85,21 +85,94 @@ enum class LbAccess {
 	TOO_OLD
 }
 
+/**
+ * An lb-bot answer that is about who is asking, not about what was asked (design §6.4, §6.5). Each is
+ * its own [LbBotManager.LbError.AccessRefused], never "lb-bot isn't set up." (review I-2).
+ */
+enum class LbRefusal {
+	/** 401 `signin_required`: lb-bot refused the server. The layer renders nothing. */
+	SIGNIN_REQUIRED,
+
+	/** 403 `admin_only`: not an admin (whatever was last said). The action goes, silently. */
+	ADMIN_ONLY,
+
+	/** 403 `primary_only`: not the primary user. Silent, as admin_only. */
+	PRIMARY_ONLY,
+
+	/** The hub's 503 `lbbot_too_old`: lb-bot is too old for signed-in users. Said in one sentence. */
+	TOO_OLD,
+
+	/**
+	 * The hub's own 401 (no `code`) while this device holds a credential: a secret the hub revoked
+	 * while the socket was down (review M-2). Silent; the socket is kicked and finds out.
+	 */
+	HUB_UNAUTHORIZED
+}
+
+/** [status] with lb-bot's or the hub's [code] as a refusal about who asks, or null for any other answer. */
+fun lbRefusalOf(status: Int, code: String, credentialHeld: Boolean = false): LbRefusal? = when {
+	status == 401 && code == "signin_required" -> LbRefusal.SIGNIN_REQUIRED
+	status == 401 && code.isBlank() && credentialHeld -> LbRefusal.HUB_UNAUTHORIZED
+	status == 403 && code == "admin_only" -> LbRefusal.ADMIN_ONLY
+	status == 403 && code == "primary_only" -> LbRefusal.PRIMARY_ONLY
+	status == 503 && code == "lbbot_too_old" -> LbRefusal.TOO_OLD
+	else -> null
+}
+
+/**
+ * The error a refused answer is returned as, from its status and body, or null when it is not a
+ * refusal about who asks. Every reader of a non-2xx lb answer asks this first.
+ */
+fun lbAccessError(status: Int, raw: String, credentialHeld: Boolean): LbBotManager.LbError.AccessRefused? {
+	if (status != 401 && status != 403 && status != 503) return null
+	val code = (lbFailureOf(status, raw) as? LbBotManager.LbError.Rejected)?.code.orEmpty()
+	return lbRefusalOf(status, code, credentialHeld)?.let { LbBotManager.LbError.AccessRefused(it) }
+}
+
 /** What one refused lb-bot answer does to this device. */
 data class LbRefusalEffect(
 	val access: LbAccess,
 	/** 403 `admin_only`: the user is not an admin (whatever was last said); the action goes, silently. */
 	val demoteAdmin: Boolean,
 	/** The caller says nothing about it: no toast, no error line (the gate vanishes instead). */
-	val silent: Boolean
+	val silent: Boolean,
+	/** The hub's own 401 with a credential held: kick the socket (review M-2). */
+	val kickSocket: Boolean = false
 )
 
 /** [current] after an answer of [status] with lb-bot's or the hub's [code]. */
-fun lbRefusalEffect(current: LbAccess, status: Int, code: String): LbRefusalEffect = when {
-	status == 401 && code == "signin_required" -> LbRefusalEffect(LbAccess.REFUSED, demoteAdmin = false, silent = true)
-	status == 503 && code == "lbbot_too_old" -> LbRefusalEffect(LbAccess.TOO_OLD, demoteAdmin = false, silent = true)
-	status == 403 && code == "admin_only" -> LbRefusalEffect(current, demoteAdmin = true, silent = true)
-	else -> LbRefusalEffect(current, demoteAdmin = false, silent = false)
+fun lbRefusalEffect(current: LbAccess, status: Int, code: String, credentialHeld: Boolean = false): LbRefusalEffect =
+	when (lbRefusalOf(status, code, credentialHeld)) {
+		LbRefusal.SIGNIN_REQUIRED -> LbRefusalEffect(LbAccess.REFUSED, demoteAdmin = false, silent = true)
+		LbRefusal.TOO_OLD -> LbRefusalEffect(LbAccess.TOO_OLD, demoteAdmin = false, silent = true)
+		LbRefusal.ADMIN_ONLY -> LbRefusalEffect(current, demoteAdmin = true, silent = true)
+		LbRefusal.PRIMARY_ONLY -> LbRefusalEffect(current, demoteAdmin = false, silent = true)
+		LbRefusal.HUB_UNAUTHORIZED -> LbRefusalEffect(current, demoteAdmin = false, silent = true, kickSocket = true)
+		null -> LbRefusalEffect(current, demoteAdmin = false, silent = false)
+	}
+
+/**
+ * [current] after any lb answer of [status] (review I-1). A 2xx clears too-old: the hub serves a
+ * non-primary caller only an answer that proved lb-bot's identity (R17), and the primary user is never
+ * too old. A refusal is [lbRefusalEffect]'s; anything else (a 502 while lb-bot is down) says nothing.
+ */
+fun lbAccessAfterAnswer(current: LbAccess, status: Int, code: String): LbAccess = when {
+	status in 200..299 -> if (current == LbAccess.TOO_OLD) LbAccess.OPEN else current
+	else -> lbRefusalEffect(current, status, code).access
+}
+
+/**
+ * [current] after a `welcome.lb` or an `lb` frame (review I-1, R17/R20). `identity: true` clears
+ * too-old: the hub broadcasts it once lb-bot proves itself again. An advert without it while lb-bot
+ * is up is an older lb-bot, which the hub refuses everyone but the primary user (design §6.4): too old
+ * at once, with no round trip to find out. lb-bot down says nothing either way. A refused server
+ * ([LbAccess.REFUSED]) stays refused: that is lb-bot's word, not its age.
+ */
+fun lbAccessAfterAdvert(current: LbAccess, identity: Boolean, primary: Boolean, available: Boolean): LbAccess = when {
+	current == LbAccess.REFUSED -> current
+	identity -> LbAccess.OPEN
+	available && !primary -> LbAccess.TOO_OLD
+	else -> current
 }
 
 /** The lb-bot layer is drawn at all: configured, and lb-bot did not refuse the server. */

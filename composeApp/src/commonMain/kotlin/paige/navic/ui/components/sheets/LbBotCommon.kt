@@ -23,6 +23,7 @@ import navic.composeapp.generated.resources.error_lbbot_busy
 import navic.composeapp.generated.resources.error_lbbot_hub_outdated
 import navic.composeapp.generated.resources.error_lbbot_not_configured
 import navic.composeapp.generated.resources.error_lbbot_rejected
+import navic.composeapp.generated.resources.error_lbbot_unavailable_to_account
 import navic.composeapp.generated.resources.error_lbbot_unreachable
 import navic.composeapp.generated.resources.notice_about_error
 import navic.composeapp.generated.resources.notice_about_error_said
@@ -40,6 +41,7 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.AboutRefreshNotice
 import paige.navic.domain.manager.LbBotManager
+import paige.navic.domain.manager.LbRefusal
 import paige.navic.domain.manager.LbSourceFile
 import paige.navic.ui.theme.defaultFont
 
@@ -60,7 +62,18 @@ fun lbErrorText(error: LbBotManager.LbError): String = when (error) {
 	is LbBotManager.LbError.Unreachable -> stringResource(Res.string.error_lbbot_unreachable)
 	is LbBotManager.LbError.Rejected ->
 		error.message.ifBlank { stringResource(Res.string.error_lbbot_rejected, error.status) }
+	// Worbus P2 (review I-2): only too-old is ever drawn ([lbErrorDrawn]); the others hide their gate.
+	is LbBotManager.LbError.AccessRefused -> stringResource(Res.string.error_lbbot_unavailable_to_account)
 }
+
+/**
+ * Whether [LbErrorLine] draws [error] at all. A refusal about who is asking hides its gate instead
+ * (`signin_required`: the layer goes; `admin_only` / `primary_only`: the action goes; the hub's own
+ * 401: the socket finds out), with no line and no toast. Too-old is one "unavailable" sentence. Every
+ * other error is drawn, "lb-bot isn't set up." included, which is only for a hub that has none.
+ */
+fun lbErrorDrawn(error: LbBotManager.LbError): Boolean =
+	error !is LbBotManager.LbError.AccessRefused || error.refusal == LbRefusal.TOO_OLD
 
 /**
  * The sentence a "Refresh About" ends in; its arguments are `aboutRefreshArgs`'s. Only
@@ -125,7 +138,7 @@ internal fun LbSentence.withProblems(count: Int): LbSentence =
 
 @Composable
 fun LbErrorLine(error: LbBotManager.LbError?, modifier: Modifier = Modifier) {
-	if (error == null) return
+	if (error == null || !lbErrorDrawn(error)) return
 	Text(
 		lbErrorText(error),
 		style = MaterialTheme.typography.bodySmall,

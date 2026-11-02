@@ -44,7 +44,8 @@ data class DownloadCenterState(
 )
 
 /** Worbus P1: whether a refused row action gets the snackbar: every refusal but lb-bot's `downloads_off`. */
-internal fun refusalAnnounced(error: LbBotManager.LbError): Boolean = !isDownloadsOffRefusal(error)
+internal fun refusalAnnounced(error: LbBotManager.LbError): Boolean =
+	!isDownloadsOffRefusal(error) && error !is LbBotManager.LbError.AccessRefused
 
 class DownloadCenterViewModel(
 	private val downloadManager: DownloadManager,

@@ -31,10 +31,22 @@ class ServerScreenStateTest {
 		auth: HubAuthState = HubAuthState.Idle,
 		refused: Boolean = false,
 		blocked: Boolean = false,
-		unreachable: Boolean = false
-	) = serverStatus(enabled, address, credential, connected, user, auth, refused, blocked, unreachable)
+		unreachable: Boolean = false,
+		byToken: Boolean = false
+	) = serverStatus(enabled, address, credential, connected, user, auth, refused, blocked, unreachable, linkedByToken = byToken)
 
 	private fun answered(r: SignInResult) = HubAuthState.Answered(r)
+
+	@Test
+	fun a_link_the_legacy_token_holds_says_connected() {
+		// Review M-4: the hub names the primary user for a legacy socket too (R2). Over a link the
+		// token holds, "Signed in as owner · admin" would contradict the "Sign in as bob" row below.
+		val owner = HubUser("owner", isAdmin = true, isPrimary = true)
+		assertEquals(ServerStatus.Connected, status(connected = true, user = owner, byToken = true))
+		assertEquals(ServerStatus.SignedIn("owner", admin = true), status(connected = true, user = owner, byToken = false))
+		// A refused tap is still said over it.
+		assertEquals(ServerStatus.NavidromeRefused, status(connected = true, user = owner, byToken = true, auth = answered(SignInResult.Refused)))
+	}
 
 	@Test
 	fun status_for_each_signin_result() {

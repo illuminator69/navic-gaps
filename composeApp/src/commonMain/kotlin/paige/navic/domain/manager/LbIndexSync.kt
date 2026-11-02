@@ -207,6 +207,9 @@ class LbIndexSync(
 		return when (error) {
 			// No hub, or a hub too old to proxy the feed: the mirror is simply not available.
 			LbBotManager.LbError.NotConfigured -> Outcome.SKIPPED
+			// Worbus P2: lb-bot does not answer this user (refused, or too old for them). Not a fault to
+			// back off from: an `lb` frame saying available asks again once it does.
+			is LbBotManager.LbError.AccessRefused -> Outcome.SKIPPED
 			LbBotManager.LbError.RouteUnknown -> {
 				Logger.i(TAG, "$what: the hub has no index feed; the network path stays in use")
 				Outcome.SKIPPED

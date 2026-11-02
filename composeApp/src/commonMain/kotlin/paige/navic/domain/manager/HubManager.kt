@@ -208,6 +208,10 @@ class HubManager(
 		// While the socket is up, `fill` frames reach lb-bot's manager within a second of
 		// lb-bot writing its ledger, and its poll drops to a safety net.
 		lbBotManager.hubConnected = { _connected.value }
+		// Review M-2: a hub 401 on an HTTP route while a credential is held (a revoked secret while the
+		// socket is down) dials now; the hello then meets 4005 and the one silent sign-in. A no-op
+		// while connected.
+		hubAuth.onUnauthorized = { kickReconnect("hub 401") }
 	}
 
 	private val _devices = MutableStateFlow<List<HubDevice>>(emptyList())
@@ -386,13 +390,16 @@ class HubManager(
 	 */
 	fun leaveForLogout() {
 		val job = connectJob
-		stop()
+		// Review M-1: the credentials are forgotten here, before anything is launched.
+		val pending = beginLeavingWorbusServer(stopSocket = { stop() }, auth = hubAuth)
+		updateRoles()
 		scope.launch {
-			leaveWorbusServer(
-				stopSocket = { stop() },
+			finishLeavingWorbusServer(
+				pending = pending,
 				auth = hubAuth,
 				awaitSocketGone = { job?.cancelAndJoin() },
-				forgetSavedQueues = { savedQueueRepository.forget() }
+				forgetSavedQueues = { savedQueueRepository.forget() },
+				forgetFillWatches = { lbBotManager.forgetWatches() }
 			)
 			updateRoles()
 		}
@@ -426,6 +433,14 @@ class HubManager(
 	/** R24: the current socket's hello carried `auth.deviceSecret`. */
 	@kotlin.concurrent.Volatile
 	private var helloSentSecret = false
+
+	private val _linkedByToken = MutableStateFlow(false)
+
+	/**
+	 * Review M-4: the current socket said hello with the legacy token. The hub names the primary user
+	 * for it too (R2), so the Server page says "Connected" over it, not "Signed in as".
+	 */
+	val linkedByToken: StateFlow<Boolean> = _linkedByToken.asStateFlow()
 
 	/** The close code of the socket that just ended, or null (no close frame, a dial that failed). */
 	@kotlin.concurrent.Volatile
@@ -1293,6 +1308,7 @@ class HubManager(
 			// Read once per dial: the secret (Worbus P2) or the legacy token, never both.
 			val credential = hubAuth.helloCredential()
 			helloSentSecret = credential is HelloCredential.DeviceSecret
+			_linkedByToken.value = credential is HelloCredential.LegacyToken
 			sendFrame(buildJsonObject {
 				put("t", "hello")
 				credential?.let { putHelloCredential(it) }
@@ -1736,7 +1752,10 @@ class HubManager(
 	 */
 	private fun applyLbAdvert(lb: JsonObject, welcome: Boolean = false): Boolean? {
 		val advert = lbAdvertOf(lb) ?: return null
-		lbBotManager.applyHubAdvert(advert.available, advert.routes, advert.webUrl, advert.downloads, newConnection = welcome)
+		lbBotManager.applyHubAdvert(
+			advert.available, advert.routes, advert.webUrl, advert.downloads, newConnection = welcome,
+			identity = advert.identity
+		)
 		return advert.available
 	}
 

@@ -44,7 +44,9 @@ data class LbHubAdvert(
 	val available: Boolean,
 	val routes: List<String>,
 	val webUrl: String,
-	val downloads: LbDownloads
+	val downloads: LbDownloads,
+	/** Worbus P2: `identity: true`, lb-bot reads who is asking (R17). Absent is false: an older lb-bot or hub. */
+	val identity: Boolean = false
 )
 
 /** The wire word, or [LbDownloads.UNKNOWN] for anything else (absent included). */
@@ -65,7 +67,8 @@ fun lbAdvertOf(lb: JsonObject): LbHubAdvert? {
 		?: emptyList()
 	val webUrl = (lb["webUrl"] as? JsonPrimitive)?.contentOrNull.orEmpty()
 	val downloads = (lb["downloads"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-	return LbHubAdvert(available, routes, webUrl, lbDownloadsOf(downloads))
+	val identity = (lb["identity"] as? JsonPrimitive)?.booleanOrNull == true
+	return LbHubAdvert(available, routes, webUrl, lbDownloadsOf(downloads), identity)
 }
 
 /**

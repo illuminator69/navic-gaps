@@ -124,6 +124,7 @@ fun ServerScreen() {
 	// Worbus P2: who this device is signed in as, and where the last sign-in stands.
 	val user by hubManager.user.collectAsState()
 	val authState by hubManager.auth.collectAsState()
+	val linkedByToken by hubManager.linkedByToken.collectAsState()
 	// B-108: the status is then "Android is blocking Navic from your local network.", and the
 	// page offers the app's settings page, where the permission is.
 	val localNetworkBlocked by hubManager.hubLocalNetworkBlocked.collectAsState()
@@ -156,7 +157,8 @@ fun ServerScreen() {
 		auth = authState,
 		authRefused = authRefused,
 		localNetworkBlocked = localNetworkBlocked,
-		unreachable = unreachable
+		unreachable = unreachable,
+		linkedByToken = linkedByToken
 	)
 	val serverRows = worbusServerRows(signedIn, accountName)
 	val advancedRows = advancedServerRows(oldServerSeen)

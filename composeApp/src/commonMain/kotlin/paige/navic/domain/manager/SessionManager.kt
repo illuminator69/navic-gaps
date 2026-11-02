@@ -103,6 +103,8 @@ class SessionManager(
 	 * A username with no password stored at all (a device transfer, which never carries the
 	 * secrets file) is not this.
 	 */
+	fun passwordWasUnreadable(): Boolean = Secret.NavidromePassword in secrets.unreadable.value
+
 	/**
 	 * Worbus P2: the account a sign-in to the Worbus Server uses, or null while there is no session
 	 * (no name, or no password this device can read). Read by [HubAuth] only, which turns the
@@ -113,8 +115,6 @@ class SessionManager(
 		val password = secrets.navidromePassword.takeIf { it.isNotEmpty() } ?: return null
 		return NavidromeAccount(username, password)
 	}
-
-	fun passwordWasUnreadable(): Boolean = Secret.NavidromePassword in secrets.unreadable.value
 
 	private fun createClient(
 		instanceUrl: String,

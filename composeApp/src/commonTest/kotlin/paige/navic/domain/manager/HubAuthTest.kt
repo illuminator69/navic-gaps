@@ -164,11 +164,29 @@ class HubAuthTest {
 		for (reply in listOf(
 			HubAuthReply.Answered(200, "<html>hello</html>"),
 			HubAuthReply.Answered(200, """{"ok": true}"""),
-			HubAuthReply.Answered(500, "Internal Server Error"),
-			HubAuthReply.Answered(401, """{"error": "unauthorized"}""")
+			HubAuthReply.Answered(401, """{"error": "unauthorized"}"""),
+			HubAuthReply.Answered(403, "<html>Forbidden</html>")
 		)) {
 			assertEquals(SignInOutcome.NotGranted(SignInResult.OldServer), signInOutcomeOf(reply), "$reply")
 		}
+	}
+
+	@Test
+	fun any_5xx_is_unreachable_never_old_server() {
+		// The R6 clarification: a 5xx is a gateway or server failure whatever its body (a reverse
+		// proxy's 502 HTML while the hub is down), never "an older server" with its token field.
+		for (reply in listOf(
+			HubAuthReply.Answered(500, "Internal Server Error"),
+			HubAuthReply.Answered(502, "<html><body>502 Bad Gateway</body></html>"),
+			HubAuthReply.Answered(503, "Service Unavailable"),
+			HubAuthReply.Answered(504, """{"error": "timeout"}"""),
+			HubAuthReply.Answered(500, """{"code": "something_else"}""")
+		)) {
+			assertEquals(SignInOutcome.NotGranted(SignInResult.Unreachable(navidrome = false)), signInOutcomeOf(reply), "$reply")
+		}
+		transport.reply = HubAuthReply.Answered(502, "<html>Bad Gateway</html>")
+		run { auth.signIn() }
+		assertFalse(auth.oldServerSeen, "no token field for a proxy's 502")
 	}
 
 	@Test
@@ -252,11 +270,31 @@ class HubAuthTest {
 	@Test
 	fun no_account_or_no_address_sends_nothing() {
 		account = null
-		assertEquals(SignInResult.Refused, run { auth.signIn() })
+		assertEquals(SignInResult.NoAccount, run { auth.signIn() })
 		account = NavidromeAccount("bob", "pw")
 		prefs.hubUrl = ""
-		assertEquals(SignInResult.Refused, run { auth.signIn() })
+		assertEquals(SignInResult.NoAccount, run { auth.signIn() })
 		assertTrue(transport.calls.isEmpty())
+	}
+
+	@Test
+	fun no_account_is_not_the_servers_refusal() {
+		// Review M-3: no account to sign in with (an unreadable password, B-279) is not the server's
+		// Navidrome refusing one: the page must not say "doesn't know this account".
+		auth.setLegacyToken("legacy")
+		account = null
+		assertEquals(SignInResult.NoAccount, run { auth.upgradeLegacyTokenIfDue() })
+		assertEquals(HubAuthState.Idle, auth.state.value, "no answer to show")
+		assertTrue(auth.hasLegacyToken, "nobody refused it: the token is kept")
+		assertEquals("legacy", auth.bearer())
+		assertTrue(transport.calls.isEmpty())
+		// After a sign-out, the one silent sign-in that has nothing to sign in with says SignedOut.
+		transport.reply = granted(secret = "sek")
+		account = NavidromeAccount("bob", "pw")
+		run { auth.signIn() }
+		account = null
+		assertFalse(run { auth.afterSignedOut() })
+		assertEquals(HubAuthState.SignedOut, auth.state.value)
 	}
 
 	@Test
@@ -291,7 +329,113 @@ class HubAuthTest {
 		assertNull(auth.bearer(), "the token would make this account the primary user")
 		assertFalse(auth.hasCredential)
 		assertNull(auth.httpBase(), "no Worbus Server layer on it either")
-		assertTrue(auth.hasLegacyToken, "kept stored, not sent")
+		// The R23 clarification: a navidrome_refused answer retires the token, durably.
+		assertFalse(auth.hasLegacyToken, "retired, not only unsent")
+	}
+
+	@Test
+	fun refused_then_429_never_uses_the_token() {
+		// Review I-3 (a): refused, then the hub's 429 on a later attempt (the sixth refusal in 600 s).
+		auth.setLegacyToken("legacy")
+		transport.reply = refused(401, "navidrome_refused")
+		run { auth.upgradeLegacyTokenIfDue() }
+		assertNull(auth.bearer())
+		transport.reply = refused(429, "too_many_attempts")
+		auth.noteNewConnect()
+		run { auth.upgradeLegacyTokenIfDue() }
+		assertEquals(SignInResult.TooManyAttempts, run { auth.signIn() }, "a tap on Sign in as")
+		assertNull(auth.bearer(), "a 429 does not bring the token back")
+		assertNull(auth.helloCredential())
+		assertFalse(auth.hasCredential)
+	}
+
+	@Test
+	fun refused_token_is_not_sent_after_restart() {
+		// Review I-3 (b): a new process over the same store, before any sign-in has been answered.
+		auth.setLegacyToken("legacy")
+		transport.reply = refused(401, "navidrome_refused")
+		run { auth.upgradeLegacyTokenIfDue() }
+		val again = HubAuth(prefs, SecretStore(settings, SecretVault(vault, XorCipher()), onError = { _, _ -> }),
+			{ account }, { "phone" }, transport, log = {})
+		assertNull(again.bearer(), "nothing for LbBotManager's resumed watches to send as the primary user")
+		assertNull(again.helloCredential())
+		assertNull(again.httpBase())
+	}
+
+	@Test
+	fun a_refusal_while_signed_in_keeps_the_secret() {
+		// Only the upgrade (a token held, no secret) retires a token; a signed-in device holds none.
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		transport.reply = refused(401, "navidrome_refused")
+		run { auth.signIn() }
+		assertEquals("sek", auth.bearer(), "a refused re-tap does not drop a working secret")
+	}
+
+	// ---- Review M-5: a credential change is announced (the cast bridges rebuild on it) ------- //
+
+	@Test
+	fun credential_changes_are_announced() {
+		var seen = auth.credentialGeneration.value
+		fun moved(what: String) {
+			val now = auth.credentialGeneration.value
+			assertTrue(now != seen, "$what moves the credential generation")
+			seen = now
+		}
+		auth.setLegacyToken("legacy"); moved("a typed token")
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }; moved("a sign-in")
+		transport.reply = refused(401, "navidrome_refused")
+		run { auth.afterSignedOut() }; moved("a 4005")
+		auth.setLegacyToken("legacy")
+		seen = auth.credentialGeneration.value
+		run { auth.signIn() }; moved("a refused upgrade retiring the token")
+		transport.reply = granted(secret = "sek2")
+		run { auth.signIn() }
+		seen = auth.credentialGeneration.value
+		auth.noteOldServerRefusedSecret(); moved("R24")
+		auth.setLegacyToken("t2"); seen = auth.credentialGeneration.value
+		auth.beginSignOut(); moved("a sign-out")
+	}
+
+	// ---- Review M-12: no direct fingerprint for a device a Worbus Server signed in or out --- //
+
+	@Test
+	fun signed_out_or_refused_device_reads_no_fingerprint_directly() {
+		assertFalse(auth.boundToWorbusServer, "never signed in anywhere: AudioMuse direct, as before")
+		auth.setLegacyToken("legacy")
+		assertFalse(auth.boundToWorbusServer, "the legacy token is today's primary user")
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		assertTrue(auth.boundToWorbusServer)
+		// Signed out, and the silent sign-in failed: no secret, but this device belongs to a server.
+		transport.reply = refused(401, "navidrome_refused")
+		run { auth.afterSignedOut() }
+		assertEquals(HubAuthState.SignedOut, auth.state.value)
+		assertTrue(auth.boundToWorbusServer)
+		assertFalse(fingerprintRouteAllowed(viaHub = false, signedIn = auth.boundToWorbusServer))
+		// A refused upgrade (the token retired) too.
+		val fresh = HubAuth(prefs, SecretStore(MemorySettings(), SecretVault(MemorySettings(), XorCipher()), onError = { _, _ -> }),
+			{ account }, { "phone" }, transport, log = {})
+		fresh.setLegacyToken("legacy")
+		run { fresh.upgradeLegacyTokenIfDue() }
+		assertTrue(fresh.boundToWorbusServer)
+	}
+
+	// ---- Review M-2: a hub 401 while a credential is held kicks the socket ------------------ //
+
+	@Test
+	fun http_401_with_a_credential_kicks_the_socket() {
+		var kicks = 0
+		auth.onUnauthorized = { kicks++ }
+		auth.noteHttpUnauthorized()
+		assertEquals(0, kicks, "no credential: nothing to find out")
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		auth.noteHttpUnauthorized()
+		assertEquals(1, kicks, "the socket's hello then meets 4005 and the one silent sign-in")
+		assertEquals("sek", auth.bearer(), "HTTP never signs in or forgets the secret itself")
+		assertTrue(transport.calls.size == 1)
 	}
 
 	@Test

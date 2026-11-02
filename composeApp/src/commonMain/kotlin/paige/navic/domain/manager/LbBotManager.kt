@@ -415,6 +415,13 @@ class LbBotManager(
 
 		/** Never got an answer. */
 		data class Unreachable(val message: String) : LbError
+
+		/**
+		 * Worbus P2 (review I-2): refused because of who is asking ([LbRefusal]): the gate goes, or
+		 * lb-bot is too old for this user. Never "lb-bot isn't set up.", which is [NotConfigured]'s,
+		 * for a hub that really has none.
+		 */
+		data class AccessRefused(val refusal: LbRefusal) : LbError
 	}
 
 	/** Success carries the parsed body; failure carries something to show the user. */
@@ -426,8 +433,9 @@ class LbBotManager(
 	private fun <T> LbResult<T>.valueOrNull(): T? = (this as? LbResult.Ok)?.value
 
 	private fun failureFor(status: Int, path: String, raw: String): LbResult.Failed {
-		// Worbus P2: a refusal that is about who is asking is not shown; its gate goes instead.
-		if (noteAccessRefusal(status, raw)) return LbResult.Failed(LbError.NotConfigured)
+		// Worbus P2: a refusal that is about who is asking is its own error (review I-2): its gate goes,
+		// or the one "unavailable" sentence is said.
+		noteAccessRefusal(status, raw)?.let { return LbResult.Failed(LbError.AccessRefused(it)) }
 		val wasOn = downloadsMode.current.isOn
 		val error = downloadsMode.failureOf(status, raw)
 		val message = (error as? LbError.Rejected)?.message.orEmpty()
@@ -491,24 +499,39 @@ class LbBotManager(
 
 	/**
 	 * Worbus P2: 401 `signin_required`, the hub's 503 `lbbot_too_old` and 403 `admin_only` say who is
-	 * asking, not what went wrong ([lbRefusalEffect]). Applied here for every reader; true when the
-	 * answer is one of them, which its caller then does not show.
+	 * asking, not what went wrong ([lbRefusalEffect]). Applied here for every reader; the refusal when
+	 * the answer is one of them, which its caller returns as [LbError.AccessRefused] (review I-2).
 	 */
-	private fun noteAccessRefusal(status: Int, raw: String): Boolean {
-		if (status != 401 && status != 403 && status != 503) return false
+	private fun noteAccessRefusal(status: Int, raw: String): LbRefusal? {
+		val refused = lbAccessError(status, raw, hubAuth.hasCredential) ?: return null
 		val code = (lbFailureOf(status, raw) as? LbError.Rejected)?.code.orEmpty()
-		val effect = lbRefusalEffect(_lbAccess.value, status, code)
-		if (effect.access != _lbAccess.value) {
-			Logger.i("LbBotManager", "lb-bot access: ${effect.access}")
-			_lbAccess.value = effect.access
-			if (effect.access == LbAccess.TOO_OLD) _available.value = false
-			publishAllSupport()
-		}
+		val effect = lbRefusalEffect(_lbAccess.value, status, code, credentialHeld = hubAuth.hasCredential)
+		setAccess(effect.access)
 		if (effect.demoteAdmin && _roles.value.admin) {
 			Logger.i("LbBotManager", "lb-bot says admin_only: admin actions hidden")
 			applyRoles(_roles.value.copy(admin = false), fromHub = false)
 		}
-		return effect.silent
+		if (effect.kickSocket) {
+			Logger.i("LbBotManager", "the hub answered 401 to a held credential: asking the socket")
+			hubAuth.noteHttpUnauthorized()
+		}
+		return refused.refusal
+	}
+
+	/** Review I-1: a 2xx lb answer. The hub served it, so lb-bot proved who it answers (R17). */
+	private fun noteAccessAnswered(status: Int) {
+		if (status !in 200..299 || _lbAccess.value != LbAccess.TOO_OLD) return
+		setAccess(lbAccessAfterAnswer(_lbAccess.value, status, ""))
+	}
+
+	/** The ONE writer of [lbAccess]: leaving too-old makes lb-bot available again as last said. */
+	private fun setAccess(next: LbAccess) {
+		val before = _lbAccess.value
+		if (next == before) return
+		Logger.i("LbBotManager", "lb-bot access: $next")
+		_lbAccess.value = next
+		_available.value = lbAvailableFor(lastSaidAvailable, next)
+		publishAllSupport()
 	}
 
 	/**
@@ -518,15 +541,13 @@ class LbBotManager(
 	fun applyRoles(roles: HubRoles, fromHub: Boolean = true) {
 		val changed = roles != _roles.value
 		_roles.value = roles
-		if (fromHub && changed && _lbAccess.value != LbAccess.OPEN) _lbAccess.value = LbAccess.OPEN
+		if (fromHub && changed) setAccess(LbAccess.OPEN)
 		if (changed) publishAllSupport()
 	}
 
 	/** A new hub connection: lb-bot's last word about the previous one's user does not carry over. */
 	fun resetAccess() {
-		if (_lbAccess.value == LbAccess.OPEN) return
-		_lbAccess.value = LbAccess.OPEN
-		publishAllSupport()
+		setAccess(LbAccess.OPEN)
 	}
 
 	private fun publishAllSupport() {
@@ -546,6 +567,10 @@ class LbBotManager(
 		val retryable: Boolean = false
 	)
 
+	/** A refusal about who asks, noted and returned as itself (review I-2); null for any other answer. */
+	private fun accessRefusedOf(status: Int, raw: String): LbResult.Failed? =
+		noteAccessRefusal(status, raw)?.let { LbResult.Failed(LbError.AccessRefused(it)) }
+
 	/** [failureFor] for the two override writes; the rules are [overrideWriteError]'s. */
 	private fun overrideFailureFor(status: Int, path: String, raw: String): LbResult.Failed {
 		val body = try {
@@ -554,6 +579,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		accessRefusedOf(status, raw)?.let { return it }
 		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
 	}
@@ -566,6 +592,7 @@ class LbBotManager(
 			LbOverrideRefusal()
 		}
 		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		accessRefusedOf(status, raw)?.let { return it }
 		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(metaRefreshError(status, body.error, body.retryable))
 	}
@@ -593,6 +620,7 @@ class LbBotManager(
 					socketTimeoutMillis = timeoutMs
 				}
 			}
+			noteAccessAnswered(response.status.value)
 			if (response.status.isSuccess()) LbResult.Ok(response.body<T>())
 			else failureFor(response.status.value, "GET $path", response.bodyAsText())
 		} catch (e: Exception) {
@@ -617,6 +645,7 @@ class LbBotManager(
 				contentType(ContentType.Application.Json)
 				setBody(body)
 			}
+			noteAccessAnswered(response.status.value)
 			if (!response.status.isSuccess()) {
 				return failure(response.status.value, "POST $path", response.bodyAsText())
 			}
@@ -647,6 +676,7 @@ class LbBotManager(
 				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
 			}
 			val text = response.bodyAsText()
+			noteAccessAnswered(response.status.value)
 			if (response.status.isSuccess()) LbResult.Ok(text)
 			else failure(response.status.value, "GET $path", text)
 		} catch (e: CancellationException) {
@@ -661,6 +691,7 @@ class LbBotManager(
 	private class LbRaw(val status: Int, val text: String)
 
 	private fun rawAnswer(call: String, status: Int, text: String): LbRaw {
+		noteAccessAnswered(status)
 		if (status !in 200..299) {
 			Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
 			noteDownloadsRefusal(status, text)
@@ -959,6 +990,7 @@ class LbBotManager(
 	suspend fun probeAvailable(): Boolean {
 		val probe = getJson<LbStatusProbe>("/lb/status", emptyList()).valueOrNull()
 		if (probe == null) {
+			lastSaidAvailable = false
 			_available.value = false
 			_availableAt = 0L        // a failure is not an answer worth caching
 			return false
@@ -969,6 +1001,7 @@ class LbBotManager(
 		downloadsMode.applyAdvert(lbDownloadsOf(probe.downloads))
 		hubProxyOff = !probe.configured
 		val ok = probe.configured && probe.upstreamReachable
+		lastSaidAvailable = ok
 		_available.value = lbAvailableFor(ok, _lbAccess.value)
 		_availableAt = nowMs()
 		publishOverrideSupport()
@@ -994,6 +1027,9 @@ class LbBotManager(
 	 */
 	private val _available = MutableStateFlow(false)
 	val available: StateFlow<Boolean> = _available.asStateFlow()
+
+	/** What the last advert or probe said of lb-bot, before this user's access was laid over it. */
+	private var lastSaidAvailable = false
 	private var _availableAt = 0L
 
 	/**
@@ -1033,7 +1069,9 @@ class LbBotManager(
 		webUrl: String = "",
 		downloads: LbDownloads = LbDownloads.UNKNOWN,
 		/** The advert is a `welcome`'s: a new connection says the mode from scratch. */
-		newConnection: Boolean = false
+		newConnection: Boolean = false,
+		/** Worbus P2: the advert's `identity: true` (R17); false when absent. */
+		identity: Boolean = false
 	) {
 		_hubRoutes.value = routes
 		_hubHeard.value = true
@@ -1041,6 +1079,9 @@ class LbBotManager(
 		// known, a welcome's starts again from "unknown".
 		downloadsMode.applyAdvert(downloads, newConnection)
 		hubProxyOff = !available && routes.isEmpty()
+		lastSaidAvailable = available
+		// Review I-1: identity clears too-old; an lb-bot up without it is too old for a non-primary user.
+		setAccess(lbAccessAfterAdvert(_lbAccess.value, identity, _roles.value.primary, available))
 		_available.value = lbAvailableFor(available, _lbAccess.value)
 		_availableAt = nowMs()
 		_webUrl.value = cleanWebUrl(webUrl)
@@ -1278,6 +1319,9 @@ class LbBotManager(
 		if (rgid.isBlank() || (mbid.isBlank() && ndId.isBlank())) {
 			return LbResult.Failed(LbError.Rejected(400, ""))
 		}
+		// Review M-10: lb-bot lists this route as admin; a non-admin never posts it (it would only
+		// earn a 403 on every visit of a not-owned album page).
+		if (!_roles.value.admin) return LbResult.Failed(LbError.AccessRefused(LbRefusal.ADMIN_ONLY))
 		return postJson(
 			"/lb/artist/release",
 			LbIndexReleaseRequest(rgid, mbid, ndId, name, external, title, artist, type, year)
@@ -1944,9 +1988,12 @@ class LbBotManager(
 		raw: LbResult<LbRaw>,
 		read: (status: Int, text: String) -> LbResult<T>
 	): LbResult<T> {
-		val result = when (raw) {
-			is LbResult.Ok -> read(raw.value.status, raw.value.text)
-			is LbResult.Failed -> raw
+		// Review I-2: a refusal about who asks is itself, not lb-bot's sentence (noted by rawAnswer).
+		val refused = (raw as? LbResult.Ok)?.value?.let { lbAccessError(it.status, it.text, hubAuth.hasCredential) }
+		val result = when {
+			refused != null -> LbResult.Failed(refused)
+			raw is LbResult.Ok -> read(raw.value.status, raw.value.text)
+			else -> raw as LbResult.Failed
 		}
 		if (result is LbResult.Failed && result.error == LbError.RouteUnknown) {
 			albumOverrideRoutesMissing = true
@@ -2272,9 +2319,12 @@ class LbBotManager(
 		raw: LbResult<LbRaw>,
 		read: (status: Int, text: String) -> LbResult<T>
 	): LbResult<T> {
-		val result = when (raw) {
-			is LbResult.Ok -> read(raw.value.status, raw.value.text)
-			is LbResult.Failed -> raw
+		// Review I-2: a refusal about who asks is itself, not lb-bot's sentence (noted by rawAnswer).
+		val refused = (raw as? LbResult.Ok)?.value?.let { lbAccessError(it.status, it.text, hubAuth.hasCredential) }
+		val result = when {
+			refused != null -> LbResult.Failed(refused)
+			raw is LbResult.Ok -> read(raw.value.status, raw.value.text)
+			else -> raw as LbResult.Failed
 		}
 		if (result is LbResult.Failed && result.error == LbError.RouteUnknown) {
 			mergeRoutesMissing = true
@@ -3909,6 +3959,17 @@ class LbBotManager(
 		// `complete` means placed; lb-bot's verifier sends `albumIndexed` once Navidrome has it.
 		if (gap.status == "complete" && previousStatus != "complete") onLibraryChanged()
 		if (decision is Decision.Settle) settle(key, decision.outcome, decision.state, decision.reason)
+	}
+
+	/**
+	 * Review M-7: a Navidrome logout drops the persisted fill ledger, so the next account inherits
+	 * none of the previous one's fills (the album page's gap box, the attention count, the background
+	 * polling of admin routes). The poll stops; nothing is sent to lb-bot.
+	 */
+	suspend fun forgetWatches() {
+		pollJob?.cancel()
+		pollJob = null
+		watchLock.withLock { saveWatches(emptyMap()) }
 	}
 
 	/**

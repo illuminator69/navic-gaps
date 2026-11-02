@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -211,6 +212,12 @@ class CastBridgeManager(
 			hubManager.connected.collect { up ->
 				hubUpSince = if (up) hubUpSince ?: SystemClock.elapsedRealtime() else null
 			}
+		}
+		scope.launch {
+			// Worbus P2 (review M-5): a sign-in, a sign-out or a 4005 changes the space each bridge's
+			// socket is bound to. Rebuild at once rather than at the next tick: until then the speakers
+			// stay registered in the space this device just left.
+			hubAuth.credentialGeneration.drop(1).collect { reconcile(discovery.devices.value) }
 		}
 	}
 

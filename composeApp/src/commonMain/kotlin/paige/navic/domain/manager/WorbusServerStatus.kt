@@ -92,6 +92,8 @@ fun statusOfSignIn(result: SignInResult): ServerStatus? = when (result) {
 	is SignInResult.Unreachable -> if (result.navidrome) ServerStatus.NavidromeUnreachable else ServerStatus.CantReach
 	SignInResult.TooManyAttempts -> ServerStatus.TooManyAttempts
 	SignInResult.OldServer -> ServerStatus.OldServer
+	// Nothing was asked (review M-3); [HubAuth] never stores it as an answer.
+	SignInResult.NoAccount -> ServerStatus.NotSignedIn
 }
 
 /**
@@ -101,6 +103,9 @@ fun statusOfSignIn(result: SignInResult): ServerStatus? = when (result) {
  *   that a sign-in the user just tapped and was refused is said over it — the token may still be
  *   connecting this device as before, but the answer to the tap must not vanish;
  * - then what is missing (address, credential), what the last sign-in or the hub said, the dial.
+ *
+ * [linkedByToken]: the socket said hello with the legacy token (review M-4). The hub names the primary
+ * user for it too (R2), so it reads "Connected", never "Signed in as" over a "Sign in as" row.
  */
 fun serverStatus(
 	enabled: Boolean,
@@ -111,7 +116,8 @@ fun serverStatus(
 	auth: HubAuthState,
 	authRefused: Boolean,
 	localNetworkBlocked: Boolean,
-	unreachable: Boolean
+	unreachable: Boolean,
+	linkedByToken: Boolean = false
 ): ServerStatus {
 	if (!enabled) return ServerStatus.Off
 	if (auth == HubAuthState.SigningIn) return ServerStatus.SigningIn
@@ -123,6 +129,7 @@ fun serverStatus(
 		if (signInFailure != null && signInFailure != ServerStatus.OldServer && signInFailure != ServerStatus.CantReach) {
 			return signInFailure
 		}
+		if (linkedByToken) return ServerStatus.Connected
 		return user?.let { ServerStatus.SignedIn(it.name, it.isAdmin) } ?: ServerStatus.Connected
 	}
 	if (!hasAddress) return ServerStatus.NotConfigured

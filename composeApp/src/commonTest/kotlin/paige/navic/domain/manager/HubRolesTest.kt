@@ -7,8 +7,11 @@ import paige.navic.domain.models.MixKind
 import paige.navic.ui.components.sheets.AvatarMenuEntry
 import paige.navic.ui.components.sheets.AvatarMenuIds
 import paige.navic.ui.components.sheets.avatarMenuItems
+import paige.navic.ui.components.sheets.lbErrorDrawn
 import paige.navic.ui.screens.artist.artistSheetOffersFillGaps
 import paige.navic.ui.screens.collection.gapFillOffered
+import paige.navic.ui.screens.external.viewmodels.ExternalIndexAdd
+import paige.navic.ui.screens.external.viewmodels.externalIndexAdd
 import paige.navic.ui.screens.home.mixTiles
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -132,8 +135,90 @@ class HubRolesTest {
 		// What demotion does on screen: the actions are absent.
 		val after = HubRoles.EVERYTHING.copy(admin = false)
 		assertFalse(AvatarMenuIds.ATTENTION in tools(after))
-		// primary_only is not admin_only.
+		// primary_only is not admin_only, and is as silent (review I-2).
 		assertFalse(lbRefusalEffect(LbAccess.OPEN, 403, "primary_only").demoteAdmin)
+		assertTrue(lbRefusalEffect(LbAccess.OPEN, 403, "primary_only").silent)
+	}
+
+	// ---- Review I-1: lbbot_too_old is transient (R17, R20) --------------------------------- //
+
+	@Test
+	fun too_old_clears_on_lb_identity_and_on_success() {
+		// The hub broadcasts `lb` with identity: true once lb-bot proves it again.
+		assertEquals(LbAccess.OPEN, lbAccessAfterAdvert(LbAccess.TOO_OLD, identity = true, primary = false, available = true))
+		// Any 2xx lb answer: the hub serves a non-primary caller only an answer that proved identity.
+		assertEquals(LbAccess.OPEN, lbAccessAfterAnswer(LbAccess.TOO_OLD, 200, ""))
+		assertEquals(LbAccess.OPEN, lbAccessAfterAnswer(LbAccess.TOO_OLD, 204, ""))
+		// …and what they do not clear.
+		assertEquals(LbAccess.REFUSED, lbAccessAfterAdvert(LbAccess.REFUSED, identity = true, primary = false, available = true))
+		assertEquals(LbAccess.REFUSED, lbAccessAfterAnswer(LbAccess.REFUSED, 200, ""))
+		assertEquals(LbAccess.TOO_OLD, lbAccessAfterAnswer(LbAccess.OPEN, 503, "lbbot_too_old"))
+		assertEquals(LbAccess.TOO_OLD, lbAccessAfterAnswer(LbAccess.TOO_OLD, 502, ""), "lb-bot down says nothing about its age")
+		// An advert without identity, with lb-bot up, is an older lb-bot: too old for anyone but the
+		// primary user (design §6.4), with no round trip to find out.
+		assertEquals(LbAccess.TOO_OLD, lbAccessAfterAdvert(LbAccess.OPEN, identity = false, primary = false, available = true))
+		assertEquals(LbAccess.OPEN, lbAccessAfterAdvert(LbAccess.OPEN, identity = false, primary = true, available = true))
+		assertEquals(LbAccess.OPEN, lbAccessAfterAdvert(LbAccess.OPEN, identity = false, primary = false, available = false), "lb-bot down: no word")
+		// The wire: `identity: true` read from welcome.lb and the `lb` frame; absent is false.
+		assertEquals(true, lbAdvertOf(frame("""{"t":"lb","available":true,"routes":[],"identity":true}"""))?.identity)
+		assertEquals(false, lbAdvertOf(frame("""{"available":true,"routes":[]}"""))?.identity)
+		assertTrue(lbAvailableFor(true, lbAccessAfterAnswer(LbAccess.TOO_OLD, 200, "")), "available again")
+	}
+
+	// ---- Review I-2: a refusal about who asks is not "lb-bot isn't set up." ------------------- //
+
+	private fun body(code: String) = """{"error": "x", "code": "$code"}"""
+
+	@Test
+	fun access_refusal_is_not_not_configured() {
+		val cases = mapOf(
+			(401 to "signin_required") to LbRefusal.SIGNIN_REQUIRED,
+			(403 to "admin_only") to LbRefusal.ADMIN_ONLY,
+			(403 to "primary_only") to LbRefusal.PRIMARY_ONLY,
+			(503 to "lbbot_too_old") to LbRefusal.TOO_OLD
+		)
+		for ((answer, refusal) in cases) {
+			val error = lbAccessError(answer.first, body(answer.second), credentialHeld = true)
+			assertEquals(LbBotManager.LbError.AccessRefused(refusal), error, "${answer.first} ${answer.second}")
+			assertTrue(error != LbBotManager.LbError.NotConfigured)
+		}
+		// Hide-type refusals draw nothing; too-old draws its one "unavailable" sentence.
+		assertFalse(lbErrorDrawn(LbBotManager.LbError.AccessRefused(LbRefusal.SIGNIN_REQUIRED)))
+		assertFalse(lbErrorDrawn(LbBotManager.LbError.AccessRefused(LbRefusal.ADMIN_ONLY)))
+		assertFalse(lbErrorDrawn(LbBotManager.LbError.AccessRefused(LbRefusal.PRIMARY_ONLY)))
+		assertFalse(lbErrorDrawn(LbBotManager.LbError.AccessRefused(LbRefusal.HUB_UNAUTHORIZED)))
+		assertTrue(lbErrorDrawn(LbBotManager.LbError.AccessRefused(LbRefusal.TOO_OLD)))
+		// "lb-bot isn't set up." stays for a hub that really has none, and every other error is drawn.
+		assertTrue(lbErrorDrawn(LbBotManager.LbError.NotConfigured))
+		assertTrue(lbErrorDrawn(LbBotManager.LbError.Rejected(403, "nope")))
+		// Not a refusal about who asks: none.
+		assertNull(lbAccessError(403, body("forbidden_path"), credentialHeld = true))
+		assertNull(lbAccessError(503, body("busy"), credentialHeld = true))
+		assertNull(lbAccessError(409, body("downloads_off"), credentialHeld = true))
+	}
+
+	@Test
+	fun hub_401_without_a_code_is_silent_while_a_credential_is_held() {
+		// Review M-2: the hub's own 401 (a revoked secret on a proxied route while the socket is down).
+		val hub401 = """{"error": "unauthorized"}"""
+		assertEquals(LbBotManager.LbError.AccessRefused(LbRefusal.HUB_UNAUTHORIZED), lbAccessError(401, hub401, credentialHeld = true))
+		assertNull(lbAccessError(401, hub401, credentialHeld = false), "no credential: shown as before")
+		val effect = lbRefusalEffect(LbAccess.OPEN, 401, "", credentialHeld = true)
+		assertTrue(effect.silent)
+		assertTrue(effect.kickSocket, "the socket finds out: its hello meets 4005, then the one silent sign-in")
+		assertEquals(LbAccess.OPEN, effect.access)
+		assertFalse(lbRefusalEffect(LbAccess.OPEN, 401, "signin_required", credentialHeld = true).kickSocket)
+	}
+
+	// ---- Review M-10: a non-admin posts no admin route ------------------------------------------ //
+
+	@Test
+	fun non_admin_posts_no_admin_route() {
+		// The not-owned album page's automatic `POST /lb/artist/release` (lb-bot lists it as admin).
+		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = true, admin = false))
+		assertEquals(ExternalIndexAdd.SKIP, externalIndexAdd(supported = false, admin = false), "and no failure line either")
+		assertEquals(ExternalIndexAdd.UNSUPPORTED, externalIndexAdd(supported = false, admin = true))
+		assertEquals(ExternalIndexAdd.POST, externalIndexAdd(supported = true, admin = true))
 	}
 
 	@Test

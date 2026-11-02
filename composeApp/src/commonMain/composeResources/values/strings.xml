@@ -1696,4 +1696,5 @@
 	<string name="option_server_token_old">Server token, for older servers</string>
 	<string name="info_library_refused">The Worbus Server's library service turned this server away. Library tools are hidden.</string>
 	<string name="info_library_too_old">This Worbus Server's library service is too old for signed-in users.</string>
+	<string name="error_lbbot_unavailable_to_account">Library tools aren't available to your account on this Worbus Server right now.</string>
 </resources>

@@ -820,9 +820,14 @@ class ExternalAlbumViewModel(
 		indexAddTried = true
 		// The route is a hub whitelist entry; an older hub answers a plain 404, which
 		// no HTTP client raises as an error. Check before pressing rather than after.
-		if (!lbBotManager.supportsSingleReleaseIndex) {
-			_state.value = _state.value.copy(indexAddFailed = true)
-			return
+		// Worbus P2 (review M-10): and it is an admin route, which a non-admin never posts.
+		when (externalIndexAdd(lbBotManager.supportsSingleReleaseIndex, lbBotManager.roles.value.admin)) {
+			ExternalIndexAdd.SKIP -> return
+			ExternalIndexAdd.UNSUPPORTED -> {
+				_state.value = _state.value.copy(indexAddFailed = true)
+				return
+			}
+			ExternalIndexAdd.POST -> Unit
 		}
 		// The detail this screen already loaded is lb-bot's escape hatch when
 		// MusicBrainz is inside its five-minute failure cooldown for this
@@ -851,6 +856,24 @@ class ExternalAlbumViewModel(
 			ownedAlbumId = added?.navidromeAlbumIds?.firstOrNull { it.isNotBlank() }
 		)
 	}
+}
+
+/** What the not-owned album page does about a release the index lacks (review M-10). */
+internal enum class ExternalIndexAdd {
+	/** A non-admin: the admin route is not posted, and nothing failed. */
+	SKIP,
+
+	/** An admin on a hub without the route: said as a failed add, as before. */
+	UNSUPPORTED,
+
+	/** An admin on a hub with the route: `POST /lb/artist/release`. */
+	POST
+}
+
+internal fun externalIndexAdd(supported: Boolean, admin: Boolean): ExternalIndexAdd = when {
+	!admin -> ExternalIndexAdd.SKIP
+	!supported -> ExternalIndexAdd.UNSUPPORTED
+	else -> ExternalIndexAdd.POST
 }
 
 /** How long a landed request keeps looking for its album in the library. */

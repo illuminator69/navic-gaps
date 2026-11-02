@@ -66,6 +66,7 @@ sealed interface LbIndexRun {
 /** A failed pull's cause, as a clause that completes "The pull failed: …". */
 internal fun indexFailureDetail(error: LbBotManager.LbError): String = when (error) {
 	LbBotManager.LbError.NotConfigured -> "no hub is set up"
+	is LbBotManager.LbError.AccessRefused -> "lb-bot does not answer this account"
 	LbBotManager.LbError.RouteUnknown -> "this hub or lb-bot has no index feed"
 	LbBotManager.LbError.Busy -> "lb-bot was busy or unreachable"
 	is LbBotManager.LbError.Unreachable -> "the hub could not be reached"
@@ -135,6 +136,7 @@ internal fun mirrorLine(supported: Boolean, info: LbMirrorInfo): String = when {
 /** An error as a clause, for sentences this panel builds ("Not saved: …"). */
 internal fun lbErrorClause(error: LbBotManager.LbError): String = when (error) {
 	LbBotManager.LbError.NotConfigured -> "no hub is set up"
+	is LbBotManager.LbError.AccessRefused -> "lb-bot does not answer this account"
 	LbBotManager.LbError.RouteUnknown -> "this hub or lb-bot is older and has no such route"
 	LbBotManager.LbError.Busy -> "lb-bot is busy or unreachable"
 	is LbBotManager.LbError.Unreachable -> "the hub could not be reached"
@@ -466,6 +468,7 @@ internal fun metaRefreshOf(result: LbBotManager.LbResult<String>): LbMetaRefresh
 		aboutBodyOrNull(result.value)?.let { LbMetaRefresh.Answered(it) } ?: LbMetaRefresh.Nothing
 	is LbBotManager.LbResult.Failed -> when (val error = result.error) {
 		LbBotManager.LbError.NotConfigured,
+		is LbBotManager.LbError.AccessRefused,
 		LbBotManager.LbError.Busy,
 		is LbBotManager.LbError.Unreachable -> LbMetaRefresh.Unreachable
 		LbBotManager.LbError.RouteUnknown -> LbMetaRefresh.Refused(404)
