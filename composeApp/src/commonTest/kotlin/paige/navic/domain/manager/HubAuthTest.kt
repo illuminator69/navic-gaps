@@ -266,4 +266,96 @@ class HubAuthTest {
 		assertNull(hubUserOf(Json.parseToJsonElement("""{"name":"alice"}""").jsonObject))
 		assertNull(hubUserOf(Json.parseToJsonElement("""{"name":"alice","admin":"yes","primary":false}""").jsonObject))
 	}
+
+	// ---- R23: the legacy token is an upgrade bridge, not a fallback -------------------------- //
+
+	@Test
+	fun legacy_token_upgrades_once_on_connect() {
+		auth.setLegacyToken("legacy")
+		transport.reply = granted(secret = "upgraded")
+		assertEquals(SignInResult.SignedIn(HubUser("bob", false, false)), run { auth.upgradeLegacyTokenIfDue() })
+		assertEquals("upgraded", auth.bearer())
+		assertFalse(auth.hasLegacyToken, "success clears the token")
+		// Nothing left to upgrade: no second sign-in, now or at the next connect.
+		assertNull(run { auth.upgradeLegacyTokenIfDue() })
+		auth.noteNewConnect()
+		assertNull(run { auth.upgradeLegacyTokenIfDue() })
+		assertEquals(1, transport.calls.size)
+	}
+
+	@Test
+	fun refused_upgrade_does_not_use_the_token() {
+		auth.setLegacyToken("legacy")
+		transport.reply = refused(401, "navidrome_refused")
+		assertEquals(SignInResult.Refused, run { auth.upgradeLegacyTokenIfDue() })
+		assertNull(auth.bearer(), "the token would make this account the primary user")
+		assertFalse(auth.hasCredential)
+		assertNull(auth.httpBase(), "no Worbus Server layer on it either")
+		assertTrue(auth.hasLegacyToken, "kept stored, not sent")
+	}
+
+	@Test
+	fun old_server_or_no_answer_keeps_the_token() {
+		auth.setLegacyToken("legacy")
+		transport.reply = HubAuthReply.Answered(405, """{"error": "method not allowed"}""")
+		assertEquals(SignInResult.OldServer, run { auth.upgradeLegacyTokenIfDue() })
+		assertEquals("legacy", auth.bearer())
+		assertNull(run { auth.upgradeLegacyTokenIfDue() }, "an older server is not asked again on this connect")
+
+		for (reply in listOf(HubAuthReply.NoAnswer, refused(429, "too_many_attempts"), refused(503, "navidrome_unreachable"))) {
+			auth.noteNewConnect()
+			transport.reply = reply
+			assertTrue(run { auth.upgradeLegacyTokenIfDue() } != null)
+			assertEquals("legacy", auth.bearer(), "$reply: an upgrade must not cost a connection")
+			// …and the next connect tries again.
+			transport.calls.clear()
+			run { auth.upgradeLegacyTokenIfDue() }
+			assertEquals(1, transport.calls.size, "$reply: retried at the next connect")
+		}
+	}
+
+	@Test
+	fun after_a_signin_the_token_is_never_used_again() {
+		auth.setLegacyToken("legacy")
+		run { auth.signIn() }
+		// The hub signs the device out and the silent sign-in fails: nothing to fall back to.
+		transport.reply = refused(401, "navidrome_refused")
+		assertFalse(run { auth.afterSignedOut() })
+		assertNull(auth.bearer())
+		assertEquals(false, legacyTokenUsableAfter(SignInResult.Refused))
+		assertEquals(false, legacyTokenUsableAfter(SignInResult.SignedIn(HubUser("bob", false, false))))
+		assertEquals(true, legacyTokenUsableAfter(null))
+	}
+
+	// ---- R24: 4001 to a secret hello is an older server --------------------------------------- //
+
+	@Test
+	fun secret_hello_closed_4001_is_old_server() {
+		assertTrue(secretHelloRefusedByOldServer(helloSentSecret = true, closeCode = 4001, authErrorSeen = false))
+		assertTrue(secretHelloRefusedByOldServer(true, null, authErrorSeen = true))
+		assertFalse(secretHelloRefusedByOldServer(helloSentSecret = false, closeCode = 4001, authErrorSeen = true), "a refused token is Refused, as before")
+		assertFalse(secretHelloRefusedByOldServer(true, 4005, false), "a new server says signed out with 4005")
+
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		auth.noteOldServerRefusedSecret()
+		assertNull(auth.bearer(), "the secret means nothing to a server from before sign-in")
+		assertTrue(auth.oldServerSeen, "the token field is offered")
+		assertEquals(HubAuthState.Answered(SignInResult.OldServer), auth.state.value)
+		auth.setLegacyToken("typed")
+		assertEquals("typed", auth.bearer())
+	}
+
+	// ---- Feishin review C1's pattern: "the hub is set up" never means "a token is typed" ---- //
+
+	@Test
+	fun signed_in_device_without_token_has_the_hub_layer() {
+		transport.reply = granted(secret = "sek")
+		run { auth.signIn() }
+		assertFalse(auth.hasLegacyToken)
+		assertTrue(auth.hasCredential)
+		assertEquals("http://hub.lan:4790", auth.httpBase(), "lb-bot, the index mirror, previews, stations, moods")
+		assertEquals("http://hub.lan:4790", hubHttpBase(auth))
+		assertTrue(hubRouteSignature(prefs, auth) != "true|ws://hub.lan:4790/connect|0", "a re-probe key that moved")
+	}
 }

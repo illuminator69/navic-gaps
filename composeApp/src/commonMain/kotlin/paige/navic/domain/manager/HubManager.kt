@@ -423,6 +423,10 @@ class HubManager(
 	@kotlin.concurrent.Volatile
 	private var signedOutSeen = false
 
+	/** R24: the current socket's hello carried `auth.deviceSecret`. */
+	@kotlin.concurrent.Volatile
+	private var helloSentSecret = false
+
 	/** The close code of the socket that just ended, or null (no close frame, a dial that failed). */
 	@kotlin.concurrent.Volatile
 	private var lastCloseCode: Short? = null
@@ -607,6 +611,8 @@ class HubManager(
 		_connected.value = false
 		// A sign-in or a sign-out may have happened: a secret held with no user said yet fails closed.
 		updateRoles()
+		// R23: this connect gives a held legacy token its upgrade attempt.
+		hubAuth.noteNewConnect()
 		authFailed = false
 		_unreachable.value = false
 		_connectionError.value = null
@@ -1145,14 +1151,26 @@ class HubManager(
 		// A kick left from before this loop has no wait to cut: the first dial is immediate.
 		reconnectKick.tryReceive()
 		while (currentCoroutineContext().isActive) {
-			// Worbus P2: nothing to authenticate with (never signed in, signed out, logged out). A
-			// dial would only be refused; a sign-in or a token saved in settings restarts the loop.
-			if (hubAuth.helloCredential() == null && preferenceManager.hubUrl.isNotBlank()) {
+			// R23: a legacy token and no secret: one silent sign-in before this connect turns it into a
+			// secret (or says whether the token may still be sent).
+			if (preferenceManager.hubUrl.isNotBlank()) {
+				try {
+					hubAuth.upgradeLegacyTokenIfDue()?.let { Logger.i("HubManager", "legacy token upgrade: ${it::class.simpleName}") }
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					Logger.w("HubManager", "legacy token upgrade failed: ${e::class.simpleName}")
+				}
+			}
+			// Worbus P2: nothing to authenticate with (never signed in, signed out, logged out, a
+			// token R23 no longer sends). A dial would only be refused; a sign-in restarts the loop.
+			if (!hubAuth.hasCredential && preferenceManager.hubUrl.isNotBlank()) {
 				Logger.i("HubManager", "no Worbus Server credential — not dialling until a sign-in")
 				return
 			}
 			signedOutSeen = false
 			lastCloseCode = null
+			helloSentSecret = false
 			try {
 				connectOnce()
 			} catch (e: Exception) {
@@ -1185,6 +1203,15 @@ class HubManager(
 			// The hub rejected our token — retrying with the same bad token would
 			// tight-loop forever and never surface the error. Stop; a settings
 			// change (which calls restart()) clears the flag and tries again.
+			// R24: a 4001 / `auth` answering a hello that carried the secret is a server from before
+			// sign-in. The token field is offered; with a token held, it is dialled with at once.
+			if (secretHelloRefusedByOldServer(helloSentSecret, lastCloseCode, authFailed)) {
+				Logger.w("HubManager", "the hub refused the device secret with 4001: an older server")
+				hubAuth.noteOldServerRefusedSecret()
+				authFailed = false
+				_connectionError.value = null
+				continue
+			}
 			if (authFailed) {
 				Logger.e("HubManager", "hub auth rejected — stopping reconnect until settings change")
 				return
@@ -1265,6 +1292,7 @@ class HubManager(
 			}
 			// Read once per dial: the secret (Worbus P2) or the legacy token, never both.
 			val credential = hubAuth.helloCredential()
+			helloSentSecret = credential is HelloCredential.DeviceSecret
 			sendFrame(buildJsonObject {
 				put("t", "hello")
 				credential?.let { putHelloCredential(it) }

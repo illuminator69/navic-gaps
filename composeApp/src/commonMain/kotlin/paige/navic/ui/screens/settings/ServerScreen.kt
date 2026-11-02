@@ -149,7 +149,8 @@ fun ServerScreen() {
 	val status = serverStatus(
 		enabled = preferenceManager.hubEnabled,
 		hasAddress = preferenceManager.hubUrl.isNotBlank(),
-		hasCredential = signedIn || hubTokenSet,
+		// The one "has a hub credential" accessor (R23: a refused account's token is not one).
+		hasCredential = hubAuth.hasCredential,
 		connected = connected,
 		user = user,
 		auth = authState,

@@ -207,6 +207,35 @@ fun hubCredentialOf(deviceSecret: String, legacyToken: String): HelloCredential?
 	else -> null
 }
 
+/**
+ * R23 (controller ruling, both clients): the legacy token is an upgrade bridge, not a fallback. After
+ * the last sign-in's [result] (null: none yet this process), may a held token still be sent? Yes while
+ * the upgrade has not been answered, for an older server (`OldServer`), and while the server or its
+ * Navidrome cannot be asked (`Unreachable`, `TooManyAttempts`: an upgrade must not cost a connection).
+ * Not after `navidrome_refused`: that account is not the server's, and the token would make it the
+ * primary user. A sign-in that worked has cleared the token already.
+ */
+fun legacyTokenUsableAfter(result: SignInResult?): Boolean = when (result) {
+	null, SignInResult.OldServer, is SignInResult.Unreachable, SignInResult.TooManyAttempts -> true
+	SignInResult.Refused, is SignInResult.SignedIn -> false
+}
+
+/** R23: whether the next connect tries again to turn the token into a secret. */
+fun tokenUpgradeDueAfter(result: SignInResult?): Boolean = when (result) {
+	null, is SignInResult.Unreachable, SignInResult.TooManyAttempts -> true
+	SignInResult.OldServer, SignInResult.Refused, is SignInResult.SignedIn -> false
+}
+
+/**
+ * R24: the server closed 4001 (or said `auth`) to a hello that carried `auth.deviceSecret`: a server
+ * from before sign-in, which reads only `token` (a new one answers a bad secret with 4005).
+ */
+fun secretHelloRefusedByOldServer(helloSentSecret: Boolean, closeCode: Short?, authErrorSeen: Boolean): Boolean =
+	helloSentSecret && (authErrorSeen || closeCode == CLOSE_AUTH_REFUSED)
+
+/** The hub's close code for a refused shared token (and every hello a P1 hub cannot read). */
+const val CLOSE_AUTH_REFUSED: Short = 4001
+
 /** Where a sign-in stands, for the Server page (N2). */
 sealed interface HubAuthState {
 	/** Nothing attempted since launch, or the last attempt's answer was cleared. */
@@ -263,12 +292,28 @@ class HubAuth(
 	/** Set by the silent sign-in, cleared by [noteWelcome]: one per signed-out episode. */
 	private var silentSignInSpent = false
 
+	/** R23: the last sign-in's answer this process, which decides whether a held token may be sent. */
+	@kotlin.concurrent.Volatile
+	private var lastSignIn: SignInResult? = null
+
+	/** R23: a connect should first try to turn a held token into a secret. Set again by [noteNewConnect]. */
+	@kotlin.concurrent.Volatile
+	private var tokenUpgradeDue = true
+
 	/**
 	 * Bumped by every sign-out: a sign-in whose answer comes back after one (a logout during a silent
 	 * sign-in) keeps nothing it was given.
 	 */
 	@kotlin.concurrent.Volatile
 	private var signOutGeneration = 0
+
+	/**
+	 * Whether this device has a credential for the Worbus Server at all: the ONE "is the hub set up"
+	 * question (with the address and the switch, [httpBase]). Never "a token is typed": a signed-in
+	 * device holds no token (Feishin's review C1: such checks cost a signed-in device its moods, its
+	 * lb-bot index mirror and AudioMuse; `HubBearerGuardTest` keeps them out).
+	 */
+	val hasCredential: Boolean get() = helloCredential() != null
 
 	/** The credential every Worbus Server call sends; null when there is none. */
 	fun bearer(): String? = when (val c = helloCredential()) {
@@ -278,7 +323,10 @@ class HubAuth(
 	}
 
 	/** The same credential, typed, for a hello. */
-	fun helloCredential(): HelloCredential? = hubCredentialOf(secrets.hubDeviceSecret, secrets.hubToken)
+	fun helloCredential(): HelloCredential? = hubCredentialOf(
+		secrets.hubDeviceSecret,
+		secrets.hubToken.takeIf { legacyTokenUsableAfter(lastSignIn) }.orEmpty()
+	)
 
 	/** True while a device secret is held: the device is signed in to this server. */
 	val signedIn: Boolean get() = secrets.hubDeviceSecret.isNotBlank()
@@ -289,6 +337,8 @@ class HubAuth(
 	/** The Server page's token field (shown only after [SignInResult.OldServer]). "" removes it. */
 	fun setLegacyToken(token: String) {
 		secrets.hubToken = token.trim()
+		// A token typed for an older server (the field shows only after one answered so) is used.
+		if (lastSignIn == SignInResult.Refused) lastSignIn = null
 	}
 
 	/** The token field's current text, for its dialog. */
@@ -306,7 +356,7 @@ class HubAuth(
 
 	/** The HTTP base of the Worbus Server, or null: off, no address, or no credential. */
 	fun httpBase(): String? {
-		if (!preferenceManager.hubEnabled || bearer() == null) return null
+		if (!preferenceManager.hubEnabled || !hasCredential) return null
 		return hubHttpBaseOf(preferenceManager.hubUrl)
 	}
 
@@ -366,8 +416,40 @@ class HubAuth(
 				outcome.result
 			}
 		}
+		lastSignIn = result
+		tokenUpgradeDue = tokenUpgradeDueAfter(result)
 		_state.value = HubAuthState.Answered(result)
 		return result
+	}
+
+	/** A connect begins (start, a settings change): a held token gets its upgrade attempt again. */
+	fun noteNewConnect() {
+		tokenUpgradeDue = true
+	}
+
+	/**
+	 * R23 (a): a device holding a legacy token and no secret makes one silent sign-in when it
+	 * connects. Success stores the secret and clears the token; the other answers decide whether the
+	 * token is still sent ([legacyTokenUsableAfter]) and whether the next connect tries again
+	 * ([tokenUpgradeDueAfter]). Nothing to do with a secret held, no token, or no attempt due.
+	 */
+	suspend fun upgradeLegacyTokenIfDue(): SignInResult? {
+		if (!tokenUpgradeDue || secrets.hubDeviceSecret.isNotBlank() || secrets.hubToken.isBlank()) return null
+		tokenUpgradeDue = false
+		return signIn()
+	}
+
+	/**
+	 * R24: the server refused a hello that carried the secret with 4001 / `auth`: it is older than
+	 * sign-in. The secret means nothing to it, so it is forgotten (a sign-in at a newer server issues
+	 * another), and the token field is offered for this address.
+	 */
+	fun noteOldServerRefusedSecret() {
+		secrets.hubDeviceSecret = ""
+		preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()
+		lastSignIn = SignInResult.OldServer
+		tokenUpgradeDue = false
+		_state.value = HubAuthState.Answered(SignInResult.OldServer)
 	}
 
 	/**
@@ -410,6 +492,8 @@ class HubAuth(
 		signOutGeneration++
 		secrets.hubDeviceSecret = ""
 		secrets.hubToken = ""
+		lastSignIn = null
+		tokenUpgradeDue = true
 		silentSignInSpent = false
 		_state.value = HubAuthState.Idle
 		return pending

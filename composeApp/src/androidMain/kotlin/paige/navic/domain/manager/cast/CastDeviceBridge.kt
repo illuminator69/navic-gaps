@@ -1020,7 +1020,8 @@ internal class CastDeviceBridge(
 				contentId = status.media?.contentId,
 				ownSessionIds = ch.ownMediaSessionIds(),
 				queueStreamUrls = tracks.map { it.streamUrl },
-				lastLoadedContentId = ch.lastLoadedContentId
+				lastLoadedContentId = ch.lastLoadedContentId,
+				holdsPlayback = playing
 			)
 		) {
 			scope.launch { speakerTaken(status.mediaSessionId) }
@@ -1242,7 +1243,7 @@ internal class CastDeviceBridge(
 				// (on the bridge's scope: speakerTaken stops this very ticker).
 				if (!takenOver && castStatusIsForeign(
 						status.mediaSessionId, status.media?.contentId, ch.ownMediaSessionIds(),
-						tracks.map { it.streamUrl }, ch.lastLoadedContentId
+						tracks.map { it.streamUrl }, ch.lastLoadedContentId, holdsPlayback = playing
 					)
 				) {
 					scope.launch { speakerTaken(status.mediaSessionId) }
@@ -1345,20 +1346,26 @@ internal fun castBridgeHello(
 }
 
 /**
- * Worbus P2 (design §6.3): a MEDIA_STATUS that is not this bridge's. Only once it holds a session of
- * its own on this connection (before that, a status is a join's first look at whatever runs there,
- * which this user's own LOAD is about to replace). Then a session id it did not start, or content
- * that is neither a track of its queue nor what it last loaded, is another sender's.
+ * Worbus P2 (design §6.3; ruling R25): a MEDIA_STATUS that is not this bridge's.
+ * - A status carrying a session this bridge started is never foreign, whatever it plays: a queue edit
+ *   that drops the playing track must not release this user's own playback.
+ * - With a session of its own known, a session id it did not start is another sender's (another
+ *   user's cast always starts a new media session). A status with no id is not judged.
+ * - With none known, only content that is neither a track of its queue nor what it last loaded, and
+ *   only while it believes the speaker plays for it ([holdsPlayback]): before that, a status is a
+ *   join's first look at whatever runs there, which this user's own LOAD is about to replace.
  */
 internal fun castStatusIsForeign(
 	mediaSessionId: Long?,
 	contentId: String?,
 	ownSessionIds: Set<Long>,
 	queueStreamUrls: List<String?>,
-	lastLoadedContentId: String?
+	lastLoadedContentId: String?,
+	holdsPlayback: Boolean
 ): Boolean {
-	if (ownSessionIds.isEmpty()) return false
-	if (mediaSessionId != null && mediaSessionId !in ownSessionIds) return true
+	if (mediaSessionId != null && mediaSessionId in ownSessionIds) return false
+	if (ownSessionIds.isNotEmpty()) return mediaSessionId != null
+	if (!holdsPlayback) return false
 	val playing = streamIdentity(contentId) ?: return false
 	if (streamIdentity(lastLoadedContentId) == playing) return false
 	return queueStreamUrls.none { streamIdentity(it) == playing }

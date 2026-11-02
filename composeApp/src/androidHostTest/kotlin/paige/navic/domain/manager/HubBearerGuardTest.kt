@@ -73,4 +73,29 @@ class HubBearerGuardTest {
 			assertTrue(!credentialRead.containsMatchIn(line), line)
 		}
 	}
+
+	/** "Is the hub set up?" asked of the credential itself instead of [HubAuth.hasCredential]. */
+	private val credentialAsConfigured = Regex("""\b(bearer|helloCredential)\(\)\s*[!=]=\s*null""")
+
+	@Test
+	fun hubSetUpIsAskedThroughHasCredentialOnly() {
+		// Feishin's review C1: three checks still read "a token is typed" as "the hub is set up", and a
+		// signed-in device (no token) lost moods, the lb-bot index mirror and AudioMuse.
+		val offenders = sources.filter { it.name != "HubAuth.kt" }.flatMap { f ->
+			f.readLines().mapIndexedNotNull { i, line ->
+				if (credentialAsConfigured.containsMatchIn(line)) "${f.invariantSeparatorsPath}:${i + 1}: ${line.trim()}" else null
+			}
+		}
+		assertEquals(emptyList(), offenders, "ask hubAuth.hasCredential")
+		// Every proxy base is the one rule's, and the hub layer's base checks the accessor.
+		val endpoint = file("HubEndpoint.kt").readText()
+		assertTrue("fun hubHttpBase(auth: HubAuth): String? = auth.httpBase()" in endpoint)
+		assertTrue("!hasCredential" in file("HubAuth.kt").readText().substringAfter("fun httpBase()").substringBefore("}"))
+		assertTrue("hubAuth.hasCredential" in file("AudioMuseManager.kt").readText())
+		assertTrue("hubAuth.hasCredential" in file("HubManager.kt").readText())
+		assertTrue("hubAuth.hasCredential" in file("ServerScreen.kt").readText())
+		for (line in listOf("if (hubAuth.bearer() == null) return", "val x = auth.helloCredential() != null")) {
+			assertTrue(credentialAsConfigured.containsMatchIn(line), line)
+		}
+	}
 }

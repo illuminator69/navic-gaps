@@ -69,8 +69,8 @@ class AudioMuseManager(
 	 */
 	private fun hubProxyBase(): String? {
 		val raw = preferenceManager.hubUrl.trim()
-		val bearer = hubAuth.bearer()
-		if (raw.isBlank() || bearer == null) return null
+		if (raw.isBlank() || !hubAuth.hasCredential) return null
+		val bearer = hubAuth.bearer().orEmpty()
 		// A hub URL or credential change invalidates what we learned about the old hub.
 		val sig = "$raw|${bearer.hashCode()}"
 		if (sig != lastHubConfig) {

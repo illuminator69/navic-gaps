@@ -23,16 +23,18 @@ class ForeignSessionTest {
 	fun foreign_media_session_releases_not_adopts() {
 		val own = setOf(7L)
 		// A mediaSessionId this bridge did not start: another sender's LOAD.
-		assertTrue(castStatusIsForeign(8L, theirs, own, queue, ours))
-		assertTrue(castStatusIsForeign(8L, ours, own, queue, ours), "even playing the same song, it is their session")
-		// Content that is not a track of this queue (a status with no session id).
-		assertTrue(castStatusIsForeign(null, theirs, own, queue, ours))
-		// Ours: our session, our content, or the track we last loaded (a queue swapped under it).
-		assertFalse(castStatusIsForeign(7L, ours2, own, queue, ours))
-		assertFalse(castStatusIsForeign(null, null, own, queue, ours))
-		assertFalse(castStatusIsForeign(null, "http://nd/rest/stream.view?id=old&u=bob", own, queue, "http://nd/rest/stream.view?id=old&u=bob"))
-		// Before this bridge holds a session of its own here, a status is a join's first look, not a takeover.
-		assertFalse(castStatusIsForeign(8L, theirs, emptySet(), queue, null))
+		assertTrue(castStatusIsForeign(8L, theirs, own, queue, ours, holdsPlayback = true))
+		assertTrue(castStatusIsForeign(8L, ours, own, queue, ours, true), "even playing the same song, it is their session")
+		// No own session known yet, playing for this user, and content that is not of its queue.
+		assertTrue(castStatusIsForeign(null, theirs, emptySet(), queue, ours, holdsPlayback = true))
+		assertTrue(castStatusIsForeign(8L, theirs, emptySet(), queue, ours, holdsPlayback = true))
+		// Ours: our session, or with none known our content or the track we last loaded.
+		assertFalse(castStatusIsForeign(7L, ours2, own, queue, ours, true))
+		assertFalse(castStatusIsForeign(null, null, own, queue, ours, true))
+		assertFalse(castStatusIsForeign(null, ours2, emptySet(), queue, ours, true))
+		assertFalse(castStatusIsForeign(null, "http://nd/rest/stream.view?id=old&u=bob", emptySet(), queue, "http://nd/rest/stream.view?id=old&u=bob", true))
+		// Before this bridge plays anything here, a status is a join's first look, not a takeover.
+		assertFalse(castStatusIsForeign(8L, theirs, emptySet(), queue, null, holdsPlayback = false))
 
 		// Another sender's app replaced ours on the receiver.
 		assertTrue(receiverStatusIsForeign(listOf("their-app"), ownAppSessionId = "our-app", holdsOwnMedia = true))
@@ -103,5 +105,16 @@ class ForeignSessionTest {
 			"stay as they always did" in File("src/commonMain/kotlin/paige/navic/domain/manager/SessionManager.kt").readText(),
 			"the 2026-10-30 ruling's comment is replaced"
 		)
+	}
+
+	@Test
+	fun own_session_is_never_foreign() {
+		// R25: a queue edit that drops the playing track leaves the speaker on content the queue no
+		// longer holds; with this bridge's own session id that is still its own playback.
+		val edited = listOf(ours2)
+		assertFalse(castStatusIsForeign(7L, ours, setOf(7L), edited, lastLoadedContentId = null, holdsPlayback = true))
+		assertFalse(castStatusIsForeign(7L, theirs, setOf(7L), edited, null, true))
+		// With a session of its own known, a status with no id is not judged on its content.
+		assertFalse(castStatusIsForeign(null, theirs, setOf(7L), edited, null, true))
 	}
 }

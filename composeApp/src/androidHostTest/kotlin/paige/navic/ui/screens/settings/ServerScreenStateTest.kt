@@ -60,6 +60,8 @@ class ServerScreenStateTest {
 		// A refused tap is said over a link the legacy token still holds; an older server's 405 is not.
 		assertEquals(ServerStatus.NavidromeRefused, status(connected = true, auth = answered(SignInResult.Refused)))
 		assertEquals(ServerStatus.Connected, status(connected = true, auth = answered(SignInResult.OldServer)))
+		// R23: an upgrade attempt that got no answer says nothing over a link that is up.
+		assertEquals(ServerStatus.Connected, status(connected = true, auth = answered(SignInResult.Unreachable(navidrome = false))))
 		// The token typed for an older server then dials as before.
 		assertEquals(ServerStatus.Connecting, status(auth = answered(SignInResult.OldServer)))
 		assertEquals(ServerStatus.Refused, status(auth = answered(SignInResult.OldServer), refused = true))

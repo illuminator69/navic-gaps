@@ -118,8 +118,11 @@ fun serverStatus(
 	val signInFailure = (auth as? HubAuthState.Answered)?.let { statusOfSignIn(it.result) }
 	if (connected) {
 		// A refused tap is said over a link the token holds; an older server answering 405 is not a
-		// refusal, and a link that is up there is simply Connected.
-		if (signInFailure != null && signInFailure != ServerStatus.OldServer) return signInFailure
+		// refusal, and a link that is up there is simply Connected. Nor is "can't reach" (an upgrade
+		// attempt that failed to answer, R23): the server is plainly reached.
+		if (signInFailure != null && signInFailure != ServerStatus.OldServer && signInFailure != ServerStatus.CantReach) {
+			return signInFailure
+		}
 		return user?.let { ServerStatus.SignedIn(it.name, it.isAdmin) } ?: ServerStatus.Connected
 	}
 	if (!hasAddress) return ServerStatus.NotConfigured
