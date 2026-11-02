@@ -319,7 +319,15 @@ internal fun LbFillEntry.asAttentionRow(): AttentionRow = AttentionRow(
  * Whether to read `/lb/attention` now: never while a read is out, always when forced, otherwise at
  * most once in [ATTENTION_MIN_INTERVAL_MS]. [readAt] 0 is "never read".
  */
-fun shouldRefreshAttention(now: Long, readAt: Long, force: Boolean, inFlight: Boolean): Boolean = when {
+fun shouldRefreshAttention(
+	now: Long,
+	readAt: Long,
+	force: Boolean,
+	inFlight: Boolean,
+	/** NB3: lb-bot lists `/lb/attention` as admin; a non-admin never asks (it was a 403 per visit). */
+	admin: Boolean = true
+): Boolean = when {
+	!admin -> false
 	inFlight -> false
 	force -> true
 	readAt <= 0L -> true

@@ -53,6 +53,7 @@ import paige.navic.ui.components.common.SegmentedListItemDefaults.segmentedShape
 import paige.navic.ui.components.common.SongRowDefaults
 import paige.navic.ui.components.common.SwipeToDismissBox
 import paige.navic.ui.screens.downloads.viewmodels.WishlistUi
+import paige.navic.ui.components.sheets.lbUnavailableRes
 
 /**
  * The wishlist: what you asked for and nobody had.
@@ -91,7 +92,7 @@ internal fun LazyListScope.wishlistSection(
 					.fillMaxWidth()
 					.padding(vertical = 64.dp),
 				icon = Icons.Outlined.LibraryAdd,
-				label = stringResource(Res.string.info_wishlist_unsupported)
+				label = stringResource(wishlistUnsupportedLine(state.tooOld))
 			)
 		}
 
@@ -130,6 +131,13 @@ internal fun wishlistRowLine(attempts: Int, downloadsOn: Boolean): FillText = wh
 	attempts > 0 -> FillText.Res(Res.string.wishlist_attempts, listOf(attempts))
 	else -> FillText.Res(Res.string.wishlist_never_searched)
 }
+
+/**
+ * NB2: why the wishlist is not there. Too old for this user is said as the hub says it (R26); "needs
+ * lb-bot, through your hub" is only for lb-bot absent or a hub without the route.
+ */
+internal fun wishlistUnsupportedLine(tooOld: Boolean): StringResource =
+	lbUnavailableRes(tooOld, Res.string.info_wishlist_unsupported)
 
 /** The empty wishlist's second line, by mode (Worbus P1). */
 internal fun wishlistEmptyHint(downloadsOn: Boolean): StringResource =

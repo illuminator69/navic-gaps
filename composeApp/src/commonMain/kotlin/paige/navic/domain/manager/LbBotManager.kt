@@ -338,7 +338,7 @@ class LbBotManager(
 	 */
 	suspend fun refreshAttention(force: Boolean = false) {
 		if (!isConfigured) return
-		if (!shouldRefreshAttention(nowMs(), _attention.value.readAt, force, attentionInFlight)) return
+		if (!shouldRefreshAttention(nowMs(), _attention.value.readAt, force, attentionInFlight, admin = _roles.value.admin)) return
 		attentionLock.withLock {
 			if (attentionInFlight) return
 			attentionInFlight = true
@@ -439,7 +439,7 @@ class LbBotManager(
 		val wasOn = downloadsMode.current.isOn
 		val error = downloadsMode.failureOf(status, raw)
 		val message = (error as? LbError.Rejected)?.message.orEmpty()
-		Logger.w("LbBotManager", "$path -> HTTP $status ${message.ifBlank { raw.take(200) }}")
+		Logger.w("LbBotManager", "$path -> HTTP $status ${message.ifBlank { lbLogBody(raw) }}")
 		if (wasOn && !downloadsMode.current.isOn) Logger.i("LbBotManager", "lb-bot says downloading is off")
 		return LbResult.Failed(error)
 	}
@@ -540,7 +540,10 @@ class LbBotManager(
 	 */
 	fun applyRoles(roles: HubRoles, fromHub: Boolean = true) {
 		val changed = roles != _roles.value
+		val promoted = roles.admin && !_roles.value.admin
 		_roles.value = roles
+		// NB3: an admin's count is read once the hub says admin (a non-admin never reads it).
+		if (promoted && fromHub) requestAttentionRefresh(force = true)
 		if (fromHub && changed) setAccess(LbAccess.OPEN)
 		if (changed) publishAllSupport()
 	}
@@ -578,7 +581,7 @@ class LbBotManager(
 		} catch (e: Exception) {
 			LbOverrideRefusal()
 		}
-		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { lbLogBody(raw) }}")
 		accessRefusedOf(status, raw)?.let { return it }
 		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(overrideWriteError(status, body.code, body.error, body.retryable))
@@ -591,7 +594,7 @@ class LbBotManager(
 		} catch (e: Exception) {
 			LbOverrideRefusal()
 		}
-		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { raw.take(200) }}")
+		Logger.w("LbBotManager", "$path -> HTTP $status ${body.error.ifBlank { lbLogBody(raw) }}")
 		accessRefusedOf(status, raw)?.let { return it }
 		noteDownloadsRefusal(status, raw)
 		return LbResult.Failed(metaRefreshError(status, body.error, body.retryable))
@@ -693,7 +696,7 @@ class LbBotManager(
 	private fun rawAnswer(call: String, status: Int, text: String): LbRaw {
 		noteAccessAnswered(status)
 		if (status !in 200..299) {
-			Logger.w("LbBotManager", "$call -> HTTP $status ${text.take(200)}")
+			Logger.w("LbBotManager", "$call -> HTTP $status ${lbLogBody(text)}")
 			noteDownloadsRefusal(status, text)
 		}
 		return LbRaw(status, text)

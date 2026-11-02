@@ -44,6 +44,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.LbFillStatus
 import paige.navic.domain.manager.LbGapTrack
+import paige.navic.ui.components.sheets.lbUnavailableRes
 
 /**
  * The acquisition vocabulary, PROTOCOL.md §15.2.
@@ -169,7 +170,13 @@ fun fillDetailLine(status: LbFillStatus): FillText? = when {
 	else -> null
 }
 
-fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): FillPresentation {
+fun describeFill(
+	entry: LbFillEntry,
+	now: Long,
+	wishlistAvailable: Boolean,
+	/** NB2: the hub calls lb-bot too old for this user; a failing poll then says so (R26). */
+	tooOld: Boolean = false
+): FillPresentation {
 	val buttons = mutableListOf<FillButton>()
 	val sublines = mutableListOf<FillText>()
 	var explain: FillText? = null
@@ -200,7 +207,8 @@ fun describeFill(entry: LbFillEntry, now: Long, wishlistAvailable: Boolean): Fil
 			}
 		}
 		if (entry.lastErrorTicks >= UNREACHABLE_AFTER_ERRORS && entry.lastCheckedAt > 0L) {
-			sublines += FillText.Res(Res.string.lbbot_fill_unreachable, listOf(seconds(now - entry.lastCheckedAt)))
+			sublines += if (tooOld) FillText.Res(lbUnavailableRes(true, Res.string.lbbot_fill_unreachable))
+			else FillText.Res(Res.string.lbbot_fill_unreachable, listOf(seconds(now - entry.lastCheckedAt)))
 		}
 		if (entry.canCancel) buttons += FillButton.CANCEL
 		if (entry.state == "placed" && entry.rgid.isNotBlank()) buttons += FillButton.OPEN_ALBUM

@@ -83,6 +83,8 @@ import paige.navic.ui.screens.external.components.ArtistHero
 import paige.navic.ui.screens.search.components.GhostRow
 import paige.navic.ui.util.Fold
 import paige.navic.ui.util.teaserText
+import paige.navic.ui.components.sheets.lbUnavailableRes
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /**
  * An artist the library does not have (P4).
@@ -159,7 +161,7 @@ fun ExternalArtistScreen(artistMbid: String, name: String) {
 			ArtistPageState.Unreachable -> ContentUnavailable(
 				modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 32.dp),
 				icon = Icons.Outlined.Artist,
-				label = stringResource(Res.string.info_external_artist_unreachable)
+				label = stringResource(lbUnavailableRes(rememberLbTooOld(), Res.string.info_external_artist_unreachable))
 			)
 
 			else -> Column(

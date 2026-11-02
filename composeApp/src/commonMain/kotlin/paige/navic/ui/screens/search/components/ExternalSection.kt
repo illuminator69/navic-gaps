@@ -27,6 +27,8 @@ import paige.navic.ui.screens.search.ExternalRow
 import paige.navic.ui.util.ArrivalGate
 import paige.navic.ui.util.Fold
 import paige.navic.ui.util.arrive
+import paige.navic.ui.components.sheets.lbUnavailableRes
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /** How many ghost rows stand in while a lookup is out: the first answer usually fills them. */
 private const val GHOST_ROWS = 3
@@ -63,7 +65,8 @@ fun LazyGridScope.externalSection(
 		item(span = { GridItemSpan(maxLineSpan) }, key = "x-failed", contentType = "note") {
 			Box(Modifier.animateItem().fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
 				SearchPill(
-					stringResource(Res.string.search_lookup_failed),
+					// NB2: too old for this user says so (R26), not "couldn't reach".
+					stringResource(lbUnavailableRes(rememberLbTooOld(), Res.string.search_lookup_failed)),
 					failed = true,
 					onClick = onRetry,
 					clickLabel = stringResource(Res.string.search_lookup_retry)

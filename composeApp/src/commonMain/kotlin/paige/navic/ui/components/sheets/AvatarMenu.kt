@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -326,6 +327,24 @@ internal fun avatarMenuItems(
 	add(AvatarMenuEntry.Action(AvatarMenuIds.LOG_OUT, Icons.Outlined.Logout, Res.string.action_log_out))
 }
 
+/** One row of a group as drawn: the entry, and whether it is in the menu now (R34). */
+internal data class MenuRowSlot(val entry: AvatarMenuEntry, val shown: Boolean)
+
+/**
+ * R34: a group's rows as drawn. Every row the group can hold for an admin ([all]) keeps its place and
+ * folds in or out as the user's roles move (a `user` frame demoting or promoting them), so the rows
+ * under it follow the height instead of jumping. [current] is what is offered now; a shown row is its
+ * current entry (a badge moves with it).
+ */
+internal fun menuGroupSlots(current: AvatarMenuEntry.Group, all: AvatarMenuEntry.Group?): List<MenuRowSlot> {
+	val now = current.entries.associateBy { it.id }
+	val every = all?.entries.orEmpty()
+	val ids = every.map { it.id } + current.entries.map { it.id }.filter { id -> every.none { it.id == id } }
+	return ids.map { id ->
+		now[id]?.let { MenuRowSlot(it, shown = true) } ?: MenuRowSlot(every.first { it.id == id }, shown = false)
+	}
+}
+
 private val MenuShape = RoundedCornerShape(topEnd = 26.dp, bottomEnd = 26.dp)
 
 /**
@@ -420,6 +439,11 @@ private fun AvatarMenuContent() {
 	val items = remember(lbConfigured, canShare, attention, webUrl, downloads, roles) {
 		avatarMenuItems(lbConfigured, canShare, menuAttentionBadge(attention, lbConfigured), webUrl, downloads.isOn, roles.admin)
 	}
+	// R34: what an admin would see, so the rows a role change takes or gives fold out and in.
+	val everyGroup = remember(lbConfigured, canShare, webUrl, downloads) {
+		avatarMenuItems(lbConfigured, canShare, 0, webUrl, downloads.isOn, admin = true)
+			.filterIsInstance<AvatarMenuEntry.Group>().associateBy { it.id }
+	}
 	val uriHandler = LocalUriHandler.current
 
 	// Navigating from a row closes the menu first, then pushes the page; the double-tap guard is the
@@ -458,7 +482,7 @@ private fun AvatarMenuContent() {
 		)
 		items.forEach { entry ->
 			when (entry) {
-				is AvatarMenuEntry.Group -> MenuGroup(entry, go, toggles, openExternal)
+				is AvatarMenuEntry.Group -> MenuGroup(entry, everyGroup[entry.id], go, toggles, openExternal)
 				else -> MenuEntry(entry, onNavigate = go, toggles = toggles, onAction = logOut, onExternal = openExternal, inFold = false)
 			}
 		}
@@ -617,6 +641,7 @@ private fun CountPill(count: Int) {
 @Composable
 private fun MenuGroup(
 	group: AvatarMenuEntry.Group,
+	all: AvatarMenuEntry.Group?,
 	onNavigate: (NavKey) -> Unit,
 	toggles: (String) -> Pair<Boolean, (Boolean) -> Unit>,
 	onExternal: (String) -> Unit
@@ -680,8 +705,12 @@ private fun MenuGroup(
 				shape = RoundedCornerShape(14.dp)
 			) {
 				Column(Modifier.padding(vertical = 2.dp)) {
-					group.entries.forEach { entry ->
-						MenuEntry(entry, onNavigate = onNavigate, toggles = toggles, onAction = {}, onExternal = onExternal, inFold = true)
+					menuGroupSlots(group, all).forEach { slot ->
+						key(slot.entry.id) {
+							Fold(visible = slot.shown) {
+								MenuEntry(slot.entry, onNavigate = onNavigate, toggles = toggles, onAction = {}, onExternal = onExternal, inFold = true)
+							}
+						}
 					}
 				}
 			}

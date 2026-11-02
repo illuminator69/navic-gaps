@@ -1,6 +1,12 @@
 package paige.navic.ui.screens.settings
 
 import androidx.compose.animation.core.animateFloatAsState
+import paige.navic.ui.util.rememberFoldMotion
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -223,15 +229,27 @@ fun ServerScreen() {
 						},
 						content = { Text(stringResource(Res.string.option_server_connect)) },
 						supportingContent = {
-							Text(
-								stringResource(status.line, *status.args.toTypedArray()),
-								color = if (status.isProblem) MaterialTheme.colorScheme.error
-								else MaterialTheme.colorScheme.onSurfaceVariant
-							)
+							// R34: the line changes with the app's own motion (a cross-fade, its height
+							// eased), one node for the screen's life.
+							val lineMotion = rememberFoldMotion()
+							AnimatedContent(
+								targetState = status,
+								transitionSpec = {
+									(fadeIn(lineMotion.effects()) togetherWith fadeOut(lineMotion.effects()))
+										.using(SizeTransform(clip = false) { _, _ -> lineMotion.spatial() })
+								},
+								label = "server status"
+							) { shown ->
+								Text(
+									stringResource(shown.line, *shown.args.toTypedArray()),
+									color = if (shown.isProblem) MaterialTheme.colorScheme.error
+									else MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
 					)
-					if (blocked) {
+					Fold(visible = blocked) {
 						SegmentedListItem(
 							onClick = { permissionManager.openPermissionsSettings() },
 							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows),
@@ -239,35 +257,42 @@ fun ServerScreen() {
 						)
 					}
 					val first = rows - serverRows.size
-					serverRows.forEachIndexed { i, row ->
-						when (row) {
-							WorbusServerRow.Address -> ValueRow(
-								label = Res.string.option_server_address,
-								value = preferenceManager.hubUrl.ifBlank { null },
-								index = first + i,
-								count = rows,
-								onClick = { editing = ServerField.Address }
-							)
-							// One tap, with the app's own Navidrome account (design §6.5). Not while
-							// one is on its way; the status line says how it went.
-							WorbusServerRow.SignIn -> SettingsNavItem(
-								onClick = { hubManager.signInAndConnect() },
-								enabled = preferenceManager.hubUrl.isNotBlank() && status != ServerStatus.SigningIn,
-								shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
-								content = { Text(stringResource(Res.string.option_server_sign_in_as, accountName.orEmpty())) }
-							)
-							WorbusServerRow.SignOut -> SettingsNavItem(
-								onClick = { hubManager.signOutOfServer() },
-								shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
-								content = { Text(stringResource(Res.string.option_server_sign_out)) }
-							)
-							WorbusServerRow.DeviceName -> ValueRow(
-								label = Res.string.option_server_device_name,
-								value = preferenceManager.hubDeviceName.ifBlank { null },
-								index = first + i,
-								count = rows,
-								onClick = { editing = ServerField.DeviceName }
-							)
+					// R34: every row the group can hold is composed once; Sign in / Sign out fold in and
+					// out (the rows under them follow the height) instead of popping.
+					WorbusServerRow.entries.forEach { row ->
+						val shownAt = serverRows.indexOf(row)
+						val i = if (shownAt >= 0) shownAt else 0
+						Fold(visible = shownAt >= 0) {
+							when (row) {
+								WorbusServerRow.Address -> ValueRow(
+									label = Res.string.option_server_address,
+									value = preferenceManager.hubUrl.ifBlank { null },
+									index = first + i,
+									count = rows,
+									onClick = { editing = ServerField.Address }
+								)
+								// One tap, with the app's own Navidrome account (design §6.5). Not while
+								// one is on its way; the status line says how it went. An action, not a page:
+								// no chevron (R34).
+								WorbusServerRow.SignIn -> SegmentedListItem(
+									onClick = { hubManager.signInAndConnect() },
+									enabled = preferenceManager.hubUrl.isNotBlank() && status != ServerStatus.SigningIn,
+									shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
+									content = { Text(stringResource(Res.string.option_server_sign_in_as, accountName.orEmpty())) }
+								)
+								WorbusServerRow.SignOut -> SegmentedListItem(
+									onClick = { hubManager.signOutOfServer() },
+									shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
+									content = { Text(stringResource(Res.string.option_server_sign_out)) }
+								)
+								WorbusServerRow.DeviceName -> ValueRow(
+									label = Res.string.option_server_device_name,
+									value = preferenceManager.hubDeviceName.ifBlank { null },
+									index = first + i,
+									count = rows,
+									onClick = { editing = ServerField.DeviceName }
+								)
+							}
 						}
 					}
 				}
@@ -286,30 +311,35 @@ fun ServerScreen() {
 					Fold(visible = advancedOpen) {
 						Column(verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)) {
 							val count = advancedRows.size + 1
-							advancedRows.forEachIndexed { i, row ->
-								when (row) {
-									AdvancedServerRow.AudioMuseAddress -> ValueRow(
-										label = Res.string.option_audiomuse_address,
-										value = preferenceManager.audioMuseUrl.ifBlank { null },
-										index = i + 1,
-										count = count,
-										onClick = { editing = ServerField.AudioMuseAddress }
-									)
-									AdvancedServerRow.AudioMuseToken -> ValueRow(
-										label = Res.string.option_audiomuse_token,
-										value = if (audioMuseTokenSet) stringResource(Res.string.info_server_set) else null,
-										index = i + 1,
-										count = count,
-										onClick = { editing = ServerField.AudioMuseToken }
-									)
-									// Worbus P2: only after this address answered as an older server (R6).
-									AdvancedServerRow.ServerToken -> ValueRow(
-										label = Res.string.option_server_token_old,
-										value = if (hubTokenSet) stringResource(Res.string.info_server_set) else null,
-										index = i + 1,
-										count = count,
-										onClick = { editing = ServerField.Token }
-									)
+							// R34: the token row (only after an older server answered) folds in and out.
+							AdvancedServerRow.entries.forEach { row ->
+								val shownAt = advancedRows.indexOf(row)
+								val i = if (shownAt >= 0) shownAt else 0
+								Fold(visible = shownAt >= 0) {
+									when (row) {
+										AdvancedServerRow.AudioMuseAddress -> ValueRow(
+											label = Res.string.option_audiomuse_address,
+											value = preferenceManager.audioMuseUrl.ifBlank { null },
+											index = i + 1,
+											count = count,
+											onClick = { editing = ServerField.AudioMuseAddress }
+										)
+										AdvancedServerRow.AudioMuseToken -> ValueRow(
+											label = Res.string.option_audiomuse_token,
+											value = if (audioMuseTokenSet) stringResource(Res.string.info_server_set) else null,
+											index = i + 1,
+											count = count,
+											onClick = { editing = ServerField.AudioMuseToken }
+										)
+										// Worbus P2: only after this address answered as an older server (R6).
+										AdvancedServerRow.ServerToken -> ValueRow(
+											label = Res.string.option_server_token_old,
+											value = if (hubTokenSet) stringResource(Res.string.info_server_set) else null,
+											index = i + 1,
+											count = count,
+											onClick = { editing = ServerField.Token }
+										)
+									}
 								}
 							}
 						}
@@ -317,18 +347,20 @@ fun ServerScreen() {
 				}
 
 				// Worbus P2: the settings line for a library service that will not answer this user.
-				when (lbAccess) {
-					LbAccess.REFUSED -> Text(
+				// R34: each line folds in and out as lb-bot's answer to this user changes.
+				Fold(visible = lbAccess == LbAccess.REFUSED) {
+					Text(
 						stringResource(Res.string.info_library_refused),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.error
 					)
-					LbAccess.TOO_OLD -> Text(
+				}
+				Fold(visible = lbAccess == LbAccess.TOO_OLD) {
+					Text(
 						stringResource(Res.string.info_library_too_old),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.error
 					)
-					LbAccess.OPEN -> Unit
 				}
 				// What lb-bot holds about the library used to be a section here (I-020); it is
 				// the Library Matches page now, and the listening sync is in Stats.

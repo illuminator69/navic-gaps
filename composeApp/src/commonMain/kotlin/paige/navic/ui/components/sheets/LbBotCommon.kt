@@ -13,6 +13,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +42,8 @@ import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.AboutRefreshNotice
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.LbAccess
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbRefusal
 import paige.navic.domain.manager.LbSourceFile
@@ -68,6 +72,22 @@ fun lbErrorText(error: LbBotManager.LbError): String = when (error) {
 }
 
 /**
+ * NB2 (R26): the sentence a surface says when lb-bot does not answer it. While the hub calls lb-bot
+ * too old for this user, that is the cause, in the hub's own words; otherwise the surface's own
+ * "unreachable" or "needs lb-bot" line. Every surface that prints such a line routes it through here
+ * (`LaneNWalkGuardTest` enumerates them from strings.xml).
+ */
+fun lbUnavailableRes(tooOld: Boolean, otherwise: StringResource): StringResource =
+	if (tooOld) Res.string.error_lbbot_too_old else otherwise
+
+/** Whether the hub has called lb-bot too old for this user ([LbAccess.TOO_OLD]); moves in place. */
+@Composable
+fun rememberLbTooOld(): Boolean {
+	val access by koinInject<LbBotManager>().lbAccess.collectAsState()
+	return access == LbAccess.TOO_OLD
+}
+
+/**
  * Whether [LbErrorLine] draws [error] at all. A refusal about who is asking hides its gate instead
  * (`signin_required`: the layer goes; `admin_only` / `primary_only`: the action goes; the hub's own
  * 401: the socket finds out), with no line and no toast. Too-old is one "unavailable" sentence. Every
@@ -89,6 +109,7 @@ fun aboutRefreshMessage(notice: AboutRefreshNotice): StringResource = when (noti
 	AboutRefreshNotice.NOTHING_WRITTEN -> Res.string.notice_about_nothing_written
 	AboutRefreshNotice.NOTHING -> Res.string.notice_about_nothing
 	AboutRefreshNotice.UNREACHABLE -> Res.string.notice_about_unreachable
+	AboutRefreshNotice.TOO_OLD -> Res.string.error_lbbot_too_old
 	AboutRefreshNotice.ERROR -> Res.string.notice_about_error
 	AboutRefreshNotice.ERROR_SAID -> Res.string.notice_about_error_said
 }

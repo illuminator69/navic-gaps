@@ -44,12 +44,12 @@ class CastBridgeHelloTest {
 		}
 		val auth = HubAuth(prefs, secrets, { NavidromeAccount("bob", "pw") }, { "phone" }, transport, log = {})
 		assertEquals(SignInResult.SignedIn(HubUser("bob", false, false)), runBlocking { auth.signIn() })
-		assertEquals("bound-by-hub-id", prefs.hubDeviceId, "the returned id is persisted")
+		assertEquals("bound-by-hub-id", auth.helloDeviceId(), "the returned id is persisted (R32: for this account here)")
 
 		// What CastBridgeManager hands each bridge: the credential, and the owner id, while the main
 		// socket's live id is still the legacy session's (no welcome on the new secret yet).
 		val credential = auth.helloCredential()
-		val owner = castOwnerDeviceId(credential, live = "stale-live-id", saved = prefs.hubDeviceId)
+		val owner = castOwnerDeviceId(credential, live = "stale-live-id", saved = auth.helloDeviceId())
 		val hello = castBridgeHello("cast-abc", "Kitchen", "speaker", credential, owner)!!
 
 		assertEquals("hello", hello["t"]!!.jsonPrimitive.content)

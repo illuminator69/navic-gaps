@@ -440,6 +440,9 @@ sealed interface LbMetaRefresh {
 	/** lb-bot (or the hub in front of it) could not be reached. */
 	data object Unreachable : LbMetaRefresh
 
+	/** NB2: the hub calls lb-bot too old for this user (`lbbot_too_old`, R26). */
+	data object TooOld : LbMetaRefresh
+
 	/** lb-bot answered an error: its status, and its own sentence when it sent one. */
 	data class Refused(val status: Int, val text: String = "") : LbMetaRefresh
 }
@@ -467,8 +470,9 @@ internal fun metaRefreshOf(result: LbBotManager.LbResult<String>): LbMetaRefresh
 	is LbBotManager.LbResult.Ok ->
 		aboutBodyOrNull(result.value)?.let { LbMetaRefresh.Answered(it) } ?: LbMetaRefresh.Nothing
 	is LbBotManager.LbResult.Failed -> when (val error = result.error) {
+		is LbBotManager.LbError.AccessRefused ->
+			if (error.refusal == LbRefusal.TOO_OLD) LbMetaRefresh.TooOld else LbMetaRefresh.Unreachable
 		LbBotManager.LbError.NotConfigured,
-		is LbBotManager.LbError.AccessRefused,
 		LbBotManager.LbError.Busy,
 		is LbBotManager.LbError.Unreachable -> LbMetaRefresh.Unreachable
 		LbBotManager.LbError.RouteUnknown -> LbMetaRefresh.Refused(404)
@@ -505,6 +509,8 @@ sealed interface AboutRefreshOutcome {
 
 	data object Unreachable : AboutRefreshOutcome
 
+	data object TooOld : AboutRefreshOutcome
+
 	/** lb-bot answered an error; [text] is its own sentence, blank when it sent none. */
 	data class Refused(val status: Int, val text: String) : AboutRefreshOutcome
 }
@@ -530,6 +536,7 @@ internal fun aboutRefreshOutcome(shown: LbMeta?, refresh: LbMetaRefresh): AboutR
 		}
 		LbMetaRefresh.Nothing -> AboutRefreshOutcome.Nothing
 		LbMetaRefresh.Unreachable -> AboutRefreshOutcome.Unreachable
+		LbMetaRefresh.TooOld -> AboutRefreshOutcome.TooOld
 		is LbMetaRefresh.Refused -> AboutRefreshOutcome.Refused(refresh.status, refresh.text)
 	}
 
@@ -560,6 +567,9 @@ enum class AboutRefreshNotice {
 	/** "Couldn't reach lb-bot. What is shown is unchanged." */
 	UNREACHABLE,
 
+	/** NB2: "This Worbus Server's lb-bot is too old for signed-in users." (R26). */
+	TOO_OLD,
+
 	/** "lb-bot answered an error (N). What is shown is unchanged." — its status, no text sent. */
 	ERROR,
 
@@ -574,6 +584,7 @@ internal fun aboutRefreshNotice(outcome: AboutRefreshOutcome): AboutRefreshNotic
 	is AboutRefreshOutcome.NothingWritten -> AboutRefreshNotice.NOTHING_WRITTEN
 	AboutRefreshOutcome.Nothing -> AboutRefreshNotice.NOTHING
 	AboutRefreshOutcome.Unreachable -> AboutRefreshNotice.UNREACHABLE
+	AboutRefreshOutcome.TooOld -> AboutRefreshNotice.TOO_OLD
 	is AboutRefreshOutcome.Refused ->
 		if (outcome.text.isBlank()) AboutRefreshNotice.ERROR else AboutRefreshNotice.ERROR_SAID
 }

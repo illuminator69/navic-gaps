@@ -33,7 +33,10 @@ class AnimatedContentKeyDriftTest {
 		// generator line's words changing, another error message.
 		"ui/screens/lyrics/LyricsScreen.kt" to 1,
 		"ui/screens/queue/components/QueueGeneratorLine.kt" to 1,
-		"ui/screens/login/pages/Error.kt" to 1
+		"ui/screens/login/pages/Error.kt" to 1,
+		// Worbus P2 (R34): the Server page's status line. Its target is the sentence itself
+		// (`ServerStatus`, equal for equal words), so any change is new words and fades.
+		"ui/screens/settings/ServerScreen.kt" to 1
 	)
 
 	/** The argument list of each `AnimatedContent(` call in [text], by matching parentheses. */

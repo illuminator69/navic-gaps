@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.LbAccess
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.LbWishlistItem
 
@@ -13,6 +14,8 @@ data class WishlistUi(
 	val loading: Boolean = true,
 	/** False when lb-bot is absent or the hub does not carry the route. */
 	val supported: Boolean = true,
+	/** NB2: not supported because the hub calls lb-bot too old for this user (R26). */
+	val tooOld: Boolean = false,
 	val items: List<LbWishlistItem> = emptyList()
 )
 
@@ -45,7 +48,11 @@ class WishlistViewModel(
 			_state.value = _state.value.copy(loading = true)
 			val up = lbBotManager.ensureAvailability() && lbBotManager.supportsWishlist
 			if (!up) {
-				_state.value = WishlistUi(loading = false, supported = false)
+				_state.value = WishlistUi(
+					loading = false,
+					supported = false,
+					tooOld = lbBotManager.lbAccess.value == LbAccess.TOO_OLD
+				)
 				return@launch
 			}
 			_state.value = WishlistUi(

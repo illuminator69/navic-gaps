@@ -180,3 +180,9 @@ fun lbLayerOpen(configured: Boolean, access: LbAccess): Boolean = configured && 
 
 /** lb-bot reads as available: the advert or probe said so, and the hub did not call it too old for us. */
 fun lbAvailableFor(available: Boolean, access: LbAccess): Boolean = available && access != LbAccess.TOO_OLD
+
+/**
+ * NB3: an answer's body as one log line. lb-bot's JSON ends in a newline (Flask), which logcat drew
+ * as an empty second `W LbBotManager:` line under every refusal.
+ */
+fun lbLogBody(text: String): String = text.take(200).replace(Regex("\\s+"), " ").trim()

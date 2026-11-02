@@ -1163,6 +1163,19 @@ class HubManager(
 	private suspend fun runLoop() {
 		val backoff = HubReconnectBackoff(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS, STABLE_LINK_MS)
 		var lastKickedAtMs = 0L
+		// The wait between two attempts: the backoff, cut short by a kick (a network that came back).
+		suspend fun waitBeforeNextAttempt() {
+			val waitMs = backoff.next()
+			val waitFromMs = nowMs()
+			val kick = withTimeoutOrNull(waitMs) { reconnectKick.receive() }
+			if (kick != null) {
+				backoff.reset()
+				val now = nowMs()
+				delay(kickedWaitMs(now - lastKickedAtMs, waitMs - (now - waitFromMs), KICK_FLOOR_MS))
+				lastKickedAtMs = nowMs()
+				Logger.i("HubManager", "hub reconnect kicked: $kick")
+			}
+		}
 		// A kick left from before this loop has no wait to cut: the first dial is immediate.
 		reconnectKick.tryReceive()
 		while (currentCoroutineContext().isActive) {
@@ -1180,6 +1193,14 @@ class HubManager(
 			// Worbus P2: nothing to authenticate with (never signed in, signed out, logged out, a
 			// token R23 no longer sends). A dial would only be refused; a sign-in restarts the loop.
 			if (!hubAuth.hasCredential && preferenceManager.hubUrl.isNotBlank()) {
+				// R31: a legacy token whose upgrade got no verdict (no answer, Navidrome down, 429) is
+				// not dialled with: the status says why, and the sign-in is tried again after the wait.
+				if (hubAuth.upgradeRetryWanted) {
+					Logger.i("HubManager", "sign-in got no verdict; the legacy token is not sent here (R31), trying again")
+					waitBeforeNextAttempt()
+					hubAuth.noteNewConnect()
+					continue
+				}
 				Logger.i("HubManager", "no Worbus Server credential — not dialling until a sign-in")
 				return
 			}
@@ -1189,7 +1210,9 @@ class HubManager(
 			try {
 				connectOnce()
 			} catch (e: Exception) {
-				Logger.e("HubManager", "hub connection failed: ${e.message}", e)
+				// NB6: a cancellation is this loop being stopped (a logout, a restart), not a failure.
+				if (hubDialFailureIsError(e)) Logger.e("HubManager", "hub connection failed: ${e.message}", e)
+				else Logger.i("HubManager", "hub connection ended: ${e::class.simpleName}")
 				if (e !is CancellationException) {
 					// Nothing this explains may end the loop: a throw from here would leave the
 					// SupervisorJob scope with no handler, i.e. a process crash.
@@ -1244,16 +1267,7 @@ class HubManager(
 				Logger.w("HubManager", "signed out by the hub; the silent sign-in did not bring it back")
 				return
 			}
-			val waitMs = backoff.next()
-			val waitFromMs = nowMs()
-			val kick = withTimeoutOrNull(waitMs) { reconnectKick.receive() }
-			if (kick != null) {
-				backoff.reset()
-				val now = nowMs()
-				delay(kickedWaitMs(now - lastKickedAtMs, waitMs - (now - waitFromMs), KICK_FLOOR_MS))
-				lastKickedAtMs = nowMs()
-				Logger.i("HubManager", "hub reconnect kicked: $kick")
-			}
+			waitBeforeNextAttempt()
 		}
 	}
 
@@ -1313,7 +1327,8 @@ class HubManager(
 				put("t", "hello")
 				credential?.let { putHelloCredential(it) }
 				putJsonObject("device") {
-					val savedId = preferenceManager.hubDeviceId
+					// R32: with a secret, the id this account is bound to here; else the single id.
+					val savedId = hubAuth.helloDeviceId().orEmpty()
 					if (savedId.isNotEmpty()) put("id", savedId) else put("id", JsonNull)
 					put("name", preferenceManager.hubDeviceName.ifBlank { "Navic" })
 					put("platform", "android")
@@ -1807,12 +1822,19 @@ class HubManager(
 					null
 				}
 				updateRoles()
+				// R35: a hub that names a user answered the legacy token: it has sign-in now (an
+				// in-place upgrade). Its OldServer verdict goes, and the connect signs in first.
+				if (hubAuth.noteWelcomeUser(viaToken = !helloSentSecret && _linkedByToken.value, userPresent = _user.value != null)) {
+					Logger.i("HubManager", "token link to a hub with sign-in: reconnecting to sign in (R35)")
+					restart()
+					return
+				}
 				// What lb-bot refused on the last connection is asked again on this one.
 				lbBotManager.resetAccess()
 				val id = msg["deviceId"]?.jsonPrimitive?.content
 				if (id != null) {
 					_myDeviceId.value = id
-					preferenceManager.hubDeviceId = id
+					hubAuth.noteWelcomeDeviceId(id, viaSecret = helloSentSecret)
 				}
 				// Before anything below sends an act. A `welcome` also ends every pin: the acts
 				// they wait on went to a socket that is gone.

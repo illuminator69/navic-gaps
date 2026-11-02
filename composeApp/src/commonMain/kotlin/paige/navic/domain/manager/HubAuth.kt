@@ -370,11 +370,51 @@ class HubAuth(
 		null -> null
 	}
 
-	/** The same credential, typed, for a hello. */
+	/**
+	 * The same credential, typed, for a hello. R31 (it replaces R23(a)'s keep-the-token clause): the
+	 * legacy token is sent only to an address that answered as a server from before sign-in
+	 * ([oldServerSeen]: 404, 405, a 2xx/4xx that is not the sign-in JSON, or R24). Anywhere else a
+	 * device holding a token and no secret connects only once a sign-in has worked: on the AVD a
+	 * non-primary account whose upgrade got 429 connected on the token as the primary user and read
+	 * the owner's listening.
+	 *
+	 * R35: an OldServer verdict is evidence about one moment. The token is used only once THIS launch's
+	 * sign-in at this address answered as an older server (or R24 said so), never on a verdict a
+	 * previous launch stored: a hub upgraded in place in between gets its sign-in first.
+	 */
 	fun helloCredential(): HelloCredential? = hubCredentialOf(
 		secrets.hubDeviceSecret,
-		secrets.hubToken.takeIf { legacyTokenUsableAfter(lastSignIn) }.orEmpty()
+		secrets.hubToken.takeIf { oldServerSeen && lastSignIn == SignInResult.OldServer }.orEmpty()
 	)
+
+	/**
+	 * R31: a token is held, no secret, this address is not an older server, and the upgrade sign-in
+	 * got no verdict (the server or its Navidrome did not answer, or 429). The device stays
+	 * unconnected, the status says why, and the next connect tries the sign-in again.
+	 */
+	val upgradeRetryWanted: Boolean
+		get() = secrets.hubDeviceSecret.isBlank() && secrets.hubToken.isNotBlank() &&
+			(lastSignIn is SignInResult.Unreachable || lastSignIn == SignInResult.TooManyAttempts)
+
+	/**
+	 * R35: a `welcome` answered a hello. One that carries `user` while the hello sent the legacy
+	 * token is a hub with sign-in (an in-place P1→P2 upgrade): this address's OldServer verdict is
+	 * dropped and the upgrade sign-in is due at once. True when the caller should reconnect for it;
+	 * the token is not sent again until a sign-in has worked (R31).
+	 */
+	fun noteWelcomeUser(viaToken: Boolean, userPresent: Boolean): Boolean {
+		// R36: within this launch, an address whose welcome named a user is a hub with sign-in.
+		if (userPresent) p2WelcomeUrl = preferenceManager.hubUrl.trim()
+		if (!viaToken || !userPresent || !oldServerSeen) return false
+		preferenceManager.hubOldServerUrl = ""
+		lastSignIn = null
+		verdictUrl = null
+		tokenUpgradeDue = true
+		_state.value = HubAuthState.Idle
+		_credentialGeneration.value++
+		log("a hub with sign-in answered the token hello: signing in (R35)")
+		return true
+	}
 
 	/** True while a device secret is held: the device is signed in to this server. */
 	val signedIn: Boolean get() = secrets.hubDeviceSecret.isNotBlank()
@@ -434,13 +474,14 @@ class HubAuth(
 			log("sign-in skipped: ${if (base == null) "no address" else "no Navidrome account"}")
 			return SignInResult.NoAccount
 		}
+		dropVerdictIfMoved()
 		_state.value = HubAuthState.SigningIn
 		val generation = signOutGeneration
 		val pair = subsonicPair(acct.password, newSalt())
 		val body = signInBody(
 			username = acct.username,
 			pair = pair,
-			deviceId = preferenceManager.hubDeviceId,
+			deviceId = signInDeviceId(acct.username),
 			name = preferenceManager.hubDeviceName.ifBlank { "Navic" },
 			platform = platform,
 			kind = kind()
@@ -461,13 +502,23 @@ class HubAuth(
 				val grant = outcome.grant
 				// The server's sign-in route exists: its token is of no further use here (above).
 				writeCredentials(secret = grant.deviceSecret, token = "")
-				// R4: the id the server chose is this device's id from now on.
-				preferenceManager.hubDeviceId = grant.deviceId
+				// R4, R32: the id the server chose is this account's id at this address from now on. The
+				// pre-P2 single id is claimed only when the server hands that same id back.
+				deviceIdKey(acct.username)?.let { saveBoundId(it, grant.deviceId) }
+				if (grant.deviceId == preferenceManager.hubDeviceId) preferenceManager.hubLegacyDeviceIdClaimed = true
 				preferenceManager.hubOldServerUrl = ""
 				log("signed in as ${grant.user.name} (admin=${grant.user.isAdmin}, primary=${grant.user.isPrimary}); secret length ${grant.deviceSecret.length}")
 				SignInResult.SignedIn(grant.user)
 			}
 			is SignInOutcome.NotGranted -> {
+				if (outcome.result == SignInResult.OldServer && p2WelcomeUrl == preferenceManager.hubUrl.trim()) {
+					log("sign-in answered as an older server at an address that welcomed a user: read as unreachable (R36)")
+					lastSignIn = SignInResult.Unreachable(navidrome = false)
+					tokenUpgradeDue = true
+					verdictUrl = preferenceManager.hubUrl.trim()
+					_state.value = HubAuthState.Answered(SignInResult.Unreachable(navidrome = false))
+					return SignInResult.Unreachable(navidrome = false)
+				}
 				if (outcome.result == SignInResult.OldServer) {
 					preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()
 				}
@@ -485,13 +536,94 @@ class HubAuth(
 		}
 		lastSignIn = result
 		tokenUpgradeDue = tokenUpgradeDueAfter(result)
+		verdictUrl = preferenceManager.hubUrl.trim()
 		_state.value = HubAuthState.Answered(result)
 		return result
 	}
 
 	/** A connect begins (start, a settings change): a held token gets its upgrade attempt again. */
 	fun noteNewConnect() {
+		dropVerdictIfMoved()
 		tokenUpgradeDue = true
+	}
+
+	/**
+	 * R36: the address whose `welcome` named a user this launch (a P2 hub). Its sign-in route answering
+	 * as an older server (a path proxy that does not forward the `/hub/` routes) is read as Unreachable: the
+	 * token is not taken back, so no P2 welcome → drop the token → OldServer → token → reconnect loop.
+	 */
+	@kotlin.concurrent.Volatile
+	private var p2WelcomeUrl: String? = null
+
+	/** The address the last verdict ([state], [lastSignIn]) answered for; null for none (R33). */
+	@kotlin.concurrent.Volatile
+	private var verdictUrl: String? = null
+
+	/**
+	 * R33 (as Feishin's R29): a sign-in verdict belongs to the address that gave it. Once the address
+	 * changes it is dropped: the status no longer says another server's "Too many attempts", and the
+	 * new address gets its own sign-in.
+	 */
+	private fun dropVerdictIfMoved() {
+		val at = verdictUrl ?: return
+		if (at == preferenceManager.hubUrl.trim()) return
+		verdictUrl = null
+		lastSignIn = null
+		tokenUpgradeDue = true
+		silentSignInSpent = false
+		_state.value = HubAuthState.Idle
+	}
+
+	// ---- R32: the device id is per (hub address, account) ------------------------------------ //
+
+	private val idsJson = Json { ignoreUnknownKeys = true }
+
+	private fun deviceIdKey(username: String?): String? {
+		val name = username?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+		val url = preferenceManager.hubUrl.trim().takeIf { it.isNotEmpty() } ?: return null
+		return "$url|$name"
+	}
+
+	private fun boundIds(): Map<String, String> = try {
+		val raw = preferenceManager.hubDeviceIds
+		if (raw.isBlank()) emptyMap()
+		else idsJson.parseToJsonElement(raw).jsonObject.mapNotNull { (k, v) ->
+			(v as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { k to it }
+		}.toMap()
+	} catch (e: Exception) {
+		emptyMap()
+	}
+
+	private fun saveBoundId(key: String, id: String) {
+		val next = boundIds() + (key to id)
+		preferenceManager.hubDeviceIds = buildJsonObject { next.forEach { (k, v) -> put(k, v) } }.toString()
+	}
+
+	/**
+	 * The id offered to `/hub/signin` for [username] at this address: the one this account was given
+	 * here before, else the pre-P2 single id while it is unclaimed (R32): it was the primary user's on
+	 * a P1 hub, and only the hub can say whose it is, by handing it back.
+	 */
+	private fun signInDeviceId(username: String): String? =
+		deviceIdKey(username)?.let { boundIds()[it] }
+			?: preferenceManager.hubDeviceId.takeIf { it.isNotBlank() && !preferenceManager.hubLegacyDeviceIdClaimed }
+
+	/**
+	 * The id this device says hello with, and stamps as a cast bridge's `bridgedBy`: with a secret,
+	 * the id it is bound to for the current account and address (R4, R32); otherwise the pre-P2
+	 * single id, as before.
+	 */
+	fun helloDeviceId(): String? {
+		val legacy = preferenceManager.hubDeviceId.takeIf { it.isNotBlank() }
+		if (!signedIn) return legacy
+		return deviceIdKey(account()?.username)?.let { boundIds()[it] } ?: legacy
+	}
+
+	/** A `welcome`'s `deviceId`: the bound id of this account with a secret, the single id without. */
+	fun noteWelcomeDeviceId(id: String, viaSecret: Boolean) {
+		val key = deviceIdKey(account()?.username)
+		if (viaSecret && key != null) saveBoundId(key, id)
+		else if (!viaSecret) preferenceManager.hubDeviceId = id
 	}
 
 	/**
@@ -528,12 +660,16 @@ class HubAuth(
 	suspend fun afterSignedOut(): Boolean = lock.withLock {
 		writeCredentials(secret = "")
 		if (silentSignInSpent) {
+			verdictUrl = preferenceManager.hubUrl.trim()
 			_state.value = HubAuthState.SignedOut
 			return@withLock false
 		}
 		silentSignInSpent = true
 		val ok = signInLocked() is SignInResult.SignedIn
-		if (!ok) _state.value = HubAuthState.SignedOut
+		if (!ok) {
+			verdictUrl = preferenceManager.hubUrl.trim()
+			_state.value = HubAuthState.SignedOut
+		}
 		ok
 	}
 
@@ -651,3 +787,9 @@ suspend fun finishLeavingWorbusServer(
 	forgetSavedQueues()
 	forgetFillWatches()
 }
+
+/**
+ * NB6: whether a dial that ended with [e] is worth an error line. A cancellation is the loop being
+ * stopped on purpose (a logout, a restart, a sign-out), said at info level with no stack.
+ */
+fun hubDialFailureIsError(e: Throwable): Boolean = e !is CancellationException

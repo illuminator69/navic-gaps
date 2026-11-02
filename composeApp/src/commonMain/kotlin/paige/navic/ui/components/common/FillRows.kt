@@ -42,6 +42,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
 import kotlin.time.Clock
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /*
  * navi-connect P6: a fill's row, as the Downloads page drew it (I-039), now drawn by Source history
@@ -103,7 +104,7 @@ fun FillRow(
 	val preferenceManager = koinInject<PreferenceManager>()
 	// Every word and every button comes from the shared vocabulary (PROTOCOL §15.2), the table
 	// Feishin renders from too.
-	val described = describeFill(fill, now.value, wishlistAvailable)
+	val described = describeFill(fill, now.value, wishlistAvailable, tooOld = rememberLbTooOld())
 	val view = if (lbBotOnly) described.copy(
 		buttons = listOfNotNull(FillButton.OPEN_ALBUM.takeIf { fill.rgid.isNotBlank() }),
 		explain = null

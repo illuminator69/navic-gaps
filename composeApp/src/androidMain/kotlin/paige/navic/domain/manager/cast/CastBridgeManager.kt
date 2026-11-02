@@ -125,11 +125,11 @@ class CastBridgeManager(
 	/**
 	 * Our persisted hub identity.
 	 *
-	 * Read from preferences rather than [HubManager.myDeviceId], which is null until the first
+	 * Read from [HubAuth.helloDeviceId] (R32: the id this account is bound to here) rather than [HubManager.myDeviceId], which is null until the first
 	 * `welcome`. A bridge can register before that arrives, and one that sent no `bridgedBy` is a
 	 * bridge nobody — including us — can recognise as ours.
 	 */
-	private fun myHubDeviceId(): String? = preferenceManager.hubDeviceId.takeIf { it.isNotBlank() }
+	private fun myHubDeviceId(): String? = hubAuth.helloDeviceId()?.takeIf { it.isNotBlank() }
 
 	/**
 	 * Is some OTHER client currently presenting this speaker to the hub?

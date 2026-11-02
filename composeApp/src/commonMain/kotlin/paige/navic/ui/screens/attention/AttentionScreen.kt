@@ -125,6 +125,8 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.downloads.viewmodels.DownloadCenterViewModel
 import paige.navic.ui.util.Fold
 import paige.navic.ui.util.withoutTop
+import paige.navic.ui.components.sheets.lbUnavailableRes
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /**
  * Needs attention (P6): lb-bot's own "to fix", the count behind the avatar's dot, in two sections.
@@ -340,10 +342,12 @@ private fun AttentionHead(page: AttentionPage.Rows, modifier: Modifier = Modifie
 			Text(headline, style = MaterialTheme.typography.titleMedium)
 		}
 		val zone = remember { TimeZone.currentSystemDefault() }
+		// NB2: while the hub calls lb-bot too old for this user, that is what the notice says (R26).
+		val tooOld = rememberLbTooOld()
 		val lines = page.notices.map { notice ->
 			when (notice) {
 				AttentionNotice.Older -> stringResource(Res.string.attention_notice_older)
-				is AttentionNotice.Unreachable -> notice.since?.let {
+				is AttentionNotice.Unreachable -> if (tooOld) stringResource(lbUnavailableRes(true, Res.string.attention_notice_unreachable_never)) else notice.since?.let {
 					stringResource(Res.string.attention_notice_unreachable, formatListenedAt(it / 1000.0, zone))
 				} ?: stringResource(Res.string.attention_notice_unreachable_never)
 				is AttentionNotice.Truncated ->
@@ -381,7 +385,7 @@ private fun AlbumRow(
 	val a = row.album
 	val preferenceManager = koinInject<PreferenceManager>()
 	val entry = row.entry
-	val view = describeFill(entry ?: a.asLedgerRow(), now.value, wishlistAvailable)
+	val view = describeFill(entry ?: a.asLedgerRow(), now.value, wishlistAvailable, tooOld = rememberLbTooOld())
 	// Dismiss only where it removes the row: one only this phone holds (L4b-09). Worbus P1: while
 	// downloading is off, nothing that fetches ([attentionButtons]).
 	val buttons = attentionButtons(row, view.buttons, wishlistAvailable, downloadsOn)

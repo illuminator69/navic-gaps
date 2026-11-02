@@ -54,7 +54,9 @@ data class RequestInput(
 	/** A request tap whose answer has not come back yet. */
 	val starting: Boolean,
 	val wishlistAvailable: Boolean,
-	val now: Long
+	val now: Long,
+	/** NB2: the hub calls lb-bot too old for this user (R26). */
+	val tooOld: Boolean = false
 )
 
 enum class StepStatus { DONE, NOW, PENDING }
@@ -101,7 +103,7 @@ fun requestStage(input: RequestInput): RequestStage {
 	val fill = input.fill
 	if (fill != null && !fill.settled) {
 		return RequestStage.Active(
-			describeFill(fill, input.now, input.wishlistAvailable),
+			describeFill(fill, input.now, input.wishlistAvailable, input.tooOld),
 			requestSteps(fill.state, fill.done, fill.total)
 		)
 	}
@@ -112,7 +114,7 @@ fun requestStage(input: RequestInput): RequestStage {
 	) return RequestStage.InLibrary
 	var cancelledBefore = false
 	if (fill != null) {
-		val view = describeFill(fill, input.now, input.wishlistAvailable)
+		val view = describeFill(fill, input.now, input.wishlistAvailable, input.tooOld)
 		when {
 			fill.outcome == "cancelled" -> cancelledBefore = true
 			fill.outcome == "done" -> return RequestStage.Done(view)

@@ -116,6 +116,7 @@ import paige.navic.ui.screens.external.requestStage
 import paige.navic.ui.screens.external.viewmodels.RequestUi
 import paige.navic.ui.util.rememberFoldMotion
 import kotlin.time.Clock
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /*
  * navi-connect P4: the album page's request box, which replaced `MissingAlbumSheet`. "The user never
@@ -186,7 +187,8 @@ fun RequestBox(
 			editionMbid = request.editionMbid,
 			starting = request.starting,
 			wishlistAvailable = wishlistAvailable,
-			now = now.longValue
+			now = now.longValue,
+			tooOld = rememberLbTooOld()
 		)
 	)
 	if (stage == RequestStage.Absent) return

@@ -104,6 +104,8 @@ import paige.navic.domain.manager.LbBotManager
 import paige.navic.ui.components.common.FillText
 import paige.navic.ui.components.common.PillTone
 import paige.navic.ui.components.common.Pill
+import paige.navic.ui.components.sheets.lbUnavailableRes
+import paige.navic.ui.components.sheets.rememberLbTooOld
 
 /**
  * Source history (P6; it was the Downloads page's Fills and Wishlist chips, "Activity" in the avatar
@@ -219,8 +221,11 @@ fun SourceHistoryScreen(initial: SourceHistorySection = SourceHistorySection.Req
 							if (empty == HistoryEmpty.Older || empty is HistoryEmpty.Unreachable) {
 								item(key = "notice") {
 									val asOf = (empty as? HistoryEmpty.Unreachable)?.asOf
+									// NB2: too old for this user says so (R26), not "couldn't reach".
+									val tooOld = rememberLbTooOld()
 									val notice = when {
 										empty == HistoryEmpty.Older -> stringResource(Res.string.source_history_notice_older)
+										tooOld -> stringResource(lbUnavailableRes(true, Res.string.source_history_notice_unreachable))
 										asOf != null -> stringResource(
 											Res.string.attention_notice_unreachable, formatListenedAt(asOf / 1000.0, zone)
 										)

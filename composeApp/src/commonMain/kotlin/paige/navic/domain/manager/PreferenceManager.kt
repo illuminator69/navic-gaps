@@ -242,6 +242,12 @@ class PreferenceManager(
 	// read only through HubAuth (`HubBearerGuardTest`): no passthrough here any more.
 	var hubDeviceName by preference("Navic")
 	var hubDeviceId by preference("")
+	// Worbus P2, R32: the device id each account was bound to at each Worbus Server address, as a
+	// JSON object keyed "<hub address>|<lower-cased account>" (HubAuth). `hubDeviceId` above stays the
+	// pre-P2 single id, offered at sign-in until a server hands that same id back
+	// (`hubLegacyDeviceIdClaimed`), and the id an older server's token hello uses.
+	var hubDeviceIds by preference("")
+	var hubLegacyDeviceIdClaimed by preference(false)
 	// Worbus P2: the address whose `/hub/signin` answered as a server from before sign-in (404, 405,
 	// not its JSON; R6), so the token field stays offered there across a restart. "" for none.
 	var hubOldServerUrl by preference("")
