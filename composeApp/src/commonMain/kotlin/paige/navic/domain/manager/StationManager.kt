@@ -55,7 +55,9 @@ import paige.navic.util.Logger
  */
 class StationManager(
 	private val preferenceManager: PreferenceManager,
-	private val hubManager: HubManager
+	private val hubManager: HubManager,
+	/** Worbus P2: the device's credential on the Worbus Server, read for every call. */
+	private val hubAuth: HubAuth
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -78,7 +80,7 @@ class StationManager(
 		}
 	}
 
-	private fun base(): String? = hubHttpBase(preferenceManager)
+	private fun base(): String? = hubHttpBase(hubAuth)
 
 	// ----- the catalogue and availability --------------------------------------------------- //
 
@@ -473,7 +475,7 @@ class StationManager(
 	}
 
 	private fun io.ktor.client.request.HttpRequestBuilder.auth() {
-		header("Authorization", "Bearer ${preferenceManager.hubToken}")
+		header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 	}
 
 	private companion object {

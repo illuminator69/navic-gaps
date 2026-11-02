@@ -264,10 +264,12 @@ class SecretStoreTest {
 
 	@Test
 	fun preferenceManagerTokensPassThrough() {
+		// Worbus P2: the hub token has no passthrough any more (HubAuth reads the store); it still
+		// leaves the settings file at launch.
 		legacy.putString("hubToken", "tok")
 		val secrets = store()
 		val prefs = PreferenceManager(legacy, secrets)
-		assertEquals("tok", prefs.hubToken)
+		assertEquals("tok", secrets.hubToken)
 		prefs.audioMuseToken = "am"
 		assertEquals("am", secrets.audioMuseToken)
 		assertNull(legacy.getStringOrNull("hubToken"))

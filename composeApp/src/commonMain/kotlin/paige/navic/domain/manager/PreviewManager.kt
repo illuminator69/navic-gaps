@@ -48,7 +48,9 @@ import paige.navic.util.Logger
  * dialog, never a row that looks broken.
  */
 class PreviewManager(
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	/** Worbus P2: the device's credential on the Worbus Server, read for every call. */
+	private val hubAuth: HubAuth
 ) {
 	private val json = Json {
 		ignoreUnknownKeys = true
@@ -73,11 +75,11 @@ class PreviewManager(
 		}
 	}
 
-	private fun hubBase(): String? = hubHttpBase(preferenceManager)
+	private fun hubBase(): String? = hubHttpBase(hubAuth)
 
 	/** Re-probe key for a `LaunchedEffect`; see [LbBotManager.routeSignature]. */
 	val routeSignature: String
-		get() = hubRouteSignature(preferenceManager)
+		get() = hubRouteSignature(preferenceManager, hubAuth)
 
 	// ----- availability ------------------------------------------------------ //
 
@@ -107,7 +109,7 @@ class PreviewManager(
 		}
 		return try {
 			val response = client.get("$base/preview/status") {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 			}
 			if (!response.status.isSuccess()) {
 				Logger.w("PreviewManager", "/preview/status -> HTTP ${response.status.value}")
@@ -162,7 +164,7 @@ class PreviewManager(
 		val base = hubBase() ?: return null
 		return try {
 			val response = client.get("$base/preview/resolve") {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				if (artist.isNotBlank()) parameter("artist", artist)
 				if (title.isNotBlank()) parameter("title", title)
 				if (album.isNotBlank()) parameter("album", album)

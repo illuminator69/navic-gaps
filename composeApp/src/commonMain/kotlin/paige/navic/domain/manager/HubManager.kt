@@ -188,7 +188,9 @@ class HubManager(
 	socketClientFactory: HubSocketClientFactory,
 	private val localDevice: HubLocalDevice,
 	// B-108: whether a failed dial is Android's local network permission.
-	private val localNetwork: LocalNetworkAccess
+	private val localNetwork: LocalNetworkAccess,
+	// Worbus P2: the credential every hello sends, and the one silent sign-in a 4005 earns.
+	private val hubAuth: HubAuth
 ) : RemotePlaybackRouter {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	// Protocol-level WS pings, so a half-open socket (Wi-Fi→cellular, a NAT timeout) fails and
@@ -341,6 +343,17 @@ class HubManager(
 	 * can say so instead of "connecting" for ever. Cleared by a `welcome` and by a restart.
 	 */
 	val unreachable: StateFlow<Boolean> = _unreachable.asStateFlow()
+
+	/**
+	 * Worbus P2: the hub said this device is signed out on the current socket (`error
+	 * {code: "signed_out"}`), or closed it with 4005. Read once the socket has ended.
+	 */
+	@kotlin.concurrent.Volatile
+	private var signedOutSeen = false
+
+	/** The close code of the socket that just ended, or null (no close frame, a dial that failed). */
+	@kotlin.concurrent.Volatile
+	private var lastCloseCode: Short? = null
 
 	/** When our socket dropped, so a brief reconnect doesn't tear the remote view down. */
 	private var disconnectedAtMs = 0L
@@ -1056,6 +1069,14 @@ class HubManager(
 		// A kick left from before this loop has no wait to cut: the first dial is immediate.
 		reconnectKick.tryReceive()
 		while (currentCoroutineContext().isActive) {
+			// Worbus P2: nothing to authenticate with (never signed in, signed out, logged out). A
+			// dial would only be refused; a sign-in or a token saved in settings restarts the loop.
+			if (hubAuth.helloCredential() == null && preferenceManager.hubUrl.isNotBlank()) {
+				Logger.i("HubManager", "no Worbus Server credential — not dialling until a sign-in")
+				return
+			}
+			signedOutSeen = false
+			lastCloseCode = null
 			try {
 				connectOnce()
 			} catch (e: Exception) {
@@ -1090,6 +1111,19 @@ class HubManager(
 			// change (which calls restart()) clears the flag and tries again.
 			if (authFailed) {
 				Logger.e("HubManager", "hub auth rejected — stopping reconnect until settings change")
+				return
+			}
+			// Worbus P2 (design §6.5): the secret is gone on the hub. One silent sign-in with the
+			// stored account; it reconnects at once, and a failure stops the loop with the Server
+			// page saying "Signed out of the Worbus Server". The once is HubAuth's, reset by welcome.
+			if (signedOutClose(lastCloseCode, signedOutSeen)) {
+				signedOutSeen = false
+				if (hubAuth.afterSignedOut()) {
+					Logger.i("HubManager", "signed out by the hub; signed in again")
+					backoff.reset()
+					continue
+				}
+				Logger.w("HubManager", "signed out by the hub; the silent sign-in did not bring it back")
 				return
 			}
 			val waitMs = backoff.next()
@@ -1153,9 +1187,11 @@ class HubManager(
 					Logger.e("HubManager", "hub writer failed", e)
 				}
 			}
+			// Read once per dial: the secret (Worbus P2) or the legacy token, never both.
+			val credential = hubAuth.helloCredential()
 			sendFrame(buildJsonObject {
 				put("t", "hello")
-				put("token", preferenceManager.hubToken)
+				credential?.let { putHelloCredential(it) }
 				putJsonObject("device") {
 					val savedId = preferenceManager.hubDeviceId
 					if (savedId.isNotEmpty()) put("id", savedId) else put("id", JsonNull)
@@ -1204,6 +1240,8 @@ class HubManager(
 					}
 				}
 			} finally {
+				// Worbus P2: 4005 is "signed out" (the cast bridge reads its codes the same way).
+				lastCloseCode = runCatching { closeReason.await()?.code }.getOrNull()
 				// Retire this connection's outbox before anything else can enqueue into it. A frame
 				// offered after this is dropped with a log line rather than delivered to the next
 				// socket, which is the whole point of the per-connection writer.
@@ -1637,6 +1675,8 @@ class HubManager(
 				// The hub writes no `do` before this frame, so nothing of this connection is
 				// lost, and nothing of the last one survives.
 				resetEcho()
+				// Worbus P2: a later `signed_out` earns its one silent sign-in again.
+				hubAuth.noteWelcome()
 				val id = msg["deviceId"]?.jsonPrimitive?.content
 				if (id != null) {
 					_myDeviceId.value = id
@@ -1861,6 +1901,12 @@ class HubManager(
 		// they go to the screen that made the claim.
 		if (code == "bad_mix" || code == "unknown_mix") {
 			_mixErrors.tryEmit(message ?: "That mix could not be saved")
+			return
+		}
+		// Worbus P2: the hub no longer holds this device's secret. Not a connection error: the
+		// loop answers it once the socket closes (4005), and the Server page says it in its status.
+		if (code == "signed_out") {
+			signedOutSeen = true
 			return
 		}
 		_connectionError.value = when (code) {
@@ -2846,3 +2892,13 @@ internal fun mixFromRecord(rec: JsonObject): Mix? {
 		lastPlayedAt = rec["lastPlayedAt"]?.jsonPrimitive?.longOrNull ?: 0L
 	)
 }
+
+/** Worbus P2: the hub's close code for "this device's secret is unknown or revoked". */
+const val CLOSE_SIGNED_OUT: Short = 4005
+
+/**
+ * Whether the socket that just ended was the hub signing this device out: close 4005, or the
+ * `signed_out` error frame that precedes it (a close frame can be lost with the connection).
+ */
+fun signedOutClose(closeCode: Short?, signedOutErrorSeen: Boolean): Boolean =
+	signedOutErrorSeen || closeCode == CLOSE_SIGNED_OUT

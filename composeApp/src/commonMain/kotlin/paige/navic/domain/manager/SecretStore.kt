@@ -13,11 +13,13 @@ import paige.navic.util.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-/** The three secrets this app keeps (B-279). */
+/** The secrets this app keeps (B-279; the device secret since Worbus P2). */
 enum class Secret {
 	NavidromePassword,
 	HubToken,
-	AudioMuseToken
+	AudioMuseToken,
+	/** The Worbus Server's per-device credential (`/hub/signin`'s `deviceSecret`). */
+	HubDeviceSecret
 }
 
 /**
@@ -29,6 +31,7 @@ private val Secret.key: String
 		Secret.NavidromePassword -> "password"
 		Secret.HubToken -> "hubToken"
 		Secret.AudioMuseToken -> "audioMuseToken"
+		Secret.HubDeviceSecret -> "hubDeviceSecret"
 	}
 
 /**
@@ -73,7 +76,8 @@ class PlainSecretCipher : SecretCipher {
 class SecretVault(internal val settings: Settings, internal val cipher: SecretCipher)
 
 /**
- * The one way to the Navidrome password, the hub token and the AudioMuse token (B-279, adapted
+ * The one way to the Navidrome password, the hub token, the AudioMuse token and the Worbus Server's
+ * device secret (B-279, adapted
  * from upstream 4bd24206). They used to be plaintext in the settings file, which device
  * transfer carries; they are now in their own file ([SecretVault]), each value
  * `enc:v1:<base64(iv | ciphertext)>`, and that file is in no backup and no transfer.
@@ -132,6 +136,11 @@ class SecretStore(
 	var audioMuseToken: String
 		get() = get(Secret.AudioMuseToken)
 		set(value) = set(Secret.AudioMuseToken, value)
+
+	/** Worbus P2: read only through [HubAuth] (`HubBearerGuardTest`). */
+	var hubDeviceSecret: String
+		get() = get(Secret.HubDeviceSecret)
+		set(value) = set(Secret.HubDeviceSecret, value)
 
 	fun get(secret: Secret): String {
 		changes // read, so a set recomposes whoever read this

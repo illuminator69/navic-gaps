@@ -103,7 +103,9 @@ class LbBotManager(
 	 * The Room library, for the one thing here that changes it: after an album override job the
 	 * retagged album is pulled under its new id and the dead id's row is dropped (I-022).
 	 */
-	private val library: DbRepository
+	private val library: DbRepository,
+	/** Worbus P2: the device's credential on the Worbus Server, read for every call. */
+	private val hubAuth: HubAuth
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -145,7 +147,7 @@ class LbBotManager(
 	 * [PreviewManager] — see `HubEndpoint.kt` for why it is not shared with
 	 * AudioMuseManager, which deliberately ignores the toggle.
 	 */
-	private fun hubBase(): String? = hubHttpBase(preferenceManager)
+	private fun hubBase(): String? = hubHttpBase(hubAuth)
 
 	/**
 	 * Whether lb-bot is reachable through anything at all — a hub is set, enabled and has a
@@ -193,7 +195,7 @@ class LbBotManager(
 	 * Preferences here are plain delegated properties with no Flow behind them.
 	 */
 	val routeSignature: String
-		get() = hubRouteSignature(preferenceManager)
+		get() = hubRouteSignature(preferenceManager, hubAuth)
 
 	/**
 	 * Bumped whenever something lands in the library. Screens re-read on a change —
@@ -518,7 +520,7 @@ class LbBotManager(
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.get(base + path) {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
 				if (timeoutMs != null) timeout {
 					requestTimeoutMillis = timeoutMs
@@ -545,7 +547,7 @@ class LbBotManager(
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.post(base + path) {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				contentType(ContentType.Application.Json)
 				setBody(body)
 			}
@@ -575,7 +577,7 @@ class LbBotManager(
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.get(base + path) {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
 			}
 			val text = response.bodyAsText()
@@ -613,7 +615,7 @@ class LbBotManager(
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.get(base + path) {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
 				if (timeoutMs != null) timeout {
 					requestTimeoutMillis = timeoutMs
@@ -634,7 +636,7 @@ class LbBotManager(
 		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
 		return try {
 			val response = client.post(base + path) {
-				header("Authorization", "Bearer ${preferenceManager.hubToken}")
+				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
 				contentType(ContentType.Application.Json)
 				setBody(body)
 			}

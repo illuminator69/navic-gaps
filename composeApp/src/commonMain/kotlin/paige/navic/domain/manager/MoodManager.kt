@@ -42,7 +42,9 @@ import paige.navic.util.Logger
  */
 class MoodManager(
 	private val preferenceManager: PreferenceManager,
-	private val hubManager: HubManager
+	private val hubManager: HubManager,
+	/** Worbus P2: the device's credential on the Worbus Server, read for every call. */
+	private val hubAuth: HubAuth
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -80,7 +82,7 @@ class MoodManager(
 
 	/** Ask the hub for its catalogue. True when it answered (404 included). */
 	suspend fun refresh(): Boolean = refreshLock.withLock {
-		val request = catalogueRequest(hubHttpBase(preferenceManager), preferenceManager.hubToken)
+		val request = catalogueRequest(hubHttpBase(hubAuth), hubAuth.bearer().orEmpty())
 		val reply = if (request == null) null else transport(request)
 		val outcome = catalogueOutcome(request != null, reply)
 		val next = catalogueAfterRefresh(_catalogue.value, outcome)
@@ -94,7 +96,7 @@ class MoodManager(
 	/** A tile's ids, one request per key however many ask at once. */
 	suspend fun tileIds(moodId: String, variantId: String): TileIdsResult =
 		tileReads.run("$moodId/$variantId") {
-			val request = tileRequest(hubHttpBase(preferenceManager), preferenceManager.hubToken, moodId, variantId)
+			val request = tileRequest(hubHttpBase(hubAuth), hubAuth.bearer().orEmpty(), moodId, variantId)
 				?: return@run TileIdsResult.Unavailable
 			val reply = transport(request) ?: return@run TileIdsResult.Unavailable
 			tileIdsOutcome(reply.status, reply.body, moodId, variantId)
@@ -108,7 +110,7 @@ class MoodManager(
 	suspend fun forSong(songId: String): ForSongAnswer? {
 		cacheLock.withLock { forSongCache[songId] }?.let { return it }
 		return forSongReads.run(songId) {
-			val request = forSongRequest(hubHttpBase(preferenceManager), preferenceManager.hubToken, songId)
+			val request = forSongRequest(hubHttpBase(hubAuth), hubAuth.bearer().orEmpty(), songId)
 				?: return@run null
 			val reply = transport(request) ?: return@run null
 			forSongOutcome(reply.status, reply.body)?.also { answer ->

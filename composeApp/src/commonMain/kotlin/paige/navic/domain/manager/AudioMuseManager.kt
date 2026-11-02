@@ -42,7 +42,9 @@ import androidx.compose.runtime.LaunchedEffect
 class AudioMuseManager(
 	private val settings: Settings,
 	private val preferenceManager: PreferenceManager,
-	private val secrets: SecretStore
+	private val secrets: SecretStore,
+	/** Worbus P2: the device's credential on the Worbus Server, read for every hub call. */
+	private val hubAuth: HubAuth
 ) {
 	/** Which service a call is going to, and how it authenticates. */
 	private data class Endpoint(val base: String, val token: String, val viaHub: Boolean)
@@ -67,20 +69,15 @@ class AudioMuseManager(
 	 */
 	private fun hubProxyBase(): String? {
 		val raw = preferenceManager.hubUrl.trim()
-		if (raw.isBlank() || preferenceManager.hubToken.isBlank()) return null
-		// A hub URL/token change invalidates what we learned about the old hub.
-		val sig = "$raw|${preferenceManager.hubToken}"
+		val bearer = hubAuth.bearer()
+		if (raw.isBlank() || bearer == null) return null
+		// A hub URL or credential change invalidates what we learned about the old hub.
+		val sig = "$raw|${bearer.hashCode()}"
 		if (sig != lastHubConfig) {
 			lastHubConfig = sig
 			hubDemotedAtMs = 0L
 		}
-		val http = when {
-			raw.startsWith("wss://") -> "https://" + raw.removePrefix("wss://")
-			raw.startsWith("ws://") -> "http://" + raw.removePrefix("ws://")
-			raw.startsWith("http://") || raw.startsWith("https://") -> raw
-			else -> "http://$raw"
-		}
-		return http.trimEnd('/').removeSuffix("/connect").trimEnd('/')
+		return hubHttpBaseOf(raw)
 	}
 
 	private fun directEndpoint(): Endpoint? {
@@ -92,7 +89,7 @@ class AudioMuseManager(
 	/** The route the next call should take, or null when Tier 2 isn't configured at all. */
 	private fun endpoint(): Endpoint? {
 		val hub = hubProxyBase()
-		if (hub != null && hubProxyUsable) return Endpoint(hub, preferenceManager.hubToken, true)
+		if (hub != null && hubProxyUsable) return Endpoint(hub, hubAuth.bearer().orEmpty(), true)
 		return directEndpoint()
 	}
 
@@ -111,7 +108,7 @@ class AudioMuseManager(
 	 * lifetime of the composition.
 	 */
 	val routeSignature: String
-		get() = "${preferenceManager.hubUrl}|${preferenceManager.hubToken.isNotBlank()}|" +
+		get() = "${preferenceManager.hubUrl}|${hubAuth.bearer()?.hashCode() ?: 0}|" +
 			"${preferenceManager.audioMuseUrl}|${preferenceManager.audioMuseToken.isNotBlank()}"
 
 	// One client reused for the manager's lifetime. The old per-call new/close

@@ -41,7 +41,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import paige.navic.domain.manager.HelloCredential
 import paige.navic.domain.manager.VOLUME_REPORT_GAP_MS
+import paige.navic.domain.manager.putHelloCredential
 import paige.navic.domain.manager.pingingWebSocketClient
 import paige.navic.util.Logger
 import java.net.InetSocketAddress
@@ -158,9 +160,14 @@ internal class CastDeviceBridge(
 	@Volatile var kind: String?,
 	host: String,
 	private val hubUrl: String,
-	private val token: String,
+	/** Worbus P2: the bridging device's own credential (`HubAuth.helloCredential`), read at each hello. */
+	private val credential: () -> HelloCredential?,
 	private val discovery: CastDiscovery,
-	/** This client's own hub device id, stamped as `bridgedBy` so pickers can name the holder. */
+	/**
+	 * This client's own hub device id, stamped as `bridgedBy` so pickers can name the holder. With
+	 * a device secret it must be the id that secret is bound to: the hub registers a `cast-` id only
+	 * when `bridgedBy` is the bound id, and treats any other hello as the phone itself (design §6.2).
+	 */
 	private val ownerDeviceId: () -> String?,
 	/** Told when the hub supersedes us, so the manager can stand down instead of fighting back. */
 	private val onSuperseded: () -> Unit,
@@ -411,27 +418,16 @@ internal class CastDeviceBridge(
 		client.webSocket(hubUrl) {
 			ws = this
 			adopted = false
+			val hello = castBridgeHello(hubDeviceId, friendlyName, kind, credential(), ownerDeviceId())
+			if (hello == null) {
+				// Signed in, but this device's own id is not known: a hello would register the speaker
+				// as the phone itself and evict its main socket. Close and let the loop try again.
+				Logger.w(TAG, "$friendlyName: no own hub id for bridgedBy yet — not saying hello")
+				close()
+				return@webSocket
+			}
 			Logger.i(TAG, "$friendlyName: hub socket open, saying hello as $hubDeviceId")
-			sendFrame(buildJsonObject {
-				put("t", "hello")
-				put("token", token)
-				put("device", buildJsonObject {
-					put("id", hubDeviceId)
-					// The speaker's own name, bare, as Feishin's bridge sends it: the same
-					// speaker reads identically whichever client is bridging it. What it is
-					// goes in `kind`, and a picker draws that (PROTOCOL §12.2).
-					put("name", friendlyName)
-					put("platform", "chromecast")
-					kind?.let { put("kind", it) }
-					// `loadAck` (PROTOCOL §7.1) makes a failed cast load visible immediately instead
-					// of leaving the hub convinced this speaker took the session for ~20 seconds.
-					// transferAckV2 (§7.2): every `loaded`/`released` echoes the directive's
-					// transferId, so an ack this speaker took its time over cannot land against a
-					// later transfer to the same virtual device.
-					putJsonArray("caps") { add("receiver"); add("loadAck"); add("transferAckV2") }
-					ownerDeviceId()?.let { put("bridgedBy", it) }
-				})
-			})
+			sendFrame(hello)
 
 			try {
 				for (frame in incoming) {
@@ -1231,4 +1227,42 @@ private fun JsonArray.toTracks(): List<BridgeTrack> = mapNotNull { element ->
 		durationMs = obj["durationMs"]?.jsonPrimitive?.longOrNull ?: 0L,
 		raw = obj
 	)
+}
+
+/**
+ * A bridge's `hello` (PROTOCOL §3, Worbus P2): the bridging device's own credential, the speaker as
+ * `cast-<id>`, and `bridgedBy` = the bridging device's own hub id. Null when a device secret is held
+ * but that id is not known: the hub would then treat the hello as the phone itself (its main socket
+ * evicted with 4003), so none is sent. With the legacy token an absent id only leaves `bridgedBy`
+ * out, as before.
+ */
+internal fun castBridgeHello(
+	hubDeviceId: String,
+	friendlyName: String,
+	kind: String?,
+	credential: HelloCredential?,
+	ownerDeviceId: String?
+): JsonObject? {
+	val owner = ownerDeviceId?.takeIf { it.isNotBlank() }
+	if (credential is HelloCredential.DeviceSecret && owner == null) return null
+	return buildJsonObject {
+		put("t", "hello")
+		credential?.let { putHelloCredential(it) }
+		put("device", buildJsonObject {
+			put("id", hubDeviceId)
+			// The speaker's own name, bare, as Feishin's bridge sends it: the same
+			// speaker reads identically whichever client is bridging it. What it is
+			// goes in `kind`, and a picker draws that (PROTOCOL §12.2).
+			put("name", friendlyName)
+			put("platform", "chromecast")
+			kind?.let { put("kind", it) }
+			// `loadAck` (PROTOCOL §7.1) makes a failed cast load visible immediately instead
+			// of leaving the hub convinced this speaker took the session for ~20 seconds.
+			// transferAckV2 (§7.2): every `loaded`/`released` echoes the directive's
+			// transferId, so an ack this speaker took its time over cannot land against a
+			// later transfer to the same virtual device.
+			putJsonArray("caps") { add("receiver"); add("loadAck"); add("transferAckV2") }
+			owner?.let { put("bridgedBy", it) }
+		})
+	}
 }

@@ -11,6 +11,8 @@ import paige.navic.domain.manager.CastScrobbler
 import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.EqualiserManager
+import paige.navic.domain.manager.HubAuth
+import paige.navic.domain.manager.HubLocalDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.FillActions
 import paige.navic.domain.manager.LbBotManager
@@ -63,6 +65,9 @@ val managerModule = module {
 	// B-279: the password and the two tokens, sealed in their own file. The vault (the file and the
 	// cipher) is registered by each platform module; an explicit lambda for the default parameter.
 	single { SecretStore(get(), get()) }
+	// Worbus P2: the device's credential on the Worbus Server (sign-in, the secret, the legacy token).
+	// Every hub caller takes it; it takes nothing that takes it. HubLocalDevice is the platform's.
+	single { HubAuth(get<PreferenceManager>(), get<SecretStore>(), get<SessionManager>(), get<HubLocalDevice>()) }
 	singleOf(::AudioMuseManager)
 	// Lazy, unlike LbBotManager below: previews have no background work to resume —
 	// nothing is watched, nothing outlives the process — so the first screen that
@@ -73,7 +78,7 @@ val managerModule = module {
 	// The second get() is LbIndexDao, for the `lb_response_cache` half only (cachedGet); the
 	// third is DbRepository, for what follows an album override job (I-022).
 	single(createdAtStart = true) {
-		LbBotManager(get(), get(), get()).apply { resumeWatches() }
+		LbBotManager(get(), get(), get(), get()).apply { resumeWatches() }
 	}
 	// The lb-bot index mirror's sync worker. Constructed by HubManager and SyncManager (both
 	// createdAtStart), which own its three triggers: welcome, the `index` frame, the 15-min cycle.
@@ -81,10 +86,10 @@ val managerModule = module {
 	// The buttons of a fill (retry, cancel, allow MP3, wishlist, dismiss), shared by the Downloads
 	// page and the album page's request box (P4).
 	singleOf(::FillActions)
-	// The last three get()s are fork-only bindings each platform module registers:
-	// HubSocketClientFactory, HubLocalDevice and LocalNetworkAccess (B-108; LoginManager takes it too).
+	// get()s 8 to 10 are fork-only bindings each platform module registers: HubSocketClientFactory,
+	// HubLocalDevice and LocalNetworkAccess (B-108; LoginManager takes it too). The last is HubAuth.
 	single(createdAtStart = true) {
-		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
+		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
 	}
 	// createdAtStart, and never lazily: a cast session is precisely the case where no screen is
 	// open and no local player is running, so nothing else would ever construct this.

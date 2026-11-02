@@ -21,6 +21,8 @@ import kotlinx.coroutines.sync.withLock
 import paige.navic.domain.manager.CastBridgeState
 import paige.navic.domain.manager.CastBridgeStatus
 import paige.navic.domain.manager.CastSpeaker
+import paige.navic.domain.manager.HelloCredential
+import paige.navic.domain.manager.HubAuth
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.Logger
@@ -73,7 +75,9 @@ private const val DISCOVERY_GATE_MS = 5_000L
 class CastBridgeManager(
 	context: Context,
 	private val hubManager: HubManager,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	/** Worbus P2: the credential each bridge's hello sends (the device's own; design §6.3). */
+	private val hubAuth: HubAuth
 ) : CastBridgeStatus {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	private val appContext = context.applicationContext
@@ -232,6 +236,10 @@ class CastBridgeManager(
 		}
 	}
 
+	/** The credential the current bridges said hello with; a change rebuilds them all. */
+	@Volatile
+	private var bridgesCredential: HelloCredential? = null
+
 	/** Set by [stop] so a reconcile still in flight cannot resurrect a bridge on the way out. */
 	@Volatile
 	private var stopping = false
@@ -245,9 +253,21 @@ class CastBridgeManager(
 		if (stopping) return
 		val hubEnabled = preferenceManager.hubEnabled
 		val hubUrl = preferenceManager.hubUrl
-		val token = preferenceManager.hubToken
+		val credential = hubAuth.helloCredential()
 
-		if (!hubEnabled || hubUrl.isBlank()) {
+		// Worbus P2: a bridge's socket is bound to the space of the credential it said hello with.
+		// After a sign-in, a sign-out or a token change, every bridge is rebuilt on the new one, so
+		// no speaker stays in the space this device just left.
+		if (credential != bridgesCredential) {
+			bridgesMutex.withLock {
+				if (bridges.isNotEmpty()) Logger.i(TAG, "hub credential changed — rebuilding ${bridges.size} bridge(s)")
+				bridges.values.forEach { it.destroy() }
+				bridges.clear()
+			}
+			bridgesCredential = credential
+		}
+
+		if (!hubEnabled || hubUrl.isBlank() || credential == null) {
 			// Nothing to bridge into. Still publish what we found, so the picker can say why.
 			bridgesMutex.withLock {
 				bridges.values.forEach { it.destroy() }
@@ -303,7 +323,7 @@ class CastBridgeManager(
 				}
 
 				states[device.id] = CastBridgeState.CLAIMING
-				scope.launch { claimAfterJitter(device, hubUrl, token) }
+				scope.launch { claimAfterJitter(device, hubUrl) }
 			}
 		}
 
@@ -388,7 +408,7 @@ class CastBridgeManager(
 	 * second, whoever draws the shorter wait registers first and the other sees them in the
 	 * device list and stands down — no frames exchanged, nobody kicked.
 	 */
-	private suspend fun claimAfterJitter(device: DiscoveredCast, hubUrl: String, token: String) {
+	private suspend fun claimAfterJitter(device: DiscoveredCast, hubUrl: String) {
 		delay(Random.nextLong(CLAIM_JITTER_MAX_MS))
 		val hubId = "cast-${device.id}"
 		if (claimedElsewhere(hubId)) {
@@ -404,9 +424,9 @@ class CastBridgeManager(
 				kind = device.kind,
 				host = device.host,
 				hubUrl = hubUrl,
-				token = token,
+				credential = { hubAuth.helloCredential() },
 				discovery = discovery,
-				ownerDeviceId = { hubManager.myDeviceId.value ?: myHubDeviceId() },
+				ownerDeviceId = { castOwnerDeviceId(hubAuth.helloCredential(), hubManager.myDeviceId.value, myHubDeviceId()) },
 				onSuperseded = { onSuperseded(device.id) },
 				claimedElsewhere = { claimedElsewhere(hubId) },
 				onClaimedElsewhere = { onClaimedElsewhere(device.id) }
@@ -453,3 +473,16 @@ class CastBridgeManager(
 		}
 	}
 }
+
+/**
+ * The id a bridge stamps as `bridgedBy`. With a device secret it is the id that secret is bound to,
+ * which the sign-in saved ([saved]: R4, and every `welcome` after): the socket's own id from the last
+ * welcome can still be a legacy session's, and a `bridgedBy` that is not the bound id makes the hub
+ * register the speaker as the phone itself. With the legacy token, as before: the live id, else the
+ * saved one.
+ */
+internal fun castOwnerDeviceId(credential: HelloCredential?, live: String?, saved: String?): String? =
+	when (credential) {
+		is HelloCredential.DeviceSecret -> saved?.takeIf { it.isNotBlank() }
+		else -> live ?: saved?.takeIf { it.isNotBlank() }
+	}

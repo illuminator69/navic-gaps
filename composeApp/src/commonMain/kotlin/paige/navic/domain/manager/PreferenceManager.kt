@@ -31,7 +31,8 @@ import com.russhwolf.settings.Settings as KmpSettings
 
 class PreferenceManager(
 	settings: KmpSettings,
-	// B-279: the hub and AudioMuse tokens are SecretStore's; the two properties below pass through.
+	// B-279: the AudioMuse token is SecretStore's; the property below passes through. The hub's
+	// credentials are read through HubAuth only.
 	private val secrets: SecretStore
 ) : BasePreferenceManager(settings) {
     var queueInfoType by (preference(QueueInfoType.Full))
@@ -237,12 +238,13 @@ class PreferenceManager(
 	// navi-connect hub (Spotify-Connect-style remote control)
 	var hubEnabled by preference(false)
 	var hubUrl by preference("")
-	/** Sealed in the secrets file (B-279); never a preference again. */
-	var hubToken: String
-		get() = secrets.hubToken
-		set(value) { secrets.hubToken = value }
+	// The legacy token and the Worbus P2 device secret are sealed in the secrets file (B-279) and
+	// read only through HubAuth (`HubBearerGuardTest`): no passthrough here any more.
 	var hubDeviceName by preference("Navic")
 	var hubDeviceId by preference("")
+	// Worbus P2: the address whose `/hub/signin` answered as a server from before sign-in (404, 405,
+	// not its JSON; R6), so the token field stays offered there across a restart. "" for none.
+	var hubOldServerUrl by preference("")
 	// Comma-joined device ids the user manually hid from the device picker.
 	var hubHiddenDeviceIds by preference("")
 	// Worbus P1: the last downloads mode ("on" | "off") lb-bot reported through each hub, as a JSON

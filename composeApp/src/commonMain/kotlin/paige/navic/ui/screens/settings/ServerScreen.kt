@@ -59,6 +59,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
 import paige.navic.di.LocalPlatformContext
+import paige.navic.domain.manager.HubAuth
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.PreferenceManager
@@ -96,6 +97,7 @@ private enum class ServerField { Address, Token, DeviceName, AudioMuseAddress, A
 fun ServerScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val hubManager = koinInject<HubManager>()
+	val hubAuth = koinInject<HubAuth>()
 	val settings = koinInject<Settings>()
 	val permissionManager = koinInject<PermissionManager>()
 	val platformContext = LocalPlatformContext.current
@@ -119,7 +121,7 @@ fun ServerScreen() {
 	var advancedOpen by rememberSaveable { mutableStateOf(false) }
 	// The two tokens are never shown, only whether they are set. Read again from the secrets store
 	// on every save (plain `remember`, B-279: a saveable value would go into the saved-state Bundle).
-	var hubTokenSet by remember { mutableStateOf(preferenceManager.hubToken.isNotBlank()) }
+	var hubTokenSet by remember { mutableStateOf(hubAuth.hasLegacyToken) }
 	var audioMuseTokenSet by remember { mutableStateOf(preferenceManager.audioMuseToken.isNotBlank()) }
 
 	val status = serverStatus(
@@ -279,7 +281,7 @@ fun ServerScreen() {
 	editing?.let { field ->
 		val (title, masked, initial, placeholder) = when (field) {
 			ServerField.Address -> FieldSpec(Res.string.option_server_address, false, preferenceManager.hubUrl, "ws://192.168.1.10:4790")
-			ServerField.Token -> FieldSpec(Res.string.option_server_token, true, preferenceManager.hubToken, "")
+			ServerField.Token -> FieldSpec(Res.string.option_server_token, true, hubAuth.legacyTokenForEditing(), "")
 			ServerField.DeviceName -> FieldSpec(Res.string.option_server_device_name, false, preferenceManager.hubDeviceName, "")
 			ServerField.AudioMuseAddress -> FieldSpec(Res.string.option_audiomuse_address, false, preferenceManager.audioMuseUrl, "http://192.168.1.10:8000")
 			ServerField.AudioMuseToken -> FieldSpec(Res.string.option_audiomuse_token, true, preferenceManager.audioMuseToken, "")
@@ -297,8 +299,8 @@ fun ServerScreen() {
 						hubManager.restart()
 					}
 					ServerField.Token -> {
-						preferenceManager.hubToken = text.trim()
-						hubTokenSet = preferenceManager.hubToken.isNotBlank()
+						hubAuth.setLegacyToken(text)
+						hubTokenSet = hubAuth.hasLegacyToken
 						hubManager.restart()
 					}
 					ServerField.DeviceName -> {
