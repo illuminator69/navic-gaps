@@ -326,6 +326,42 @@ class HubManager(
 	private val _localNetworkBlocked = MutableStateFlow(false)
 	val hubLocalNetworkBlocked: StateFlow<Boolean> = _localNetworkBlocked.asStateFlow()
 
+	private val _user = MutableStateFlow<HubUser?>(null)
+
+	/**
+	 * Worbus P2: who this device acts for, from `welcome.user` (and the `user` frame). Null for an
+	 * older hub, which names nobody: today's behaviour, every surface as before.
+	 */
+	val user: StateFlow<HubUser?> = _user.asStateFlow()
+
+	/** The sign-in, the reconnect and the sign-out run here, so leaving the Server page cancels none. */
+	val auth: StateFlow<HubAuthState> get() = hubAuth.state
+
+	/**
+	 * One tap: sign in with the app's Navidrome account, then reconnect with the secret. On the
+	 * manager's scope (a sign-in the page started must not die with the page). Not while one runs.
+	 */
+	fun signInAndConnect() {
+		if (hubAuth.state.value == HubAuthState.SigningIn) return
+		scope.launch {
+			if (hubAuth.signIn() is SignInResult.SignedIn) restart()
+		}
+	}
+
+	/**
+	 * "Sign out of this server": stop the socket first (so the 4005 the hub sends it earns no silent
+	 * sign-in), then tell the hub and forget the secret ([HubAuth.signOut]).
+	 */
+	fun signOutOfServer() {
+		val job = connectJob
+		stop()
+		scope.launch {
+			job?.cancelAndJoin()
+			hubAuth.signOut()
+			restart()
+		}
+	}
+
 	private val _authRefused = MutableStateFlow(false)
 
 	/** True once the hub has turned our token down (`error: auth`); cleared by a restart. */
@@ -549,6 +585,7 @@ class HubManager(
 		connectJob?.cancel()
 		wsSession = null
 		_connected.value = false
+		_user.value = null
 		// Recipes live only on the hub; holding a stale list would offer the user a
 		// mix whose play, rename and delete would all silently go nowhere.
 		_mixes.value = emptyList()
@@ -1675,8 +1712,13 @@ class HubManager(
 				// The hub writes no `do` before this frame, so nothing of this connection is
 				// lost, and nothing of the last one survives.
 				resetEcho()
-				// Worbus P2: a later `signed_out` earns its one silent sign-in again.
+				// Worbus P2: a later `signed_out` earns its one silent sign-in again; who we act for.
 				hubAuth.noteWelcome()
+				_user.value = try {
+					hubUserOf(msg["user"] as? JsonObject)
+				} catch (e: Exception) {
+					null
+				}
 				val id = msg["deviceId"]?.jsonPrimitive?.content
 				if (id != null) {
 					_myDeviceId.value = id

@@ -50,7 +50,9 @@ import navic.composeapp.generated.resources.option_custom_headers
 import navic.composeapp.generated.resources.option_server_address
 import navic.composeapp.generated.resources.option_server_connect
 import navic.composeapp.generated.resources.option_server_device_name
-import navic.composeapp.generated.resources.option_server_token
+import navic.composeapp.generated.resources.option_server_sign_in_as
+import navic.composeapp.generated.resources.option_server_sign_out
+import navic.composeapp.generated.resources.option_server_token_old
 import navic.composeapp.generated.resources.title_navidrome
 import navic.composeapp.generated.resources.title_server
 import navic.composeapp.generated.resources.title_server_advanced
@@ -63,7 +65,11 @@ import paige.navic.domain.manager.HubAuth
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.AdvancedServerRow
 import paige.navic.domain.manager.ServerStatus
+import paige.navic.domain.manager.WorbusServerRow
+import paige.navic.domain.manager.advancedServerRows
+import paige.navic.domain.manager.worbusServerRows
 import paige.navic.domain.manager.serverStatus
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
@@ -108,6 +114,9 @@ fun ServerScreen() {
 	val connectionError by hubManager.connectionError.collectAsState()
 	val authRefused by hubManager.authRefused.collectAsState()
 	val unreachable by hubManager.unreachable.collectAsState()
+	// Worbus P2: who this device is signed in as, and where the last sign-in stands.
+	val user by hubManager.user.collectAsState()
+	val authState by hubManager.auth.collectAsState()
 	// B-108: the status is then "Android is blocking Navic from your local network.", and the
 	// page offers the app's settings page, where the permission is.
 	val localNetworkBlocked by hubManager.hubLocalNetworkBlocked.collectAsState()
@@ -119,26 +128,36 @@ fun ServerScreen() {
 
 	var editing by rememberSaveable { mutableStateOf<ServerField?>(null) }
 	var advancedOpen by rememberSaveable { mutableStateOf(false) }
-	// The two tokens are never shown, only whether they are set. Read again from the secrets store
-	// on every save (plain `remember`, B-279: a saveable value would go into the saved-state Bundle).
+	// The tokens are never shown, only whether they are set. Read again from the secrets store on
+	// every save (plain `remember`, B-279: a saveable value would go into the saved-state Bundle).
+	// Whether a device secret is held is read off the store too: the sign-in and sign-out finish on
+	// the manager's scope, and both move [authState], which recomposes this read.
 	var hubTokenSet by remember { mutableStateOf(hubAuth.hasLegacyToken) }
 	var audioMuseTokenSet by remember { mutableStateOf(preferenceManager.audioMuseToken.isNotBlank()) }
+	val signedIn = authState.let { hubAuth.signedIn }
+	val oldServerSeen = authState.let { hubAuth.oldServerSeen }
+	// The account a one-tap sign-in uses: the one this app is signed in to Navidrome with.
+	val accountName = remember { hubAuth.accountName() }
 
 	val status = serverStatus(
 		enabled = preferenceManager.hubEnabled,
 		hasAddress = preferenceManager.hubUrl.isNotBlank(),
-		hasToken = hubTokenSet,
+		hasCredential = signedIn || hubTokenSet,
 		connected = connected,
+		user = user,
+		auth = authState,
 		authRefused = authRefused,
 		localNetworkBlocked = localNetworkBlocked,
 		unreachable = unreachable
 	)
+	val serverRows = worbusServerRows(signedIn, accountName)
+	val advancedRows = advancedServerRows(oldServerSeen)
 
 	// A hub-side error (a transfer refused, a device not answering) the moment it arrives. The
 	// token and the local network have their own sentence in the status line already.
 	val snackbarHostState = remember { SnackbarHostState() }
 	LaunchedEffect(connectionError, status) {
-		if (status != ServerStatus.Refused && status != ServerStatus.LocalNetworkBlocked) {
+		if (!status.isProblem && status != ServerStatus.OldServer) {
 			connectionError?.let { snackbarHostState.showSnackbar(it) }
 		}
 	}
@@ -184,7 +203,8 @@ fun ServerScreen() {
 				}
 
 				SettingsGroup(title = { Text(stringResource(Res.string.title_worbus_server)) }) {
-					val rows = if (status == ServerStatus.LocalNetworkBlocked) 5 else 4
+					val blocked = status == ServerStatus.LocalNetworkBlocked
+					val rows = 1 + (if (blocked) 1 else 0) + serverRows.size
 					SettingsToggleItem(
 						checked = preferenceManager.hubEnabled,
 						onCheckedChange = {
@@ -194,45 +214,52 @@ fun ServerScreen() {
 						content = { Text(stringResource(Res.string.option_server_connect)) },
 						supportingContent = {
 							Text(
-								stringResource(status.line),
-								color = when (status) {
-									ServerStatus.CantReach, ServerStatus.Refused, ServerStatus.LocalNetworkBlocked ->
-										MaterialTheme.colorScheme.error
-									else -> MaterialTheme.colorScheme.onSurfaceVariant
-								}
+								stringResource(status.line, *status.args.toTypedArray()),
+								color = if (status.isProblem) MaterialTheme.colorScheme.error
+								else MaterialTheme.colorScheme.onSurfaceVariant
 							)
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
 					)
-					if (status == ServerStatus.LocalNetworkBlocked) {
+					if (blocked) {
 						SegmentedListItem(
 							onClick = { permissionManager.openPermissionsSettings() },
 							shapes = SegmentedListItemDefaults.segmentedShapes(index = 1, count = rows),
 							content = { Text(stringResource(Res.string.action_open_settings)) }
 						)
 					}
-					val first = rows - 3
-					ValueRow(
-						label = Res.string.option_server_address,
-						value = preferenceManager.hubUrl.ifBlank { null },
-						index = first,
-						count = rows,
-						onClick = { editing = ServerField.Address }
-					)
-					ValueRow(
-						label = Res.string.option_server_token,
-						value = if (hubTokenSet) stringResource(Res.string.info_server_set) else null,
-						index = first + 1,
-						count = rows,
-						onClick = { editing = ServerField.Token }
-					)
-					ValueRow(
-						label = Res.string.option_server_device_name,
-						value = preferenceManager.hubDeviceName.ifBlank { null },
-						index = first + 2,
-						count = rows,
-						onClick = { editing = ServerField.DeviceName }
-					)
+					val first = rows - serverRows.size
+					serverRows.forEachIndexed { i, row ->
+						when (row) {
+							WorbusServerRow.Address -> ValueRow(
+								label = Res.string.option_server_address,
+								value = preferenceManager.hubUrl.ifBlank { null },
+								index = first + i,
+								count = rows,
+								onClick = { editing = ServerField.Address }
+							)
+							// One tap, with the app's own Navidrome account (design §6.5). Not while
+							// one is on its way; the status line says how it went.
+							WorbusServerRow.SignIn -> SettingsNavItem(
+								onClick = { hubManager.signInAndConnect() },
+								enabled = preferenceManager.hubUrl.isNotBlank() && status != ServerStatus.SigningIn,
+								shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
+								content = { Text(stringResource(Res.string.option_server_sign_in_as, accountName.orEmpty())) }
+							)
+							WorbusServerRow.SignOut -> SettingsNavItem(
+								onClick = { hubManager.signOutOfServer() },
+								shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
+								content = { Text(stringResource(Res.string.option_server_sign_out)) }
+							)
+							WorbusServerRow.DeviceName -> ValueRow(
+								label = Res.string.option_server_device_name,
+								value = preferenceManager.hubDeviceName.ifBlank { null },
+								index = first + i,
+								count = rows,
+								onClick = { editing = ServerField.DeviceName }
+							)
+						}
+					}
 				}
 
 				// AudioMuse's direct address: the Worbus Server holds it, so most people leave these
@@ -241,27 +268,40 @@ fun ServerScreen() {
 					val turn by animateFloatAsState(if (advancedOpen) 180f else 0f)
 					SegmentedListItem(
 						onClick = { advancedOpen = !advancedOpen },
-						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = if (advancedOpen) 3 else 1),
+						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = if (advancedOpen) advancedRows.size + 1 else 1),
 						content = { Text(stringResource(Res.string.title_server_advanced)) },
 						supportingContent = { Text(stringResource(Res.string.info_server_advanced)) },
 						trailingContent = { Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.rotate(turn)) }
 					)
 					Fold(visible = advancedOpen) {
 						Column(verticalArrangement = Arrangement.spacedBy(SegmentedListItemDefaults.SegmentedGap)) {
-							ValueRow(
-								label = Res.string.option_audiomuse_address,
-								value = preferenceManager.audioMuseUrl.ifBlank { null },
-								index = 1,
-								count = 3,
-								onClick = { editing = ServerField.AudioMuseAddress }
-							)
-							ValueRow(
-								label = Res.string.option_audiomuse_token,
-								value = if (audioMuseTokenSet) stringResource(Res.string.info_server_set) else null,
-								index = 2,
-								count = 3,
-								onClick = { editing = ServerField.AudioMuseToken }
-							)
+							val count = advancedRows.size + 1
+							advancedRows.forEachIndexed { i, row ->
+								when (row) {
+									AdvancedServerRow.AudioMuseAddress -> ValueRow(
+										label = Res.string.option_audiomuse_address,
+										value = preferenceManager.audioMuseUrl.ifBlank { null },
+										index = i + 1,
+										count = count,
+										onClick = { editing = ServerField.AudioMuseAddress }
+									)
+									AdvancedServerRow.AudioMuseToken -> ValueRow(
+										label = Res.string.option_audiomuse_token,
+										value = if (audioMuseTokenSet) stringResource(Res.string.info_server_set) else null,
+										index = i + 1,
+										count = count,
+										onClick = { editing = ServerField.AudioMuseToken }
+									)
+									// Worbus P2: only after this address answered as an older server (R6).
+									AdvancedServerRow.ServerToken -> ValueRow(
+										label = Res.string.option_server_token_old,
+										value = if (hubTokenSet) stringResource(Res.string.info_server_set) else null,
+										index = i + 1,
+										count = count,
+										onClick = { editing = ServerField.Token }
+									)
+								}
+							}
 						}
 					}
 				}
@@ -281,7 +321,7 @@ fun ServerScreen() {
 	editing?.let { field ->
 		val (title, masked, initial, placeholder) = when (field) {
 			ServerField.Address -> FieldSpec(Res.string.option_server_address, false, preferenceManager.hubUrl, "ws://192.168.1.10:4790")
-			ServerField.Token -> FieldSpec(Res.string.option_server_token, true, hubAuth.legacyTokenForEditing(), "")
+			ServerField.Token -> FieldSpec(Res.string.option_server_token_old, true, hubAuth.legacyTokenForEditing(), "")
 			ServerField.DeviceName -> FieldSpec(Res.string.option_server_device_name, false, preferenceManager.hubDeviceName, "")
 			ServerField.AudioMuseAddress -> FieldSpec(Res.string.option_audiomuse_address, false, preferenceManager.audioMuseUrl, "http://192.168.1.10:8000")
 			ServerField.AudioMuseToken -> FieldSpec(Res.string.option_audiomuse_token, true, preferenceManager.audioMuseToken, "")

@@ -1615,7 +1615,6 @@
 	<string name="option_play_downloads_on_mobile">Play downloads instead of streaming</string>
 	<!-- Worbus settings N3: Server -->
 	<string name="info_server_off">Off</string>
-	<string name="info_server_not_configured">Add the address and token to connect</string>
 	<string name="info_server_connecting">Connecting…</string>
 	<string name="info_server_connected">Connected</string>
 	<string name="info_server_cant_reach">Can't reach the server. Check the address.</string>
@@ -1627,7 +1626,6 @@
 	<string name="title_worbus_server">Worbus Server</string>
 	<string name="option_server_connect">Connect</string>
 	<string name="option_server_address">Address</string>
-	<string name="option_server_token">Token</string>
 	<string name="option_server_device_name">This device's name</string>
 	<string name="info_server_not_set">Not set</string>
 	<string name="info_server_set">Set</string>
@@ -1682,4 +1680,18 @@
 		<item quantity="other">%1$d downloaded songs (%2$s) will be deleted from this device. They stay in your library and can be downloaded again.</item>
 	</plurals>
 	<string name="info_danger_rebuild">This deletes this device's copy of your library and the changes still waiting to be sent, then pulls everything again from your server. Downloaded songs stay.</string>
+	<!-- Worbus P2 -->
+	<string name="info_server_add_address">Add the Worbus Server's address to connect</string>
+	<string name="info_server_not_signed_in">Not signed in</string>
+	<string name="info_server_signing_in">Signing in…</string>
+	<string name="info_server_signed_in">Signed in as %1$s</string>
+	<string name="info_server_signed_in_admin">Signed in as %1$s · admin</string>
+	<string name="info_server_navidrome_refused">This Worbus Server's Navidrome doesn't know this account. It may use a different Navidrome server.</string>
+	<string name="info_server_navidrome_unreachable">The Worbus Server can't reach its Navidrome right now.</string>
+	<string name="info_server_too_many_attempts">Too many attempts. Try again in a few minutes.</string>
+	<string name="info_server_signed_out">Signed out of the Worbus Server</string>
+	<string name="info_server_old_server">This Worbus Server is older and needs its token. Add it under Advanced.</string>
+	<string name="option_server_sign_in_as">Sign in as %1$s</string>
+	<string name="option_server_sign_out">Sign out of this server</string>
+	<string name="option_server_token_old">Server token, for older servers</string>
 </resources>

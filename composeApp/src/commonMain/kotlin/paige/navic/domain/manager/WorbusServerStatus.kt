@@ -1,59 +1,159 @@
 package paige.navic.domain.manager
 
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_server_add_address
 import navic.composeapp.generated.resources.info_server_cant_reach
 import navic.composeapp.generated.resources.info_server_connected
 import navic.composeapp.generated.resources.info_server_connecting
-import navic.composeapp.generated.resources.info_server_not_configured
+import navic.composeapp.generated.resources.info_server_navidrome_refused
+import navic.composeapp.generated.resources.info_server_navidrome_unreachable
+import navic.composeapp.generated.resources.info_server_not_signed_in
 import navic.composeapp.generated.resources.info_server_off
+import navic.composeapp.generated.resources.info_server_old_server
 import navic.composeapp.generated.resources.info_server_refused
+import navic.composeapp.generated.resources.info_server_signed_in
+import navic.composeapp.generated.resources.info_server_signed_in_admin
+import navic.composeapp.generated.resources.info_server_signed_out
+import navic.composeapp.generated.resources.info_server_signing_in
+import navic.composeapp.generated.resources.info_server_too_many_attempts
 import navic.composeapp.generated.resources.notice_local_network_blocked
 import org.jetbrains.compose.resources.StringResource
 
-/** Where the link to the Worbus Server stands, as the Server page says it. */
-enum class ServerStatus(val line: StringResource) {
-	/** Connect is switched off. */
-	Off(Res.string.info_server_off),
+/**
+ * Where the link to the Worbus Server stands, as the Server page says it: one sentence per state
+ * (design §6.2's table for every refusal, verbatim in strings.xml).
+ */
+sealed class ServerStatus(val line: StringResource, val isProblem: Boolean = false) {
+	/** The sentence's arguments ([SignedIn]'s name). */
+	open val args: List<String> get() = emptyList()
 
-	/** Connect is on, but there is no address or no token to dial with. */
-	NotConfigured(Res.string.info_server_not_configured),
+	/** Connect is switched off. */
+	data object Off : ServerStatus(Res.string.info_server_off)
+
+	/** Connect is on, but there is no address. */
+	data object NotConfigured : ServerStatus(Res.string.info_server_add_address)
+
+	/** An address, and no credential: never signed in here, or signed out of this server. */
+	data object NotSignedIn : ServerStatus(Res.string.info_server_not_signed_in)
+
+	/** A sign-in is on its way. */
+	data object SigningIn : ServerStatus(Res.string.info_server_signing_in)
 
 	/** Dialling, and nothing has failed yet. */
-	Connecting(Res.string.info_server_connecting),
+	data object Connecting : ServerStatus(Res.string.info_server_connecting)
 
-	/** The server answered and this device is in its session. */
-	Connected(Res.string.info_server_connected),
+	/** In the session with no user named: an older server (the token), as before Worbus P2. */
+	data object Connected : ServerStatus(Res.string.info_server_connected)
+
+	/** In the session, signed in as [name] (`welcome.user`, the `user` frame). */
+	data class SignedIn(val name: String, val admin: Boolean) :
+		ServerStatus(if (admin) Res.string.info_server_signed_in_admin else Res.string.info_server_signed_in) {
+		override val args: List<String> get() = listOf(name)
+	}
 
 	/** Dialling fails: a wrong address, a server that is down, no network. */
-	CantReach(Res.string.info_server_cant_reach),
+	data object CantReach : ServerStatus(Res.string.info_server_cant_reach, isProblem = true)
 
-	/** The server answered and turned the token down. Retrying the same token is pointless. */
-	Refused(Res.string.info_server_refused),
+	/** The server turned the legacy token down. Retrying the same token is pointless. */
+	data object Refused : ServerStatus(Res.string.info_server_refused, isProblem = true)
+
+	/** 401 `navidrome_refused`. */
+	data object NavidromeRefused : ServerStatus(Res.string.info_server_navidrome_refused, isProblem = true)
+
+	/** 503 `navidrome_unreachable`. */
+	data object NavidromeUnreachable : ServerStatus(Res.string.info_server_navidrome_unreachable, isProblem = true)
+
+	/** 429 `too_many_attempts`. */
+	data object TooManyAttempts : ServerStatus(Res.string.info_server_too_many_attempts, isProblem = true)
+
+	/** 4005 / `signed_out`, and the one silent sign-in did not bring it back. */
+	data object SignedOut : ServerStatus(Res.string.info_server_signed_out, isProblem = true)
+
+	/** The server has no sign-in route (404, 405, not its JSON; R6): it needs its token. */
+	data object OldServer : ServerStatus(Res.string.info_server_old_server)
 
 	/** Android's local network permission is the likely reason the dial fails (B-108). */
-	LocalNetworkBlocked(Res.string.notice_local_network_blocked)
+	data object LocalNetworkBlocked : ServerStatus(Res.string.notice_local_network_blocked, isProblem = true)
+
+	companion object {
+		/** Every state, for the tests that hold one sentence to each. */
+		val all: List<ServerStatus> get() = listOf(
+			Off, NotConfigured, NotSignedIn, SigningIn, Connecting, Connected,
+			SignedIn("a", admin = false), SignedIn("a", admin = true), CantReach, Refused, NavidromeRefused,
+			NavidromeUnreachable, TooManyAttempts, SignedOut, OldServer, LocalNetworkBlocked
+		)
+	}
+}
+
+/** The status a sign-in that did not grant says, or null for one that did. */
+fun statusOfSignIn(result: SignInResult): ServerStatus? = when (result) {
+	is SignInResult.SignedIn -> null
+	SignInResult.Refused -> ServerStatus.NavidromeRefused
+	is SignInResult.Unreachable -> if (result.navidrome) ServerStatus.NavidromeUnreachable else ServerStatus.CantReach
+	SignInResult.TooManyAttempts -> ServerStatus.TooManyAttempts
+	SignInResult.OldServer -> ServerStatus.OldServer
 }
 
 /**
- * The one answer the Server page's status line and its Open settings row read. Order matters:
- * a link that is up is connected whatever an old failure left behind, or whatever the stored
- * address and token say (what is stored can change under a session that is already up); a refused token beats
- * "can't reach" because the server was reached.
+ * The one answer the Server page's status line reads. Order matters:
+ * - a sign-in on its way says so, whatever the socket is doing;
+ * - a link that is up says who it is signed in as (or "Connected" with no user: an older server), except
+ *   that a sign-in the user just tapped and was refused is said over it — the token may still be
+ *   connecting this device as before, but the answer to the tap must not vanish;
+ * - then what is missing (address, credential), what the last sign-in or the hub said, the dial.
  */
 fun serverStatus(
 	enabled: Boolean,
 	hasAddress: Boolean,
-	hasToken: Boolean,
+	hasCredential: Boolean,
 	connected: Boolean,
+	user: HubUser?,
+	auth: HubAuthState,
 	authRefused: Boolean,
 	localNetworkBlocked: Boolean,
 	unreachable: Boolean
-): ServerStatus = when {
-	!enabled -> ServerStatus.Off
-	connected -> ServerStatus.Connected
-	!hasAddress || !hasToken -> ServerStatus.NotConfigured
-	authRefused -> ServerStatus.Refused
-	localNetworkBlocked -> ServerStatus.LocalNetworkBlocked
-	unreachable -> ServerStatus.CantReach
-	else -> ServerStatus.Connecting
+): ServerStatus {
+	if (!enabled) return ServerStatus.Off
+	if (auth == HubAuthState.SigningIn) return ServerStatus.SigningIn
+	val signInFailure = (auth as? HubAuthState.Answered)?.let { statusOfSignIn(it.result) }
+	if (connected) {
+		// A refused tap is said over a link the token holds; an older server answering 405 is not a
+		// refusal, and a link that is up there is simply Connected.
+		if (signInFailure != null && signInFailure != ServerStatus.OldServer) return signInFailure
+		return user?.let { ServerStatus.SignedIn(it.name, it.isAdmin) } ?: ServerStatus.Connected
+	}
+	if (!hasAddress) return ServerStatus.NotConfigured
+	if (auth == HubAuthState.SignedOut) return ServerStatus.SignedOut
+	if (signInFailure != null && (signInFailure != ServerStatus.OldServer || !hasCredential)) return signInFailure
+	if (!hasCredential) return ServerStatus.NotSignedIn
+	if (authRefused) return ServerStatus.Refused
+	if (localNetworkBlocked) return ServerStatus.LocalNetworkBlocked
+	if (unreachable) return ServerStatus.CantReach
+	return ServerStatus.Connecting
+}
+
+/** The Worbus Server group's rows, in order (design §6.5). */
+enum class WorbusServerRow { Address, SignIn, SignOut, DeviceName }
+
+/**
+ * Sign in as `<user>` while no device secret is held (and there is an account to sign in with);
+ * Sign out of this server while one is. The token is not a row here: it is under Advanced, and only
+ * after the server answered as an older one ([advancedServerRows]).
+ */
+fun worbusServerRows(signedIn: Boolean, accountName: String?): List<WorbusServerRow> = buildList {
+	add(WorbusServerRow.Address)
+	when {
+		signedIn -> add(WorbusServerRow.SignOut)
+		!accountName.isNullOrBlank() -> add(WorbusServerRow.SignIn)
+	}
+	add(WorbusServerRow.DeviceName)
+}
+
+/** Advanced's rows: AudioMuse as before, and the token for an older server once one answered as such. */
+enum class AdvancedServerRow { AudioMuseAddress, AudioMuseToken, ServerToken }
+
+fun advancedServerRows(oldServerSeen: Boolean): List<AdvancedServerRow> = buildList {
+	add(AdvancedServerRow.AudioMuseAddress)
+	add(AdvancedServerRow.AudioMuseToken)
+	if (oldServerSeen) add(AdvancedServerRow.ServerToken)
 }
