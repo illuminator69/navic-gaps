@@ -34,9 +34,10 @@ class AnimatedContentKeyDriftTest {
 		"ui/screens/lyrics/LyricsScreen.kt" to 1,
 		"ui/screens/queue/components/QueueGeneratorLine.kt" to 1,
 		"ui/screens/login/pages/Error.kt" to 1,
-		// Worbus P2 (R34): the Server page's status line. Its target is the sentence itself
-		// (`ServerStatus`, equal for equal words), so any change is new words and fades.
-		"ui/screens/settings/ServerScreen.kt" to 1
+		// Worbus P2 (R34): the Server page's status line, and (re-walk NM1) its Sign in / Sign out
+		// slot. Each target is the words themselves (`ServerStatus`, equal for equal words; the
+		// action), so any change is new words and fades.
+		"ui/screens/settings/ServerScreen.kt" to 2
 	)
 
 	/** The argument list of each `AnimatedContent(` call in [text], by matching parentheses. */

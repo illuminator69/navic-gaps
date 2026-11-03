@@ -555,7 +555,10 @@ class HubAuthTest {
 		assertTrue(reconnects <= 1, "reconnects: $reconnects")
 		// What is left: no token sent, the status says it cannot sign in, and it tries again.
 		assertNull(auth.bearer())
-		assertEquals(HubAuthState.Answered(SignInResult.Unreachable(navidrome = false)), auth.state.value)
+		// Re-walk NM3: the address is right and the server answers; its sign-in route does not.
+		assertEquals(HubAuthState.Answered(SignInResult.Unreachable(navidrome = false, signInRouteHidden = true)), auth.state.value)
+		assertEquals(ServerStatus.SignInRouteUnreachable, statusOfSignIn(SignInResult.Unreachable(navidrome = false, signInRouteHidden = true)))
+		assertEquals(ServerStatus.CantReach, statusOfSignIn(SignInResult.Unreachable(navidrome = false)), "no answer at all is still \"can't reach\"")
 		assertTrue(auth.upgradeRetryWanted)
 		assertFalse(auth.oldServerSeen)
 	}

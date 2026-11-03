@@ -63,7 +63,14 @@ sealed interface SignInResult {
 	 * 503 `navidrome_unreachable` (its Navidrome did not). False: the Worbus Server itself did not
 	 * answer (refused, timed out, dropped), which is never [OldServer] (R6).
 	 */
-	data class Unreachable(val navidrome: Boolean) : SignInResult
+	data class Unreachable(
+		val navidrome: Boolean,
+		/**
+		 * R36, re-walk NM3: the server answered (its welcome named a user this launch) but its sign-in
+		 * route did not, at this address: a proxy that does not pass `/hub/`. Not "check the address".
+		 */
+		val signInRouteHidden: Boolean = false
+	) : SignInResult
 
 	/** 429 `too_many_attempts`. */
 	data object TooManyAttempts : SignInResult
@@ -513,11 +520,12 @@ class HubAuth(
 			is SignInOutcome.NotGranted -> {
 				if (outcome.result == SignInResult.OldServer && p2WelcomeUrl == preferenceManager.hubUrl.trim()) {
 					log("sign-in answered as an older server at an address that welcomed a user: read as unreachable (R36)")
-					lastSignIn = SignInResult.Unreachable(navidrome = false)
+					val hidden = SignInResult.Unreachable(navidrome = false, signInRouteHidden = true)
+					lastSignIn = hidden
 					tokenUpgradeDue = true
 					verdictUrl = preferenceManager.hubUrl.trim()
-					_state.value = HubAuthState.Answered(SignInResult.Unreachable(navidrome = false))
-					return SignInResult.Unreachable(navidrome = false)
+					_state.value = HubAuthState.Answered(hidden)
+					return hidden
 				}
 				if (outcome.result == SignInResult.OldServer) {
 					preferenceManager.hubOldServerUrl = preferenceManager.hubUrl.trim()

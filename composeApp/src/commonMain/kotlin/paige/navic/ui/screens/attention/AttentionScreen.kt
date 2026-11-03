@@ -89,6 +89,7 @@ import paige.navic.domain.manager.AttentionRow
 import paige.navic.domain.manager.LbFillEntry
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.asLedgerRow
+import paige.navic.domain.manager.attentionEmptyShown
 import paige.navic.domain.manager.folderDetail
 import paige.navic.domain.manager.folderLine
 import paige.navic.domain.manager.folderTitle
@@ -218,7 +219,8 @@ fun AttentionScreen() {
 						AttentionHead(p, Modifier.animateItem())
 					}
 					val toCheck = p.artistsToCheck?.takeIf { it > 0 }
-					if (p.albums.isEmpty() && p.folders.isEmpty() && toCheck == null && p.deviceOnly.isEmpty()) {
+					// Re-walk NM2: only of a list lb-bot answered; a failed read says its one notice alone.
+					if (attentionEmptyShown(p)) {
 						item(key = "empty") {
 							ContentUnavailable(
 								modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp).animateItem(),

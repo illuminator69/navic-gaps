@@ -57,6 +57,19 @@ class LaneNWalkTest {
 		assertFalse(FillText.Res(Res.string.error_lbbot_too_old) in down)
 	}
 
+	// ---- Re-walk NM2: no empty-state claim about a list that was not read --------------------- //
+
+	@Test
+	fun nothing_to_fix_only_for_a_list_that_was_read() {
+		val empty = AttentionPage.Rows(albums = emptyList(), folders = emptyList(), artistsToCheck = null, toFix = 0, notices = emptyList())
+		assertTrue(attentionEmptyShown(empty), "lb-bot answered, nothing listed")
+		// Too old, unavailable or refused: the read failed, and only the one sentence is said.
+		assertFalse(attentionEmptyShown(empty.copy(notices = listOf(AttentionNotice.Unreachable(since = null)))))
+		assertFalse(attentionEmptyShown(empty.copy(notices = listOf(AttentionNotice.Unreachable(since = 1_000L)))))
+		assertFalse(attentionEmptyShown(empty.copy(toFix = null, notices = listOf(AttentionNotice.Older))), "older: only this phone's rows")
+		assertFalse(attentionEmptyShown(empty.copy(artistsToCheck = 2)), "something is listed")
+	}
+
 	// ---- NB3: a non-admin never reads /lb/attention, and a refusal logs one line ----------------- //
 
 	@Test

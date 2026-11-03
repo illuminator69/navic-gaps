@@ -1697,4 +1697,5 @@
 	<string name="info_library_refused">The Worbus Server's library service turned this server away. Library tools are hidden.</string>
 	<string name="info_library_too_old">This Worbus Server's library service is too old for signed-in users.</string>
 	<string name="error_lbbot_too_old">This Worbus Server's lb-bot is too old for signed-in users.</string>
+	<string name="info_server_signin_route_unreachable">This Worbus Server's sign-in isn't reachable at this address. It may sit behind a proxy that doesn't pass /hub/.</string>
 </resources>

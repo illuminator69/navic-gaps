@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -257,10 +258,16 @@ fun ServerScreen() {
 						)
 					}
 					val first = rows - serverRows.size
-					// R34: every row the group can hold is composed once; Sign in / Sign out fold in and
-					// out (the rows under them follow the height) instead of popping.
-					WorbusServerRow.entries.forEach { row ->
-						val shownAt = serverRows.indexOf(row)
+					// R34: every row the group can hold is composed once and folds in and out (the rows under
+					// it follow the height). Re-walk NM1: Sign in and Sign out are ONE row, the action slot,
+					// whose words cross-fade both ways; the slot itself folds only when neither is offered.
+					val action = serverRows.firstOrNull { it == WorbusServerRow.SignIn || it == WorbusServerRow.SignOut }
+					// What the slot last offered, so it folds away showing the words it had.
+					val lastAction = remember { arrayOf(WorbusServerRow.SignIn) }
+					if (action != null) lastAction[0] = action
+					WorbusServerRow.entries.filter { it != WorbusServerRow.SignOut }.forEach { row ->
+						val slot = if (row == WorbusServerRow.SignIn) action else row
+						val shownAt = slot?.let { serverRows.indexOf(it) } ?: -1
 						val i = if (shownAt >= 0) shownAt else 0
 						Fold(visible = shownAt >= 0) {
 							when (row) {
@@ -271,19 +278,15 @@ fun ServerScreen() {
 									count = rows,
 									onClick = { editing = ServerField.Address }
 								)
-								// One tap, with the app's own Navidrome account (design §6.5). Not while
-								// one is on its way; the status line says how it went. An action, not a page:
-								// no chevron (R34).
-								WorbusServerRow.SignIn -> SegmentedListItem(
-									onClick = { hubManager.signInAndConnect() },
-									enabled = preferenceManager.hubUrl.isNotBlank() && status != ServerStatus.SigningIn,
+								// One tap, with the app's own Navidrome account (design §6.5), or out of
+								// this server. An action, not a page: no chevron (R34).
+								WorbusServerRow.SignIn -> ServerActionRow(
+									action = action ?: lastAction[0],
+									accountName = accountName.orEmpty(),
+									signInEnabled = preferenceManager.hubUrl.isNotBlank() && status != ServerStatus.SigningIn,
 									shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
-									content = { Text(stringResource(Res.string.option_server_sign_in_as, accountName.orEmpty())) }
-								)
-								WorbusServerRow.SignOut -> SegmentedListItem(
-									onClick = { hubManager.signOutOfServer() },
-									shapes = SegmentedListItemDefaults.segmentedShapes(index = first + i, count = rows),
-									content = { Text(stringResource(Res.string.option_server_sign_out)) }
+									onSignIn = { hubManager.signInAndConnect() },
+									onSignOut = { hubManager.signOutOfServer() }
 								)
 								WorbusServerRow.DeviceName -> ValueRow(
 									label = Res.string.option_server_device_name,
@@ -292,6 +295,8 @@ fun ServerScreen() {
 									count = rows,
 									onClick = { editing = ServerField.DeviceName }
 								)
+								// The action slot is drawn at SignIn's place (above).
+								WorbusServerRow.SignOut -> Unit
 							}
 						}
 					}
@@ -423,6 +428,45 @@ private data class FieldSpec(
 )
 
 /** A setting whose value is read off the row; tapping opens its dialog. */
+/**
+ * Re-walk NM1: the Worbus Server group's action slot, "Sign in as <user>" or "Sign out of this server".
+ * One node for both, so a sign-in that completes and a sign-out cross-fade the words in place, the
+ * same way both directions; never one row swapped for another. Not while a sign-in is on its way (the
+ * status line says how it went).
+ */
+@Composable
+private fun ServerActionRow(
+	action: WorbusServerRow,
+	accountName: String,
+	signInEnabled: Boolean,
+	shapes: ListItemShapes,
+	onSignIn: () -> Unit,
+	onSignOut: () -> Unit
+) {
+	val signOut = action == WorbusServerRow.SignOut
+	val motion = rememberFoldMotion()
+	SegmentedListItem(
+		onClick = { if (signOut) onSignOut() else onSignIn() },
+		enabled = signOut || signInEnabled,
+		shapes = shapes,
+		content = {
+			AnimatedContent(
+				targetState = action,
+				transitionSpec = {
+					(fadeIn(motion.effects()) togetherWith fadeOut(motion.effects()))
+						.using(SizeTransform(clip = false) { _, _ -> motion.spatial() })
+				},
+				label = "server action"
+			) { shown ->
+				Text(
+					if (shown == WorbusServerRow.SignOut) stringResource(Res.string.option_server_sign_out)
+					else stringResource(Res.string.option_server_sign_in_as, accountName)
+				)
+			}
+		}
+	)
+}
+
 @Composable
 private fun ValueRow(
 	label: org.jetbrains.compose.resources.StringResource,

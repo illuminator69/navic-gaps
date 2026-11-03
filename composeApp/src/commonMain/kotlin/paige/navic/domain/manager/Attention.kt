@@ -202,6 +202,17 @@ sealed interface AttentionNotice {
 	data class Truncated(val albums: Int, val folders: Int) : AttentionNotice
 }
 
+/**
+ * Re-walk NM2: whether the page says "Nothing here needs you." Only of a list lb-bot answered just now
+ * with nothing in it. When it could not be read (too old for this user, unavailable, refused: an
+ * [AttentionNotice.Unreachable]) or only this phone's rows are known (an older hub or lb-bot), the one
+ * notice is said alone: nothing claims what was not checked.
+ */
+fun attentionEmptyShown(page: AttentionPage.Rows): Boolean =
+	page.albums.isEmpty() && page.folders.isEmpty() && page.deviceOnly.isEmpty() &&
+		(page.artistsToCheck ?: 0) == 0 && page.toFix == 0 &&
+		page.notices.none { it is AttentionNotice.Unreachable || it == AttentionNotice.Older }
+
 sealed interface AttentionPage {
 	/** Nothing read yet and nothing to show from before: not "nothing to fix". */
 	data object Loading : AttentionPage

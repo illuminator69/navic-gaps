@@ -95,13 +95,33 @@ class LaneNWalkGuardTest {
 	@Test
 	fun server_rows_and_menu_rows_move() {
 		val screen = text("ServerScreen.kt")
-		assertTrue("WorbusServerRow.entries.forEach" in screen && "Fold(visible = shownAt >= 0)" in screen, "the rows fold")
+		assertTrue(Regex("""WorbusServerRow\.entries(\.filter \{[^}]*\})?\.forEach""").containsMatchIn(screen) && "Fold(visible = shownAt >= 0)" in screen, "the rows fold")
 		assertTrue("AdvancedServerRow.entries.forEach" in screen, "the token row folds")
 		assertTrue(Regex("""AnimatedContent\(\s*targetState = status""").containsMatchIn(screen), "the status line changes with motion")
 		assertTrue("Fold(visible = lbAccess == LbAccess.TOO_OLD)" in screen && "Fold(visible = lbAccess == LbAccess.REFUSED)" in screen)
-		assertTrue("WorbusServerRow.SignIn -> SegmentedListItem(" in screen, "Sign in: no chevron")
-		assertTrue("WorbusServerRow.SignOut -> SegmentedListItem(" in screen, "Sign out: no chevron")
+		// Re-walk NM1: Sign in and Sign out are ONE row whose words cross-fade, both ways; no chevron.
+		assertTrue(
+			"WorbusServerRow.SignOut -> SegmentedListItem(" !in screen && "WorbusServerRow.SignOut -> SettingsNavItem(" !in screen,
+			"no second row swapped in for Sign out"
+		)
+		// A top-level function: up to its own closing brace at column 0.
+		val action = screen.substring(screen.indexOf("private fun ServerActionRow("))
+			.let { it.substring(0, it.indexOf("\n}\n")) }
+		assertTrue("SegmentedListItem(" in action && "SettingsNavItem" !in action, "an action row, no chevron")
+		assertTrue(Regex("""AnimatedContent\(\s*targetState = action""").containsMatchIn(action), "its words change with motion")
+		assertTrue("ServerActionRow(" in screen.substringBefore("private fun ServerActionRow("))
 		assertTrue("Fold(visible = slot.shown)" in text("AvatarMenu.kt"), "the menu's gated rows fold")
+	}
+
+	/** Re-walk NM3: R36's status names the sign-in route, not the address, in the Worbus P2 block. */
+	@Test
+	fun the_hidden_route_says_so() {
+		val strings = File("src/commonMain/composeResources/values/strings.xml").readText()
+		val block = strings.substring(strings.indexOf("<!-- Worbus P2 -->"))
+		assertTrue(
+			"\n\t<string name=\"info_server_signin_route_unreachable\">This Worbus Server's sign-in isn't reachable at this address. It may sit behind a proxy that doesn't pass /hub/.</string>" in block
+		)
+		assertTrue("Res.string.info_server_signin_route_unreachable" in text("WorbusServerStatus.kt"))
 	}
 
 	/** NB6: a planned cancel is not logged at error level. */

@@ -14,6 +14,7 @@ import navic.composeapp.generated.resources.info_server_refused
 import navic.composeapp.generated.resources.info_server_signed_in
 import navic.composeapp.generated.resources.info_server_signed_in_admin
 import navic.composeapp.generated.resources.info_server_signed_out
+import navic.composeapp.generated.resources.info_server_signin_route_unreachable
 import navic.composeapp.generated.resources.info_server_signing_in
 import navic.composeapp.generated.resources.info_server_too_many_attempts
 import navic.composeapp.generated.resources.notice_local_network_blocked
@@ -57,6 +58,12 @@ sealed class ServerStatus(val line: StringResource, val isProblem: Boolean = fal
 	/** The server turned the legacy token down. Retrying the same token is pointless. */
 	data object Refused : ServerStatus(Res.string.info_server_refused, isProblem = true)
 
+	/**
+	 * R36 (re-walk NM3): the server answers at this address, but its sign-in route does not (a proxy
+	 * that does not pass `/hub/`). The address is right, so this never says "check the address".
+	 */
+	data object SignInRouteUnreachable : ServerStatus(Res.string.info_server_signin_route_unreachable, isProblem = true)
+
 	/** 401 `navidrome_refused`. */
 	data object NavidromeRefused : ServerStatus(Res.string.info_server_navidrome_refused, isProblem = true)
 
@@ -79,7 +86,7 @@ sealed class ServerStatus(val line: StringResource, val isProblem: Boolean = fal
 		/** Every state, for the tests that hold one sentence to each. */
 		val all: List<ServerStatus> get() = listOf(
 			Off, NotConfigured, NotSignedIn, SigningIn, Connecting, Connected,
-			SignedIn("a", admin = false), SignedIn("a", admin = true), CantReach, Refused, NavidromeRefused,
+			SignedIn("a", admin = false), SignedIn("a", admin = true), CantReach, SignInRouteUnreachable, Refused, NavidromeRefused,
 			NavidromeUnreachable, TooManyAttempts, SignedOut, OldServer, LocalNetworkBlocked
 		)
 	}
@@ -89,7 +96,11 @@ sealed class ServerStatus(val line: StringResource, val isProblem: Boolean = fal
 fun statusOfSignIn(result: SignInResult): ServerStatus? = when (result) {
 	is SignInResult.SignedIn -> null
 	SignInResult.Refused -> ServerStatus.NavidromeRefused
-	is SignInResult.Unreachable -> if (result.navidrome) ServerStatus.NavidromeUnreachable else ServerStatus.CantReach
+	is SignInResult.Unreachable -> when {
+		result.navidrome -> ServerStatus.NavidromeUnreachable
+		result.signInRouteHidden -> ServerStatus.SignInRouteUnreachable
+		else -> ServerStatus.CantReach
+	}
 	SignInResult.TooManyAttempts -> ServerStatus.TooManyAttempts
 	SignInResult.OldServer -> ServerStatus.OldServer
 	// Nothing was asked (review M-3); [HubAuth] never stores it as an answer.
