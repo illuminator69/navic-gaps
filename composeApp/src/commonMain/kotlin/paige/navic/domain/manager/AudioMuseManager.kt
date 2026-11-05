@@ -73,7 +73,7 @@ class AudioMuseManager(
 		if (raw.isBlank() || !hubAuth.hasCredential) return null
 		val bearer = hubAuth.bearer().orEmpty()
 		// A hub URL or credential change invalidates what we learned about the old hub.
-		val sig = "$raw|${bearer.hashCode()}"
+		val sig = "${perServerKey(preferenceManager)}|${bearer.hashCode()}"
 		if (sig != lastHubConfig) {
 			lastHubConfig = sig
 			hubDemotedAtMs = 0L
@@ -109,7 +109,7 @@ class AudioMuseManager(
 	 * lifetime of the composition.
 	 */
 	val routeSignature: String
-		get() = "${preferenceManager.hubUrl}|${hubAuth.bearer()?.hashCode() ?: 0}|" +
+		get() = "${perServerKey(preferenceManager)}|${hubAuth.bearer()?.hashCode() ?: 0}|" +
 			"${preferenceManager.audioMuseUrl}|${preferenceManager.audioMuseToken.isNotBlank()}"
 
 	// One client reused for the manager's lifetime. The old per-call new/close

@@ -38,6 +38,9 @@ class HubConnector(
 	@kotlin.concurrent.Volatile
 	private var lastPassed: String? = null
 
+	@kotlin.concurrent.Volatile
+	private var auth: HubAuth? = null
+
 	/** OtherServer skips already logged, once per address and id (design §6.3 #3). */
 	private val loggedOther = mutableSetOf<String>()
 
@@ -76,6 +79,7 @@ class HubConnector(
 
 	/** [HubAuth] reads its routes here. */
 	fun wire(auth: HubAuth) {
+		this.auth = auth
 		auth.routeAddress = ::route
 		auth.signInAddress = ::signInAddress
 	}
@@ -124,6 +128,12 @@ class HubConnector(
 			if (arrivedOn != null) after = after.markOk(arrivedOn, now())
 		}
 		if (after != before) store.write(after)
+		if (before.serverId == null) {
+			// The first id (design §6.5): what was kept under the address moves to the id, nothing is wiped.
+			val addressKey = preferenceManager.hubUrl.trim()
+			rekeyStoredPerServer(preferenceManager, setOfNotNull(arrivedOn, addressKey), id)
+			auth?.noteServerIdentified(addressKey, id)
+		}
 		if (before.serverId != null && before.serverId != id) log("the server at ${arrivedOn ?: "?"} is another one now")
 		return before to after
 	}

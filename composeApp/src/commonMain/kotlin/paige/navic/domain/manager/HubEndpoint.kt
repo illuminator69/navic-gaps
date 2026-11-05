@@ -28,5 +28,6 @@ internal fun hubHttpBase(auth: HubAuth): String? = auth.httpBase()
  * (a secret where there was none, or another one) is such a change too.
  */
 internal fun hubRouteSignature(preferenceManager: PreferenceManager, auth: HubAuth): String =
-	"${preferenceManager.hubEnabled}|${preferenceManager.hubUrl}|" +
+	// Worbus P3: the server, not the address it is reached at (design §6.5).
+	"${preferenceManager.hubEnabled}|${perServerKey(preferenceManager)}|" +
 		"${auth.bearer()?.hashCode() ?: 0}"

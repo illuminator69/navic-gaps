@@ -507,7 +507,7 @@ class HubAuth(
 			val none = SignInResult.Unreachable(navidrome = false)
 			lastSignIn = none
 			tokenUpgradeDue = true
-			verdictUrl = preferenceManager.hubUrl.trim()
+			verdictUrl = serverKeyNow()
 			_state.value = HubAuthState.Answered(none)
 			return none
 		}
@@ -553,7 +553,7 @@ class HubAuth(
 					val hidden = SignInResult.Unreachable(navidrome = false, signInRouteHidden = true)
 					lastSignIn = hidden
 					tokenUpgradeDue = true
-					verdictUrl = preferenceManager.hubUrl.trim()
+					verdictUrl = serverKeyNow()
 					_state.value = HubAuthState.Answered(hidden)
 					return hidden
 				}
@@ -574,7 +574,7 @@ class HubAuth(
 		}
 		lastSignIn = result
 		tokenUpgradeDue = tokenUpgradeDueAfter(result)
-		verdictUrl = preferenceManager.hubUrl.trim()
+		verdictUrl = serverKeyNow()
 		_state.value = HubAuthState.Answered(result)
 		return result
 	}
@@ -593,7 +593,21 @@ class HubAuth(
 	@kotlin.concurrent.Volatile
 	private var p2WelcomeUrl: String? = null
 
-	/** The address the last verdict ([state], [lastSignIn]) answered for; null for none (R33). */
+	/**
+	 * Worbus P3 (design §6.5): the key this server's values are kept under, `id:<serverId>` once the
+	 * server has said who it is, else the typed address as before ([perServerKey]).
+	 */
+	private fun serverKeyNow(): String = perServerKey(preferenceManager)
+
+	/**
+	 * Worbus P3: the first `welcome` naming the server's id. A verdict given at the address it arrived
+	 * on (the record's key before the id) is this server's: it moves to the id, it is not dropped.
+	 */
+	fun noteServerIdentified(addressKey: String, id: String) {
+		if (verdictUrl == addressKey) verdictUrl = serverKey(id)
+	}
+
+	/** The server key the last verdict ([state], [lastSignIn]) answered for; null for none (R33). */
 	@kotlin.concurrent.Volatile
 	private var verdictUrl: String? = null
 
@@ -604,7 +618,7 @@ class HubAuth(
 	 */
 	private fun dropVerdictIfMoved() {
 		val at = verdictUrl ?: return
-		if (at == preferenceManager.hubUrl.trim()) return
+		if (at == serverKeyNow()) return
 		verdictUrl = null
 		lastSignIn = null
 		tokenUpgradeDue = true
@@ -618,8 +632,8 @@ class HubAuth(
 
 	private fun deviceIdKey(username: String?): String? {
 		val name = username?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
-		val url = preferenceManager.hubUrl.trim().takeIf { it.isNotEmpty() } ?: return null
-		return "$url|$name"
+		if (preferenceManager.hubUrl.isBlank()) return null
+		return "${serverKeyNow()}|$name"
 	}
 
 	private fun boundIds(): Map<String, String> = try {
@@ -702,14 +716,14 @@ class HubAuth(
 	suspend fun afterSignedOut(): Boolean = lock.withLock {
 		writeCredentials(secret = "")
 		if (silentSignInSpent) {
-			verdictUrl = preferenceManager.hubUrl.trim()
+			verdictUrl = serverKeyNow()
 			_state.value = HubAuthState.SignedOut
 			return@withLock false
 		}
 		silentSignInSpent = true
 		val ok = signInLocked() is SignInResult.SignedIn
 		if (!ok) {
-			verdictUrl = preferenceManager.hubUrl.trim()
+			verdictUrl = serverKeyNow()
 			_state.value = HubAuthState.SignedOut
 		}
 		ok

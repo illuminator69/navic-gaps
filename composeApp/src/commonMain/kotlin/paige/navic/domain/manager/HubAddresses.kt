@@ -462,3 +462,60 @@ suspend fun HubServerRecord.chooseAddress(
 internal fun logSkippedAddress(address: HubAddress, outcome: InfoOutcome) {
 	Logger.i("HubAddresses", "skipped ${address.url} (${address.source.wire}): ${outcome::class.simpleName}")
 }
+
+// ---- Per-server keys (lane N3, design §6.5) -------------------------------------------------- //
+
+/** `id:<serverId>`, the key every per-server value is kept under once the server has said who it is. */
+fun serverKey(id: String): String = "id:$id"
+
+/**
+ * The key this server's values are kept under: `id:<serverId>` once known, else [address] (an older
+ * server, or before the first welcome), exactly the key such values were kept under before P3.
+ */
+fun serverKey(record: HubServerRecord, address: String): String =
+	record.serverId?.let { serverKey(it) } ?: address
+
+/** [serverKey] for the stored record and the typed address (`hubUrl`, trimmed, as before P3). */
+fun perServerKey(preferenceManager: PreferenceManager): String =
+	serverKey(HubServerRecordStore(preferenceManager).read(), preferenceManager.hubUrl.trim())
+
+/**
+ * The first `welcome` carrying the server's id (design §6.5): every value kept under one of
+ * [addresses] (compared normalised) is copied to `id:<id>`, unless the id already has its own. The
+ * address entries stay: a client rolled back to project 2 still finds them. Nothing is wiped.
+ * `hubDeviceIds` is keyed `<address>|<account>`, `lbDownloadsByHub` `<address>`.
+ */
+fun rekeyStoredPerServer(preferenceManager: PreferenceManager, addresses: Set<String>, id: String) {
+	val wanted = addresses.mapNotNull { normaliseHubAddress(it) }.toSet()
+	if (wanted.isEmpty()) return
+	fun matches(address: String) = normaliseHubAddress(address)?.let { it in wanted } == true
+	val idKey = serverKey(id)
+	preferenceManager.hubDeviceIds = rekeyJsonMap(preferenceManager.hubDeviceIds) { key ->
+		val cut = key.lastIndexOf('|')
+		if (cut <= 0 || !matches(key.substring(0, cut))) null else "$idKey${key.substring(cut)}"
+	}
+	preferenceManager.lbDownloadsByHub = rekeyJsonMap(preferenceManager.lbDownloadsByHub) { key ->
+		if (matches(key)) idKey else null
+	}
+}
+
+/** Copy each string entry whose key [newKeyOf] maps to a key not yet present. The text as it was if nothing moves. */
+private fun rekeyJsonMap(text: String, newKeyOf: (String) -> String?): String {
+	if (text.isBlank()) return text
+	val obj = try {
+		Json.parseToJsonElement(text) as? JsonObject
+	} catch (e: Exception) {
+		null
+	} ?: return text
+	val added = linkedMapOf<String, String>()
+	for ((key, value) in obj) {
+		val target = newKeyOf(key) ?: continue
+		val v = (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
+		if (target !in obj && target !in added) added[target] = v
+	}
+	if (added.isEmpty()) return text
+	return buildJsonObject {
+		for ((key, value) in obj) put(key, value)
+		for ((key, value) in added) put(key, value)
+	}.toString()
+}

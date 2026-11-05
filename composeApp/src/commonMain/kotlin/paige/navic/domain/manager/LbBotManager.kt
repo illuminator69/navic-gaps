@@ -122,7 +122,8 @@ class LbBotManager(
 				preferenceManager.lbDownloadsByHub = value
 			}
 		},
-		hubKey = { preferenceManager.hubUrl }
+		// Worbus P3 (design §6.5): kept per server, not per address.
+		hubKey = { perServerKey(preferenceManager) }
 	)
 
 	/**
