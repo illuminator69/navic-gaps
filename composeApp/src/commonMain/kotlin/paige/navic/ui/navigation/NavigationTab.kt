@@ -23,8 +23,8 @@ import org.jetbrains.compose.resources.StringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.domain.manager.AudioMuseManager
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
 import paige.navic.icons.outlined.Equalizer
@@ -179,7 +179,6 @@ fun rememberVisibleNavigationTabs(): List<NavigationTab> {
 	// navigation. A configured-but-unreachable AudioMuse costs an empty row, not
 	// a wrong tab.
 	val audioMuse = koinInject<AudioMuseManager>()
-	val preferenceManager = koinInject<PreferenceManager>()
 	val discoverHasSources = lbBotAvailable || audioMuse.isConfigured
 
 	// Mixes are hub state: with no hub at all there is nowhere for a recipe to live,
@@ -193,7 +192,7 @@ fun rememberVisibleNavigationTabs(): List<NavigationTab> {
 	// themselves still regenerate locally, since the engine is local. (Feishin gates
 	// its equivalent on the live connection — that client reconnects differently, and
 	// the divergence is deliberate rather than drift.)
-	val hubConfigured = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
+	val hubConfigured = koinInject<HubManager>().isServerSet()
 
 	return (state.data ?: NavbarConfig.default).tabs
 		.filter { tab ->

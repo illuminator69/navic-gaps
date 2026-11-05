@@ -159,7 +159,12 @@ internal class CastDeviceBridge(
 	/** `group`, `tv` or `speaker` for the picker's icon, or null (`castKind`). Said at each `hello`. */
 	@Volatile var kind: String?,
 	host: String,
-	private val hubUrl: String,
+	/**
+	 * Worbus P3 (design §6.3): the address the device's main socket is on, read at each dial, so a
+	 * bridge follows the main socket's choice (home or away) and never dials an address that has not
+	 * answered as this server. Null while the main socket is down: the bridge waits out its backoff.
+	 */
+	private val hubAddress: () -> String?,
 	/** Worbus P2: the bridging device's own credential (`HubAuth.helloCredential`), read at each hello. */
 	private val credential: () -> HelloCredential?,
 	private val discovery: CastDiscovery,
@@ -426,7 +431,7 @@ internal class CastDeviceBridge(
 
 	private suspend fun connectOnce() {
 		lastCloseCode = null
-		client.webSocket(hubUrl) {
+		dialActiveAddress(hubAddress) { url -> client.webSocket(url) {
 			ws = this
 			adopted = false
 			val hello = castBridgeHello(hubDeviceId, friendlyName, kind, credential(), ownerDeviceId())
@@ -452,7 +457,7 @@ internal class CastDeviceBridge(
 				markDisconnected()
 				lastCloseCode = runCatching { closeReason.await()?.code }.getOrNull()
 			}
-		}
+		} }
 	}
 
 	/**
@@ -1400,3 +1405,12 @@ internal fun speakerTakenFrames(index: Int, positionMs: Long): List<JsonObject> 
 		put("positionMs", positionMs)
 	}
 )
+
+/**
+ * Worbus P3: a cast bridge dials the main socket's active address ([active], read now), and nothing
+ * while there is none: the hello and its credential follow the address that answered as this server.
+ */
+internal suspend fun <T> dialActiveAddress(active: () -> String?, dial: suspend (String) -> T): T {
+	val url = active() ?: throw paige.navic.domain.manager.HubNoAddressAnswered()
+	return dial(url)
+}

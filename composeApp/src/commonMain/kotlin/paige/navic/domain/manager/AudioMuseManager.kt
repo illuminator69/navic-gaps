@@ -68,7 +68,8 @@ class AudioMuseManager(
 	 * `/connect` path (if any) dropped.
 	 */
 	private fun hubProxyBase(): String? {
-		val raw = preferenceManager.hubUrl.trim()
+		// Worbus P3: the address the socket is on (or last passed), never the typed one unchecked.
+		val raw = hubAuth.routeAddress().orEmpty()
 		if (raw.isBlank() || !hubAuth.hasCredential) return null
 		val bearer = hubAuth.bearer().orEmpty()
 		// A hub URL or credential change invalidates what we learned about the old hub.

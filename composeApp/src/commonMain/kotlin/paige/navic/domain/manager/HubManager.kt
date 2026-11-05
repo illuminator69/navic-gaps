@@ -201,6 +201,27 @@ class HubManager(
 	// (B-045, see HubSocketClientFactory).
 	private val client = socketClientFactory.create()
 
+	/**
+	 * Worbus P3 (design §6.3): which of the server's addresses the socket, the cast bridges and every
+	 * HTTP call go to. Wired into [HubAuth] here, so its routes are the connector's.
+	 */
+	private val connector = HubConnector(preferenceManager).also { it.wire(hubAuth) }
+
+	/** The base the live socket is on (normalised), null while there is none. */
+	val activeAddress: StateFlow<String?> = connector.activeAddress
+
+	/** The server record (its id, name and addresses), as stored now. */
+	fun serverRecord(): HubServerRecord = connector.record()
+
+	/** The record's store, for the Server screen's address list and the finder. */
+	val serverRecordStore: HubServerRecordStore get() = connector.store
+
+	/**
+	 * "Is a Worbus Server set here": the switch is on and an address is typed or tapped (today's
+	 * `hubConfigured`). A gate, never where to dial ([activeAddress]).
+	 */
+	fun isServerSet(): Boolean = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
+
 	private val _connected = MutableStateFlow(false)
 	val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
@@ -454,9 +475,9 @@ class HubManager(
 
 	/**
 	 * Cuts the reconnect loop's wait short, carrying why. Conflated: a burst of kicks is one
-	 * kick. See [kickReconnect].
+	 * kick. See [kickReconnect]. The connector's, which refuses a kick while a socket is open.
 	 */
-	private val reconnectKick = Channel<String>(Channel.CONFLATED)
+	private val reconnectKick: Channel<String> get() = connector.kicks
 
 	/**
 	 * Losing the socket does NOT move playback — it only blinds us. Tearing the remote view down
@@ -662,7 +683,8 @@ class HubManager(
 	 */
 	fun kickReconnect(reason: String) {
 		if (_connected.value) return
-		reconnectKick.trySend(reason)
+		// Worbus P3: a socket that is open (welcomed or not) is never moved; the connector refuses.
+		connector.kick(reason)
 	}
 
 	/**
@@ -1181,7 +1203,7 @@ class HubManager(
 		while (currentCoroutineContext().isActive) {
 			// R23: a legacy token and no secret: one silent sign-in before this connect turns it into a
 			// secret (or says whether the token may still be sent).
-			if (preferenceManager.hubUrl.isNotBlank()) {
+			if (isServerSet()) {
 				try {
 					hubAuth.upgradeLegacyTokenIfDue()?.let { Logger.i("HubManager", "legacy token upgrade: ${it::class.simpleName}") }
 				} catch (e: CancellationException) {
@@ -1192,7 +1214,7 @@ class HubManager(
 			}
 			// Worbus P2: nothing to authenticate with (never signed in, signed out, logged out, a
 			// token R23 no longer sends). A dial would only be refused; a sign-in restarts the loop.
-			if (!hubAuth.hasCredential && preferenceManager.hubUrl.isNotBlank()) {
+			if (!hubAuth.hasCredential && isServerSet()) {
 				// R31: a legacy token whose upgrade got no verdict (no answer, Navidrome down, 429) is
 				// not dialled with: the status says why, and the sign-in is tried again after the wait.
 				if (hubAuth.upgradeRetryWanted) {
@@ -1280,7 +1302,7 @@ class HubManager(
 		if (authFailed) return
 		_unreachable.value = true
 		// A hub name that never resolved is a wrong address, not the permission (finding 1).
-		val blocked = failureLooksLocalNetworkBlocked(e, localNetwork.sdk, localNetwork.granted(), hostOfUrl(preferenceManager.hubUrl))
+		val blocked = failureLooksLocalNetworkBlocked(e, localNetwork.sdk, localNetwork.granted(), connector.firstAddress()?.let { hostOfUrl(it) })
 		if (blocked) {
 			if (!_localNetworkBlocked.value) Logger.w("HubManager", "hub dial failed with the local network permission not granted")
 			_connectionError.value = getString(Res.string.notice_local_network_blocked)
@@ -1292,13 +1314,20 @@ class HubManager(
 	}
 
 	private suspend fun connectOnce() {
-		val url = preferenceManager.hubUrl.trim()
-		if (url.isEmpty()) {
+		if (connector.record().connectOrder().isEmpty()) {
 			delay(10_000)
 			return
 		}
+		// Worbus P3: probe in order and dial only the first address that answers as this server;
+		// the hello (and its credential) goes nowhere else.
+		val dialled = connector.connectOnce { url, opened -> dialSocket(url, opened) }
+		if (!dialled) throw HubNoAddressAnswered()
+	}
+
+	private suspend fun dialSocket(url: String, opened: () -> Unit) {
 		client.webSocket(url) {
 			wsSession = this
+			opened()
 			// One writer, owning THIS session. Every frame below is enqueued, never written
 			// directly, so nothing built for this connection can end up on its successor.
 			val out = Channel<JsonObject>(Channel.UNLIMITED)
@@ -1816,6 +1845,15 @@ class HubManager(
 				resetEcho()
 				// Worbus P2: a later `signed_out` earns its one silent sign-in again; who we act for.
 				hubAuth.noteWelcome()
+				// Worbus P3 (design §6.2, §6.5): which server this is and its public address. Before the
+				// device id and the lb advert below, which are kept per server. Never moves the socket.
+				try {
+					welcomeServerOf(msg["server"] as? JsonObject)?.let { server ->
+						connector.onWelcomeServer(connector.activeAddress.value, server.id, server.name, server.publicUrl)
+					}
+				} catch (e: Exception) {
+					Logger.e("HubManager", "welcome.server ignored", e)
+				}
 				_user.value = try {
 					hubUserOf(msg["user"] as? JsonObject)
 				} catch (e: Exception) {

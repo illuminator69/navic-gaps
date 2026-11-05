@@ -459,10 +459,30 @@ class HubAuth(
 	/** The account a one-tap sign-in would use, for "Sign in as <name>". */
 	fun accountName(): String? = account()?.username?.takeIf { it.isNotBlank() }
 
-	/** The HTTP base of the Worbus Server, or null: off, no address, or no credential. */
+	/**
+	 * Worbus P3 (design §6.3): where the credential may go, set by [HubConnector.wire]: the live
+	 * socket's address, else the one that last passed, else (no server id known) the typed one. Null:
+	 * no address has answered as this server, so nothing carrying the credential is sent anywhere.
+	 */
+	@kotlin.concurrent.Volatile
+	var routeAddress: () -> String? = { normaliseHubAddress(preferenceManager.hubUrl) }
+
+	/** Worbus P3: where a sign-in posts the token pair, an address that passed a probe ([HubConnector.signInAddress]). */
+	@kotlin.concurrent.Volatile
+	var signInAddress: suspend () -> String? = { normaliseHubAddress(preferenceManager.hubUrl) }
+
+	/**
+	 * Worbus P3: the gate "a Worbus Server is set up here": on, an address, a credential. Not where to
+	 * send ([httpBase]): a set server whose addresses are not answering is still set (its lb-bot mirror
+	 * still shows, offline included).
+	 */
+	val serverSet: Boolean
+		get() = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank() && hasCredential
+
+	/** The HTTP base of the Worbus Server, or null: off, no address, no credential, or no route yet. */
 	fun httpBase(): String? {
 		if (!preferenceManager.hubEnabled || !hasCredential) return null
-		return hubHttpBaseOf(preferenceManager.hubUrl)
+		return routeAddress()?.let { hubHttpBaseOf(it) }
 	}
 
 	/**
@@ -472,14 +492,24 @@ class HubAuth(
 	suspend fun signIn(): SignInResult = lock.withLock { signInLocked() }
 
 	private suspend fun signInLocked(): SignInResult {
-		val base = hubHttpBaseOf(preferenceManager.hubUrl)
 		val acct = account()
-		if (base == null || acct == null || acct.username.isBlank() || acct.password.isEmpty()) {
+		if (preferenceManager.hubUrl.isBlank() || acct == null || acct.username.isBlank() || acct.password.isEmpty()) {
 			// Nothing to sign in with: no address, or no Navidrome account on this device.
 			// Review M-3: not the server's refusal. The state is left alone (an `afterSignedOut` then
 			// says SignedOut), and no token is retired: nobody refused it.
-			log("sign-in skipped: ${if (base == null) "no address" else "no Navidrome account"}")
+			log("sign-in skipped: ${if (preferenceManager.hubUrl.isBlank()) "no address" else "no Navidrome account"}")
 			return SignInResult.NoAccount
+		}
+		// Worbus P3: the token pair goes only to an address that answered as this server just now.
+		val base = signInAddress()?.let { hubHttpBaseOf(it) }
+		if (base == null) {
+			log("sign-in not sent: no address answered as this Worbus Server")
+			val none = SignInResult.Unreachable(navidrome = false)
+			lastSignIn = none
+			tokenUpgradeDue = true
+			verdictUrl = preferenceManager.hubUrl.trim()
+			_state.value = HubAuthState.Answered(none)
+			return none
 		}
 		dropVerdictIfMoved()
 		_state.value = HubAuthState.SigningIn
@@ -703,7 +733,8 @@ class HubAuth(
 	 * must not act as anyone). Returns what [finishSignOut] tells the server.
 	 */
 	fun beginSignOut(): PendingSignOut {
-		val pending = PendingSignOut(secrets.hubDeviceSecret, hubHttpBaseOf(preferenceManager.hubUrl))
+		// Worbus P3: only to an address that answered as this server (none: the hub's sweep forgets it).
+		val pending = PendingSignOut(secrets.hubDeviceSecret, routeAddress()?.let { hubHttpBaseOf(it) })
 		signOutGeneration++
 		writeCredentials(secret = "", token = "")
 		lastSignIn = null

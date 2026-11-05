@@ -258,8 +258,9 @@ class CastBridgeManager(
 		// A reconcile that was already queued when stop() ran would otherwise rebuild the very
 		// bridges stop() is about to destroy — or, worse, build them after it has.
 		if (stopping) return
-		val hubEnabled = preferenceManager.hubEnabled
-		val hubUrl = preferenceManager.hubUrl
+		// Worbus P3: "a server is set" gates; where to dial is the main socket's active address, read by
+		// each bridge at each dial.
+		val serverSet = hubManager.isServerSet()
 		val credential = hubAuth.helloCredential()
 
 		// Worbus P2: a bridge's socket is bound to the space of the credential it said hello with.
@@ -274,7 +275,7 @@ class CastBridgeManager(
 			bridgesCredential = credential
 		}
 
-		if (!hubEnabled || hubUrl.isBlank() || credential == null) {
+		if (!serverSet || credential == null) {
 			// Nothing to bridge into. Still publish what we found, so the picker can say why.
 			bridgesMutex.withLock {
 				bridges.values.forEach { it.destroy() }
@@ -330,7 +331,7 @@ class CastBridgeManager(
 				}
 
 				states[device.id] = CastBridgeState.CLAIMING
-				scope.launch { claimAfterJitter(device, hubUrl) }
+				scope.launch { claimAfterJitter(device) }
 			}
 		}
 
@@ -415,7 +416,7 @@ class CastBridgeManager(
 	 * second, whoever draws the shorter wait registers first and the other sees them in the
 	 * device list and stands down — no frames exchanged, nobody kicked.
 	 */
-	private suspend fun claimAfterJitter(device: DiscoveredCast, hubUrl: String) {
+	private suspend fun claimAfterJitter(device: DiscoveredCast) {
 		delay(Random.nextLong(CLAIM_JITTER_MAX_MS))
 		val hubId = "cast-${device.id}"
 		if (claimedElsewhere(hubId)) {
@@ -430,7 +431,7 @@ class CastBridgeManager(
 				friendlyName = device.name,
 				kind = device.kind,
 				host = device.host,
-				hubUrl = hubUrl,
+				hubAddress = { hubManager.activeAddress.value },
 				credential = { hubAuth.helloCredential() },
 				discovery = discovery,
 				ownerDeviceId = { castOwnerDeviceId(hubAuth.helloCredential(), hubManager.myDeviceId.value, myHubDeviceId()) },

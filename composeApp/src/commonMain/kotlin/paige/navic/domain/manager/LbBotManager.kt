@@ -166,6 +166,13 @@ class LbBotManager(
 	private fun hubBase(): String? = hubHttpBase(hubAuth)
 
 	/**
+	 * Worbus P3: no base. With a server set, that is "no address has answered as it yet" (a cold start
+	 * before the first probe, or away with none answering): unreachable, never "lb-bot isn't set up".
+	 */
+	private fun noRoute(): LbError =
+		if (hubAuth.serverSet) LbError.Unreachable("no address answered as this Worbus Server") else LbError.NotConfigured
+
+	/**
 	 * Whether lb-bot is reachable through anything at all — a hub is set, enabled and has a
 	 * token, and has not said its own lb-bot proxy is off ([hubProxyOff]). A preference read plus
 	 * the last thing the hub said, never a probe. The artist page gates its lb-bot index mirror on
@@ -174,14 +181,14 @@ class LbBotManager(
 	 * be the "renders something without lb-bot" the §7 rule forbids.
 	 */
 	val isConfigured: Boolean
-		get() = lbLayerOpen(hubBase() != null && !hubProxyOff, _lbAccess.value)
+		get() = lbLayerOpen(hubAuth.serverSet && !hubProxyOff, _lbAccess.value)
 
 	/**
 	 * The first half of [isConfigured] on its own: a hub is set, enabled and has a token. For
 	 * the one surface that has to say WHICH half is missing (the "lb-bot data" panel).
 	 */
 	val hubSet: Boolean
-		get() = hubBase() != null
+		get() = hubAuth.serverSet
 
 	/**
 	 * The hub has said its lb-bot proxy is switched OFF — `/lb/status` answering
@@ -613,7 +620,7 @@ class LbBotManager(
 		params: List<Pair<String, String>>,
 		timeoutMs: Long? = null
 	): LbResult<T> {
-		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		val base = hubBase() ?: return LbResult.Failed(noRoute())
 		return try {
 			val response = client.get(base + path) {
 				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
@@ -641,7 +648,7 @@ class LbBotManager(
 		body: B,
 		failure: (status: Int, path: String, raw: String) -> LbResult.Failed = ::failureFor
 	): LbResult<T> {
-		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		val base = hubBase() ?: return LbResult.Failed(noRoute())
 		return try {
 			val response = client.post(base + path) {
 				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
@@ -672,7 +679,7 @@ class LbBotManager(
 		params: List<Pair<String, String>>,
 		failure: (status: Int, path: String, raw: String) -> LbResult.Failed = ::failureFor
 	): LbResult<String> {
-		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		val base = hubBase() ?: return LbResult.Failed(noRoute())
 		return try {
 			val response = client.get(base + path) {
 				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
@@ -712,7 +719,7 @@ class LbBotManager(
 		params: List<Pair<String, String>>,
 		timeoutMs: Long? = null
 	): LbResult<LbRaw> {
-		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		val base = hubBase() ?: return LbResult.Failed(noRoute())
 		return try {
 			val response = client.get(base + path) {
 				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
@@ -733,7 +740,7 @@ class LbBotManager(
 
 	/** [rawGet] for a POST. */
 	private suspend inline fun <reified B> rawPost(path: String, body: B): LbResult<LbRaw> {
-		val base = hubBase() ?: return LbResult.Failed(LbError.NotConfigured)
+		val base = hubBase() ?: return LbResult.Failed(noRoute())
 		return try {
 			val response = client.post(base + path) {
 				header("Authorization", "Bearer ${hubAuth.bearer().orEmpty()}")
