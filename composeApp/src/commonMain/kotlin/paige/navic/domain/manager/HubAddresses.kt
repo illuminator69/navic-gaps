@@ -20,6 +20,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
+import paige.navic.di.synchronized
 import paige.navic.util.Logger
 
 /*
@@ -36,8 +37,8 @@ import paige.navic.util.Logger
  * and `https://` becomes `wss://`; trailing `/` are stripped, then a trailing `/connect`, then
  * trailing `/` again (the controller's ruling: `…/connect/` is the socket's path too, and kept, its
  * `/connect/hub/info` would get the socket's 426 and read a P3 hub as older for good). The path is
- * kept. Scheme and host are lower-cased. Null for a blank address, one with no host, whitespace
- * inside, or any other scheme.
+ * kept; a `?query`, a `#fragment` and `user:pass@` are dropped. Scheme and host are lower-cased.
+ * Null for a blank address, one with no host, whitespace inside, or any other scheme.
  */
 fun normaliseHubAddress(raw: String): String? {
 	val text = raw.trim()
@@ -49,9 +50,13 @@ fun normaliseHubAddress(raw: String): String? {
 		"wss", "https" -> "wss"
 		else -> return null
 	}
-	val slash = rest.indexOf('/')
-	val authority = (if (slash < 0) rest else rest.substring(0, slash)).lowercase()
-	val path = if (slash < 0) "" else rest.substring(slash)
+	// Review M1: a `?query` or `#fragment` is dropped (it would end up inside `<base>/hub/info`), and
+	// `user:pass@` is stripped, so no password is ever kept in the record or written to a log line.
+	val cut = rest.indexOfFirst { it == '?' || it == '#' }
+	val bare = if (cut < 0) rest else rest.substring(0, cut)
+	val slash = bare.indexOf('/')
+	val authority = (if (slash < 0) bare else bare.substring(0, slash)).lowercase().substringAfterLast('@')
+	val path = if (slash < 0) "" else bare.substring(slash)
 	if (hostOfAuthority(authority).isNullOrEmpty()) return null
 	val trimmedPath = path.trimEnd('/').removeSuffix("/connect").trimEnd('/')
 	return "$wsScheme://$authority$trimmedPath"
@@ -293,28 +298,122 @@ fun isServerId(text: String): Boolean = text.length == 32 && text.all { it in '0
 /**
  * The record as stored ([PreferenceManager.hubServerRecord]) kept in step with the legacy key: read
  * once and migrated from `hubUrl` when nothing is stored; a `hubUrl` the record does not hold (set by
- * a rolled-back build) joins it as typed. `hubUrl` itself is never written here.
+ * a rolled-back build) joins it as typed, or, when the record already knows its server, starts it
+ * over (review M9: the person's latest choice wins; the rolled-back build has already said hello
+ * there). `hubUrl` itself is written only inside [update] and [startOver], under the same lock.
+ *
+ * One per [PreferenceManager] ([PreferenceManager.serverRecordStore], review M5); every
+ * read-modify-write holds one process-wide lock, so a welcome, a quiet look and an edit on the
+ * Server screen cannot lose one another's change. [onServerChange] hears every server change: the
+ * record's id cleared or replaced, or a record started over for a new server ([startOver]).
  */
 class HubServerRecordStore(private val preferenceManager: PreferenceManager) {
+	/** The last record read, with the two stored strings it was read from (review M14: no parse per read). */
+	@kotlin.concurrent.Volatile
+	private var cached: Triple<String, String, HubServerRecord>? = null
+
+	/** A server change that happened before anyone listened; handed to the first listener. */
+	@kotlin.concurrent.Volatile
+	private var pendingChange: Pair<HubServerRecord, HubServerRecord>? = null
+
+	/**
+	 * Controller ruling C1: called (outside the lock) with the record before and after, whenever the
+	 * server this device may hold a credential for is no longer the record's. Set by [HubConnector.wire].
+	 */
+	@kotlin.concurrent.Volatile
+	var onServerChange: ((from: HubServerRecord, to: HubServerRecord) -> Unit)? = null
+		set(value) {
+			field = value
+			val pending = pendingChange
+			if (value != null && pending != null) {
+				pendingChange = null
+				value(pending.first, pending.second)
+			}
+		}
+
 	fun read(): HubServerRecord {
-		val stored = HubServerRecord.fromJson(preferenceManager.hubServerRecord)
-		val record = stored ?: HubServerRecord.migrateFrom(preferenceManager.hubUrl)
-		val legacy = preferenceManager.hubUrl
-		val synced = if (stored != null && legacy.isNotBlank() && record.find(legacy) == null) {
-			record.withAddress(legacy, HubAddress.Source.Typed)
-		} else record
-		if (stored == null || synced != stored) write(synced)
-		return synced
+		var change: Pair<HubServerRecord, HubServerRecord>? = null
+		val record = synchronized(LOCK) {
+			val (current, synced) = currentLocked()
+			change = synced
+			current
+		}
+		change?.let { notify(it) }
+		return record
 	}
 
 	fun write(record: HubServerRecord) {
-		preferenceManager.hubServerRecord = record.toJson()
+		val changes = synchronized(LOCK) {
+			val (current, synced) = currentLocked()
+			listOfNotNull(synced, writeLocked(current, record))
+		}
+		changes.forEach { notify(it) }
 	}
 
+	/** Read, change and write as one step. [change] may also write `hubUrl`: it runs under the lock. */
 	fun update(change: (HubServerRecord) -> HubServerRecord): HubServerRecord {
-		val next = change(read())
-		write(next)
-		return next
+		var next: HubServerRecord? = null
+		val changes = synchronized(LOCK) {
+			val (current, synced) = currentLocked()
+			val changed = change(current)
+			next = changed
+			listOfNotNull(synced, writeLocked(current, changed))
+		}
+		changes.forEach { notify(it) }
+		return next!!
+	}
+
+	/**
+	 * A new server (a tapped found one, "Type an address" while none is set): [record] replaces the
+	 * stored one and `hubUrl` becomes [hubUrl], as one step. Always a server change (C1), whatever the
+	 * old record held: the device's secret was issued by whatever server came before.
+	 */
+	fun startOver(record: HubServerRecord, hubUrl: String) {
+		val changes = synchronized(LOCK) {
+			val (current, synced) = currentLocked()
+			preferenceManager.hubUrl = hubUrl
+			writeLocked(current, record)
+			listOfNotNull(synced, current to record)
+		}
+		changes.forEach { notify(it) }
+	}
+
+	/** The stored record, migrated or synced and written back if needed; the change that made, if any. */
+	private fun currentLocked(): Pair<HubServerRecord, Pair<HubServerRecord, HubServerRecord>?> {
+		val text = preferenceManager.hubServerRecord
+		val legacy = preferenceManager.hubUrl
+		cached?.let { (t, l, r) -> if (t == text && l == legacy) return r to null }
+		val stored = HubServerRecord.fromJson(text)
+		val synced = when {
+			stored == null -> HubServerRecord.migrateFrom(legacy)
+			legacy.isBlank() || normaliseHubAddress(legacy) == null || stored.find(legacy) != null -> stored
+			stored.serverId != null -> HubServerRecord(promptDismissed = stored.promptDismissed).withAddress(legacy, HubAddress.Source.Typed)
+			else -> stored.withAddress(legacy, HubAddress.Source.Typed)
+		}
+		var change: Pair<HubServerRecord, HubServerRecord>? = null
+		if (stored == null || synced != stored) change = writeLocked(stored, synced)
+		else cached = Triple(text, legacy, synced)
+		return synced to change
+	}
+
+	/** Write [next]; the server change it is ([before]'s id cleared or replaced), if any. */
+	private fun writeLocked(before: HubServerRecord?, next: HubServerRecord): Pair<HubServerRecord, HubServerRecord>? {
+		val text = next.toJson()
+		preferenceManager.hubServerRecord = text
+		// The next read parses it once and checks it against `hubUrl` again.
+		cached = null
+		val was = before?.serverId ?: return null
+		return if (next.serverId != was) before to next else null
+	}
+
+	private fun notify(change: Pair<HubServerRecord, HubServerRecord>) {
+		val listener = onServerChange
+		if (listener == null) pendingChange = change else listener(change.first, change.second)
+	}
+
+	private companion object {
+		/** One for every store of the process (tests make their own stores over one preference set). */
+		val LOCK = Any()
 	}
 }
 
@@ -328,8 +427,14 @@ sealed interface InfoOutcome {
 	/** A Worbus Server, but not the one the record holds ([judgedAgainst]). */
 	data class OtherServer(val serverId: String) : InfoOutcome
 
-	/** 426 (a project 2 hub's handshake answer) or 404 (a proxy that passes only upgrades). */
+	/** 426: a project 2 hub's handshake answer (the only answer the finder offers as an older server). */
 	data object Older : InfoOutcome
+
+	/**
+	 * 404: a proxy that passes only upgrades, or any HTTP server on that port (review M4). The connect
+	 * rule treats it as [Older]; the finder never offers it.
+	 */
+	data object NoInfo : InfoOutcome
 
 	/** Any other answer. */
 	data object NotWorbus : InfoOutcome
@@ -357,7 +462,8 @@ private val infoJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 /** An answer read: the status and the body. A Worbus answer is a Match whatever its id ([judgedAgainst]). */
 fun infoOutcomeOf(status: Int, body: String): InfoOutcome {
-	if (status == 426 || status == 404) return InfoOutcome.Older
+	if (status == 426) return InfoOutcome.Older
+	if (status == 404) return InfoOutcome.NoInfo
 	if (status != 200) return InfoOutcome.NotWorbus
 	val obj = try {
 		infoJson.parseToJsonElement(body).jsonObject
@@ -376,14 +482,19 @@ fun InfoOutcome.judgedAgainst(record: HubServerRecord): InfoOutcome = when {
 	else -> this
 }
 
-/** The app's probe: one GET, no header but the user agent, no query, no body; a bearer never. */
-class KtorHubInfoProbe(
-	private val client: HttpClient = HttpClient {
+/** The probes' one client (review M14: not one per probe), made on first use. */
+private val sharedProbeClient: HttpClient by lazy {
+	HttpClient {
 		install(UserAgent) { agent = "Navic" }
 		install(HttpTimeout)
 		expectSuccess = false
 		followRedirects = false
 	}
+}
+
+/** The app's probe: one GET, no header but the user agent, no query, no body; a bearer never. */
+class KtorHubInfoProbe(
+	private val client: HttpClient = sharedProbeClient
 ) : HubInfoProbe {
 	override suspend fun probe(base: String, timeoutMs: Long): InfoOutcome {
 		val url = hubInfoUrl(base) ?: return InfoOutcome.NotWorbus
@@ -418,21 +529,29 @@ sealed interface DialVerdict {
 /**
  * The rule every connect applies to each address in [HubServerRecord.connectOrder] (design §6.3):
  * - a Match passes while the record holds no id or this same id; another id is skipped, never removed;
- * - Older (426, 404) while the record holds no id: a typed or found address is dialled as before
- *   (failover starts only once the server has said who it is);
- * - Older once the id is known (a hub rolled back, a proxy that passes only upgrades): a typed or
- *   found address that last passed with this id is dialled without the check; a learned one never;
- * - NotWorbus and Unreachable are skipped.
+ * - Older or NoInfo (426, 404) while the record holds no id: a typed or found address is dialled as
+ *   before (failover starts only once the server has said who it is);
+ * - Older or NoInfo once the id is known (a hub rolled back, a proxy that passes only upgrades): a
+ *   typed or found address that last passed with this id is dialled without the check; a learned
+ *   one never;
+ * - NotWorbus (any other answer) while the record holds no id: a TYPED address is dialled as before
+ *   P3 (review I3, the controller's parity rule 6: a project 2 hub behind a proxy that answers
+ *   unknown paths with a page, a 403 or a 502); a found or learned one never, and never once an id
+ *   is known;
+ * - Unreachable is skipped.
  */
 fun HubServerRecord.dialVerdict(address: HubAddress, outcome: InfoOutcome): DialVerdict =
 	when (val judged = outcome.judgedAgainst(this)) {
 		is InfoOutcome.Match -> DialVerdict.Dial(checked = true)
-		InfoOutcome.Older -> when {
+		InfoOutcome.Older, InfoOutcome.NoInfo -> when {
 			address.source == HubAddress.Source.Learned -> DialVerdict.Skip(judged)
 			serverId == null -> DialVerdict.Dial(checked = false)
 			address.lastOkAt != null -> DialVerdict.Dial(checked = false)
 			else -> DialVerdict.Skip(judged)
 		}
+		InfoOutcome.NotWorbus ->
+			if (serverId == null && address.source == HubAddress.Source.Typed) DialVerdict.Dial(checked = false)
+			else DialVerdict.Skip(judged)
 		else -> DialVerdict.Skip(judged)
 	}
 
@@ -477,7 +596,7 @@ fun serverKey(record: HubServerRecord, address: String): String =
 
 /** [serverKey] for the stored record and the typed address (`hubUrl`, trimmed, as before P3). */
 fun perServerKey(preferenceManager: PreferenceManager): String =
-	serverKey(HubServerRecordStore(preferenceManager).read(), preferenceManager.hubUrl.trim())
+	serverKey(preferenceManager.serverRecordStore.read(), preferenceManager.hubUrl.trim())
 
 /**
  * The first `welcome` carrying the server's id (design §6.5): every value kept under one of

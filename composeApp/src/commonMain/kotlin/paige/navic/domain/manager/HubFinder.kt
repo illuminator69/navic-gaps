@@ -32,10 +32,13 @@ sealed interface Found {
 	/** A Worbus Server, by its id, at every candidate it answered (normalised). */
 	data class Server(val serverId: String, val name: String, val addresses: List<String>) : Found
 
-	/** An older Worbus Server (426) at Navidrome's host, port 4790; offered by address. */
+	/** An older Worbus Server (426) at Navidrome's host, port 4790, on a private host; offered by address. */
 	data class OlderAt(val address: String) : Found
 
-	/** A Worbus Server answering plain `http://` on a public host: not offered (design §6.3). */
+	/**
+	 * A Worbus Server (or an older one, review I1) answering plain `http://` on a public host: not
+	 * offered (design §6.3), so no tap sends the Navidrome token pair over the internet in plain text.
+	 */
 	data class NotEncrypted(val address: String) : Found
 }
 
@@ -49,6 +52,13 @@ sealed interface FinderState {
 	data object NeedsPermission : FinderState
 	data object NotOnWifi : FinderState
 }
+
+/**
+ * Design §6.4's "no server set": no address is typed or tapped (`hubUrl` blank), whatever the Connect
+ * switch says (review M2: a typed address with Connect off is a set server, and the automatic look
+ * would otherwise offer the sheet, whose Sign in starts the record over).
+ */
+fun hubAddressSet(preferenceManager: PreferenceManager): Boolean = preferenceManager.hubUrl.isNotBlank()
 
 /** The port every candidate is asked on. */
 const val HUB_PORT = 4790
@@ -82,9 +92,10 @@ fun sweepTargets(ownIpv4: String): List<String> {
 
 /**
  * Group what the candidates answered (design §6.4): one result per server id, with every address it
- * answered at; an older server only from the FIRST candidate (Navidrome's host), and only when
- * [olderCounts]; a Worbus answer over plain text on a public host is [Found.NotEncrypted], never a
- * server. Sweep results never carry the last two ([olderCounts] false, and every sweep host is private).
+ * answered at; an older server (a 426, never a 404: review M4) only from the FIRST candidate
+ * (Navidrome's host), and only when [olderCounts]; a Worbus or older answer over plain text on a
+ * public host is [Found.NotEncrypted], never offered (review I1). Sweep results never carry the last
+ * two ([olderCounts] false, and every sweep host is private).
  */
 fun groupFound(answers: List<Pair<String, InfoOutcome>>, olderCounts: Boolean): List<Found> {
 	val servers = linkedMapOf<String, Found.Server>()
@@ -101,7 +112,10 @@ fun groupFound(answers: List<Pair<String, InfoOutcome>>, olderCounts: Boolean): 
 						?: Found.Server(outcome.serverId, outcome.name, listOf(address))
 				}
 			}
-			InfoOutcome.Older -> if (olderCounts && i == 0) others += Found.OlderAt(address)
+			InfoOutcome.Older -> if (olderCounts && i == 0) {
+				others += if (!address.startsWith("wss://") && !isPrivateHubAddress(address)) Found.NotEncrypted(address)
+				else Found.OlderAt(address)
+			}
 			else -> Unit
 		}
 	}
@@ -138,9 +152,12 @@ class HubFinder(
 	private val localSubnet: LocalSubnet,
 	private val localNetworkGranted: () -> Boolean,
 	private val navidromeUrl: () -> String,
+	/** "An address is typed or tapped" (design §6.4: no server set means a blank address, review M2). */
 	private val serverSet: () -> Boolean,
 	private val store: HubServerRecordStore,
 	private val limits: SweepLimits = SweepLimits(),
+	/** A home address was kept: a reconnect that is waiting may go now (review M10). */
+	private val onAddressAdded: () -> Unit = {},
 	private val log: (String) -> Unit = { Logger.i("HubFinder", it) }
 ) {
 	/** The app's: wired to the session, the hub and the platform. Its quiet look runs before each reconnect. */
@@ -155,8 +172,9 @@ class HubFinder(
 		localSubnet = localSubnet,
 		localNetworkGranted = { localNetwork.granted() },
 		navidromeUrl = { sessionManager.instanceUrl() },
-		serverSet = { hubManager.isServerSet() },
-		store = hubManager.serverRecordStore
+		serverSet = { hubAddressSet(preferenceManager) },
+		store = hubManager.serverRecordStore,
+		onAddressAdded = { hubManager.kickReconnect("home address found") }
 	) {
 		hubManager.beforeReconnect = { lookForHomeQuietly() }
 	}
@@ -235,7 +253,10 @@ class HubFinder(
 	suspend fun findHomeAddress(serverId: String): String? {
 		val mine = sweep().filterIsInstance<Found.Server>().firstOrNull { it.serverId == serverId }
 		val address = mine?.addresses?.firstOrNull()
-		if (address != null) store.update { it.withAddress(address, HubAddress.Source.Found) }
+		if (address != null) {
+			store.update { it.withAddress(address, HubAddress.Source.Found) }
+			onAddressAdded()
+		}
 		if (mine == null && _state.value is FinderState.Results) _state.value = FinderState.NothingOnNetwork
 		return address
 	}
@@ -251,18 +272,28 @@ class HubFinder(
 		return found
 	}
 
+	/** Where the last quiet look asked (own address, candidate, server id): asked once per network (review M12). */
+	@kotlin.concurrent.Volatile
+	private var quietLookedAt: String? = null
+
 	/**
 	 * Before a reconnect (design §6.4): a set server with an id and no home address, on Wi-Fi or Ethernet,
-	 * asks Navidrome's host on port 4790. The same id there is kept as found; nothing else is.
+	 * asks Navidrome's host on port 4790. The same id there is kept as found; nothing else is. Once per
+	 * network (this device's own address), not before every attempt: a Wi-Fi without the server would
+	 * otherwise add up to 1.5 s to each reconnect (review M12).
 	 */
 	suspend fun lookForHomeQuietly() {
 		if (!serverSet()) return
 		val record = store.read()
 		val id = record.serverId ?: return
 		if (record.hasPrivateAddress) return
-		if (localSubnet.ownPrivateIpv4() == null || !localNetworkGranted()) return
+		val own = localSubnet.ownPrivateIpv4() ?: return
+		if (!localNetworkGranted()) return
 		val candidate = candidatesFor(navidromeUrl()).firstOrNull()?.let { normaliseHubAddress(it) } ?: return
 		if (!isPrivateHubAddress(candidate)) return
+		val at = "$own|$candidate|$id"
+		if (quietLookedAt == at) return
+		quietLookedAt = at
 		val outcome = probe.probe(candidate, probeTimeoutMs(candidate))
 		if (outcome is InfoOutcome.Match && outcome.serverId == id) {
 			store.update { it.withAddress(candidate, HubAddress.Source.Found) }
@@ -286,6 +317,15 @@ class HubFinder(
 	fun stopLooking() {
 		job?.cancel()
 		if (_state.value == FinderState.Looking) _state.value = FinderState.Idle
+	}
+
+	/**
+	 * Review M3: what an earlier look said goes (a login's look beside Navidrome, an old sweep), so the
+	 * Find home address row never shows a sentence about a look it did not run. A look under way is
+	 * left alone. Called when the Server screen opens with a server set, and after a sign-in tap.
+	 */
+	fun forgetResults() {
+		if (_state.value != FinderState.Looking) _state.value = FinderState.Idle
 	}
 
 	private fun launchLook(block: suspend () -> Unit) {

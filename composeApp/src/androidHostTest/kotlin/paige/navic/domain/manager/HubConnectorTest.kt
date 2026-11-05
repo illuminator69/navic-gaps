@@ -185,7 +185,8 @@ class HubConnectorTest {
 		assertEquals("http://192.168.1.20:4790", hubHttpBase(auth))
 		first.hold.complete(Unit)
 		loop.await()
-		assertEquals("http://192.168.1.20:4790", auth.httpBase(), "the address that last passed, across a reconnect")
+		// Controller ruling C2: a probe that passed is not a socket; with none there is no route.
+		assertNull(auth.httpBase(), "no live socket: no bearer call anywhere")
 		// Home stops answering: the next socket is the public one, and HTTP follows it.
 		probe.answers[home] = InfoOutcome.Unreachable
 		val second = socket()
@@ -194,9 +195,228 @@ class HubConnectorTest {
 		assertEquals("https://hub.example.com", auth.httpBase())
 		second.hold.complete(Unit)
 		loop2.await()
-		// A record with no id yet (an older server, before the first welcome): the typed address, as before.
+		// A record with no id yet (an older server, before the first welcome): nothing without a socket either.
 		c.store.write(record(typed(home), id = null))
 		val fresh = HubConnector(prefs, probe, log = {}).also { it.wire(auth) }
-		assertEquals("ws://192.168.1.20:4790", fresh.route())
+		assertNull(fresh.route())
+	}
+
+	// ---- The fix round (lane N review C1, C2, I2, M8) ---------------------------------------- //
+
+	private class Post(val url: String, val bearer: String?)
+
+	private fun authRecording(posts: MutableList<Post>, reply: (String) -> HubAuthReply = { HubAuthReply.NoAnswer }) =
+		HubAuth(prefs, secrets, { NavidromeAccount("bob", "pw") }, { "phone" }, { url, _, bearer -> posts += Post(url, bearer); reply(url) }, log = {})
+
+	/** What HubManager's loop does: dial only with a credential, the hello carrying [HubAuth.helloCredential]. */
+	private suspend fun loopOnce(c: HubConnector, auth: HubAuth, hellos: MutableList<Pair<String, HelloCredential?>>) {
+		if (!auth.hasCredential) return
+		c.connectOnce { url, opened -> hellos += url to auth.helloCredential(); opened() }
+	}
+
+	private val y = "ws://192.168.1.30:4790"
+	private val secretOfA = "secret-of-a"
+
+	private fun assertNothingOfA(auth: HubAuth, hellos: List<Pair<String, HelloCredential?>>, posts: List<Post>) {
+		assertTrue(hellos.none { it.second == HelloCredential.DeviceSecret(secretOfA) }, "no hello carried A's secret: $hellos")
+		assertNull(auth.helloCredential(), "no hello credential is held")
+		assertNull(auth.bearer(), "no bearer")
+		assertNull(auth.httpBase(), "no HTTP base")
+		assertFalse(auth.signedIn, "not signed in: a sign-in is owed")
+		assertTrue(posts.none { it.bearer == secretOfA }, "no request carried A's secret")
+	}
+
+	@Test
+	fun no_secret_after_record_starts_over() = live {
+		val probe = FakeProbe(mutableMapOf(home to InfoOutcome.Match(idA, "W"), y to InfoOutcome.Match(idB, "Friend")))
+		val posts = mutableListOf<Post>()
+		val auth = authRecording(posts)
+		val c = connector(probe, record(typed(home, 10L)))
+		c.wire(auth)
+		secrets.hubDeviceSecret = secretOfA
+		assertEquals(secretOfA, auth.bearer())
+		// The review's route: remove every address (no server set), then Type an address for Y = B.
+		removeServerAddress(prefs, c.store, home)
+		assertEquals("", prefs.hubUrl)
+		typeNewServer(prefs, c.store, y)
+		val hellos = mutableListOf<Pair<String, HelloCredential?>>()
+		loopOnce(c, auth, hellos)
+		auth.finishSignOut(auth.beginSignOut(c.activeAddress.value))
+		assertNothingOfA(auth, hellos, posts)
+		assertEquals(emptyList(), posts.map { it.url }, "nothing sent at all: no sign-out to B")
+	}
+
+	@Test
+	fun no_secret_after_type_an_address_alone() = live {
+		// Type an address with the old id still held (a record left so by an older build): starting
+		// over is a server change by itself.
+		val probe = FakeProbe(mutableMapOf(y to InfoOutcome.Match(idB, "Friend")))
+		val posts = mutableListOf<Post>()
+		val auth = authRecording(posts)
+		val c = connector(probe, record(typed(home, 10L)))
+		c.wire(auth)
+		secrets.hubDeviceSecret = secretOfA
+		prefs.hubUrl = ""
+		typeNewServer(prefs, c.store, y)
+		val hellos = mutableListOf<Pair<String, HelloCredential?>>()
+		loopOnce(c, auth, hellos)
+		auth.finishSignOut(auth.beginSignOut(null))
+		assertNothingOfA(auth, hellos, posts)
+	}
+
+	@Test
+	fun no_secret_after_sign_in_to_found_server() = live {
+		val probe = FakeProbe(mutableMapOf(y to InfoOutcome.Match(idB, "Friend")))
+		val posts = mutableListOf<Post>()
+		// B's sign-in answers 429: the device stays without B's secret, and must not fall back to A's.
+		val auth = authRecording(posts) { url ->
+			if (url.endsWith(HubAuth.SIGNIN_PATH)) HubAuthReply.Answered(429, """{"code": "too_many_attempts"}""") else HubAuthReply.NoAnswer
+		}
+		val c = connector(probe, record(typed(home, 10L)))
+		c.wire(auth)
+		secrets.hubDeviceSecret = secretOfA
+		prefs.hubUrl = ""
+		var tapped = 0
+		signInToFound(prefs, c.store, Found.Server(idB, "Friend", listOf(y)), y) { tapped++ }
+		assertEquals(1, tapped)
+		assertEquals(SignInResult.TooManyAttempts, auth.signIn())
+		assertEquals(listOf("http://192.168.1.30:4790/hub/signin"), posts.map { it.url }, "the tapped server's sign-in only")
+		assertNull(posts.single().bearer, "a sign-in carries no credential")
+		val hellos = mutableListOf<Pair<String, HelloCredential?>>()
+		loopOnce(c, auth, hellos)
+		auth.finishSignOut(auth.beginSignOut(c.activeAddress.value))
+		assertNothingOfA(auth, hellos, posts)
+		assertEquals(1, posts.size, "no sign-out sent")
+	}
+
+	@Test
+	fun welcome_from_another_server_drops_the_secret() = live {
+		val probe = FakeProbe(mutableMapOf(home to InfoOutcome.Match(idA, "W")))
+		val auth = authRecording(mutableListOf())
+		val c = connector(probe, record(typed(home, 10L)))
+		var stopped = 0
+		c.afterServerChange = { stopped++ }
+		c.wire(auth)
+		secrets.hubDeviceSecret = secretOfA
+		c.onWelcomeServer(home, idA, "W", null)
+		assertEquals(secretOfA, auth.bearer(), "the same server: kept")
+		assertEquals(0, stopped)
+		c.onWelcomeServer(home, idB, "Friend", null)
+		assertNull(auth.bearer(), "another id: the secret goes, a sign-in is owed")
+		assertEquals(1, stopped, "HubManager stops the socket")
+	}
+
+	@Test
+	fun bearer_calls_need_live_socket() = live {
+		val probe = FakeProbe(mutableMapOf(home to InfoOutcome.Match(idA, "W")))
+		val c = connector(probe, record(typed(home)))
+		secrets.hubDeviceSecret = "device-secret"
+		val auth = authRecording(mutableListOf())
+		c.wire(auth)
+		val first = socket()
+		val loop = async(Dispatchers.Default) { c.connectOnce(first::dial) }
+		withTimeout(5_000) { first.opened.await() }
+		assertEquals("http://192.168.1.20:4790", auth.httpBase())
+		first.hold.complete(Unit)
+		loop.await()
+		assertNull(auth.httpBase(), "the socket closed: no base")
+		assertNull(hubHttpBase(auth))
+		// A sign-in probe that passed is not a socket either.
+		assertEquals(home, c.signInAddress())
+		assertNull(auth.httpBase(), "a passed probe gives no route")
+		// No id known (an older server): still nothing without a socket.
+		c.store.write(record(typed(home), id = null))
+		secrets.hubDeviceSecret = "device-secret"
+		assertNull(c.route())
+		assertNull(auth.httpBase())
+		// Before the wiring (a manager made ahead of HubManager): no socket exists, so no route.
+		assertNull(HubAuth(prefs, secrets, { null }, { "phone" }, { _, _, _ -> HubAuthReply.NoAnswer }, log = {}).httpBase())
+	}
+
+	@Test
+	fun signout_goes_only_to_an_admitted_address() = live {
+		val probe = FakeProbe(mutableMapOf(home to InfoOutcome.Match(idA, "W"), away to InfoOutcome.Match(idA, "W")))
+		val c = connector(probe, record(typed(home), learned(away)))
+		val posts = mutableListOf<Post>()
+		val auth = authRecording(posts) { HubAuthReply.Answered(200, "{}") }
+		c.wire(auth)
+		secrets.hubDeviceSecret = secretOfA
+		val first = socket().also { it.hold.complete(Unit) }
+		c.connectOnce(first::dial)
+		assertEquals(listOf(home), first.dials)
+		// The phone joins a friend's Wi-Fi, where the same private address is their server B.
+		probe.answers[home] = InfoOutcome.Match(idB, "Friend")
+		auth.finishSignOut(auth.beginSignOut(c.activeAddress.value))
+		assertEquals(listOf("https://hub.example.com/hub/signout"), posts.map { it.url }, "only the address that answers as A")
+		assertEquals(secretOfA, posts.single().bearer)
+		// With a socket up, the captured address is used and nothing is probed.
+		secrets.hubDeviceSecret = secretOfA
+		posts.clear()
+		probe.asked.clear()
+		auth.finishSignOut(auth.beginSignOut(home))
+		assertEquals(listOf("http://192.168.1.20:4790/hub/signout"), posts.map { it.url })
+		assertEquals(emptyList(), probe.asked)
+		// Nothing answers as A: nothing is sent.
+		secrets.hubDeviceSecret = secretOfA
+		posts.clear()
+		probe.answers[away] = InfoOutcome.Unreachable
+		auth.finishSignOut(auth.beginSignOut(null))
+		assertEquals(emptyList(), posts.map { it.url })
+	}
+
+	@Test
+	fun signin_with_no_socket_posts_only_to_admitted() = live {
+		val probe = FakeProbe(mutableMapOf(home to InfoOutcome.Match(idB, "Friend"), away to InfoOutcome.Match(idA, "W")))
+		val c = connector(probe, record(typed(home, 10L), learned(away)))
+		val posts = mutableListOf<Post>()
+		val auth = authRecording(posts) {
+			HubAuthReply.Answered(200, """{"deviceId": "d", "deviceSecret": "new-secret", "user": {"name": "bob", "admin": false, "primary": false}}""")
+		}
+		c.wire(auth)
+		assertTrue(auth.signIn() is SignInResult.SignedIn)
+		assertEquals(listOf("https://hub.example.com/hub/signin"), posts.map { it.url }, "the private address answers as B: skipped")
+	}
+
+	@Test
+	fun no_dial_when_not_set() = live {
+		val probe = FakeProbe(mutableMapOf(away to InfoOutcome.Match(idA, "W")))
+		prefs.hubUrl = ""
+		val c = connector(probe, record(learned(away, 5L)))
+		secrets.hubDeviceSecret = "device-secret"
+		val socket = socket().also { it.hold.complete(Unit) }
+		assertFalse(c.connectOnce(socket::dial), "no server set: nothing dialled")
+		assertEquals(emptyList(), socket.dials)
+		assertEquals(emptyList(), probe.asked, "not even probed")
+		// Connect off is not set either.
+		prefs.hubUrl = away
+		prefs.hubEnabled = false
+		assertFalse(c.connectOnce(socket::dial))
+		assertEquals(emptyList(), socket.dials)
+	}
+
+	@Test
+	fun pass_before_the_id_does_not_count_after_it() = live {
+		// Parity 5 (review M8): typed X passes with no id; a welcome on Y names A; X answering
+		// as an older server is then skipped: its pass was not as A.
+		val x = home
+		val probe = FakeProbe(mutableMapOf(x to InfoOutcome.Older))
+		val c = connector(probe, record(typed(x), typed(y), id = null))
+		val s1 = socket().also { it.hold.complete(Unit) }
+		assertTrue(c.connectOnce(s1::dial))
+		assertEquals(listOf(x), s1.dials)
+		assertEquals(1_000L, c.record().find(x)?.lastOkAt, "stamped with no id held")
+		probe.answers[x] = InfoOutcome.Unreachable
+		probe.answers[y] = InfoOutcome.Match(idA, "W")
+		val s2 = socket().also { it.hold.complete(Unit) }
+		clock = 2_000L
+		assertTrue(c.connectOnce(s2::dial))
+		assertEquals(listOf(y), s2.dials)
+		c.onWelcomeServer(y, idA, "W", null)
+		assertNull(c.record().find(x)?.lastOkAt, "X's pass was not as A")
+		probe.answers[x] = InfoOutcome.Older
+		probe.answers[y] = InfoOutcome.Unreachable
+		val s3 = socket().also { it.hold.complete(Unit) }
+		assertFalse(c.connectOnce(s3::dial))
+		assertEquals(emptyList(), s3.dials, "X is not dialled without the check")
 	}
 }

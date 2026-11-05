@@ -93,7 +93,11 @@ class HubServerKeyTest {
 		// The signature is the server's now; it moves once, then never with the address.
 		val idSig = signature()
 		assertNotEquals(sig, idSig)
-		prefs.hubUrl = away
+		// The typed address moves as the Server screen moves it: in the record and `hubUrl` in one step.
+		connector.store.update { record ->
+			prefs.hubUrl = away
+			record.withAddress(away, HubAddress.Source.Typed)
+		}
 		assertEquals(idSig, signature())
 	}
 

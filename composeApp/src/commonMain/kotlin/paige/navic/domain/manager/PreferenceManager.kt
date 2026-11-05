@@ -242,6 +242,8 @@ class PreferenceManager(
 	// address with its source. `hubUrl` above keeps holding the typed or tapped address only, so a
 	// rolled-back build still works; `HubServerRecordStore` keeps the two in step. "" until migrated.
 	var hubServerRecord by preference("")
+	/** Worbus P3 (review M5): the ONE store of [hubServerRecord] for this preference set. */
+	val serverRecordStore: HubServerRecordStore by lazy { HubServerRecordStore(this) }
 	// The legacy token and the Worbus P2 device secret are sealed in the secrets file (B-279) and
 	// read only through HubAuth (`HubBearerGuardTest`): no passthrough here any more.
 	var hubDeviceName by preference("Navic")

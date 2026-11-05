@@ -109,6 +109,8 @@ class HubAuthTest {
 
 	@Test
 	fun bearer_prefers_secret_then_token() {
+		// Worbus P3 (C2): HTTP goes to the live socket's address; one stands in here.
+		auth.routeAddress = { "ws://hub.lan:4790" }
 		assertNull(auth.bearer(), "neither held: no credential at all")
 		assertNull(auth.httpBase(), "and no Worbus Server layer")
 		auth.setLegacyToken("legacy-hub-token")
@@ -695,6 +697,8 @@ class HubAuthTest {
 
 	@Test
 	fun signed_in_device_without_token_has_the_hub_layer() {
+		// Worbus P3 (C2): HTTP goes to the live socket's address; one stands in here.
+		auth.routeAddress = { "ws://hub.lan:4790" }
 		transport.reply = granted(secret = "sek")
 		run { auth.signIn() }
 		assertFalse(auth.hasLegacyToken)

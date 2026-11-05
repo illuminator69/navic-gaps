@@ -25,9 +25,9 @@ import paige.navic.domain.manager.CastSpeaker
 import paige.navic.domain.manager.HelloCredential
 import paige.navic.domain.manager.HubAuth
 import paige.navic.domain.manager.HubManager
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.Logger
 import kotlin.random.Random
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 
 private const val TAG = "CastBridgeManager"
@@ -76,7 +76,6 @@ private const val DISCOVERY_GATE_MS = 5_000L
 class CastBridgeManager(
 	context: Context,
 	private val hubManager: HubManager,
-	private val preferenceManager: PreferenceManager,
 	/** Worbus P2: the credential each bridge's hello sends (the device's own; design §6.3). */
 	private val hubAuth: HubAuth
 ) : CastBridgeStatus {
@@ -432,6 +431,7 @@ class CastBridgeManager(
 				kind = device.kind,
 				host = device.host,
 				hubAddress = { hubManager.activeAddress.value },
+				awaitHubAddress = { hubManager.activeAddress.first { it != null } },
 				credential = { hubAuth.helloCredential() },
 				discovery = discovery,
 				ownerDeviceId = { castOwnerDeviceId(hubAuth.helloCredential(), hubManager.myDeviceId.value, myHubDeviceId()) },

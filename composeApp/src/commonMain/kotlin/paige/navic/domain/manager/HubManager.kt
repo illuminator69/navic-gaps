@@ -205,7 +205,10 @@ class HubManager(
 	 * Worbus P3 (design §6.3): which of the server's addresses the socket, the cast bridges and every
 	 * HTTP call go to. Wired into [HubAuth] here, so its routes are the connector's.
 	 */
-	private val connector = HubConnector(preferenceManager).also { it.wire(hubAuth) }
+	private val connector = HubConnector(preferenceManager).also {
+		it.afterServerChange = { onServerChanged() }
+		it.wire(hubAuth)
+	}
 
 	/** The base the live socket is on (normalised), null while there is none. */
 	val activeAddress: StateFlow<String?> = connector.activeAddress
@@ -220,7 +223,19 @@ class HubManager(
 	 * "Is a Worbus Server set here": the switch is on and an address is typed or tapped (today's
 	 * `hubConfigured`). A gate, never where to dial ([activeAddress]).
 	 */
-	fun isServerSet(): Boolean = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
+	fun isServerSet(): Boolean = connector.serverSet()
+
+	/**
+	 * Controller ruling C1: the server changed and [HubAuth] has dropped its secret. A socket on the old
+	 * server stops, and the loop starts over with no credential: it waits for a sign-in. Nothing while
+	 * no loop has been started (a change seen while this manager is being made).
+	 */
+	private fun onServerChanged() {
+		if (connectJob == null) return
+		Logger.i("HubManager", "the Worbus Server changed: the socket stops, a sign-in is owed")
+		stop()
+		restart()
+	}
 
 	/**
 	 * Worbus P3 (design §6.4): run before each connect attempt. [HubFinder] sets it to its quiet look for
@@ -401,8 +416,10 @@ class HubManager(
 	 */
 	fun signOutOfServer() {
 		val job = connectJob
+		// Worbus P3 (C2): the address the socket is on, taken before it stops; none: a probe at the end.
+		val active = connector.activeAddress.value
 		stop()
-		val pending = hubAuth.beginSignOut()
+		val pending = hubAuth.beginSignOut(active)
 		scope.launch {
 			job?.cancelAndJoin()
 			hubAuth.finishSignOut(pending)
@@ -419,7 +436,7 @@ class HubManager(
 	fun leaveForLogout() {
 		val job = connectJob
 		// Review M-1: the credentials are forgotten here, before anything is launched.
-		val pending = beginLeavingWorbusServer(stopSocket = { stop() }, auth = hubAuth)
+		val pending = beginLeavingWorbusServer(stopSocket = { stop() }, auth = hubAuth, activeAddress = connector.activeAddress.value)
 		updateRoles()
 		scope.launch {
 			finishLeavingWorbusServer(
@@ -1328,7 +1345,8 @@ class HubManager(
 	}
 
 	private suspend fun connectOnce() {
-		if (connector.record().connectOrder().isEmpty()) {
+		// Review I2: no server set (no address typed or tapped) dials nothing, whatever the record holds.
+		if (!isServerSet() || connector.record().connectOrder().isEmpty()) {
 			delay(10_000)
 			return
 		}
@@ -1861,13 +1879,18 @@ class HubManager(
 				hubAuth.noteWelcome()
 				// Worbus P3 (design §6.2, §6.5): which server this is and its public address. Before the
 				// device id and the lb advert below, which are kept per server. Never moves the socket.
-				try {
+				val serverChanged = try {
 					welcomeServerOf(msg["server"] as? JsonObject)?.let { server ->
-						connector.onWelcomeServer(connector.activeAddress.value, server.id, server.name, server.publicUrl)
-					}
+						val (before, _) = connector.onWelcomeServer(connector.activeAddress.value, server.id, server.name, server.publicUrl)
+						before.serverId != null && before.serverId != server.id
+					} ?: false
 				} catch (e: Exception) {
 					Logger.e("HubManager", "welcome.server ignored", e)
+					false
 				}
+				// C1: another server than the record's answered. The store has told HubAuth (its secret
+				// is gone) and the socket is being stopped: nothing below acts on this welcome.
+				if (serverChanged) return
 				_user.value = try {
 					hubUserOf(msg["user"] as? JsonObject)
 				} catch (e: Exception) {

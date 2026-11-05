@@ -449,7 +449,13 @@ class HubAuth(
 	/** The token field's current text, for its dialog. */
 	fun legacyTokenForEditing(): String = secrets.hubToken
 
-	/** Whether the server at the current address answered as one from before sign-in (R6). */
+	/**
+	 * Whether the server at the current address answered as one from before sign-in (R6). Worbus P3,
+	 * review M7, recorded and not changed: this verdict, R36's [p2WelcomeUrl] and R24's are kept under
+	 * the typed address (`hubUrl`), not under the address that answered (a found or learned one may
+	 * have). An older server has no id, and its record is in practice the one typed (or tapped) address,
+	 * so the two are the same; with several addresses the verdict may sit on the typed one.
+	 */
 	val oldServerSeen: Boolean
 		get() {
 			val url = preferenceManager.hubUrl.trim()
@@ -460,24 +466,25 @@ class HubAuth(
 	fun accountName(): String? = account()?.username?.takeIf { it.isNotBlank() }
 
 	/**
-	 * Worbus P3 (design §6.3): where the credential may go, set by [HubConnector.wire]: the live
-	 * socket's address, else the one that last passed, else (no server id known) the typed one. Null:
-	 * no address has answered as this server, so nothing carrying the credential is sent anywhere.
+	 * Worbus P3 (design §6.3, controller ruling C2): where the credential may go over HTTP, set by
+	 * [HubConnector.wire]: the live socket's address, and null while there is no socket (before the
+	 * wiring too: no socket exists yet). The callers then fail soft, as with no server answering.
 	 */
 	@kotlin.concurrent.Volatile
-	var routeAddress: () -> String? = { uncheckedRoute() }
+	var routeAddress: () -> String? = { null }
 
-	/** Worbus P3: where a sign-in posts the token pair, an address that passed a probe ([HubConnector.signInAddress]). */
+	/**
+	 * Worbus P3: where a sign-in posts the token pair, and where a sign-out with no captured socket
+	 * address goes: the live socket's address, else the first that passes a probe now
+	 * ([HubConnector.signInAddress]). Until the wiring (host tests that make a HubAuth alone; in the
+	 * app HubManager wires it before any sign-in can run) the typed address while the record holds
+	 * no server id, and nothing for a known server.
+	 */
 	@kotlin.concurrent.Volatile
 	var signInAddress: suspend () -> String? = { uncheckedRoute() }
 
-	/**
-	 * Until [HubConnector.wire] runs (a manager made before HubManager at start): the typed address only
-	 * while the record holds no server id, as before P3; nothing for a known server, whose credential
-	 * goes only where a probe has passed.
-	 */
 	private fun uncheckedRoute(): String? =
-		if (HubServerRecordStore(preferenceManager).read().serverId == null) normaliseHubAddress(preferenceManager.hubUrl) else null
+		if (preferenceManager.serverRecordStore.read().serverId == null) normaliseHubAddress(preferenceManager.hubUrl) else null
 
 	/**
 	 * Worbus P3: the gate "a Worbus Server is set up here": on, an address, a credential. Not where to
@@ -737,6 +744,27 @@ class HubAuth(
 		ok
 	}
 
+	/**
+	 * Worbus P3, controller ruling C1: the record's server id was cleared or replaced, or the record
+	 * started over for a new server ([HubServerRecordStore.onServerChange]). The held device secret
+	 * was issued by the old server: it is forgotten without telling anyone (a sign-out would hand it to
+	 * the new one; the old one forgets it at its sweep), and the signed-in state goes, so a sign-in is
+	 * owed. An answer still out from the old server is kept from landing ([signOutGeneration]). The
+	 * legacy token stays: R31/R35 send it only where this launch's sign-in answered as an older server.
+	 */
+	fun serverChanged() {
+		val held = secrets.hubDeviceSecret.isNotBlank()
+		signOutGeneration++
+		writeCredentials(secret = "")
+		lastSignIn = null
+		verdictUrl = null
+		tokenUpgradeDue = true
+		silentSignInSpent = false
+		p2WelcomeUrl = null
+		_state.value = HubAuthState.Idle
+		if (held) log("another Worbus Server: the device secret is forgotten, nothing sent; a sign-in is owed")
+	}
+
 	/** The server let this device in: a later `signed_out` earns its silent sign-in again. */
 	fun noteWelcome() {
 		silentSignInSpent = false
@@ -754,9 +782,10 @@ class HubAuth(
 	 * dial or fall back to either from this moment (a logout followed by another account's login
 	 * must not act as anyone). Returns what [finishSignOut] tells the server.
 	 */
-	fun beginSignOut(): PendingSignOut {
-		// Worbus P3: only to an address that answered as this server (none: the hub's sweep forgets it).
-		val pending = PendingSignOut(secrets.hubDeviceSecret, routeAddress()?.let { hubHttpBaseOf(it) })
+	fun beginSignOut(activeAddress: String? = null): PendingSignOut {
+		// Worbus P3 (C2): to the live socket's address, captured by the caller before it stopped the
+		// socket; with none, [finishSignOut] probes for an address that answers as this server.
+		val pending = PendingSignOut(secrets.hubDeviceSecret, activeAddress?.let { hubHttpBaseOf(it) })
 		signOutGeneration++
 		writeCredentials(secret = "", token = "")
 		lastSignIn = null
@@ -771,9 +800,15 @@ class HubAuth(
 	 * not there forgets the credential at its 7-day sweep, and nothing here depends on the answer.
 	 */
 	suspend fun finishSignOut(pending: PendingSignOut) {
-		if (pending.secret.isBlank() || pending.base == null) return
+		if (pending.secret.isBlank()) return
+		// No socket was up: the first address that answers as this server now (nothing when none does).
+		val base = pending.base ?: signInAddress()?.let { hubHttpBaseOf(it) }
+		if (base == null) {
+			log("sign-out not sent: no address answered as this Worbus Server")
+			return
+		}
 		val reply = try {
-			transport.post("${pending.base}$SIGNOUT_PATH", null, bearer = pending.secret)
+			transport.post("$base$SIGNOUT_PATH", null, bearer = pending.secret)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
@@ -829,9 +864,9 @@ class PendingSignOut internal constructor(internal val secret: String, internal 
  * sign-in) and forget the credentials, before the caller launches anything. A process that dies right
  * after a logout then dials as nobody at its next start.
  */
-fun beginLeavingWorbusServer(stopSocket: () -> Unit, auth: HubAuth): PendingSignOut {
+fun beginLeavingWorbusServer(stopSocket: () -> Unit, auth: HubAuth, activeAddress: String? = null): PendingSignOut {
 	stopSocket()
-	return auth.beginSignOut()
+	return auth.beginSignOut(activeAddress)
 }
 
 /**

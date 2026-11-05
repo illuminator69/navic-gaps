@@ -231,6 +231,9 @@ fun ServerScreen() {
 	// Design §6.4: the Server screen looks beside Navidrome each time it opens while no server is set.
 	LaunchedEffect(Unit) {
 		if (preferenceManager.hubUrl.isBlank()) finder.startAutoLook()
+		// Review M3: with a server set, what an earlier look said (a login's, an old sweep) is not shown
+		// under Find home address as if it had just looked.
+		else finder.forgetResults()
 	}
 	val findHome = !notSet && record.serverId != null && !record.hasPrivateAddress
 	val serverRows = worbusServerRows(signedIn, accountName, findHome).let { rows ->
@@ -239,11 +242,15 @@ fun ServerScreen() {
 	}
 	val lookRows = if (notSet) notSetRows(finderState) else emptyList()
 	val route = if (status is ServerStatus.SignedIn || status == ServerStatus.Connected) routeNote(active) else null
+	// The sentence and its route suffix change together (review M14): a cross-fade never shows the new
+	// route on the old sentence.
+	val statusLine = status to route
 	val shownActive = active ?: record.connectOrder().firstOrNull()?.url ?: preferenceManager.hubUrl.ifBlank { null }
 	val signInToFoundServer: (Found, String) -> Unit = { found, tapped ->
 		// A tap on Sign in during a look stops it (design §7's RACES).
 		finder.stopLooking()
 		signInToFound(preferenceManager, hubManager.serverRecordStore, found, tapped) { hubManager.signInAndConnect() }
+		finder.forgetResults()
 		edits++
 	}
 	val advancedRows = advancedServerRows(oldServerSeen)
@@ -312,15 +319,15 @@ fun ServerScreen() {
 							// eased), one node for the screen's life.
 							val lineMotion = rememberFoldMotion()
 							AnimatedContent(
-								targetState = status,
+								targetState = statusLine,
 								transitionSpec = {
 									(fadeIn(lineMotion.effects()) togetherWith fadeOut(lineMotion.effects()))
 										.using(SizeTransform(clip = false) { _, _ -> lineMotion.spatial() })
 								},
 								label = "server status"
-							) { shown ->
+							) { (shown, shownRoute) ->
 								// Worbus P3: the route the socket takes, after the signed-in sentence.
-								val routeWords = route?.takeIf { shown is ServerStatus.SignedIn || shown == ServerStatus.Connected }
+								val routeWords = shownRoute?.takeIf { shown is ServerStatus.SignedIn || shown == ServerStatus.Connected }
 									?.let { routeLine(it) }.orEmpty()
 								Text(
 									stringResource(shown.line, *shown.args.toTypedArray()) + routeWords,
@@ -496,17 +503,22 @@ fun ServerScreen() {
 				removeServerAddress(preferenceManager, hubManager.serverRecordStore, url)
 				// With no address left there is no server set: the socket stops (restart reads the address).
 				if (preferenceManager.hubUrl.isBlank()) hubManager.restart()
+				// Review M10: a reconnect waiting out its backoff tries the list as it is now (refused
+				// while a socket is open).
+				else hubManager.kickReconnect("address removed")
 				edits++
 			},
 			onAwayFromHome = { on ->
 				setUseAwayFromHome(hubManager.serverRecordStore, on)
+				hubManager.kickReconnect("away-from-home address switched")
 				edits++
 			},
 			onAdd = { text ->
 				val wasBlank = preferenceManager.hubUrl.isBlank()
+				// With none set, Add is a new server (review M6, addTypedAddress).
 				val added = addTypedAddress(preferenceManager, hubManager.serverRecordStore, text)
 				if (added != null) {
-					if (wasBlank) hubManager.restart()
+					if (wasBlank) hubManager.restart() else hubManager.kickReconnect("address added")
 					edits++
 				}
 				added != null

@@ -57,6 +57,17 @@ class HubAddressesTest {
 		assertNull(normaliseHubAddress("ws://"))
 		assertNull(normaliseHubAddress("ws://:4790"))
 		assertNull(normaliseHubAddress("192.168.1.20 4790"))
+		// Review M1 (parity 7a): a query and a fragment are dropped, never carried into `/hub/info`.
+		assertEquals("ws://h:4790", normaliseHubAddress("ws://h:4790?x=1"))
+		assertEquals("ws://h:4790", normaliseHubAddress("ws://h:4790/connect?token=t#frag"))
+		assertEquals("wss://example.com/worbus", normaliseHubAddress("https://example.com/worbus/?a=b"))
+		assertEquals("ws://h:4790", normaliseHubAddress("h:4790#x"))
+		assertEquals("http://h:4790/hub/info", hubInfoUrl("ws://h:4790?x=1"))
+		// And `user:pass@` is stripped: no password is kept in the record or written to a log.
+		assertEquals("ws://h:4790", normaliseHubAddress("ws://user:pass@h:4790"))
+		assertEquals("wss://hub.example.com", normaliseHubAddress("https://u@Hub.Example.com/connect"))
+		assertNull(normaliseHubAddress("ws://user:pass@"))
+		assertNull(normaliseHubAddress("ws://?x=1"))
 		// Every derived URL appends to the base.
 		assertEquals("http://h:4790/hub/info", hubInfoUrl("ws://h:4790/connect/"))
 		assertEquals("https://example.com/worbus/hub/info", hubInfoUrl("wss://example.com/worbus"))
@@ -242,8 +253,21 @@ class HubAddressesTest {
 		// An older server with no id held: the typed address is used as before.
 		val older = HubServerRecord(addresses = listOf(typed("ws://192.168.1.20:4790")))
 		assertEquals(DialVerdict.Dial(checked = false), older.dialVerdict(older.addresses[0], InfoOutcome.Older))
-		// Not Worbus and unreachable are skipped.
-		assertEquals(DialVerdict.Skip(InfoOutcome.NotWorbus), older.dialVerdict(older.addresses[0], InfoOutcome.NotWorbus))
+		// A 404 (review M4) connects as an older server does.
+		assertEquals(DialVerdict.Dial(checked = false), older.dialVerdict(older.addresses[0], InfoOutcome.NoInfo))
+		assertEquals(DialVerdict.Dial(checked = false), record.dialVerdict(t, InfoOutcome.NoInfo))
+		assertEquals(DialVerdict.Skip(InfoOutcome.NoInfo), record.dialVerdict(l, InfoOutcome.NoInfo))
+		// Review I3 (parity 6): any other answer at a typed address with no id known is dialled as
+		// before P3 (a project 2 hub behind a proxy answering a page, a 403 or a 502)...
+		assertEquals(DialVerdict.Dial(checked = false), older.dialVerdict(older.addresses[0], InfoOutcome.NotWorbus))
+		// ...never at a found or learned one...
+		val foundOnly = HubServerRecord(addresses = listOf(found("ws://192.168.1.21:4790")))
+		assertEquals(DialVerdict.Skip(InfoOutcome.NotWorbus), foundOnly.dialVerdict(foundOnly.addresses[0], InfoOutcome.NotWorbus))
+		val learnedNoId = HubServerRecord(addresses = listOf(learned("wss://hub.example.com")))
+		assertEquals(DialVerdict.Skip(InfoOutcome.NotWorbus), learnedNoId.dialVerdict(learnedNoId.addresses[0], InfoOutcome.NotWorbus))
+		// ...and never once an id is known, even at a typed address that passed with it.
+		assertEquals(DialVerdict.Skip(InfoOutcome.NotWorbus), record.dialVerdict(t, InfoOutcome.NotWorbus))
+		// Unreachable is skipped.
 		assertEquals(DialVerdict.Skip(InfoOutcome.Unreachable), older.dialVerdict(older.addresses[0], InfoOutcome.Unreachable))
 	}
 
@@ -251,7 +275,7 @@ class HubAddressesTest {
 	fun info_answers_read_as_the_constraints_say() {
 		assertEquals(InfoOutcome.Match(idA, "Worbus Server"), infoOutcomeOf(200, """{"service":"worbus","serverId":"$idA","name":"Worbus Server","signin":true}"""))
 		assertEquals(InfoOutcome.Older, infoOutcomeOf(426, "Upgrade Required"))
-		assertEquals(InfoOutcome.Older, infoOutcomeOf(404, ""))
+		assertEquals(InfoOutcome.NoInfo, infoOutcomeOf(404, ""), "a 404 is any HTTP server on that port (review M4)")
 		assertEquals(InfoOutcome.NotWorbus, infoOutcomeOf(405, """{"error":"method not allowed"}"""))
 		assertEquals(InfoOutcome.NotWorbus, infoOutcomeOf(200, "<html></html>"))
 		assertEquals(InfoOutcome.NotWorbus, infoOutcomeOf(200, """{"service":"other","serverId":"$idA"}"""))
@@ -293,5 +317,60 @@ class HubAddressesTest {
 		for (s in listOf(secret, password, salt, token, "legacy-token-value", "bob")) {
 			assertFalse(s in stored, "the record holds no ${s.take(4)}…")
 		}
+	}
+
+	@Test
+	fun store_reports_every_server_change() {
+		val settings = MemorySettings()
+		val prefs = PreferenceManager(settings, testSecrets(settings)).apply { hubUrl = "ws://192.168.1.20:4790" }
+		val store = prefs.serverRecordStore
+		assertTrue(store === prefs.serverRecordStore, "one store per preference set (review M5)")
+		val heard = mutableListOf<Pair<String?, String?>>()
+		store.write(HubServerRecord(serverId = idA, addresses = listOf(typed("ws://192.168.1.20:4790"))))
+		// Heard by the first listener, even when it changed before anyone listened.
+		store.write(HubServerRecord(serverId = idB, addresses = listOf(typed("ws://192.168.1.20:4790"))))
+		store.onServerChange = { from, to -> heard += from.serverId to to.serverId }
+		assertEquals(listOf<Pair<String?, String?>>(idA to idB), heard, "a pending change is handed over")
+		// The first id is not a change; the same id is not; a cleared one is.
+		heard.clear()
+		store.update { it.applyWelcomeServer(idB, "W", null) }
+		store.update { it.copy(serverId = null) }
+		assertEquals(listOf<Pair<String?, String?>>(idB to null), heard)
+		store.update { it.copy(serverId = idA) }
+		assertEquals(1, heard.size, "an id where none was held is the first welcome, not a change")
+		// Starting over for a new server always is, with `hubUrl` written in the same step.
+		heard.clear()
+		store.startOver(HubServerRecord().withAddress("ws://192.168.1.9:4790", HubAddress.Source.Typed), hubUrl = "ws://192.168.1.9:4790")
+		assertEquals(listOf<Pair<String?, String?>>(idA to null), heard)
+		assertEquals("ws://192.168.1.9:4790", prefs.hubUrl)
+		store.startOver(HubServerRecord().withAddress("ws://192.168.1.8:4790", HubAddress.Source.Typed), hubUrl = "ws://192.168.1.8:4790")
+		assertEquals(2, heard.size, "a new server even when no id was held")
+	}
+
+	@Test
+	fun rollback_then_upgrade_follows_the_latest_typed_address() {
+		// Review M9: a rolled-back build typed Z (another server) while the record knew server A at X.
+		val settings = MemorySettings()
+		val prefs = PreferenceManager(settings, testSecrets(settings)).apply { hubUrl = "ws://192.168.1.20:4790" }
+		val store = prefs.serverRecordStore
+		store.write(
+			HubServerRecord(
+				serverId = idA,
+				addresses = listOf(typed("ws://192.168.1.20:4790", 5L), learned("wss://hub.example.com")),
+				promptDismissed = listOf(idB)
+			)
+		)
+		val heard = mutableListOf<Pair<String?, String?>>()
+		store.onServerChange = { from, to -> heard += from.serverId to to.serverId }
+		prefs.hubUrl = "192.168.1.30:4790"
+		val record = store.read()
+		assertEquals(null, record.serverId, "the record starts over with the latest choice")
+		assertEquals(listOf(typed("ws://192.168.1.30:4790")), record.addresses)
+		assertEquals(listOf(idB), record.promptDismissed, "Not now answers are kept")
+		assertEquals(listOf<Pair<String?, String?>>(idA to null), heard, "a server change (C1)")
+		// With no id held, the rolled-back build's address joins as typed, as before.
+		prefs.hubUrl = "192.168.1.31:4790"
+		assertEquals(2, store.read().addresses.size)
+		assertEquals(1, heard.size)
 	}
 }

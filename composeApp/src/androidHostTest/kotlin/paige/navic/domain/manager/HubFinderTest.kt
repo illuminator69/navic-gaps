@@ -41,14 +41,17 @@ class HubFinderTest {
 	private var ownIp: String? = "192.168.1.57"
 	private var set = false
 
-	private fun finder(probe: HubInfoProbe, limits: SweepLimits = SweepLimits()) = HubFinder(
+	private var added = 0
+
+	private fun finder(probe: HubInfoProbe, limits: SweepLimits = SweepLimits(), serverSet: () -> Boolean = { set }) = HubFinder(
 		probe = probe,
 		localSubnet = { ownIp },
 		localNetworkGranted = { granted },
 		navidromeUrl = { navidrome },
-		serverSet = { set },
+		serverSet = serverSet,
 		store = store,
 		limits = limits,
+		onAddressAdded = { added++ },
 		log = {}
 	)
 
@@ -110,6 +113,10 @@ class HubFinderTest {
 		navidrome = "http://192.168.1.20:4533"
 		val g = finder(FakeProbe { InfoOutcome.Older })
 		assertEquals(listOf<Found>(Found.OlderAt("ws://192.168.1.20:4790")), g.lookBeside())
+		// Review M4: a 404 there is any HTTP server on that port, not an older Worbus Server.
+		val notFound = finder(FakeProbe { InfoOutcome.NoInfo })
+		assertEquals(emptyList(), notFound.lookBeside())
+		assertEquals(FinderState.NothingBeside, notFound.state.value)
 		// The sweep never reports one.
 		val h = finder(FakeProbe { InfoOutcome.Older })
 		assertEquals(emptyList(), h.sweep())
@@ -127,6 +134,22 @@ class HubFinderTest {
 		f.autoLook(afterLogin = true)
 		assertNull(f.prompt.value)
 		assertNull(HubServerRecord().withAddress("ws://music.example.com:4790", HubAddress.Source.Found).find("ws://music.example.com:4790"))
+		// Review I1 (parity 3): a project 2 hub (426) port-forwarded at the public Navidrome host is
+		// not encrypted either: never "Use this address", never the sheet.
+		val older = finder(FakeProbe { base -> if (base == "ws://music.example.com:4790") InfoOutcome.Older else InfoOutcome.Unreachable })
+		val olderFound = older.lookBeside()
+		assertEquals(listOf<Found>(Found.NotEncrypted("ws://music.example.com:4790")), olderFound)
+		assertFalse(olderFound.any { it is Found.OlderAt })
+		assertNull(promptFor(olderFound, emptyList()))
+		assertEquals(listOf(NotSetRow.NotEncrypted("ws://music.example.com:4790"), NotSetRow.LookOnNetwork, NotSetRow.TypeAddress), notSetRows(older.state.value))
+		older.autoLook(afterLogin = true)
+		assertNull(older.prompt.value)
+		// And a tap on one (were it ever offered) leaves hubUrl blank.
+		signInToFound(prefs, store, Found.OlderAt("ws://music.example.com:4790"), "ws://music.example.com:4790") { error("no sign-in") }
+		assertEquals("", prefs.hubUrl)
+		// A private host keeps its Use this address.
+		navidrome = "http://192.168.1.20:4533"
+		assertEquals(listOf<Found>(Found.OlderAt("ws://192.168.1.20:4790")), finder(FakeProbe { InfoOutcome.Older }).lookBeside())
 	}
 
 	@Test
@@ -192,6 +215,50 @@ class HubFinderTest {
 		probe.asked.clear()
 		assertEquals(emptyList(), f.autoLook(afterLogin = true))
 		assertEquals(emptyList(), probe.asked)
+		// Review M2: the app's gate is a typed or tapped address, whatever Connect says (Navic's
+		// default is Connect off): a typed address with Connect off is a set server, no look.
+		prefs.hubEnabled = false
+		prefs.hubUrl = "ws://192.168.1.20:4790"
+		val app = finder(probe, serverSet = { hubAddressSet(prefs) })
+		assertEquals(emptyList(), app.autoLook(afterLogin = true))
+		assertEquals(emptyList(), probe.asked)
+		assertNull(app.prompt.value)
+		prefs.hubUrl = ""
+		app.autoLook(afterLogin = true)
+		assertEquals(listOf("ws://192.168.1.20:4790"), probe.asked, "blank: looks")
+		val source = java.io.File("src/commonMain/kotlin/paige/navic/domain/manager/HubFinder.kt").readText()
+		assertTrue("serverSet = { hubAddressSet(preferenceManager) }" in source, "the app's finder gates on the address alone")
+	}
+
+	@Test
+	fun quiet_look_once_per_network() = runBlocking<Unit> {
+		// Review M12: a Wi-Fi without the server is asked once, not before every reconnect.
+		store.write(HubServerRecord(serverId = idA, addresses = listOf(HubAddress("wss://hub.example.com", HubAddress.Source.Typed, 1L))))
+		set = true
+		val probe = FakeProbe { InfoOutcome.Unreachable }
+		val f = finder(probe)
+		f.lookForHomeQuietly()
+		f.lookForHomeQuietly()
+		f.lookForHomeQuietly()
+		assertEquals(listOf("ws://192.168.1.20:4790"), probe.asked, "once on this network")
+		ownIp = "192.168.7.3"
+		f.lookForHomeQuietly()
+		assertEquals(2, probe.asked.size, "again on another network")
+	}
+
+	@Test
+	fun results_forgotten_and_home_found_kicks() = runBlocking<Unit> {
+		// Review M3: a login's results are not shown later as a home look's.
+		val f = finder(FakeProbe { InfoOutcome.Match(idA, "W") })
+		f.lookBeside()
+		assertTrue(f.state.value is FinderState.Results)
+		f.forgetResults()
+		assertEquals(FinderState.Idle, f.state.value)
+		// Review M10: a home address kept tells the hub manager (a waiting reconnect may go now).
+		store.write(HubServerRecord(serverId = idA, addresses = listOf(HubAddress("wss://hub.example.com", HubAddress.Source.Typed, 1L))))
+		prefs.hubUrl = "wss://hub.example.com"
+		assertEquals("ws://192.168.1.1:4790", f.findHomeAddress(idA))
+		assertEquals(1, added)
 	}
 
 	@Test

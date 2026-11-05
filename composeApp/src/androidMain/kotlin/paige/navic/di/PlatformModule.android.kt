@@ -141,7 +141,7 @@ actual val platformModule = module {
 	// up for the speaker to appear in OTHER clients' pickers whether or not this phone's UI is
 	// on screen. Same reason HubManager is createdAtStart.
 	single(createdAtStart = true) {
-		CastBridgeManager(androidApplication(), get(), get(), get()).apply { start() }
+		CastBridgeManager(androidApplication(), get(), get()).apply { start() }
 	}
 	single<CastBridgeStatus> { get<CastBridgeManager>() }
 

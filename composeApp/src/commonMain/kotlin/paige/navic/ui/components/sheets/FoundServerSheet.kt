@@ -46,12 +46,12 @@ import paige.navic.ui.util.rememberNowPlayingCoverAmbient
 fun FoundServerSheetHost() {
 	val finder = koinInject<HubFinder>()
 	val found by finder.prompt.collectAsState()
-	found?.let { FoundServerSheet(it, onAnswered = { dismissed -> finder.answerPrompt(dismissed) }) }
+	found?.let { FoundServerSheet(it, finder, onAnswered = { dismissed -> finder.answerPrompt(dismissed) }) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FoundServerSheet(found: Found, onAnswered: (dismissed: Boolean) -> Unit) {
+private fun FoundServerSheet(found: Found, finder: HubFinder, onAnswered: (dismissed: Boolean) -> Unit) {
 	val hubManager = koinInject<HubManager>()
 	val hubAuth = koinInject<HubAuth>()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -69,7 +69,11 @@ private fun FoundServerSheet(found: Found, onAnswered: (dismissed: Boolean) -> U
 	// The sheet slides away first, then the answer is acted on.
 	val answer = { signIn: Boolean ->
 		scope.launch { sheetState.hide() }.invokeOnCompletion {
-			if (signIn) signInToFound(preferenceManager, hubManager.serverRecordStore, found, address) { hubManager.signInAndConnect() }
+			if (signIn) {
+				signInToFound(preferenceManager, hubManager.serverRecordStore, found, address) { hubManager.signInAndConnect() }
+				// Review M3: the login's look is done with; the Server screen does not show it as a home look.
+				finder.forgetResults()
+			}
 			onAnswered(!signIn)
 		}
 		Unit

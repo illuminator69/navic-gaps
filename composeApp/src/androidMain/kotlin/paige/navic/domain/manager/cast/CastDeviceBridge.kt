@@ -165,6 +165,8 @@ internal class CastDeviceBridge(
 	 * answered as this server. Null while the main socket is down: the bridge waits out its backoff.
 	 */
 	private val hubAddress: () -> String?,
+	/** Returns once the main socket has an address (review M11): a bridge that found none waits for it. */
+	private val awaitHubAddress: suspend () -> Unit = {},
 	/** Worbus P2: the bridging device's own credential (`HubAuth.helloCredential`), read at each hello. */
 	private val credential: () -> HelloCredential?,
 	private val discovery: CastDiscovery,
@@ -381,6 +383,7 @@ internal class CastDeviceBridge(
 	private suspend fun runLoop() {
 		while (currentCoroutineContext().isActive && !destroyed) {
 			var superseded = false
+			var noAddress = false
 			try {
 				connectOnce()
 			} catch (e: CancellationException) {
@@ -391,6 +394,7 @@ internal class CastDeviceBridge(
 				currentCoroutineContext().ensureActive()
 				Logger.w(TAG, "$friendlyName: hub connection cancelled from inside (${e.message}) — reconnecting")
 			} catch (e: Exception) {
+				noAddress = e is paige.navic.domain.manager.HubNoAddressAnswered
 				Logger.w(TAG, "$friendlyName: hub connection error: ${e.message}")
 			}
 			superseded = lastCloseCode?.toInt() == CLOSE_SUPERSEDED
@@ -410,7 +414,7 @@ internal class CastDeviceBridge(
 			// speaker on the LAN has its own bridge, and they'd otherwise all retry in lockstep.
 			val backoffMs = backoff.next()
 			val jitter = (Random.nextDouble() * 0.3 * backoffMs).toLong()
-			delay(backoffMs + jitter)
+			waitBeforeRedial(noAddress, backoffMs + jitter, awaitHubAddress) { Random.nextLong(ADDRESS_JITTER_MS) }
 			// Back through arbitration, not straight to connectOnce(). The hub closes the previous
 			// socket with 4003 on ANY re-registration of a device id (hub.py `_register`), so a
 			// blind reconnect evicts whoever took the speaker while we were away — which is exactly
@@ -1405,6 +1409,22 @@ internal fun speakerTakenFrames(index: Int, positionMs: Long): List<JsonObject> 
 		put("positionMs", positionMs)
 	}
 )
+
+/** Review M11: how far apart the bridges dial once the main socket has an address again. */
+private const val ADDRESS_JITTER_MS = 1_000L
+
+/**
+ * Review M11: a bridge that found no main-socket address waits for one (up to [waitMs]) and dials a
+ * short [jitterMs] after it appears, instead of sitting out a backoff of up to 30 s after the main
+ * socket is back. Any other failure waits [waitMs], as before.
+ */
+internal suspend fun waitBeforeRedial(noAddress: Boolean, waitMs: Long, awaitAddress: suspend () -> Unit, jitterMs: () -> Long) {
+	if (!noAddress) {
+		delay(waitMs)
+		return
+	}
+	if (withTimeoutOrNull(waitMs) { awaitAddress() } != null) delay(jitterMs())
+}
 
 /**
  * Worbus P3: a cast bridge dials the main socket's active address ([active], read now), and nothing

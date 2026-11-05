@@ -1723,7 +1723,6 @@
 	<string name="title_server_addresses">Addresses</string>
 	<string name="address_source_typed">Typed</string>
 	<string name="address_source_found">Found</string>
-	<string name="address_source_learned">From the server</string>
 	<string name="action_remove_address">Remove</string>
 	<string name="action_add_address">Add</string>
 	<string name="address_add_hint">Add an address</string>

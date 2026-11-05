@@ -87,6 +87,16 @@ class ServerScreenRulesTest {
 		signInToFound(prefs, store, Found.NotEncrypted("ws://music.example.com:4790"), "ws://music.example.com:4790", signIn = { signedIn++ })
 		assertEquals(2, signedIn)
 		assertEquals("ws://192.168.1.30:4790", prefs.hubUrl)
+		// Review I1, belt and braces: an "older server" at a public plain-text address (which the
+		// finder no longer reports) changes nothing either: not laundered into hubUrl as typed.
+		prefs.hubUrl = ""
+		prefs.hubEnabled = false
+		val before = store.read()
+		signInToFound(prefs, store, Found.OlderAt("ws://music.example.com:4790"), "ws://music.example.com:4790", signIn = { signedIn++ })
+		assertEquals(2, signedIn, "no sign-in")
+		assertEquals("", prefs.hubUrl, "hubUrl stays blank")
+		assertFalse(prefs.hubEnabled)
+		assertEquals(before, store.read(), "the record is untouched")
 	}
 
 	@Test
@@ -139,13 +149,26 @@ class ServerScreenRulesTest {
 		// A learned address cannot be removed, only switched off.
 		assertFalse(removeServerAddress(prefs, store, "wss://hub.example.com"))
 		assertTrue(store.read().learned != null)
-		// The last typed or found one: no server set.
+		// The last typed or found one: no server set, and (review I2) no server either: the id and the
+		// learned address go with it, what was answered Not now stays.
+		store.update { it.dismissPrompt("x") }
 		removeServerAddress(prefs, store, "ws://100.70.1.2:4790")
 		assertEquals("", prefs.hubUrl)
+		assertEquals(HubServerRecord(promptDismissed = listOf("x")), store.read())
 		// Typing adds one, normalised, and sets it when nothing is set.
 		assertEquals("ws://192.168.1.21:4790", addTypedAddress(prefs, store, "192.168.1.21:4790/connect/"))
 		assertEquals("ws://192.168.1.21:4790", prefs.hubUrl)
 		assertNull(addTypedAddress(prefs, store, "not an address"))
+		// A second one while set joins the list and leaves hubUrl alone.
+		assertEquals("ws://192.168.1.22:4790", addTypedAddress(prefs, store, "192.168.1.22:4790"))
+		assertEquals("ws://192.168.1.21:4790", prefs.hubUrl)
+		assertEquals(listOf("ws://192.168.1.21:4790", "ws://192.168.1.22:4790"), store.read().addresses.map { it.url })
+		// Review M6: Add with nothing set (an old id still held) is a new server, as Type an address is.
+		store.write(HubServerRecord(serverId = idA, addresses = listOf(HubAddress("ws://192.168.1.21:4790", HubAddress.Source.Typed, 3L))))
+		prefs.hubUrl = ""
+		assertEquals("ws://192.168.1.40:4790", addTypedAddress(prefs, store, "192.168.1.40:4790"))
+		assertEquals(HubServerRecord(addresses = listOf(HubAddress("ws://192.168.1.40:4790", HubAddress.Source.Typed, null))), store.read())
+		assertEquals("ws://192.168.1.40:4790", prefs.hubUrl)
 		// "Type an address" while nothing is set is a new server: the old one's id and addresses go.
 		prefs.hubUrl = ""
 		assertEquals("ws://10.1.1.1:4790", typeNewServer(prefs, store, "10.1.1.1:4790"))

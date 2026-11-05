@@ -268,7 +268,9 @@ fun notSetRows(state: FinderState): List<NotSetRow> = buildList {
  * Tapping Sign in on a found server (design §6.4): its addresses are saved as found (the record starts
  * over as this server's, keeping what was answered Not now), `hubUrl` is the tapped address, the
  * Connect switch goes on, and [signIn] runs project 2's sign-in. An older server ("Use this address")
- * is the same with its one address. One tap.
+ * is the same with its one address. One tap. Starting over is a server change (C1): the secret held
+ * for whatever came before is forgotten first. An address the record would not keep (a plain-text one
+ * on a public host, review I1) changes nothing: it is never laundered into `hubUrl` as typed.
  */
 fun signInToFound(
 	preferenceManager: PreferenceManager,
@@ -285,8 +287,9 @@ fun signInToFound(
 	val url = normaliseHubAddress(tapped) ?: return
 	val kept = store.read().promptDismissed
 	val name = (found as? Found.Server)?.name?.ifBlank { null }
-	store.write(addresses.fold(HubServerRecord(name = name, promptDismissed = kept)) { r, a -> r.withAddress(a, HubAddress.Source.Found) })
-	preferenceManager.hubUrl = url
+	val record = addresses.fold(HubServerRecord(name = name, promptDismissed = kept)) { r, a -> r.withAddress(a, HubAddress.Source.Found) }
+	if (record.find(url) == null) return
+	store.startOver(record, hubUrl = url)
 	preferenceManager.hubEnabled = true
 	signIn()
 }
@@ -294,13 +297,24 @@ fun signInToFound(
 /**
  * Remove a typed or found address from the list. When it was the one `hubUrl` holds, `hubUrl` moves to
  * the next typed or found address, or to "" (no server set) when none is left. True when `hubUrl` moved.
+ * With no typed or found address left there is no server: the record forgets its id and its learned
+ * address (keeping what was answered Not now, review I2), which is a server change (C1: the secret
+ * goes, so the next server, typed or found, gets a sign-in and never this one's secret).
  */
 fun removeServerAddress(preferenceManager: PreferenceManager, store: HubServerRecordStore, url: String): Boolean {
-	val next = store.update { it.without(url) }
 	val removed = normaliseHubAddress(url)
-	if (normaliseHubAddress(preferenceManager.hubUrl) != removed) return false
-	preferenceManager.hubUrl = next.addresses.firstOrNull { it.source != HubAddress.Source.Learned }?.url.orEmpty()
-	return true
+	var moved = false
+	store.update { record ->
+		val next = record.without(url)
+		val left = next.addresses.filter { it.source != HubAddress.Source.Learned }
+		if (left.isEmpty() || normaliseHubAddress(preferenceManager.hubUrl) == removed) {
+			val to = left.firstOrNull()?.url.orEmpty()
+			moved = to != preferenceManager.hubUrl
+			preferenceManager.hubUrl = to
+		}
+		if (left.isEmpty()) HubServerRecord(promptDismissed = next.promptDismissed) else next
+	}
+	return moved
 }
 
 /** "Use away from home": the learned address may be dialled (true) or not ([HubServerRecord.learnedOff]). */
@@ -308,11 +322,15 @@ fun setUseAwayFromHome(store: HubServerRecordStore, on: Boolean) {
 	store.update { it.copy(learnedOff = !on) }
 }
 
-/** Add a typed address to the list; with no server set yet it becomes `hubUrl` too. Null when it does not normalise. */
+/**
+ * Add a typed address to the list. With no server set it is a new server (review M6: the list's Add
+ * after its last address went is "Type an address", [typeNewServer]), so an old id cannot make it read
+ * as another server for good. Null when it does not normalise.
+ */
 fun addTypedAddress(preferenceManager: PreferenceManager, store: HubServerRecordStore, raw: String): String? {
+	if (preferenceManager.hubUrl.isBlank()) return typeNewServer(preferenceManager, store, raw)
 	val url = normaliseHubAddress(raw) ?: return null
 	store.update { it.withAddress(url, HubAddress.Source.Typed) }
-	if (preferenceManager.hubUrl.isBlank()) preferenceManager.hubUrl = url
 	return url
 }
 
@@ -324,11 +342,12 @@ fun otherAddresses(record: HubServerRecord, active: String?): List<HubAddress> {
 
 /**
  * "Type an address" while no server is set: a new server, so the record starts over with this one
- * typed address (what was answered Not now is kept), and `hubUrl` is it. Null when it does not normalise.
+ * typed address (what was answered Not now is kept), and `hubUrl` is it. A server change (C1): the
+ * secret held for whatever came before is forgotten, and a sign-in is owed. Null when it does not
+ * normalise.
  */
 fun typeNewServer(preferenceManager: PreferenceManager, store: HubServerRecordStore, raw: String): String? {
 	val url = normaliseHubAddress(raw) ?: return null
-	store.write(HubServerRecord(promptDismissed = store.read().promptDismissed).withAddress(url, HubAddress.Source.Typed))
-	preferenceManager.hubUrl = url
+	store.startOver(HubServerRecord(promptDismissed = store.read().promptDismissed).withAddress(url, HubAddress.Source.Typed), hubUrl = url)
 	return url
 }
