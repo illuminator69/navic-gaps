@@ -191,7 +191,7 @@ class LbBotDataTest {
 	@Test
 	fun theSectionSaysWhichThingIsMissing() {
 		// Said on the Library Matches page, where nothing is "above": it names where the hub is set.
-		val noHub = "lb-bot is reached through the hub. Set the hub up in Settings, navi-connect, to see its data here."
+		val noHub = "lb-bot is reached through the hub. Set the Worbus Server up in Settings, Server, to see its data here."
 		assertEquals(noHub, lbLayerLine(hubSet = false, hubSaysNoLbBot = false))
 		// A hub that is switched off now: whatever it said while it was on no longer matters.
 		assertEquals(noHub, lbLayerLine(hubSet = false, hubSaysNoLbBot = true))

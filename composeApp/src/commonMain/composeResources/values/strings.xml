@@ -1698,4 +1698,35 @@
 	<string name="info_library_too_old">This Worbus Server's library service is too old for signed-in users.</string>
 	<string name="error_lbbot_too_old">This Worbus Server's lb-bot is too old for signed-in users.</string>
 	<string name="info_server_signin_route_unreachable">This Worbus Server's sign-in isn't reachable at this address. It may sit behind a proxy that doesn't pass /hub/.</string>
+	<!-- Worbus P3 -->
+	<string name="server_route_home">home network</string>
+	<string name="server_route_tailscale">Tailscale</string>
+	<string name="server_route_via">via %1$s</string>
+	<string name="server_route_not_encrypted">not encrypted</string>
+	<string name="finder_looking">Looking for your Worbus Server…</string>
+	<string name="finder_nothing_beside">No Worbus Server found beside your Navidrome. Look on this network, or type its address.</string>
+	<string name="finder_nothing_on_network">No Worbus Server answered on this network.</string>
+	<string name="finder_needs_permission">Allow local network access to look on this network.</string>
+	<string name="finder_older_at">An older Worbus Server may be at %1$s.</string>
+	<string name="finder_not_on_wifi">Connect to your home Wi-Fi to look on this network.</string>
+	<string name="finder_not_encrypted">Found a Worbus Server at %1$s, but not encrypted.</string>
+	<string name="finder_found_row">%1$s · %2$s</string>
+	<string name="finder_default_name">Worbus Server</string>
+	<string name="action_not_now">Not now</string>
+	<string name="action_look_on_network">Look on this network</string>
+	<string name="action_type_address">Type an address</string>
+	<string name="action_find_home_address">Find home address</string>
+	<string name="action_use_this_address">Use this address</string>
+	<string name="option_use_away_from_home">Use away from home</string>
+	<string name="address_away_from_home">Away from home: %1$s</string>
+	<string name="address_also">Also: %1$s</string>
+	<string name="title_server_addresses">Addresses</string>
+	<string name="address_source_typed">Typed</string>
+	<string name="address_source_found">Found</string>
+	<string name="address_source_learned">From the server</string>
+	<string name="action_remove_address">Remove</string>
+	<string name="action_add_address">Add</string>
+	<string name="address_add_hint">Add an address</string>
+	<string name="address_not_valid">That is not an address.</string>
+	<string name="finder_home_found">Home address found.</string>
 </resources>

@@ -154,15 +154,17 @@ fun serverStatus(
 }
 
 /** The Worbus Server group's rows, in order (design §6.5). */
-enum class WorbusServerRow { Address, SignIn, SignOut, DeviceName }
+enum class WorbusServerRow { Address, FindHome, SignIn, SignOut, DeviceName }
 
 /**
  * Sign in as `<user>` while no device secret is held (and there is an account to sign in with);
  * Sign out of this server while one is. The token is not a row here: it is under Advanced, and only
  * after the server answered as an older one ([advancedServerRows]).
  */
-fun worbusServerRows(signedIn: Boolean, accountName: String?): List<WorbusServerRow> = buildList {
+fun worbusServerRows(signedIn: Boolean, accountName: String?, findHome: Boolean = false): List<WorbusServerRow> = buildList {
 	add(WorbusServerRow.Address)
+	// Worbus P3 (design §6.4): a set server with no home address offers to look for one.
+	if (findHome) add(WorbusServerRow.FindHome)
 	when {
 		signedIn -> add(WorbusServerRow.SignOut)
 		!accountName.isNullOrBlank() -> add(WorbusServerRow.SignIn)
@@ -177,4 +179,156 @@ fun advancedServerRows(oldServerSeen: Boolean): List<AdvancedServerRow> = buildL
 	add(AdvancedServerRow.AudioMuseAddress)
 	add(AdvancedServerRow.AudioMuseToken)
 	if (oldServerSeen) add(AdvancedServerRow.ServerToken)
+}
+
+// ---- Worbus P3, lane N5: the Server screen's address rules (design §6.6) --------------------- //
+
+/** Which route the live socket takes, said after the signed-in sentence. */
+sealed interface ServerRoute {
+	/** A private address: "home network". */
+	data object Home : ServerRoute
+
+	/** A Tailscale address: "Tailscale". */
+	data object Tailscale : ServerRoute
+
+	/** Any other: "via <host>". */
+	data class Via(val host: String) : ServerRoute
+}
+
+/** The route the status line names, and whether it adds "not encrypted" (a typed public `ws://`). */
+data class RouteNote(val route: ServerRoute, val notEncrypted: Boolean)
+
+/** [active] is the live socket's address; null while there is none (nothing is named). */
+fun routeNote(active: String?): RouteNote? {
+	val url = active?.let { normaliseHubAddress(it) } ?: return null
+	val route = when (classifyHubAddress(url)) {
+		AddressClass.Private -> ServerRoute.Home
+		AddressClass.Tailscale -> ServerRoute.Tailscale
+		AddressClass.Public -> ServerRoute.Via(hubAddressHost(url).orEmpty())
+	}
+	// Only a typed address can be a public ws:// (found and learned ones never are).
+	val plain = route is ServerRoute.Via && url.startsWith("ws://")
+	return RouteNote(route, plain)
+}
+
+/** An address as a row shows it: the host and its port, the path when there is one; no scheme. */
+fun shownAddress(url: String): String = (normaliseHubAddress(url) ?: url).substringAfter("://")
+
+/** The Server screen's rows while no server is set (design §6.4, §6.6), in order. */
+sealed interface NotSetRow {
+	/** "Worbus Server · 192.168.1.20", Sign in as the account. */
+	data class Server(val found: Found.Server) : NotSetRow
+
+	/** "An older Worbus Server may be at 192.168.1.20.", Use this address. */
+	data class Older(val found: Found.OlderAt) : NotSetRow
+
+	/** "Found a Worbus Server at …, but not encrypted." Not tappable; Type an address is below. */
+	data class NotEncrypted(val address: String) : NotSetRow
+
+	/** The state's sentence ([NotSetSentence]). */
+	data class Sentence(val sentence: NotSetSentence) : NotSetRow
+
+	/** Open the app's settings, for the local network permission. */
+	data object OpenSettings : NotSetRow
+
+	data object LookOnNetwork : NotSetRow
+	data object TypeAddress : NotSetRow
+}
+
+enum class NotSetSentence { Looking, NothingBeside, NothingOnNetwork, NeedsPermission, NotOnWifi }
+
+/**
+ * What the Worbus Server group shows in place of the empty Address row, for each [FinderState]:
+ * found rows first, then the state's sentence, then Look on this network and Type an address.
+ */
+fun notSetRows(state: FinderState): List<NotSetRow> = buildList {
+	when (state) {
+		FinderState.Idle -> Unit
+		FinderState.Looking -> add(NotSetRow.Sentence(NotSetSentence.Looking))
+		FinderState.NothingBeside -> add(NotSetRow.Sentence(NotSetSentence.NothingBeside))
+		FinderState.NothingOnNetwork -> add(NotSetRow.Sentence(NotSetSentence.NothingOnNetwork))
+		FinderState.NotOnWifi -> add(NotSetRow.Sentence(NotSetSentence.NotOnWifi))
+		FinderState.NeedsPermission -> {
+			add(NotSetRow.Sentence(NotSetSentence.NeedsPermission))
+			add(NotSetRow.OpenSettings)
+		}
+		is FinderState.Results -> state.found.forEach { found ->
+			when (found) {
+				is Found.Server -> add(NotSetRow.Server(found))
+				is Found.OlderAt -> add(NotSetRow.Older(found))
+				is Found.NotEncrypted -> add(NotSetRow.NotEncrypted(found.address))
+			}
+		}
+	}
+	add(NotSetRow.LookOnNetwork)
+	add(NotSetRow.TypeAddress)
+}
+
+/**
+ * Tapping Sign in on a found server (design §6.4): its addresses are saved as found (the record starts
+ * over as this server's, keeping what was answered Not now), `hubUrl` is the tapped address, the
+ * Connect switch goes on, and [signIn] runs project 2's sign-in. An older server ("Use this address")
+ * is the same with its one address. One tap.
+ */
+fun signInToFound(
+	preferenceManager: PreferenceManager,
+	store: HubServerRecordStore,
+	found: Found,
+	tapped: String,
+	signIn: () -> Unit
+) {
+	val addresses = when (found) {
+		is Found.Server -> listOf(tapped) + found.addresses
+		is Found.OlderAt -> listOf(found.address)
+		is Found.NotEncrypted -> return
+	}
+	val url = normaliseHubAddress(tapped) ?: return
+	val kept = store.read().promptDismissed
+	val name = (found as? Found.Server)?.name?.ifBlank { null }
+	store.write(addresses.fold(HubServerRecord(name = name, promptDismissed = kept)) { r, a -> r.withAddress(a, HubAddress.Source.Found) })
+	preferenceManager.hubUrl = url
+	preferenceManager.hubEnabled = true
+	signIn()
+}
+
+/**
+ * Remove a typed or found address from the list. When it was the one `hubUrl` holds, `hubUrl` moves to
+ * the next typed or found address, or to "" (no server set) when none is left. True when `hubUrl` moved.
+ */
+fun removeServerAddress(preferenceManager: PreferenceManager, store: HubServerRecordStore, url: String): Boolean {
+	val next = store.update { it.without(url) }
+	val removed = normaliseHubAddress(url)
+	if (normaliseHubAddress(preferenceManager.hubUrl) != removed) return false
+	preferenceManager.hubUrl = next.addresses.firstOrNull { it.source != HubAddress.Source.Learned }?.url.orEmpty()
+	return true
+}
+
+/** "Use away from home": the learned address may be dialled (true) or not ([HubServerRecord.learnedOff]). */
+fun setUseAwayFromHome(store: HubServerRecordStore, on: Boolean) {
+	store.update { it.copy(learnedOff = !on) }
+}
+
+/** Add a typed address to the list; with no server set yet it becomes `hubUrl` too. Null when it does not normalise. */
+fun addTypedAddress(preferenceManager: PreferenceManager, store: HubServerRecordStore, raw: String): String? {
+	val url = normaliseHubAddress(raw) ?: return null
+	store.update { it.withAddress(url, HubAddress.Source.Typed) }
+	if (preferenceManager.hubUrl.isBlank()) preferenceManager.hubUrl = url
+	return url
+}
+
+/** The Address row's second line: every other address, the learned one as "Away from home". */
+fun otherAddresses(record: HubServerRecord, active: String?): List<HubAddress> {
+	val shown = active?.let { normaliseHubAddress(it) }
+	return record.addresses.filter { it.url != shown && !(it.source == HubAddress.Source.Learned && record.learnedOff) }
+}
+
+/**
+ * "Type an address" while no server is set: a new server, so the record starts over with this one
+ * typed address (what was answered Not now is kept), and `hubUrl` is it. Null when it does not normalise.
+ */
+fun typeNewServer(preferenceManager: PreferenceManager, store: HubServerRecordStore, raw: String): String? {
+	val url = normaliseHubAddress(raw) ?: return null
+	store.write(HubServerRecord(promptDismissed = store.read().promptDismissed).withAddress(url, HubAddress.Source.Typed))
+	preferenceManager.hubUrl = url
+	return url
 }

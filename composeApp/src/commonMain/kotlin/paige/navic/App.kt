@@ -96,6 +96,7 @@ import paige.navic.ui.components.layouts.SideBar
 import paige.navic.ui.components.sheets.AlbumMatchHost
 import paige.navic.ui.components.sheets.AvatarMenuDrawer
 import paige.navic.ui.components.sheets.NewSheetHost
+import paige.navic.ui.components.sheets.FoundServerSheetHost
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.components.sheets.updateChecksOffered
 import paige.navic.ui.navigation.ListPageSceneStrategy
@@ -512,6 +513,9 @@ fun App() {
 				// navi-connect P1: the New sheet, composed ONCE like the one above and opened by the bar's New
 				// button from any page. A fork line: drop it and New opens nothing.
 				NewSheetHost()
+				// Worbus P3: the post-sign-in offer of the one Worbus Server found beside Navidrome,
+				// composed ONCE like the two above. A fork line: drop it and the offer never shows.
+				FoundServerSheetHost()
 				// navi-connect: the level the phone's volume buttons set on the device that is
 				// playing, drawn by the app itself. A fork line, like the one above.
 				RemoteVolumeHud()

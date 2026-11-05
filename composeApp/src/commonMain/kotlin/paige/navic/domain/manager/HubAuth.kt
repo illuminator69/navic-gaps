@@ -465,11 +465,19 @@ class HubAuth(
 	 * no address has answered as this server, so nothing carrying the credential is sent anywhere.
 	 */
 	@kotlin.concurrent.Volatile
-	var routeAddress: () -> String? = { normaliseHubAddress(preferenceManager.hubUrl) }
+	var routeAddress: () -> String? = { uncheckedRoute() }
 
 	/** Worbus P3: where a sign-in posts the token pair, an address that passed a probe ([HubConnector.signInAddress]). */
 	@kotlin.concurrent.Volatile
-	var signInAddress: suspend () -> String? = { normaliseHubAddress(preferenceManager.hubUrl) }
+	var signInAddress: suspend () -> String? = { uncheckedRoute() }
+
+	/**
+	 * Until [HubConnector.wire] runs (a manager made before HubManager at start): the typed address only
+	 * while the record holds no server id, as before P3; nothing for a known server, whose credential
+	 * goes only where a probe has passed.
+	 */
+	private fun uncheckedRoute(): String? =
+		if (HubServerRecordStore(preferenceManager).read().serverId == null) normaliseHubAddress(preferenceManager.hubUrl) else null
 
 	/**
 	 * Worbus P3: the gate "a Worbus Server is set up here": on, an address, a credential. Not where to
