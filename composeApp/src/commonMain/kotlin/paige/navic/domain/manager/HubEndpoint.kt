@@ -1,20 +1,11 @@
 package paige.navic.domain.manager
 
 /**
- * The Worbus Server's HTTP base from the WebSocket address the user typed:
- * `ws://host:4790/connect` -> `http://host:4790`. Null for a blank address.
+ * The Worbus Server's HTTP base from an address: `ws://host:4790/connect` -> `http://host:4790`, the
+ * path kept (Worbus P3: one normaliser, [normaliseHubAddress]). Null for a blank address or one that
+ * does not normalise.
  */
-fun hubHttpBaseOf(url: String): String? {
-	val raw = url.trim()
-	if (raw.isBlank()) return null
-	val http = when {
-		raw.startsWith("wss://") -> "https://" + raw.removePrefix("wss://")
-		raw.startsWith("ws://") -> "http://" + raw.removePrefix("ws://")
-		raw.startsWith("http://") || raw.startsWith("https://") -> raw
-		else -> "http://$raw"
-	}
-	return http.trimEnd('/').removeSuffix("/connect").trimEnd('/')
-}
+fun hubHttpBaseOf(url: String): String? = httpBaseOfAddress(url)
 
 /**
  * The hub's HTTP base for the managers that proxy through it.
