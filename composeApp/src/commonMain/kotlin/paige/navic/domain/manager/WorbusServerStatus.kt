@@ -349,5 +349,7 @@ fun otherAddresses(record: HubServerRecord, active: String?): List<HubAddress> {
 fun typeNewServer(preferenceManager: PreferenceManager, store: HubServerRecordStore, raw: String): String? {
 	val url = normaliseHubAddress(raw) ?: return null
 	store.startOver(HubServerRecord(promptDismissed = store.read().promptDismissed).withAddress(url, HubAddress.Source.Typed), hubUrl = url)
+	// N6 walk: the other way on from the not-set rows, so Connect goes on as a found tap turns it on.
+	preferenceManager.hubEnabled = true
 	return url
 }

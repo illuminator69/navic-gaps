@@ -177,4 +177,26 @@ class ServerScreenRulesTest {
 		assertEquals(listOf("ws://10.1.1.1:4790"), fresh.addresses.map { it.url })
 		assertEquals("ws://10.1.1.1:4790", prefs.hubUrl)
 	}
+
+	/**
+	 * N6 walk (found on the AVD): "Type an address" while no server was set left Connect off, so the
+	 * Sign in that followed signed in and nothing connected ("Off" under Signed in). Typing is the other
+	 * way on from the not-set rows, and turns Connect on as a found tap does.
+	 */
+	@Test
+	fun type_an_address_turns_connect_on() {
+		prefs.hubEnabled = false
+		prefs.hubUrl = ""
+		assertEquals("ws://127.0.0.1:4799", typeNewServer(prefs, store, "127.0.0.1:4799"))
+		assertTrue(prefs.hubEnabled, "Connect is on")
+		// The list's Add with nothing set goes the same way (M6).
+		prefs.hubEnabled = false
+		prefs.hubUrl = ""
+		addTypedAddress(prefs, store, "10.0.0.5:4790")
+		assertTrue(prefs.hubEnabled)
+		// With a server set, adding another address leaves the switch as the person left it.
+		prefs.hubEnabled = false
+		addTypedAddress(prefs, store, "10.0.0.6:4790")
+		assertFalse(prefs.hubEnabled)
+	}
 }

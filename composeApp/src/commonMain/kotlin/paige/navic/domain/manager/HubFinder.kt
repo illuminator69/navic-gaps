@@ -198,7 +198,8 @@ class HubFinder(
 		var skippedForPermission = false
 		val answers = candidates.mapNotNull { candidate ->
 			val address = normaliseHubAddress(candidate) ?: return@mapNotNull null
-			if (isPrivateHubAddress(address) && !localNetworkGranted()) {
+			// N6 walk: the permission's own test (B-108): loopback is never gated, a LAN host is.
+			if (!localNetworkGranted() && hubAddressHost(address)?.let { isPrivateHost(it) } == true) {
 				skippedForPermission = true
 				return@mapNotNull candidate to InfoOutcome.Unreachable
 			}

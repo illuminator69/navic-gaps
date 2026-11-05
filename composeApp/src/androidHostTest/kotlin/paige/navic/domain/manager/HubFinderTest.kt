@@ -288,6 +288,27 @@ class HubFinderTest {
 		assertTrue(store.read().hasPrivateAddress)
 	}
 
+	/**
+	 * N6 walk (found on the AVD): a Navidrome on this device's own loopback was skipped for want of the
+	 * local network permission, which Android does not ask for loopback, and the screen said "Allow local
+	 * network access". The gate is the permission's own test (B-108's isPrivateHost), not the plain-text one.
+	 */
+	@Test
+	fun loopback_beside_navidrome_needs_no_permission() = runBlocking<Unit> {
+		granted = false
+		navidrome = "http://127.0.0.1:4950"
+		val probe = FakeProbe { InfoOutcome.Match(idA, "Worbus Server") }
+		val f = finder(probe)
+		assertEquals(listOf<Found>(Found.Server(idA, "Worbus Server", listOf("ws://127.0.0.1:4790"))), f.lookBeside())
+		assertEquals(listOf("ws://127.0.0.1:4790"), probe.asked)
+		// A LAN host is still the permission's: not probed, and the screen asks for it.
+		navidrome = "http://192.168.1.20:4533"
+		probe.asked.clear()
+		assertEquals(emptyList(), f.lookBeside())
+		assertEquals(FinderState.NeedsPermission, f.state.value)
+		assertEquals(emptyList(), probe.asked)
+	}
+
 	// ---- The app's probe on the wire ---------------------------------------------------------- //
 
 	private val server = ServerSocket(0, 8, InetAddress.getLoopbackAddress())
