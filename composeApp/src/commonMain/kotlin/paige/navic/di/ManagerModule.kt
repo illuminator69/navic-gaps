@@ -12,6 +12,9 @@ import paige.navic.domain.manager.AlbumModeSmartPlaylists
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.EqualiserManager
 import paige.navic.domain.manager.HubAuth
+import paige.navic.domain.manager.HubFinder
+import paige.navic.domain.manager.LocalNetworkAccess
+import paige.navic.domain.manager.LocalSubnet
 import paige.navic.domain.manager.HubLocalDevice
 import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.FillActions
@@ -91,6 +94,9 @@ val managerModule = module {
 	single(createdAtStart = true) {
 		HubManager(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()).apply { start() }
 	}
+	// Worbus P3: looking for the Worbus Server. createdAtStart: it gives HubManager its quiet look for
+	// a home address before each reconnect. The last get() is LocalSubnet, the platform's (Android only).
+	single(createdAtStart = true) { HubFinder(get<PreferenceManager>(), get<SessionManager>(), get<HubManager>(), get<LocalNetworkAccess>(), get<LocalSubnet>()) }
 	// createdAtStart, and never lazily: a cast session is precisely the case where no screen is
 	// open and no local player is running, so nothing else would ever construct this.
 	single(createdAtStart = true) {

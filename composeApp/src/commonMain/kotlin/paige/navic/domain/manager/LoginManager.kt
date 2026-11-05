@@ -37,7 +37,9 @@ class LoginManager(
     private val localNetwork: LocalNetworkAccess,
     // Worbus P2: a logout leaves the Worbus Server too (the owner's ruling, 2026-11-02). HubManager does
     // not depend on this class, so the graph has no cycle.
-    private val hubManager: HubManager
+    private val hubManager: HubManager,
+    // Worbus P3 (design §6.4): after a login with no Worbus Server set, look beside Navidrome once.
+    private val hubFinder: HubFinder
 ) {
 	val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -141,6 +143,7 @@ class LoginManager(
 				}.onSuccess {
 					loginState.value = LoginUiState.Success
 					syncManager.startPeriodicSync()
+					hubFinder.startAutoLook(afterLogin = true)
 				}.onFailure { e ->
 					loginState.value = failure(e as? Exception ?: Exception(e), address.host)
 				}

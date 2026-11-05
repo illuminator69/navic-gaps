@@ -222,6 +222,13 @@ class HubManager(
 	 */
 	fun isServerSet(): Boolean = preferenceManager.hubEnabled && preferenceManager.hubUrl.isNotBlank()
 
+	/**
+	 * Worbus P3 (design §6.4): run before each connect attempt. [HubFinder] sets it to its quiet look for
+	 * a home address (one `GET /hub/info` to Navidrome's host, only while the server has none).
+	 */
+	@kotlin.concurrent.Volatile
+	var beforeReconnect: (suspend () -> Unit)? = null
+
 	private val _connected = MutableStateFlow(false)
 	val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
@@ -1229,6 +1236,13 @@ class HubManager(
 			signedOutSeen = false
 			lastCloseCode = null
 			helloSentSecret = false
+			try {
+				beforeReconnect?.invoke()
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				Logger.w("HubManager", "the look for a home address failed: ${e::class.simpleName}")
+			}
 			try {
 				connectOnce()
 			} catch (e: Exception) {

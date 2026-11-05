@@ -87,6 +87,9 @@ class SessionManager(
 		if (_isLoggedIn.value) getCachedUser()
 	}
 
+	/** Worbus P3: the Navidrome address this session signed in to ("" for none), for looking beside it. */
+	fun instanceUrl(): String = settings.getString("instanceUrl", "")
+
 	/**
 	 * The server and name of a session whose password is missing, for the login screen to fill
 	 * in; null when there is none (never logged in, or logged out).
