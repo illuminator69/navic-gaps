@@ -26,8 +26,10 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "paige.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 59
-		versionName = "v1.0.0-alpha59"
+		// Worbus P4: one version for every piece, 0.4.0; the code must stay above upstream's 59 or the
+		// phone refuses the update (and an uninstall costs the login).
+		versionCode = 60
+		versionName = "0.4.0"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))

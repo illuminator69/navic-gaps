@@ -22,6 +22,12 @@ class CrashReportTest {
 	}
 
 	@Test
+	fun crashReport_names_commit() {
+		val text = crashReportText(IllegalStateException("boom"), versionLine("0.4.0", "36a8ea5", release = true))
+		assertTrue(text.startsWith("Navic 0.4.0 (36a8ea5)\n"), text)
+	}
+
+	@Test
 	fun theCrashTextCarriesNoLogin() {
 		// Ktor 3's timeout names the request URL, and every Subsonic URL carries u, t and s.
 		val timeout = RuntimeException(

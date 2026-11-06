@@ -45,6 +45,7 @@ import paige.navic.ui.screens.settings.components.SettingsGroup
 import paige.navic.ui.screens.settings.components.SettingsGroupDefaults
 import paige.navic.ui.screens.settings.components.SettingsNavItem
 import paige.navic.ui.screens.settings.components.SettingsToggleItem
+import paige.navic.util.versionLine
 
 /** This fork's repository: the one link About offers (upstream's repository, Codeberg mirror and Discord are not ours). */
 private const val SOURCE_CODE_URL = "https://github.com/illuminator69/navic-gaps"
@@ -88,7 +89,7 @@ fun SettingsAboutScreen() {
 					append(
 						stringResource(
 							Res.string.info_app_version,
-							platformContext.appVersion
+							versionLine(platformContext.appVersion, BuildInfo.GIT_COMMIT, release = !platformContext.isDebugBuild)
 						)
 					)
 				}

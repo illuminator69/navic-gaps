@@ -2,6 +2,9 @@ package paige.navic.ui.components.sheets
 
 import paige.navic.di.PlatformType
 
+/** The fork's latest release (debug builds only ask; Worbus P4 N2). Never upstream's. */
+const val UPDATE_CHECK_URL = "https://api.github.com/repos/illuminator69/navic-gaps/releases/latest"
+
 /**
  * Whether this build may ask GitHub for a newer version. The check, the launch sheet and About's
  * switch all read this one answer.

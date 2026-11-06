@@ -47,6 +47,18 @@ valkyrie {
 	}
 }
 
+// Worbus P4 N2: the commit this build is made from, shown as `0.4.0 (<commit>)` (About, the crash
+// report, the logs file). Read once at configuration time; the configuration cache tracks the
+// command's output, so a new commit makes a new BuildInfo. "unknown" when git or the repo is absent.
+val gitCommit: String = try {
+	providers.exec {
+		commandLine("git", "rev-parse", "--short=7", "HEAD")
+		isIgnoreExitValue = true
+	}.standardOutput.asText.get().trim().takeIf { Regex("[0-9a-f]{7,40}").matches(it) } ?: "unknown"
+} catch (_: Exception) {
+	"unknown"
+}
+
 val generateBuildInfo = tasks.register("generateBuildInfo", Sync::class) {
 	description = "generate BuildInfo.kt"
 
@@ -61,6 +73,7 @@ val generateBuildInfo = tasks.register("generateBuildInfo", Sync::class) {
 			|
 			|object BuildInfo {
 			|	const val FDROID = $fdroid
+			|	const val GIT_COMMIT = "$gitCommit"
 			|}
 			|
 			""".trimMargin()

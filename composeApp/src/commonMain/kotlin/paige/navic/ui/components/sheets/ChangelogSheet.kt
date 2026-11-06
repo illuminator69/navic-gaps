@@ -85,7 +85,7 @@ class ChangelogViewModel(
 			fdroid = BuildInfo.FDROID,
 			debugBuild = platformContext.isDebugBuild
 		),
-		fetchLatest = { updateClient.get("https://api.github.com/repos/ssalggnikool/Navic/releases/latest").body() }
+		fetchLatest = { updateClient.get(UPDATE_CHECK_URL).body() }
 	)
 
 	init {

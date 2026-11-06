@@ -2,6 +2,7 @@ package paige.navic.androidApp
 
 import android.app.ActivityManager
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.util.Log
 import coil3.ImageLoader
@@ -17,8 +18,10 @@ import paige.navic.di.ActivityProvider
 import paige.navic.di.ResourceProvider
 import paige.navic.di.initKoin
 import paige.navic.di.initializeSingletonImageLoader
+import paige.navic.generated.BuildInfo
 import paige.navic.util.crashLogChunks
 import paige.navic.util.crashReportText
+import paige.navic.util.versionLine
 import kotlin.system.exitProcess
 
 /**
@@ -48,7 +51,7 @@ class Application : android.app.Application(), SingletonImageLoader.Factory, Koi
 				// B-296: `Log.getStackTraceString` (and `Log.e`'s throwable overload) print nothing
 				// for a chain holding an UnknownHostException, so the trace is printed by Kotlin and
 				// logged as text, under the tag "NavicCrash", before anything else is tried.
-				val text = crashReportText(throwable, appVersionName())
+				val text = crashReportText(throwable, appVersionLine())
 				try {
 					Log.e("NavicCrash", "Uncaught exception on thread ${thread.name}", throwable)
 					for (chunk in crashLogChunks(text)) Log.e("NavicCrash", chunk)
@@ -78,8 +81,12 @@ class Application : android.app.Application(), SingletonImageLoader.Factory, Koi
 		}
 	}
 
-	private fun appVersionName(): String? = try {
-		packageManager.getPackageInfo(packageName, 0).versionName
+	/** Worbus P4 N2: `0.4.0 (abc1234)`, or `0.4.0-dev (abc1234)` on a debuggable build; null if unreadable. */
+	private fun appVersionLine(): String? = try {
+		packageManager.getPackageInfo(packageName, 0).versionName?.let { name ->
+			val release = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+			versionLine(name, BuildInfo.GIT_COMMIT, release)
+		}
 	} catch (_: Exception) {
 		null
 	}
