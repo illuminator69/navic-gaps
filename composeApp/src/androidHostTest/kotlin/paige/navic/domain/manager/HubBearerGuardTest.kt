@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * Source-level, because neither shows until a device holds both credentials.
  */
 class HubBearerGuardTest {
-	private val sources: List<File> = listOf("src/commonMain", "src/androidMain", "src/iosMain")
+	private val sources: List<File> = listOf("src/commonMain", "src/androidMain")
 		.map(::File)
 		.flatMap { root -> root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
 

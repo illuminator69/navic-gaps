@@ -21,8 +21,7 @@ package paige.navic.domain.manager
  * went on claiming it was running.
  *
  * An `expect` rather than something in `DownloadManager`, because that class is
- * `commonMain` and a foreground service is an Android concept. iOS gets a no-op:
- * `commonMain` only has to *compile* there.
+ * `commonMain` and a foreground service is an Android concept.
  */
 expect class DownloadForegroundController {
 	/**

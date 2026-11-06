@@ -30,14 +30,14 @@ enum class StreamFormat(val value: String) {
 	}
 }
 
-/** iOS cannot decode Opus. */
-fun streamFormatsFor(platform: PlatformType): List<StreamFormat> =
-	if (platform == PlatformType.IOS) StreamFormat.entries - StreamFormat.Opus else StreamFormat.entries
+/** Every container the dialog offers; Android decodes them all. */
+@Suppress("UNUSED_PARAMETER")
+fun streamFormatsFor(platform: PlatformType): List<StreamFormat> = StreamFormat.entries
 
 /** The bitrate and container a preset asks the server for on [platform], as the custom keys hold them. */
+@Suppress("UNUSED_PARAMETER")
 fun StreamingQuality.equivalent(platform: PlatformType): Pair<Int, String> =
-	if (platform == PlatformType.IOS) bitrateIos to containerIos.orEmpty()
-	else bitrateAndroid to containerAndroid.orEmpty()
+	bitrateAndroid to containerAndroid.orEmpty()
 
 /**
  * The stored keys behind the streaming choices, copied out so the mapping is a plain function.

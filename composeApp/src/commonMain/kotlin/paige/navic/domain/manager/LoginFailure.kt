@@ -100,7 +100,7 @@ private val NOT_SUBSONIC_NAMES = setOf(
 
 /**
  * The kind of [t], read off its cause chain. Pure, and it names classes by their simple names,
- * so it compiles for iOS and reads the JVM's `java.net` / `javax.net.ssl` exceptions alike.
+ * so it stays in `commonMain` and reads the JVM's `java.net` / `javax.net.ssl` exceptions alike.
  *
  * Order matters: a refusal from the server is checked first (it is the most specific answer),
  * then the handshake, then "nothing answered", then "something else answered".

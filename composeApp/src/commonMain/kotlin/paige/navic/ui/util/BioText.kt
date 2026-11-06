@@ -22,8 +22,8 @@ package paige.navic.ui.util
  *
  * Deliberately not a parser: the input is one paragraph of agent-generated markup
  * with anchors and the occasional `<br>`, not a document, and pulling in an HTML
- * parser for it would be the wrong trade in `commonMain` (this compiles for iOS
- * too). Anything it does not recognise is dropped rather than shown.
+ * parser for it would be the wrong trade in `commonMain`. Anything it does not
+ * recognise is dropped rather than shown.
  */
 fun stripHtml(html: String): String =
 	html

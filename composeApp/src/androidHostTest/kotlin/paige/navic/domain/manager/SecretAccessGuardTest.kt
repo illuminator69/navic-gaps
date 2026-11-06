@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * a server. Source-level, because neither shows until a device has the data.
  */
 class SecretAccessGuardTest {
-	private val sources: List<File> = listOf("src/commonMain", "src/androidMain", "src/iosMain")
+	private val sources: List<File> = listOf("src/commonMain", "src/androidMain")
 		.map(::File)
 		.flatMap { root -> root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
 
@@ -52,7 +52,7 @@ class SecretAccessGuardTest {
 
 	@Test
 	fun theSecretsFileIsOpenedInOnePlaceOnly() {
-		val allowed = setOf("KeystoreSecretCipher.kt", "PlatformModule.ios.kt")
+		val allowed = setOf("KeystoreSecretCipher.kt")
 		val offenders = sources
 			.filter { it.name !in allowed }
 			.filter { "navic_secrets" in it.readText() }
@@ -64,7 +64,7 @@ class SecretAccessGuardTest {
 	fun theVaultIsReadOnlyByTheStore() {
 		// SecretVault's settings are `internal`, i.e. visible to the whole module: only the store
 		// and the places that build a vault may name it.
-		val allowed = setOf("SecretStore.kt", "KeystoreSecretCipher.kt", "PlatformModule.android.kt", "PlatformModule.ios.kt")
+		val allowed = setOf("SecretStore.kt", "KeystoreSecretCipher.kt", "PlatformModule.android.kt")
 		val offenders = sources
 			.filter { it.name !in allowed }
 			.filter { Regex("""\bSecretVault\b|\.cipher\.open\(""").containsMatchIn(it.readText()) }

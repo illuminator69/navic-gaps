@@ -193,7 +193,7 @@ private var imageLoaderFactoryInstalled = false
 // with our config no matter who calls SingletonImageLoader.get() first (the
 // playback service can load album art before the Activity attaches after an
 // in-place update; the composable install here would then throw "already
-// created"). TRUE on iOS, which has no Application-level factory.
+// created"). Android installs it from the Application, so its actual is false.
 internal expect val installComposeSingletonImageLoader: Boolean
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -291,7 +291,7 @@ fun App() {
 	// routinely outlives that sheet, the artist page and the process. The manager emits
 	// exactly once per fill, from `settle`, so however many screens are watching there is
 	// only ever one snackbar. The system-notification half lives in androidMain — it needs
-	// a runtime permission, and commonMain still has to compile for iOS.
+	// a runtime permission and the platform notification API.
 	val lbBot = koinInject<LbBotManager>()
 	val fillLanded = stringResource(Res.string.lbbot_fill_landed)
 	val fillLost = stringResource(Res.string.lbbot_fill_lost)
@@ -495,7 +495,7 @@ fun App() {
 						}
 					}
 				}
-				// version check is annoying to do on iOS; release builds never ask (updateChecksOffered)
+				// release builds never ask (updateChecksOffered)
 				if (preferenceManager.checkForUpdates
 					&& updateChecksOffered(
 						platformContext.platformType,

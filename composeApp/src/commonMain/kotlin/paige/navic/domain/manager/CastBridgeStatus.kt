@@ -1,8 +1,6 @@
 package paige.navic.domain.manager
 
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 
 /**
@@ -44,13 +42,8 @@ data class CastSpeaker(
  * dialog reappeared on a loop without ever granting anything. Navic speaks mDNS and castv2
  * directly instead (`domain.manager.cast`), which is also what Feishin does.
  *
- * Implemented on Android by `CastBridgeManager`; iOS gets [NoopCastBridgeStatus].
+ * Implemented on Android by `CastBridgeManager`.
  */
 interface CastBridgeStatus {
 	val speakers: StateFlow<List<CastSpeaker>>
-}
-
-class NoopCastBridgeStatus : CastBridgeStatus {
-	override val speakers: StateFlow<List<CastSpeaker>> =
-		MutableStateFlow(emptyList<CastSpeaker>()).asStateFlow()
 }

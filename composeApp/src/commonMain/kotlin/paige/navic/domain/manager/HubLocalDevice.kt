@@ -1,8 +1,6 @@
 package paige.navic.domain.manager
 
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.roundToInt
 
 /**
@@ -15,7 +13,7 @@ import kotlin.math.roundToInt
  *
  * Platform-provided, in the same shape as [HubSocketClientFactory]: an interface here and one
  * Koin registration in each `PlatformModule`, consumed by [HubManager]'s constructor. Android
- * registers `AndroidHubLocalDevice`; iOS registers [PlainHubLocalDevice].
+ * registers `AndroidHubLocalDevice`.
  */
 interface HubLocalDevice {
 	/** `hello.device.kind`: `phone` or `tablet`. Read at every `hello`. */
@@ -46,14 +44,6 @@ interface HubLocalDevice {
  * arrives, also while it is not the playing device (PROTOCOL §3.1, §5.1).
  */
 const val CAP_IDLE_VOLUME = "idleVolume"
-
-/** A phone that reports no volume and sets none: iOS, where the hub's volume stays the player's gain. */
-class PlainHubLocalDevice : HubLocalDevice {
-	override val kind: String = "phone"
-	override val mediaVolume: StateFlow<Int?> = MutableStateFlow<Int?>(null).asStateFlow()
-	override fun setMediaVolume(level: Int): Boolean = false
-	override val setsMediaVolume: Boolean = false
-}
 
 /** The least time between two `deviceState` volume reports: at most 4 a second (PROTOCOL §5.3). */
 internal const val VOLUME_REPORT_GAP_MS = 250L

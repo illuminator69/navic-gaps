@@ -45,7 +45,7 @@ class SecretUnrecoverableException(message: String, cause: Throwable? = null) : 
 /**
  * Seals and opens a secret's bytes. Android: AES-256-GCM under a non-exportable Android
  * Keystore key, the output IV then ciphertext and tag (`KeystoreSecretCipher`).
- * iOS: [PlainSecretCipher], which does not encrypt (iOS does not ship).
+ * [PlainSecretCipher] does not encrypt; only tests use it.
  */
 interface SecretCipher {
 	/** False when [seal] does not encrypt: values are then stored as they are. */
@@ -61,7 +61,7 @@ interface SecretCipher {
 	fun open(sealed: ByteArray): ByteArray
 }
 
-/** Stores secrets as they are. iOS only: NOT encrypted. */
+/** Stores secrets as they are, NOT encrypted. Tests only. */
 class PlainSecretCipher : SecretCipher {
 	override val encrypts = false
 	override fun seal(plain: ByteArray) = plain

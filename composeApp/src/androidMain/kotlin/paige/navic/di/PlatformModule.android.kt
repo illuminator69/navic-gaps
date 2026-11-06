@@ -131,7 +131,7 @@ actual val platformModule = module {
 	// launch with NoDefinitionFoundException (HubManager is createdAtStart).
 	single<LocalNetworkAccess> { AndroidLocalNetworkAccess(androidApplication()) }
 	// Worbus P3: this device's own private IPv4 on Wi-Fi or Ethernet, for the sweep of its /24 (HubFinder,
-	// createdAtStart). Lost, the app dies at launch with NoDefinitionFoundException. No iOS binding (obsolete).
+	// createdAtStart). Lost, the app dies at launch with NoDefinitionFoundException.
 	single<LocalSubnet> { AndroidLocalSubnet(androidApplication()) }
 	// B-279: the secrets file and its Keystore cipher, read by SecretStore only. Lost, the app dies
 	// at launch with NoDefinitionFoundException (PreferenceManager needs SecretStore).

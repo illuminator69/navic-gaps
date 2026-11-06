@@ -16,7 +16,7 @@ import paige.navic.androidApp.R
  * Tells the user when an lb-bot fill lands, while they are somewhere else.
  *
  * Android-only and deliberately outside `composeApp`: it needs a runtime permission and
- * the platform notification API, and commonMain still has to compile for iOS. The in-app
+ * the platform notification API. The in-app
  * half — a snackbar, which is all that is needed while Navic is in front — lives in
  * `App.kt` and works whether or not this permission was ever granted.
  *

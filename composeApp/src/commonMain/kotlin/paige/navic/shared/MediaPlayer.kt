@@ -238,7 +238,7 @@ abstract class MediaPlayerViewModel(
 	 * The LOCAL queue's indices in the order the player will play them (its shuffle order), or
 	 * null for queue order. Autoplay counts what is left by it (`playOrderRemaining`): under
 	 * shuffle, the songs after the playing one in the queue are not the songs still to come.
-	 * A platform without a shuffle order of its own (iOS) leaves it null.
+	 * A player without a shuffle order of its own leaves it null.
 	 */
 	@Suppress("PropertyName")
 	protected val _playOrder = MutableStateFlow<List<Int>?>(null)
@@ -660,7 +660,7 @@ abstract class MediaPlayerViewModel(
 	/**
 	 * Applies the gain settings (ReplayGain mode, pre-amp, amplifier) to the playing song now. The
 	 * settings screen calls it after writing them, so the mode is resolved by the player's one rule
-	 * (`resolveGainMode`). No-op where there is no gain processor (iOS).
+	 * (`resolveGainMode`). No-op where there is no gain processor.
 	 */
 	open fun applyAudioGain() {}
 	open fun applyRemoteRepeat(mode: Int) {}
@@ -697,8 +697,7 @@ abstract class MediaPlayerViewModel(
 
 	/**
 	 * navi-connect autoplay: append songs to the end of the queue without
-	 * disturbing the currently-playing track. Open so platforms without it
-	 * (iOS) compile unchanged.
+	 * disturbing the currently-playing track. Open, a no-op by default.
 	 */
 	open fun appendToQueue(songs: List<DomainSong>) {}
 

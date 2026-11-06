@@ -22,12 +22,14 @@ shared playback session, a Chromecast bridge, an AudioMuse-AI front end and an l
 | Branch | **`navi-connect`** (not `master`) |
 | Upstream base | ssalggnikool/Navic **`v1.0.0-alpha59`** |
 | Divergence | ~264 files, +33.6k / −3.5k |
-| Modules | `:androidApp` (the application), `:composeApp` (the shared KMP library), `iosApp/` |
+| Modules | `:androidApp` (the application), `:composeApp` (the shared KMP library, Android its only target) |
 | Licence | GPL-3.0, inherited |
 
-**Android is the only platform that is built, run or tested.** `commonMain` must still *compile*
-for iOS — so a new `expect` needs an `actual` in `iosMain` and a Koin registration in
-`PlatformModule.ios.kt` — but no iOS feature is implemented or verified.
+**Android is the only platform.** iOS was removed in Worbus 0.4 (I-060): `iosApp/`, `iosMain`, the
+iOS targets, `ktor-client-darwin`, the Kotlin/Native flags, `Gemfile`, `fastlane/Fastfile` and
+`app-repo.json` are gone, and nothing is to be added for iOS. `commonMain` stays: a new `expect` needs
+only its `androidMain` actual (legal with one target), and a platform binding goes in
+`PlatformModule.android.kt`. A merge from upstream brings iOS files and iOS lines back; delete them.
 
 ### The fork's surface, in one table
 
@@ -99,7 +101,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
 
    | Mechanism | Resolves by | How a loss surfaces |
    |---|---|---|
-   | Koin (`PlatformModule.{android,ios}.kt`, `ViewModelModule.kt`, `ManagerModule.kt`, `RepositoryModule.kt`) | type, at runtime | `NoDefinitionFoundException` on launch |
+   | Koin (`PlatformModule.android.kt`, `ViewModelModule.kt`, `ManagerModule.kt`, `RepositoryModule.kt`) | type, at runtime | `NoDefinitionFoundException` on launch |
    | navigation3 (`entry<Screen…>` in `App.kt`, ~46 of them) | key, at runtime | the screen throws when navigated to — possibly only from one card, deep in the app |
    | `staticCompositionLocalOf { error(…) }` (`di/Locals.kt`) | read site | throws only when read, e.g. `LocalSheetState used outside of a sheet` on opening the player |
 
@@ -110,7 +112,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
 
    Fork-only Koin bindings are the easiest to lose, because upstream's modules never had them.
    `HubSocketClientFactory` (B-045) and `HubLocalDevice` (I-032, §4) are each registered in
-   **both** `PlatformModule.android.kt` and `PlatformModule.ios.kt` and consumed by `HubManager`'s
+   `PlatformModule.android.kt` and consumed by `HubManager`'s
    last two `get()`s in `ManagerModule.kt`; a merge that drops a registration compiles, and
    `HubManager` is `createdAtStart`, so the app dies at launch with `NoDefinitionFoundException`.
    Worbus P3 (discovery) added three more of this kind: `single<LocalSubnet> { AndroidLocalSubnet(androidApplication()) }`
@@ -150,25 +152,28 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    (`lb_index_artist.ndArtistId`, `lb_index_release.rgid` — the latter added before 23 ever
    shipped, since the `(artistKey, rgid)` key cannot serve `WHERE rgid = ?`) arrive through the
    hand-written `MIGRATION_CACHE_22_23` in `DownloadMigrations.kt`, registered in **both**
-   `PlatformModule.android.kt` and `PlatformModule.ios.kt`. When upstream ships its own 22→23 (or
+   `PlatformModule.android.kt`. When upstream ships its own 22→23 (or
    anything ≥ 23), renumber upstream's change **above the fork's** — never slot it in underneath and
    never let two 23s coexist; that is the alpha59 "two 21s" trap again. The fork's migration then
    has to be re-chained: a new `MIGRATION_CACHE_23_24` (or higher) that applies upstream's DDL on
-   top of the fork's 23, registered in both platform modules, with its SQL checked against the
+   top of the fork's 23, registered in the platform module, with its SQL checked against the
    regenerated `N.json`'s `createSql` by script rather than by eye (that is how 22→23 was
    verified). A migration that is merged away does not fail the build — the upgrade silently falls
    back to destructive and wipes the cached library, and the mirror re-pulls from zero.
    **Since 2026-10-30 the fork is at `CacheDatabase` 24 and `DownloadDatabase` 5** (indices only,
    adapted from upstream `6d266f46`: `MIGRATION_CACHE_23_24` and `MIGRATION_DOWNLOAD_4_5` in
-   `DownloadMigrations.kt`, both platform modules; `CacheDatabase24MigrationTest` holds their SQL to
+   `DownloadMigrations.kt`, the platform module; `CacheDatabase24MigrationTest` holds their SQL to
    `24.json` / `5.json`). **Upstream's own `CacheDatabase` 24, 25, 26 and 27 (beta01) are different
    schemas** — so a future upstream merge goes to **28 or higher**, re-chained from the fork's 24,
    never onto a number upstream has already used.
 6. **Translations** (`values-*/strings.xml`): upstream's wholesale, re-add the fork's keys, then
    grep for duplicate `name=` attributes — a duplicate breaks
    `convertXmlValueResourcesForCommonMain` with an error that doesn't name the key.
-7. **`.github/`, `app-repo.json`, `Gemfile*`, `.gitignore`, `libs.versions.toml`,
-   `settings.gradle.kts`, `fastlane/`: upstream's.** Release plumbing and dependency wiring.
+7. **`.gitignore`, `libs.versions.toml`, `settings.gradle.kts`, `fastlane/metadata/`: upstream's.**
+   Dependency wiring. **`.github/` is the fork's since Worbus 0.4** (its own `build.yml`, templates
+   pointing at the umbrella's issues; upstream's `publish.yml` and `mirror.yml` are deleted), and
+   upstream's iOS files (`iosApp/`, `iosMain`, `Gemfile*`, `fastlane/Fastfile`, `app-repo.json`,
+   `ktor-client-darwin`, the iOS targets) stay deleted.
    **The exceptions, which a merge that takes upstream's file must put back by hand:**
 
    | Fork line | In | Lost, it breaks |
@@ -516,7 +521,7 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   `reportPlayback` `playing` at position 0 under the same player key, and forwards NowPlaying to
   Last.fm / ListenBrainz for either call, so the ping only reset the entry's position. The call
   is hand-rolled in `SessionManager`, because the bundled client's sends `state=PLAYING` (enum
-  `toString()`) and Navidrome only accepts lower case. Android only; iOS does not report.
+  `toString()`) and Navidrome only accepts lower case.
 - **A force stop's now-playing entry is closed on the next start (Q-042).** The tracker's open id
   lives in memory, so `PlaybackReportLedger` (in `PlaybackReporter.kt`) persists the mediaId of
   every report Navidrome *confirmed* (`reportPlayback`'s Boolean) in
@@ -572,8 +577,7 @@ Rules that are easy to violate and produce "it looks right and the wrong thing p
   reports its receiver's level the same way, from RECEIVER_STATUS, while it holds a cast
   connection. The picker's order, its status words and "paused" for an active device that is
   not playing are pure functions in `DeviceRows.kt` (`DeviceRowsTest`), read by the picker, the
-  navi-connect settings list and the line over the now-playing title. iOS registers
-  `PlainHubLocalDevice`: nothing reported, the gain as before.
+  navi-connect settings list and the line over the now-playing title.
 
 - **A device that is not playing can be turned down, and the timed sleep timer is the
   session's (I-033, I-034, B-113).** `hello` carries the `idleVolume` cap on Android
@@ -648,7 +652,7 @@ Rules, each with a reason:
 - **Autoplay is the station's driver, local player only** (`RadioManager.observeAutoplay` over
   `autoplayStep`). Fewer than 2 songs left **in play order** (`MediaPlayerViewModel.playOrder`,
   published by `MediaPlayer.android.kt` from the timeline's shuffle order on the controller's
-  thread; null on iOS, which has no shuffle mode) asks `next {after: seq, count: 5}`: a short
+  thread) asks `next {after: seq, count: 5}`: a short
   lookahead, so a skip (which the hub reads from this device's reports) steers the next batch
   within a few songs. A queue no station built (an album, a journey) asks `start` with its last
   1–3 songs, `origin: "continue"` and `bindSession`; a 409 `session_bound` continues the session's
@@ -1394,8 +1398,8 @@ Rules, each with a reason:
   (`PreferenceManager.hubToken` / `audioMuseToken` pass through to it). On Android they live in
   `navic_secrets.xml`, each `enc:v1:<base64(iv | ciphertext)>`, AES-256-GCM under the
   non-exportable Keystore key `navic_secrets_v1` (`KeystoreSecretCipher`, `androidSecretVault`,
-  registered as `SecretVault` in **both** platform modules; iOS stores them **unencrypted**,
-  `PlainSecretCipher`). A plaintext value under the old key in the settings file is sealed into the
+  registered as `SecretVault` in `PlatformModule.android.kt`; `PlainSecretCipher`, which does not
+  encrypt, is for tests only). A plaintext value under the old key in the settings file is sealed into the
   secrets file when the store is made (at launch) and only then removed. A value that can never be opened
   (no key under the alias, a tag that does not verify, bad base64 or bytes that are not text:
   `SecretUnrecoverableException` and the store's own checks) reads as never set and is removed; any other

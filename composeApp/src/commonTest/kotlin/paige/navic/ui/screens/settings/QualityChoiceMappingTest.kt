@@ -129,11 +129,7 @@ class QualityChoiceMappingTest {
 	}
 
 	@Test
-	fun iosPresetsAreItsOwnRequests() {
-		val ios = PlatformType.IOS
-		val after = StreamingKeys().choose(wifi, StreamChoice.Custom(160, "aac"), ios)
-		assertEquals(preset(StreamingQuality.Medium), after.choice(wifi, ios))
-		assertTrue(StreamFormat.Opus !in streamFormatsFor(ios))
+	fun androidOffersOpus() {
 		assertTrue(StreamFormat.Opus in streamFormatsFor(android))
 	}
 }

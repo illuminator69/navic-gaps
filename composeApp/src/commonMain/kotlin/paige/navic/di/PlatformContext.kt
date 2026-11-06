@@ -31,9 +31,9 @@ fun PlatformContext.isLandscape() = remember(sizeClass) {
 	sizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
 }
 
+/** Android is the only platform (Worbus 0.4, I-060). */
 enum class PlatformType {
-	Android,
-	IOS
+	Android
 }
 
 /**
@@ -49,7 +49,7 @@ expect fun rememberPlatformContext(): PlatformContext
  * While composed, sets the status-bar icons to contrast [isDarkBackground] (light
  * icons over a dark page, dark icons over a light page) and restores the previous
  * appearance on dispose. Used by the art-themed detail screens, whose ambient
- * background follows the cover art's brightness regardless of app theme. No-op on iOS.
+ * background follows the cover art's brightness regardless of app theme.
  */
 @Composable
 expect fun ForceSystemBars(isDarkBackground: Boolean)

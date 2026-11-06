@@ -23,7 +23,7 @@ release; its notes list what is new and the known issues.
   loses upstream Navic's login and downloads.
 - **Later releases of this fork install over each other** and keep your login. An APK you build
   yourself does not: it is signed with your own key (see [Building](#building)).
-- **Android 7.0 or newer.** iOS is not built.
+- **Android 7.0 or newer.** Android is the only platform.
 
 ## What this fork adds
 
@@ -121,8 +121,6 @@ Gradle provisions its own JDK 21; the Android SDK path goes in `local.properties
   the published APK carries, so to put a build of your own on a phone that has the release you
   must uninstall first. Release builds are also the only thing that catches an unsigned APK; see
   `CLAUDE.md` §2.
-- `iosApp/` still exists and `commonMain` must keep compiling for iOS, but iOS is not built, run
-  or tested here.
 
 ## Documentation
 
@@ -137,7 +135,7 @@ GPL-3.0, inherited from upstream. See [LICENSE](LICENSE).
 
 ---
 
-<sub>Upstream README follows, unmodified.</sub>
+<sub>Upstream README follows, unmodified except that this fork is Android only.</sub>
 
 ---
 
@@ -145,7 +143,7 @@ GPL-3.0, inherited from upstream. See [LICENSE](LICENSE).
 
 <img title="Navic" alt="Navic" height="140" src="https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/wordmark.png">
 
-A modern (Open)Subsonic music streaming app for Android and iOS.
+A modern (Open)Subsonic music streaming app for Android.
 
 [![Add to Obtainium](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/obtainium.svg)][ADD_TO_OBTAINIUM]
 [![AltSource provides links for most sideloading apps, like Feather](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/altsource.svg)][ALTSOURCE]

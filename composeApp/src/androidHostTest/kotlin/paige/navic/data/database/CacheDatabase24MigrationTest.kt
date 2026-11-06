@@ -87,10 +87,9 @@ class CacheDatabase24MigrationTest {
 		assertMigrates("DownloadDatabase", 4, MIGRATION_DOWNLOAD_4_5)
 
 	@Test
-	fun bothMigrationsAreRegisteredOnBothPlatforms() {
+	fun bothMigrationsAreRegistered() {
 		listOf(
-			"src/androidMain/kotlin/paige/navic/di/PlatformModule.android.kt",
-			"src/iosMain/kotlin/paige/navic/di/PlatformModule.ios.kt"
+			"src/androidMain/kotlin/paige/navic/di/PlatformModule.android.kt"
 		).forEach { path ->
 			val text = File(path).readText()
 			assertTrue("MIGRATION_CACHE_23_24\n" in text.substringAfter(".addMigrations("), path)

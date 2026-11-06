@@ -23,10 +23,9 @@ class UpdateCheckGateTest {
 	}
 
 	@Test
-	fun aDebugBuildOffersItExceptOnFdroidAndIos() {
+	fun aDebugBuildOffersItExceptOnFdroid() {
 		assertTrue(updateChecksOffered(PlatformType.Android, fdroid = false, debugBuild = true))
 		assertFalse(updateChecksOffered(PlatformType.Android, fdroid = true, debugBuild = true))
-		assertFalse(updateChecksOffered(PlatformType.IOS, fdroid = false, debugBuild = true))
 	}
 
 	@Test

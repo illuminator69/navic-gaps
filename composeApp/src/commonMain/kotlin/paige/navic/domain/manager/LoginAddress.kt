@@ -225,12 +225,6 @@ interface LocalNetworkAccess {
 	fun granted(): Boolean
 }
 
-/** A platform with no such permission (iOS here). */
-object NoLocalNetworkGate : LocalNetworkAccess {
-	override val sdk: Int = 0
-	override fun granted(): Boolean = true
-}
-
 /**
  * The host of a stored address such as the hub's `ws://10.0.2.2:4899`, or null. Never throws.
  * Ktor reads a string with no scheme (or an empty one) as a path on `localhost`, so one is required.

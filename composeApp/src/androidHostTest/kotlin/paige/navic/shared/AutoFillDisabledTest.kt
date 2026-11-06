@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * the source to it; it fails if a read of the preference, or the random top-up, comes back.
  */
 class AutoFillDisabledTest {
-	private val roots = listOf("src/commonMain", "src/androidMain", "src/iosMain").map(::File)
+	private val roots = listOf("src/commonMain", "src/androidMain").map(::File)
 
 	private fun sources() = roots.flatMap { root -> root.walkTopDown().filter { it.extension == "kt" }.toList() }
 
