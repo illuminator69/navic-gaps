@@ -10,7 +10,8 @@ import kotlinx.serialization.json.jsonObject
  * navi-connect P6: Needs attention, as rules. lb-bot's own "to fix" (PROTOCOL §15.6), read through the
  * hub's `GET /lb/attention`, joined with this device's request ledger.
  *
- * The count is lb-bot's web UI's number, `failedGaps + failedRequests + folders`: the same on every
+ * The count is lb-bot's web UI's number, `failedGaps + failedRequests + folders` (+ `imports` since
+ * Worbus P4, the import records it could not finish filing): the same on every
  * client, for the avatar's dot, the menu's badge and the page's title line. Albums waiting on a pick
  * and artists to check are listed and never counted. Where the hub cannot answer (older, unreachable,
  * nothing read yet) the P1 count of this device's own ledger ([needsAttentionCount]) stands, and a
@@ -24,7 +25,12 @@ data class AttentionCounts(
 	val failedRequests: Int = 0,
 	val folders: Int = 0,
 	val foldersUnidentified: Int = 0,
-	val picks: Int = 0
+	val picks: Int = 0,
+	/**
+	 * Worbus P4: import records (`_albums`) lb-bot could not finish filing, `needs_review` or `failed`.
+	 * Counted in the to-fix number; absent (an older lb-bot) is 0.
+	 */
+	val imports: Int = 0
 )
 
 /** One album lb-bot holds as failed or waiting on a pick: a review group (`gap`) or a whole-album request. */
@@ -122,13 +128,14 @@ internal fun bodyCode(body: String): String = try {
 }
 
 /**
- * lb-bot's to-fix number: failed gaps, failed requests and folders waiting to be filed. Worbus P1: while
+ * lb-bot's to-fix number: failed gaps, failed requests, folders waiting to be filed and (Worbus P4)
+ * imports that need the user. Worbus P1: while
  * downloading is off ([downloadsOn] false) the folders are not counted, since the page lists none (a
  * folder's one action is filing a download in lb-bot); the failed albums still are, since their rows
  * stay with Open album, Wishlist and Dismiss.
  */
 fun toFixCount(c: AttentionCounts, downloadsOn: Boolean = true): Int =
-	c.failedGaps + c.failedRequests + (if (downloadsOn) c.folders else 0)
+	c.failedGaps + c.failedRequests + (if (downloadsOn) c.folders else 0) + c.imports
 
 /** The dot's and the badge's number: lb-bot's when one is known, else this device's own (P1). */
 fun attentionBadge(read: LbAttention?, ledgerCount: Int, downloadsOn: Boolean = true): Int =
@@ -209,7 +216,7 @@ sealed interface AttentionNotice {
  * notice is said alone: nothing claims what was not checked.
  */
 fun attentionEmptyShown(page: AttentionPage.Rows): Boolean =
-	page.albums.isEmpty() && page.folders.isEmpty() && page.deviceOnly.isEmpty() &&
+	page.albums.isEmpty() && page.folders.isEmpty() && page.deviceOnly.isEmpty() && page.imports == 0 &&
 		(page.artistsToCheck ?: 0) == 0 && page.toFix == 0 &&
 		page.notices.none { it is AttentionNotice.Unreachable || it == AttentionNotice.Older }
 
@@ -231,7 +238,9 @@ sealed interface AttentionPage {
 		 * phone", never under lb-bot's headline as if lb-bot had counted them (audit L4b-02). Without an
 		 * answer the device's rows are [albums] and there is no headline.
 		 */
-		val deviceOnly: List<AttentionRow> = emptyList()
+		val deviceOnly: List<AttentionRow> = emptyList(),
+		/** Worbus P4: lb-bot's `counts.imports` from the answer shown, 0 without one. */
+		val imports: Int = 0
 	) : AttentionPage
 }
 
@@ -298,7 +307,8 @@ fun attentionPage(
 		artistsToCheck = artistsToCheck,
 		toFix = answer.counts?.let { toFixCount(it, downloadsOn) },
 		notices = notices,
-		deviceOnly = deviceOnly
+		deviceOnly = deviceOnly,
+		imports = answer.counts?.imports ?: 0
 	)
 }
 

@@ -1730,4 +1730,11 @@
 	<string name="finder_home_found">Home address found.</string>
 	<!-- Worbus P4 -->
 	<string name="action_share_logs">Share logs</string>
+	<plurals name="attention_imports_need_you">
+		<item quantity="one">%1$d import needs you</item>
+		<item quantity="other">%1$d imports need you</item>
+	</plurals>
+	<string name="attention_imports_line">lb-bot couldn't finish filing these albums.</string>
+	<string name="attention_imports_home_only">Open lb-bot's page on your home network to fix them.</string>
+	<string name="info_server_version">Version %1$s</string>
 </resources>

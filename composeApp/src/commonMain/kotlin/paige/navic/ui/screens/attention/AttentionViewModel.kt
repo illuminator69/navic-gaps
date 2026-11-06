@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.AttentionPage
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LbBotManager
 import paige.navic.domain.manager.attentionPage
 import paige.navic.domain.manager.matchesToShow
@@ -20,7 +21,7 @@ import paige.navic.domain.manager.matchesToShow
  * own, so a fill frame or a retry moves a row the moment the ledger moves, and the next read (on
  * opening, on a pull, on a frame) replaces the rest.
  */
-class AttentionViewModel(private val lbBot: LbBotManager) : ViewModel() {
+class AttentionViewModel(private val lbBot: LbBotManager, hubManager: HubManager) : ViewModel() {
 
 	val page: StateFlow<AttentionPage> = combine(
 		lbBot.attention, lbBot.ledger, lbBot.matchesToCheck, lbBot.artistOverrides, lbBot.downloads
@@ -36,6 +37,9 @@ class AttentionViewModel(private val lbBot: LbBotManager) : ViewModel() {
 	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttentionPage.Loading)
 
 	val webUrl: StateFlow<String> = lbBot.webUrl
+
+	/** Worbus P4: the address the hub socket is on, for the imports row's link (`lbPageLink`). */
+	val activeAddress: StateFlow<String?> = hubManager.activeAddress
 
 	/** Worbus P1: whether lb-bot can download; off, the album rows offer nothing that fetches. */
 	val downloadsOn: StateFlow<Boolean> = lbBot.downloads

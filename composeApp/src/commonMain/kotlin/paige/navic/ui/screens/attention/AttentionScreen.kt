@@ -57,6 +57,9 @@ import navic.composeapp.generated.resources.attention_empty
 import navic.composeapp.generated.resources.attention_failed
 import navic.composeapp.generated.resources.attention_files
 import navic.composeapp.generated.resources.attention_folder_hint
+import navic.composeapp.generated.resources.attention_imports_home_only
+import navic.composeapp.generated.resources.attention_imports_line
+import navic.composeapp.generated.resources.attention_imports_need_you
 import navic.composeapp.generated.resources.attention_lbbot_only_hint
 import navic.composeapp.generated.resources.attention_missing_off
 import navic.composeapp.generated.resources.request_downloads_off
@@ -86,7 +89,11 @@ import paige.navic.domain.manager.AttentionFolder
 import paige.navic.domain.manager.AttentionNotice
 import paige.navic.domain.manager.AttentionPage
 import paige.navic.domain.manager.AttentionRow
+import paige.navic.domain.manager.ImportsRow
 import paige.navic.domain.manager.LbFillEntry
+import paige.navic.domain.manager.importsRow
+import paige.navic.domain.manager.isPrivateHubAddress
+import paige.navic.domain.manager.lbPageLink
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.asLedgerRow
 import paige.navic.domain.manager.attentionEmptyShown
@@ -97,6 +104,7 @@ import paige.navic.domain.manager.formatListenedAt
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Musicbrainz
+import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Link
@@ -148,6 +156,7 @@ fun AttentionScreen() {
 	val actions = koinViewModel<DownloadCenterViewModel>()
 	val page by viewModel.page.collectAsStateWithLifecycle()
 	val webUrl by viewModel.webUrl.collectAsStateWithLifecycle()
+	val activeAddress by viewModel.activeAddress.collectAsStateWithLifecycle()
 	val wishlisted by actions.wishlisted.collectAsStateWithLifecycle()
 	val downloadsOn by viewModel.downloadsOn.collectAsStateWithLifecycle()
 	val backStack = LocalNavStack.current
@@ -261,7 +270,10 @@ fun AttentionScreen() {
 						}
 					}
 					albumRows("albums", Res.string.attention_section_albums, p.albums)
-					val toFixRows = p.folders.size + (if (toCheck != null) 1 else 0)
+					// Worbus P4: lb-bot's failed imports, one row linking to lb-bot's own list (design §6.5).
+					val imports = importsRow(p, lbPageLink(webUrl, activeAddress, ::isPrivateHubAddress))
+					val importRows = if (imports != null) 1 else 0
+					val toFixRows = importRows + p.folders.size + (if (toCheck != null) 1 else 0)
 					if (toFixRows > 0) {
 						item(key = "fix-header") {
 							GroupHeader(
@@ -270,10 +282,20 @@ fun AttentionScreen() {
 								modifier = Modifier.animateItem()
 							)
 						}
+						if (imports != null) {
+							item(key = "imports") {
+								ImportsRowItem(
+									row = imports,
+									shapes = segmentedShapes(0, toFixRows),
+									onOpen = { link -> runCatching { uriHandler.openUri(link) } },
+									modifier = Modifier.animateItem()
+								)
+							}
+						}
 						itemsIndexed(p.folders, key = { _, f -> "folder:${f.id}" }) { index, folder ->
 							FolderRow(
 								folder = folder,
-								shapes = segmentedShapes(index, toFixRows),
+								shapes = segmentedShapes(importRows + index, toFixRows),
 								open = "folder:${folder.id}" in open,
 								onToggle = {
 									val id = "folder:${folder.id}"
@@ -501,6 +523,50 @@ internal fun attentionPill(row: AttentionRow, downloadsOn: Boolean): Pill = when
 	!downloadsOn -> Pill(FillText.Res(Res.string.attention_missing_off), PillTone.NEUTRAL)
 	row.album.picking -> Pill(FillText.Res(Res.string.attention_choose_source), PillTone.WARN)
 	else -> Pill(FillText.Res(Res.string.attention_failed), PillTone.BAD)
+}
+
+/**
+ * Worbus P4: "N imports need you" with lb-bot's line, and **Open in lb-bot** to its list when there is a
+ * link ([ImportsRow.link]); with none (away from home, no `LBBOT_WEB_URL`), the line says where to fix
+ * them and there is no button. Nothing here acts on an import.
+ */
+@Composable
+private fun ImportsRowItem(
+	row: ImportsRow,
+	shapes: ListItemShapes,
+	onOpen: (String) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	SegmentedListItem(
+		onClick = { row.link?.let(onOpen) },
+		modifier = modifier,
+		shapes = shapes,
+		colors = fillRowColors(),
+		contentPadding = SongRowDefaults.ContentPadding,
+		leadingContent = {
+			Box(Modifier.size(LibraryRowDefaults.ArtSize), contentAlignment = Alignment.Center) {
+				Icon(Icons.Outlined.Album, contentDescription = null)
+			}
+		},
+		supportingContent = {
+			Column {
+				Text(
+					stringResource(
+						if (row.link != null) Res.string.attention_imports_line
+						else Res.string.attention_imports_home_only
+					)
+				)
+				if (row.link != null) {
+					TextButton(onClick = { onOpen(row.link) }) {
+						Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+						Text(stringResource(Res.string.action_open_in_lbbot), modifier = Modifier.padding(start = 8.dp))
+					}
+				}
+			}
+		}
+	) {
+		Text(pluralStringResource(Res.plurals.attention_imports_need_you, row.count, row.count))
+	}
 }
 
 /** A downloaded folder waiting to be filed: what it was identified as and how many files, nothing else. */

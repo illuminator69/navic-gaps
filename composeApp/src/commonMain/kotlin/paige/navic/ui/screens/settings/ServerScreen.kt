@@ -119,6 +119,7 @@ import navic.composeapp.generated.resources.title_navidrome
 import navic.composeapp.generated.resources.title_server
 import navic.composeapp.generated.resources.title_server_advanced
 import navic.composeapp.generated.resources.title_worbus_server
+import navic.composeapp.generated.resources.info_server_version
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.di.LocalNavStack
@@ -135,6 +136,7 @@ import paige.navic.domain.manager.WorbusServerRow
 import paige.navic.domain.manager.advancedServerRows
 import paige.navic.domain.manager.worbusServerRows
 import paige.navic.domain.manager.serverStatus
+import paige.navic.domain.manager.serverVersionShown
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.ui.components.common.SegmentedListButton
@@ -183,6 +185,7 @@ fun ServerScreen() {
 	val unreachable by hubManager.unreachable.collectAsState()
 	// Worbus P2: who this device is signed in as, and where the last sign-in stands.
 	val user by hubManager.user.collectAsState()
+	val serverVersion by hubManager.serverVersion.collectAsState()
 	val authState by hubManager.auth.collectAsState()
 	val linkedByToken by hubManager.linkedByToken.collectAsState()
 	// B-108: the status is then "Android is blocking Navic from your local network.", and the
@@ -315,25 +318,37 @@ fun ServerScreen() {
 						},
 						content = { Text(stringResource(Res.string.option_server_connect)) },
 						supportingContent = {
-							// R34: the line changes with the app's own motion (a cross-fade, its height
-							// eased), one node for the screen's life.
-							val lineMotion = rememberFoldMotion()
-							AnimatedContent(
-								targetState = statusLine,
-								transitionSpec = {
-									(fadeIn(lineMotion.effects()) togetherWith fadeOut(lineMotion.effects()))
-										.using(SizeTransform(clip = false) { _, _ -> lineMotion.spatial() })
-								},
-								label = "server status"
-							) { (shown, shownRoute) ->
-								// Worbus P3: the route the socket takes, after the signed-in sentence.
-								val routeWords = shownRoute?.takeIf { shown is ServerStatus.SignedIn || shown == ServerStatus.Connected }
-									?.let { routeLine(it) }.orEmpty()
-								Text(
-									stringResource(shown.line, *shown.args.toTypedArray()) + routeWords,
-									color = if (shown.isProblem) MaterialTheme.colorScheme.error
-									else MaterialTheme.colorScheme.onSurfaceVariant
-								)
+							Column {
+								// R34: the line changes with the app's own motion (a cross-fade, its height
+								// eased), one node for the screen's life.
+								val lineMotion = rememberFoldMotion()
+								AnimatedContent(
+									targetState = statusLine,
+									transitionSpec = {
+										(fadeIn(lineMotion.effects()) togetherWith fadeOut(lineMotion.effects()))
+											.using(SizeTransform(clip = false) { _, _ -> lineMotion.spatial() })
+									},
+									label = "server status"
+								) { (shown, shownRoute) ->
+									// Worbus P3: the route the socket takes, after the signed-in sentence.
+									val routeWords = shownRoute?.takeIf { shown is ServerStatus.SignedIn || shown == ServerStatus.Connected }
+										?.let { routeLine(it) }.orEmpty()
+									Text(
+										stringResource(shown.line, *shown.args.toTypedArray()) + routeWords,
+										color = if (shown.isProblem) MaterialTheme.colorScheme.error
+										else MaterialTheme.colorScheme.onSurfaceVariant
+									)
+								}
+								// Worbus P4: the server's version (`welcome.server.version`), only once heard.
+								val version = serverVersionShown(serverVersion)
+								val lastVersion = remember { arrayOf("") }
+								if (version != null) lastVersion[0] = version
+								Fold(visible = version != null) {
+									Text(
+										stringResource(Res.string.info_server_version, version ?: lastVersion[0]),
+										color = MaterialTheme.colorScheme.onSurfaceVariant
+									)
+								}
 							}
 						},
 						shapes = SegmentedListItemDefaults.segmentedShapes(index = 0, count = rows)
