@@ -35,4 +35,4 @@ Android is the only platform this fork builds.
 
 ### Questions or assistance
 
-Ask in the [Discord](https://discord.gg/TBcnNX66PH) server
+Open an issue in the [Worbus issue tracker](https://github.com/illuminator69/navi-connect/issues).

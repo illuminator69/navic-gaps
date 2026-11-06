@@ -39,7 +39,7 @@ body:
     id: os
     attributes:
       label: OS Version
-      placeholder: Android 17, iOS 26...
+      placeholder: Android 17
     validations:
       required: true
 
@@ -47,7 +47,7 @@ body:
     id: app-version
     attributes:
       label: App Version
-      placeholder: eg. v1.0.0-alpha49
+      placeholder: "eg. 0.4.0 (abc1234), from Settings › About"
     validations:
       required: true
 

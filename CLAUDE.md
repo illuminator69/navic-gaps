@@ -151,7 +151,7 @@ ordinary merge, was **32 files / ~75 hunks** and took one pass with no checkpoin
    `lb_response_cache`, in `entities/LbIndexEntities.kt`, DAO `LbIndexDao`) and their two indices
    (`lb_index_artist.ndArtistId`, `lb_index_release.rgid` — the latter added before 23 ever
    shipped, since the `(artistKey, rgid)` key cannot serve `WHERE rgid = ?`) arrive through the
-   hand-written `MIGRATION_CACHE_22_23` in `DownloadMigrations.kt`, registered in **both**
+   hand-written `MIGRATION_CACHE_22_23` in `DownloadMigrations.kt`, registered in
    `PlatformModule.android.kt`. When upstream ships its own 22→23 (or
    anything ≥ 23), renumber upstream's change **above the fork's** — never slot it in underneath and
    never let two 23s coexist; that is the alpha59 "two 21s" trap again. The fork's migration then
@@ -2333,5 +2333,10 @@ git push origin navi-connect
 - Working notes, audits and design handoffs are `.gitignore`d on purpose: the durable content is
   here and in `README.md`, and the dated notes live beside the tree in navi-connect's working
   folder, which is not a git repo.
-- `.github/` is upstream's and is left alone so merges stay clean; the fork's README is at the repo
-  root, which GitHub prefers over `.github/README.md`.
+- `.github/` is the fork's since Worbus 0.4 (§2 rule 7): `build.yml` builds a debug APK on pull
+  requests and pushes, and on a `v*` tag a signed `assembleRelease` attached to a draft release on
+  this fork, only when the four signing secrets (`KEYSTORE`, `KEY_ALIAS`, `KEY_PASSWORD`,
+  `KEYSTORE_PASSWORD`) exist; without them it logs a notice and does nothing. `checks.yml` validates
+  the Gradle wrapper. Upstream's `publish.yml` (TestFlight, AltStore) and `mirror.yml` (Codeberg) are
+  deleted. Issues go to the umbrella's tracker (`ISSUE_TEMPLATE/config.yml`, blank issues off). The
+  fork's README is at the repo root, which GitHub prefers over `.github/README.md`.
