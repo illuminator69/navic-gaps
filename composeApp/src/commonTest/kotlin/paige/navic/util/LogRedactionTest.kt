@@ -1,5 +1,8 @@
 package paige.navic.util
 
+import paige.navic.domain.parser.LogLine
+import paige.navic.domain.parser.LogLineType
+import paige.navic.ui.screens.settings.logLineShown
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -7,12 +10,13 @@ import kotlin.test.assertTrue
 
 /**
  * Worbus P4 N3: the redaction rule every "send logs" path applies. The vectors are the controller's
- * shared contract (`redaction-vectors.json`, ruling R2), copied verbatim; Feishin tests the same file.
+ * shared contract (`redaction-vectors.json`, ruling R2; v2 by ruling R14), copied verbatim; Feishin
+ * tests the same file.
  */
 class LogRedactionTest {
 	private data class Vector(val name: String, val input: String, val output: String)
 
-	// redaction-vectors.json, verbatim (25 cases).
+	// redaction-vectors.json (contract v2, ruling R14), verbatim (27 cases).
 	private val vectors = listOf(
 		Vector("subsonic_params", """GET https://nd.example.org/rest/stream?u=bob&t=abc123&s=def456&v=1.16.1&c=navic&id=tr-1""", """GET https://nd.example.org/rest/stream?u=[removed]&t=[removed]&s=[removed]&v=1.16.1&c=navic&id=tr-1"""),
 		Vector("subsonic_p_enc", """cover https://nd.example.org/rest/getCoverArt?id=al-9&p=enc:7365637265743132&u=alice&size=300""", """cover https://nd.example.org/rest/getCoverArt?id=al-9&p=[removed]&u=[removed]&size=300"""),
@@ -33,6 +37,8 @@ class LogRedactionTest {
 		Vector("query_apikey", """GET http://am.local:8000/api/x?apiKey=abc&q=1""", """GET http://am.local:8000/api/x?apiKey=[removed]&q=1"""),
 		Vector("url_inside_json", """{"url":"https://nd.example.org/rest/stream?u=bob&t=abc&s=def&id=1"}""", """{"url":"https://nd.example.org/rest/stream?u=[removed]&t=[removed]&s=[removed]&id=1"}"""),
 		Vector("url_inside_escaped_json", """payload={\"src\":\"https://nd/rest/stream?id=1&t=abc&s=def\"}""", """payload={\"src\":\"https://nd/rest/stream?id=1&t=[removed]&s=[removed]\"}"""),
+		Vector("json_escaped_password", """body="{\"user\":\"bob\",\"password\":\"hunter2\"}"""", """body="{\"user\":\"bob\",\"password\":\"[removed]\"}""""),
+		Vector("json_escaped_token_spaced", """frame {\"t\":\"hello\", \"token\" : \"tok-9\"}""", """frame {\"t\":\"hello\", \"token\" : \"[removed]\"}"""),
 		Vector("url_userinfo", """fetch https://bob:hunter2@nd.example.org/rest/ping""", """fetch https://[removed]@nd.example.org/rest/ping"""),
 		Vector("plain_ping", """GET /rest/ping?v=1.16.1&c=navic ok""", """GET /rest/ping?v=1.16.1&c=navic ok"""),
 		Vector("plain_player", """Player: track changed to 3 of 12 (id=tr-1)""", """Player: track changed to 3 of 12 (id=tr-1)"""),
@@ -72,6 +78,11 @@ class LogRedactionTest {
 	}
 
 	@Test
+	fun redacts_secret_fields_in_escaped_json() {
+		check("json_escaped_password", "json_escaped_token_spaced")
+	}
+
+	@Test
 	fun redacts_url_inside_json() {
 		check("url_inside_json", "url_inside_escaped_json", "url_userinfo")
 	}
@@ -83,7 +94,7 @@ class LogRedactionTest {
 
 	@Test
 	fun every_shared_vector_matches() {
-		assertEquals(25, vectors.size)
+		assertEquals(27, vectors.size)
 		val wrong = vectors.filter { redact(it.input) != it.output }.map { it.name }
 		assertEquals(emptyList(), wrong)
 	}
@@ -130,5 +141,21 @@ class LogRedactionTest {
 		}
 		assertTrue(text.startsWith("Navic 0.4.0 (36a8ea5)\n"), text)
 		assertTrue("Authorization: [removed]" in text, text)
+	}
+
+	/** Review I2: the Logs screen's row draws the line redacted, so selecting or screenshotting it gives no more than Share logs. */
+	@Test
+	fun log_row_shows_redacted_text() {
+		val line = LogLine(
+			id = 1,
+			type = LogLineType.Info,
+			text = "okhttp: --> GET https://nd.example.org/rest/ping?u=planted-user&t=planted-t&s=planted-s Authorization: Bearer planted-bearer",
+			rawText = "I/okhttp: --> GET https://nd.example.org/rest/ping?u=planted-user&t=planted-t&s=planted-s Authorization: Bearer planted-bearer"
+		)
+		val shown = logLineShown(line)
+		for (secret in listOf("planted-user", "planted-t", "planted-s", "planted-bearer")) {
+			assertFalse(secret in shown, "$secret left in: $shown")
+		}
+		assertEquals(redact(line.text), shown)
 	}
 }

@@ -382,12 +382,13 @@ class HubManager(
 	val user: StateFlow<HubUser?> = _user.asStateFlow()
 
 	/**
-	 * Worbus P4: the server's version from the last `welcome.server.version` (`0.4.0 (abc1234)`), or
-	 * null when this session has heard none (an older hub, nothing connected yet, another server).
-	 * Read by the Server screen's line and the logs file's header.
+	 * Worbus P4: the server's version from `welcome.server.version` on the live socket
+	 * (`0.4.0 (abc1234)`), or null when the socket has heard none (an older hub, nothing connected,
+	 * another server) or has closed (ruling R16: cleared on every close, stop and restart). Read by
+	 * the Server screen's line and the logs file's header.
 	 */
-	private val _serverVersion = MutableStateFlow<String?>(null)
-	val serverVersion: StateFlow<String?> = _serverVersion.asStateFlow()
+	private val knownServerVersion = KnownServerVersion()
+	val serverVersion: StateFlow<String?> = knownServerVersion.value
 
 	private val _roles = MutableStateFlow(hubRolesOf(null, hubAuth.signedIn))
 
@@ -677,6 +678,7 @@ class HubManager(
 		// change, so this race was easy to hit.
 		val old = connectJob
 		_connected.value = false
+		knownServerVersion.forget()
 		// A sign-in or a sign-out may have happened: a secret held with no user said yet fails closed.
 		updateRoles()
 		// R23: this connect gives a held legacy token its upgrade attempt.
@@ -697,6 +699,7 @@ class HubManager(
 		connectJob?.cancel()
 		wsSession = null
 		_connected.value = false
+		knownServerVersion.forget()
 		_user.value = null
 		updateRoles()
 		// Recipes live only on the hub; holding a stale list would offer the user a
@@ -1298,6 +1301,8 @@ class HubManager(
 			// The backoff starts over only for a link that held (Q-048): not on `welcome`.
 			backoff.onLinkEnded(welcomedAtMs.takeIf { wasConnected }, nowMs())
 			_connected.value = false
+			// R16: the version named the server on this socket; until the next welcome it is unknown.
+			knownServerVersion.forget()
 			evaluateRemoteActive()
 			// The hub rejected our token — retrying with the same bad token would
 			// tight-loop forever and never surface the error. Stop; a settings
@@ -1899,14 +1904,16 @@ class HubManager(
 				// C1: another server than the record's answered. The store has told HubAuth (its secret
 				// is gone) and the socket is being stopped: nothing below acts on this welcome.
 				if (serverChanged) {
-					_serverVersion.value = null
+					knownServerVersion.forget()
 					return
 				}
-				_serverVersion.value = try {
-					welcomeServerOf(msg["server"] as? JsonObject)?.version
-				} catch (e: Exception) {
-					null
-				}
+				knownServerVersion.onWelcome(
+					try {
+						welcomeServerOf(msg["server"] as? JsonObject)?.version
+					} catch (e: Exception) {
+						null
+					}
+				)
 				_user.value = try {
 					hubUserOf(msg["user"] as? JsonObject)
 				} catch (e: Exception) {

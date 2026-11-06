@@ -6,6 +6,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import paige.navic.util.LogsHeader
+import paige.navic.util.logsFileText
 
 /**
  * Worbus P4 N4: lb-bot's failed imports in Needs attention, the link to lb-bot's page, and the
@@ -87,5 +90,28 @@ class LbPageLinkTest {
 		val without = Json.parseToJsonElement("""{"id":"0123456789abcdef0123456789abcdef","name":"Home"}""").jsonObject
 		assertNull(serverVersionShown(welcomeServerOf(without)?.version))
 		assertNull(serverVersionShown(null))
+	}
+
+	/** Ruling R16 (review I1): the version names the server on the live socket, and only while it is open. */
+	@Test
+	fun server_version_cleared_on_close() {
+		val known = KnownServerVersion()
+		assertNull(known.value.value)
+		known.onWelcome("0.4.0 (678af87)")
+		assertEquals("0.4.0 (678af87)", known.value.value)
+		known.forget()
+		assertNull(known.value.value, "after the socket closed the version is unknown")
+		// An older hub's welcome names no version: unknown, not the previous server's.
+		known.onWelcome("0.4.0 (678af87)")
+		known.onWelcome(null)
+		assertNull(known.value.value)
+		// The next welcome says it again.
+		known.forget()
+		known.onWelcome("0.4.1 (abcdef0)")
+		assertEquals("0.4.1 (abcdef0)", known.value.value)
+		val header = LogsHeader("0.4.0 (36a8ea5)", "Android 17 (API 37)", "Google Pixel 9", known.value.value)
+		known.forget()
+		val after = logsFileText(header.copy(serverVersion = known.value.value), emptyList())
+		assertTrue("Worbus Server: server version unknown" in after, after)
 	}
 }

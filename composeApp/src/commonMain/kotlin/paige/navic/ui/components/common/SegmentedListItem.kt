@@ -58,6 +58,39 @@ fun SegmentedListItem(
 	)
 }
 
+/**
+ * Worbus P4 (lane N review M3): the same row with nothing to do: no click, no ripple, nothing for
+ * TalkBack to "activate". For a row whose only content is its line.
+ */
+@Composable
+fun SegmentedListItem(
+	shapes: ListItemShapes,
+	modifier: Modifier = Modifier,
+	leadingContent: @Composable (() -> Unit)? = null,
+	trailingContent: @Composable (() -> Unit)? = null,
+	overlineContent: @Composable (() -> Unit)? = null,
+	supportingContent: @Composable (() -> Unit)? = null,
+	verticalAlignment: Alignment.Vertical = SegmentedListItemDefaults.verticalAlignment(),
+	colors: ListItemColors = SegmentedListItemDefaults.segmentedColors(),
+	elevation: ListItemElevation = ListItemDefaults.elevation(),
+	contentPadding: PaddingValues = SegmentedListItemDefaults.ContentPadding,
+	content: @Composable () -> Unit,
+) {
+	androidx.compose.material3.SegmentedListItem(
+		shapes = shapes,
+		modifier = modifier,
+		leadingContent = leadingContent,
+		trailingContent = trailingContent,
+		overlineContent = overlineContent,
+		supportingContent = supportingContent,
+		verticalAlignment = verticalAlignment,
+		colors = colors,
+		elevation = elevation,
+		contentPadding = contentPadding,
+		content = content,
+	)
+}
+
 @Composable
 fun SegmentedListItem(
 	selected: Boolean,

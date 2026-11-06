@@ -7,7 +7,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import kotlinx.coroutines.runBlocking
-import paige.navic.util.redactSecrets
+import paige.navic.util.redactLines
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.CopyOnWriteArrayList
@@ -124,11 +124,11 @@ class LoginFailureOverHttpTest {
 		// Ktor names that URL in the exception, so the details box showed it.
 		assertTrue(token in trace, "the unredacted trace was expected to carry t: $trace")
 
-		val shown = redactSecrets(trace)
+		val shown = redactLines(trace)
 		assertFalse(token in shown, shown)
 		assertFalse("s=$salt" in shown, shown)
 		assertFalse("u=sandbox" in shown, shown)
-		assertTrue("t=<redacted>" in shown, shown)
+		assertTrue("t=[removed]" in shown, shown)
 		assertTrue("ping.view" in shown, "the request is still named: $shown")
 	}
 }

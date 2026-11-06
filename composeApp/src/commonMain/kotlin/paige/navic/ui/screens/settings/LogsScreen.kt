@@ -251,11 +251,21 @@ private fun LogLineRow(
 			}
 		}
 
+		// Review I2: what is drawn can be selected, copied, shared by the system or screenshotted,
+		// so it carries no more than Share logs does.
+		val shown = remember(line.id, line.text) { logLineShown(line) }
 		Text(
-			text = line.text,
+			text = shown,
 			fontFamily = FontFamily.Monospace,
 			fontSize = 12.sp,
 			modifier = Modifier.padding(start = 6.dp)
 		)
 	}
 }
+
+/**
+ * Worbus P4 (lane N review I2): the text a log row draws, [redact]ed. The list sits in a
+ * [SelectionContainer], so a drawn line leaves the app by the system's Copy or Share, or a
+ * screenshot, as surely as by Share logs.
+ */
+internal fun logLineShown(line: LogLine): String = redact(line.text)

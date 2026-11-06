@@ -6,7 +6,10 @@ package paige.navic.util
  * secret's value becomes [LOG_REDACTION_MARK], its name stays so the line still says what it was.
  *
  * The rule and its vectors are shared with Feishin (the controller's `RULE.md` and
- * `redaction-vectors.json`, ruling R2; `LogRedactionTest` holds them verbatim). In order:
+ * `redaction-vectors.json`, ruling R2, v2 by ruling R14; `LogRedactionTest` holds them verbatim).
+ * In order:
+ *  a'. the same field inside escaped JSON (a JSON document carried as a string, its quotes written
+ *     `\"`): `\"name\": \"value\"`, the value ending at the next `\"`;
  *  a. a quoted JSON field whose name contains password, secret, token, apikey, key or
  *     authorization (any case): its string value (which may hold `\"`);
  *  b. the same names unquoted, `name=value` or `name: value`, not preceded by a name character or
@@ -20,7 +23,10 @@ package paige.navic.util
  * on the next) is not caught by a per-line rule.
  */
 fun redact(line: String): String {
-	var s = QUOTED_FIELD.replace(line) { m ->
+	var s = ESCAPED_QUOTED_FIELD.replace(line) { m ->
+		"\\\"${m.groupValues[1]}\\\"${m.groupValues[2]}\\\"$LOG_REDACTION_MARK\\\""
+	}
+	s = QUOTED_FIELD.replace(s) { m ->
 		"\"${m.groupValues[1]}\"${m.groupValues[2]}\"$LOG_REDACTION_MARK\""
 	}
 	s = UNQUOTED_FIELD.replace(s) { m ->
@@ -40,6 +46,12 @@ const val LOG_REDACTION_MARK = "[removed]"
 
 private const val SENSITIVE = "(?:password|secret|token|apikey|key|authorization)"
 private const val FIELD_NAME = "[A-Za-z0-9_.\\-]*$SENSITIVE[A-Za-z0-9_.\\-]*"
+
+/** Rule a': `\"name\"<ws>:<ws>\"value\"`, the value running to the next `\"`. */
+private val ESCAPED_QUOTED_FIELD = Regex(
+	"""\\"($FIELD_NAME)\\"(\s*:\s*)\\"(?:(?!\\").)*\\"""",
+	RegexOption.IGNORE_CASE
+)
 
 private val QUOTED_FIELD = Regex(
 	"\"($FIELD_NAME)\"(\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"",

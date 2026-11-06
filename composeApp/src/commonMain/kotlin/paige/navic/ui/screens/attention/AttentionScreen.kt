@@ -537,36 +537,46 @@ private fun ImportsRowItem(
 	onOpen: (String) -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val link = row.link
+	val leading = @Composable {
+		Box(Modifier.size(LibraryRowDefaults.ArtSize), contentAlignment = Alignment.Center) {
+			Icon(Icons.Outlined.Album, contentDescription = null)
+		}
+	}
+	val headline = @Composable {
+		Text(pluralStringResource(Res.plurals.attention_imports_need_you, row.count, row.count))
+	}
+	if (link == null) {
+		// Review M3: with nowhere to go the row is its line, not a control that does nothing.
+		SegmentedListItem(
+			modifier = modifier,
+			shapes = shapes,
+			colors = fillRowColors(),
+			contentPadding = SongRowDefaults.ContentPadding,
+			leadingContent = leading,
+			supportingContent = { Text(stringResource(Res.string.attention_imports_home_only)) },
+			content = headline
+		)
+		return
+	}
 	SegmentedListItem(
-		onClick = { row.link?.let(onOpen) },
+		onClick = { onOpen(link) },
 		modifier = modifier,
 		shapes = shapes,
 		colors = fillRowColors(),
 		contentPadding = SongRowDefaults.ContentPadding,
-		leadingContent = {
-			Box(Modifier.size(LibraryRowDefaults.ArtSize), contentAlignment = Alignment.Center) {
-				Icon(Icons.Outlined.Album, contentDescription = null)
-			}
-		},
+		leadingContent = leading,
 		supportingContent = {
 			Column {
-				Text(
-					stringResource(
-						if (row.link != null) Res.string.attention_imports_line
-						else Res.string.attention_imports_home_only
-					)
-				)
-				if (row.link != null) {
-					TextButton(onClick = { onOpen(row.link) }) {
-						Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-						Text(stringResource(Res.string.action_open_in_lbbot), modifier = Modifier.padding(start = 8.dp))
-					}
+				Text(stringResource(Res.string.attention_imports_line))
+				TextButton(onClick = { onOpen(link) }) {
+					Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+					Text(stringResource(Res.string.action_open_in_lbbot), modifier = Modifier.padding(start = 8.dp))
 				}
 			}
-		}
-	) {
-		Text(pluralStringResource(Res.plurals.attention_imports_need_you, row.count, row.count))
-	}
+		},
+		content = headline
+	)
 }
 
 /** A downloaded folder waiting to be filed: what it was identified as and how many files, nothing else. */
