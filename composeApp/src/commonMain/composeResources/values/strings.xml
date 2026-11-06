@@ -1728,4 +1728,6 @@
 	<string name="address_add_hint">Add an address</string>
 	<string name="address_not_valid">That is not an address.</string>
 	<string name="finder_home_found">Home address found.</string>
+	<!-- Worbus P4 -->
+	<string name="action_share_logs">Share logs</string>
 </resources>

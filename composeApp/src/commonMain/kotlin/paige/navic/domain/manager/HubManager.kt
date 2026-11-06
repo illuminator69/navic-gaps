@@ -381,6 +381,14 @@ class HubManager(
 	 */
 	val user: StateFlow<HubUser?> = _user.asStateFlow()
 
+	/**
+	 * Worbus P4: the server's version from the last `welcome.server.version` (`0.4.0 (abc1234)`), or
+	 * null when this session has heard none (an older hub, nothing connected yet, another server).
+	 * Read by the Server screen's line and the logs file's header.
+	 */
+	private val _serverVersion = MutableStateFlow<String?>(null)
+	val serverVersion: StateFlow<String?> = _serverVersion.asStateFlow()
+
 	private val _roles = MutableStateFlow(hubRolesOf(null, hubAuth.signedIn))
 
 	/**
@@ -1890,7 +1898,15 @@ class HubManager(
 				}
 				// C1: another server than the record's answered. The store has told HubAuth (its secret
 				// is gone) and the socket is being stopped: nothing below acts on this welcome.
-				if (serverChanged) return
+				if (serverChanged) {
+					_serverVersion.value = null
+					return
+				}
+				_serverVersion.value = try {
+					welcomeServerOf(msg["server"] as? JsonObject)?.version
+				} catch (e: Exception) {
+					null
+				}
 				_user.value = try {
 					hubUserOf(msg["user"] as? JsonObject)
 				} catch (e: Exception) {

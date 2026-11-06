@@ -29,6 +29,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ThemeMode
+import paige.navic.util.deviceModelName
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
@@ -88,6 +89,8 @@ actual fun rememberPlatformContext(): PlatformContext {
 			override val isDebugBuild =
 				(context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 			override val name = "Android ${Build.VERSION.SDK_INT}"
+			override val osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+			override val deviceModel = deviceModelName(Build.MANUFACTURER.orEmpty(), Build.MODEL.orEmpty())
 			override val appVersion: String =
 				context.packageManager
 					.getPackageInfo(context.packageName, 0)

@@ -19,6 +19,12 @@ interface PlatformContext {
 	 */
 	val isDebugBuild: Boolean
 
+	/** For a logs file's header (Worbus P4 N3): e.g. `Android 17 (API 37)`. */
+	val osVersion: String
+
+	/** For a logs file's header (Worbus P4 N3): e.g. `Google Pixel 9`. */
+	val deviceModel: String
+
 	// Upstream dropped both from this interface after alpha41 with no replacement. Kept:
 	// clickSound() backs every tap sound in the app, and checkLocalNetworkPermission() is
 	// the Android 17 ACCESS_LOCAL_NETWORK prompt the hub and cast discovery need.

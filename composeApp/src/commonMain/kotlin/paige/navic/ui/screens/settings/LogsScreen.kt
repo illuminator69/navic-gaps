@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_delete
+import navic.composeapp.generated.resources.action_share_logs
 import navic.composeapp.generated.resources.action_logs_copy_all
 import navic.composeapp.generated.resources.action_logs_follow
 import navic.composeapp.generated.resources.action_logs_unfollow
@@ -46,7 +47,19 @@ import navic.composeapp.generated.resources.info_logs_empty
 import navic.composeapp.generated.resources.title_logs
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import paige.navic.di.LocalPlatformContext
+import paige.navic.domain.manager.HubManager
 import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.ShareManager
+import paige.navic.generated.BuildInfo
+import paige.navic.util.LogsHeader
+import paige.navic.util.logsFileName
+import paige.navic.util.logsFileText
+import paige.navic.util.redact
+import paige.navic.util.versionLine
+import kotlin.time.Clock
 import paige.navic.domain.parser.LogLine
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -54,6 +67,7 @@ import paige.navic.icons.outlined.Copy
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.icons.outlined.Search
+import paige.navic.icons.outlined.Share
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.TopBarButton
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,6 +75,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 @Composable
 fun SettingsLogsScreen() {
 	val logManager = koinInject<LogManager>()
+	val shareManager = koinInject<ShareManager>()
+	val hubManager = koinInject<HubManager>()
+	val platformContext = LocalPlatformContext.current
 	val logs = logManager.logs
 	val listState = rememberLazyListState()
 	val scope = rememberCoroutineScope()
@@ -116,10 +133,33 @@ fun SettingsLogsScreen() {
 							)
 						)
 					}
+					// Worbus P4 N3: the whole buffer (up to 500 lines), redacted, as a text file under a
+					// header naming this build, the phone and the server's version.
 					TopBarButton(
 						onClick = {
+							val header = LogsHeader(
+								appVersion = versionLine(platformContext.appVersion, BuildInfo.GIT_COMMIT, release = !platformContext.isDebugBuild),
+								androidVersion = platformContext.osVersion,
+								deviceModel = platformContext.deviceModel,
+								serverVersion = hubManager.serverVersion.value
+							)
+							val text = logsFileText(header, logs.map { it.rawText })
+							val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+							val name = logsFileName(now.year, now.month.ordinal + 1, now.day, now.hour, now.minute, now.second)
+							scope.launch { shareManager.shareTextFile(text, name) }
+						},
+						enabled = logs.isNotEmpty()
+					) {
+						Icon(
+							Icons.Outlined.Share,
+							stringResource(Res.string.action_share_logs)
+						)
+					}
+					TopBarButton(
+						onClick = {
+							// Copied text leaves the app as surely as a shared file: the same rule.
 							clipboardManager.setText(
-								AnnotatedString(visible.joinToString("\n") { it.rawText })
+								AnnotatedString(visible.joinToString("\n") { redact(it.rawText) })
 							)
 						},
 						enabled = visible.isNotEmpty()

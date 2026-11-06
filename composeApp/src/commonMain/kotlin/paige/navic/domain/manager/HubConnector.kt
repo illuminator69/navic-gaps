@@ -164,14 +164,17 @@ class HubConnector(
 	}
 }
 
-/** `welcome.server`: `{id, name, publicUrl?}`, or null for an older hub or anything malformed. */
-data class WelcomeServer(val id: String, val name: String, val publicUrl: String?)
+/**
+ * `welcome.server`: `{id, name, publicUrl?, version?}`, or null for an older hub or anything malformed.
+ * [version] is the server's display version, `0.4.0 (abc1234)` (Worbus P4), null when the hub sends none.
+ */
+data class WelcomeServer(val id: String, val name: String, val publicUrl: String?, val version: String? = null)
 
 fun welcomeServerOf(obj: kotlinx.serialization.json.JsonObject?): WelcomeServer? {
 	if (obj == null) return null
 	fun str(key: String) = (obj[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
 	val id = str("id")?.takeIf { isServerId(it) } ?: return null
-	return WelcomeServer(id, str("name").orEmpty(), str("publicUrl"))
+	return WelcomeServer(id, str("name").orEmpty(), str("publicUrl"), str("version")?.trim()?.ifEmpty { null })
 }
 
 /** No address of the record answered as this server: nothing was dialled (the status says "Can't reach"). */

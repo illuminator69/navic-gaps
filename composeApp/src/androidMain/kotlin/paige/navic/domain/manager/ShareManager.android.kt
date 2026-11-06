@@ -74,6 +74,36 @@ actual class ShareManager(
 		}
 	}
 
+	/**
+	 * The logs file (Worbus P4 N3): written under `cache/shared_logs/` (the FileProvider's path),
+	 * replacing any earlier one so old logs do not pile up there, then offered to the share sheet.
+	 * The caller has already redacted [text].
+	 */
+	actual suspend fun shareTextFile(text: String, fileName: String) {
+		val folder = File(context.cacheDir, "shared_logs")
+		val file = File(folder, fileName)
+		try {
+			withContext(dispatcher) {
+				folder.mkdirs()
+				folder.listFiles()?.forEach { it.delete() }
+				file.writeText(text)
+			}
+		} catch (e: Exception) {
+			e.printStackTrace()
+			return
+		}
+		val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+		val intent = Intent(Intent.ACTION_SEND).apply {
+			type = "text/plain"
+			putExtra(Intent.EXTRA_STREAM, contentUri)
+			putExtra(Intent.EXTRA_SUBJECT, fileName)
+			addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+		}
+		val chooser = Intent.createChooser(intent, fileName)
+		chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+		context.startActivity(chooser)
+	}
+
 	actual suspend fun shareString(string: String) {
 		val intent = Intent(Intent.ACTION_SEND).apply {
 			type = "text/plain"

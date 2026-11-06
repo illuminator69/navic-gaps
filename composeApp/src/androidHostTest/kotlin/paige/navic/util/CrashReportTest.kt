@@ -37,7 +37,7 @@ class CrashReportTest {
 		assertFalse("8a1f0c2e9b7d4a3f5e6c7b8a9d0e1f2a" in text, text)
 		assertFalse("k3j9x2" in text, text)
 		assertFalse("u=sandbox" in text, text)
-		assertTrue("getAlbumList2.view?u=<redacted>&t=<redacted>&s=<redacted>&v=1.16.1&c=Navic&f=json" in text, text)
+		assertTrue("getAlbumList2.view?u=[removed]&t=[removed]&s=[removed]&v=1.16.1&c=Navic&f=json" in text, text)
 	}
 
 	@Test
